@@ -369,7 +369,7 @@ function Servicios() {
         }
       />
       <div className="tarjeta" style={{ padding: "24px 24px 20px" }}>
-        <div className="fila entre" style={{ alignItems: "flex-start" }}>
+        <div className="fila entre" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 600 }}>{d.plan?.nombre}</h2>
             <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
@@ -463,7 +463,7 @@ function Entregables() {
       <Aviso icono={<LuCircleCheck size={18} />} titulo={`Tienes ${total} piezas listas para revisión`} elevado>
         Aprueba la versión actual o pide cambios. Publicaremos solo el contenido aprobado.
       </Aviso>
-      <div className="fila" style={{ margin: "24px 0 22px", gap: 12 }}>
+      <div className="fila fila-filtros" style={{ margin: "24px 0 22px", gap: 12 }}>
         <div className="entrada" style={{ flex: 1 }}>
           <span className="icono-inicio">
             <LuSearch size={17} />
@@ -642,7 +642,7 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
         )}
       </div>
 
-      <div className="con-lateral" style={{ gridTemplateColumns: "minmax(0,1fr) 312px" }}>
+      <div className="con-lateral" style={{ ["--columnas" as string]: "minmax(0,1fr) 312px" }}>
         <div className="tarjeta" style={{ padding: 0, overflow: "hidden" }}>
           <div className="fila entre" style={{ padding: "16px 16px 14px" }}>
             <span className="negrita" style={{ fontSize: 12 }}>{v?.archivo?.nombre ?? p.titulo}</span>
@@ -782,7 +782,7 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
         <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px" }}>Cada versión conserva sus comentarios y su propia aprobación.</p>
         <div className="lista-suave">
           {versiones.datos?.map((x) => (
-            <div key={x.numero} className={`fila-suave${x.actual ? " fila-suave--activa" : ""}`} style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 140px" }}>
+            <div key={x.numero} className={`fila-suave rejilla${x.actual ? " fila-suave--activa" : ""}`} style={{ ["--columnas" as string]: "1fr 1.3fr 140px" }}>
               <div>
                 <p className="negrita" style={{ fontSize: 12.5 }}>
                   Versión {x.numero} · {x.actual ? "Actual" : "Anterior"}

@@ -474,9 +474,14 @@ p {
 }
 .con-lateral {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 290px;
+  grid-template-columns: var(--columnas, minmax(0, 1fr) 290px);
   gap: 20px;
   align-items: start;
+}
+/* Rejilla con columnas definidas por la pantalla (--columnas); en móvil pasa a una columna. */
+.rejilla {
+  display: grid;
+  grid-template-columns: var(--columnas, 1fr);
 }
 .texto-muted {
   color: var(--c-muted);
@@ -1153,6 +1158,9 @@ p {
 .cal-semana:last-child .cal-dia {
   border-bottom: 0;
 }
+.cal-mes {
+  min-width: 160px;
+}
 .cal-dia--fuera {
   background: var(--c-fondo);
   color: var(--c-muted);
@@ -1422,8 +1430,25 @@ p {
   }
   .grid-2,
   .grid-3,
-  .con-lateral {
+  .con-lateral,
+  .rejilla {
     grid-template-columns: 1fr;
+  }
+  .rejilla {
+    gap: 8px;
+  }
+  .rejilla > [style*="justify-self"] {
+    justify-self: start !important;
+  }
+  .fila-filtros {
+    flex-wrap: wrap;
+  }
+  .fila-filtros > .entrada {
+    flex: 1 1 100%;
+  }
+  .hitos {
+    grid-template-columns: repeat(2, 1fr);
+    row-gap: 18px;
   }
   .cabecera {
     flex-direction: column;
@@ -1449,6 +1474,27 @@ p {
   }
   .cal-pieza small {
     display: none;
+  }
+  /* En móvil cada pieza se ve como una barra de color (estado); el detalle se ve al tocarla. */
+  .cal-pieza {
+    padding: 0;
+  }
+  .cal-pieza > span {
+    font-size: 0 !important;
+    height: 6px;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 3px !important;
+    background-color: currentColor !important;
+  }
+  .cal-mes {
+    min-width: 0;
+    font-size: 18px !important;
+  }
+  .etiqueta {
+    white-space: normal;
+    height: auto;
+    min-height: 22px;
   }
 }
 @media (max-width: 960px) {

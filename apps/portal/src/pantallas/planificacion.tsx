@@ -116,7 +116,7 @@ function Blog() {
       <section className="seccion">
         <h2 className="seccion-titulo" style={{ marginBottom: 16 }}>Artículos por aprobar</h2>
         {porAprobar.map((a) => (
-          <div key={a.id} className="tarjeta" style={{ padding: 0, overflow: "hidden", display: "grid", gridTemplateColumns: "270px 1fr", marginBottom: 12 }}>
+          <div key={a.id} className="tarjeta rejilla" style={{ padding: 0, overflow: "hidden", ["--columnas" as string]: "270px 1fr", marginBottom: 12 }}>
             <Miniatura diseno={{ ...a.diseno, foto: false }} alto={166} />
             <div style={{ padding: "18px 20px", display: "grid", gap: 10, alignContent: "start" }}>
               <div>
@@ -222,12 +222,12 @@ function Calendario() {
           </label>
         }
       />
-      <div className="fila entre" style={{ marginBottom: 20 }}>
+      <div className="fila entre fila-filtros" style={{ marginBottom: 20 }}>
         <div className="fila" style={{ gap: 16 }}>
           <button className="enlace" style={{ color: "var(--c-tinta)" }} aria-label="Mes anterior" onClick={() => mover(-1)}>
             <LuChevronLeft size={18} />
           </button>
-          <h2 style={{ fontSize: 22, fontWeight: 600, textTransform: "capitalize", minWidth: 160, textAlign: "center" }}>
+          <h2 className="cal-mes" style={{ fontSize: 22, fontWeight: 600, textTransform: "capitalize", textAlign: "center" }}>
             {nombreMes} {anio}
           </h2>
           <button className="enlace" style={{ color: "var(--c-tinta)" }} aria-label="Mes siguiente" onClick={() => mover(1)}>
@@ -288,14 +288,14 @@ function Calendario() {
         Hoy: {fHoyLargo(HOY_DEMO).replace(",", "")} · {entradas.length} piezas del mes. Las fechas son previstas hasta su publicación.
       </p>
       {proxima && (
-        <div className="tarjeta fila" style={{ padding: "18px 20px", gap: 20 }}>
+        <div className="tarjeta fila" style={{ padding: "18px 20px", gap: 20, flexWrap: "wrap" }}>
           <span style={{ width: 54, height: 54, borderRadius: 12, background: "var(--c-primario-suave)", color: "var(--c-primario)", display: "grid", placeItems: "center", textAlign: "center", lineHeight: 1, fontSize: 22 }}>
             <span>
               {proxima.fechaProgramada!.slice(8, 10)}
               <small style={{ display: "block", fontSize: 9, marginTop: 4 }}>OCT</small>
             </span>
           </span>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: "1 1 200px" }}>
             <p style={{ fontSize: 16, fontWeight: 600 }}>{proxima.titulo}</p>
             <p className="texto-sm texto-muted" style={{ marginTop: 6 }}>
               Próxima publicación · {proxima.formato} · {proxima.canal} · Versión {proxima.numeroVersion}
@@ -662,7 +662,7 @@ function Resultados() {
         <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px" }}>
           Del primer contacto con la marca a una nueva compra. Las cifras corresponden al mismo período.
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 400px) 1fr", gap: 28, alignItems: "start" }}>
+        <div className="rejilla" style={{ ["--columnas" as string]: "minmax(0, 400px) 1fr", gap: 28, alignItems: "start" }}>
           <div>
             <div className="embudo">
               {r.recorrido.map((e, i) => (

@@ -59,7 +59,7 @@ function Soporte() {
           <h2 className="seccion-titulo" style={{ fontSize: 19 }}>Mis tickets</h2>
           {c && c.abiertos > 0 && <Etiqueta tono="ambar">{c.abiertos} abiertos</Etiqueta>}
         </div>
-        <div className="fila" style={{ marginBottom: 18 }}>
+        <div className="fila fila-filtros" style={{ marginBottom: 18 }}>
           <div className="pestanas" role="tablist">
             {(
               [
@@ -525,7 +525,7 @@ function Panel() {
         <label htmlFor="buscar-cliente" className="negrita" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
           Buscar cliente
         </label>
-        <div className="fila">
+        <div className="fila fila-filtros">
           <div className="entrada" style={{ flex: 1 }}>
             <input id="buscar-cliente" placeholder="Nombre de marca o contacto..." value={q} onChange={(e) => setQ(e.target.value)} />
             <span className="icono-campo">
@@ -626,7 +626,7 @@ function Ficha() {
           </button>
         }
       />
-      <div className="tarjeta fila" style={{ padding: "22px 16px", gap: 18, alignItems: "flex-start" }}>
+      <div className="tarjeta fila" style={{ padding: "22px 16px", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
         <span className="avatar avatar--cuadrado avatar--cliente avatar--xl">CO</span>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 22, fontWeight: 600 }}>{d.nombre}</h2>
@@ -730,7 +730,7 @@ function Ficha() {
           {act.datos?.datos.map((a, i) => {
             const [t, tono] = ETQ[a.etiqueta ?? ""] ?? ["", "gris"];
             return (
-              <div key={i} className="fila-suave" style={{ display: "grid", gridTemplateColumns: "160px 1fr 120px", padding: "16px 10px" }}>
+              <div key={i} className="fila-suave rejilla" style={{ ["--columnas" as string]: "160px 1fr 120px", padding: "16px 10px" }}>
                 <div>
                   <p className="negrita" style={{ fontSize: 10.5 }}>
                     {fCorta(a.fecha)}
@@ -830,7 +830,7 @@ function Bandeja() {
           {usd(d.alertaGastoIa.gastoUsd!)} acumulados / {usd(d.alertaGastoIa.limiteUsd!)} de límite mensual. Coordina nuevas ejecuciones con el responsable de cuenta.
         </Aviso>
       )}
-      <div className="fila" style={{ gap: 8, margin: "20px 0 18px" }}>
+      <div className="fila" style={{ gap: 8, margin: "20px 0 18px", flexWrap: "wrap" }}>
         <Etiqueta tono="verde">{r.aprobadas} aprobadas, incluidas {r.publicadas} publicadas</Etiqueta>
         <Etiqueta tono="violeta">{r.porRevisar} por revisar</Etiqueta>
         <span className="etiqueta" style={{ background: "transparent" }}>{r.enProduccion} en producción</span>
