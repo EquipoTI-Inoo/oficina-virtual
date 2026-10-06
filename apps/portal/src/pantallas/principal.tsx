@@ -180,7 +180,7 @@ function Inicio() {
         ligero
         bajada={`Todo lo que estamos creando para ${sesion?.clientes[0]?.nombre ?? "Casa Oliva"}, en un solo lugar.`}
         accion={
-          <Enlace a="/calendario" className="boton">
+          <Enlace a="/calendario" className="boton solo-escritorio">
             <LuCalendarDays size={18} /> Calendario del mes
           </Enlace>
         }

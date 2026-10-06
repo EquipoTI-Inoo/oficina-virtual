@@ -174,6 +174,14 @@ const CAL: Record<string, { texto: string; bg: string; color: string }> = {
   PUBLICADO: { texto: "Publicado", bg: "var(--c-info-suave)", color: "var(--c-info)" },
 };
 
+const TONO_CAL: Record<string, "violeta" | "verde" | "ambar" | "azul" | "gris"> = {
+  LISTO_REVISION: "violeta",
+  APROBADO_CLIENTE: "verde",
+  CAMBIOS_SOLICITADOS: "ambar",
+  PUBLICADO: "azul",
+};
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
 export function PantallaCalendario() {
   return (
     <Estructura espacio="cliente" migas="Calendario del mes">
@@ -185,12 +193,14 @@ export function PantallaCalendario() {
 function Calendario() {
   const [servicio, setServicio] = useState("");
   const [periodo, setPeriodo] = useState(PERIODO_DEMO);
+  const [dia, setDia] = useState<string | null>(null);
   const servicios = useConsulta<S<"ServiciosCliente">>(`/clientes/${clienteActivo()}/servicios`);
   const cal = useConsulta<S<"Calendario">>(`/clientes/${clienteActivo()}/calendario/${periodo}${servicio ? `?servicioContratadoId=${servicio}` : ""}`);
   const [anio, mes] = periodo.split("-").map(Number);
   const mover = (d: number) => {
     const f = new Date(Date.UTC(anio, mes - 1 + d, 1));
     setPeriodo(`${f.getUTCFullYear()}-${String(f.getUTCMonth() + 1).padStart(2, "0")}`);
+    setDia(null);
   };
   const primero = new Date(Date.UTC(anio, mes - 1, 1));
   const desplaz = (primero.getUTCDay() + 6) % 7;
@@ -198,7 +208,9 @@ function Calendario() {
   const entradas = (cal.datos?.entradas ?? []) as PiezaUI[];
   const porDia = (d: Date) => entradas.filter((e) => e.fechaProgramada?.slice(0, 10) === d.toISOString().slice(0, 10));
   const proxima = entradas.find((e) => e.estado === "LISTO_REVISION" && (e.fechaProgramada ?? "") >= HOY_DEMO);
-  const nombreMes = new Intl.DateTimeFormat("es-PE", { month: "long", timeZone: "UTC" }).format(primero);
+  const lista = dia ? entradas.filter((e) => e.fechaProgramada?.slice(0, 10) === dia) : entradas;
+  const nombreServicio = (id?: string | null) => servicios.datos?.servicios.find((x) => x.servicioContratadoId === id)?.nombre ?? "";
+  const nombreMes = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][mes - 1];
 
   return (
     <>
@@ -260,13 +272,21 @@ function Calendario() {
                 const fuera = d.getUTCMonth() !== mes - 1;
                 const hoy = d.toISOString().slice(0, 10) === HOY_DEMO;
                 return (
-                  <div key={d.toISOString()} className={`cal-dia${fuera ? " cal-dia--fuera" : ""}${hoy ? " cal-dia--hoy" : ""}`}>
+                  <div
+                    key={d.toISOString()}
+                    className={`cal-dia${fuera ? " cal-dia--fuera" : ""}${hoy ? " cal-dia--hoy" : ""}${dia === d.toISOString().slice(0, 10) ? " cal-dia--elegido" : ""}`}
+                    onClick={() => !fuera && setDia(dia === d.toISOString().slice(0, 10) ? null : d.toISOString().slice(0, 10))}
+                    role={fuera ? undefined : "button"}
+                    tabIndex={fuera ? undefined : 0}
+                    aria-label={fuera ? undefined : `Ver piezas del ${d.getUTCDate()}`}
+                    onKeyDown={(ev) => !fuera && ev.key === "Enter" && setDia(d.toISOString().slice(0, 10))}
+                  >
                     <span>{d.getUTCDate()}</span>
                     {!fuera &&
                       porDia(d).map((e) => {
                         const c = CAL[e.estado] ?? CAL.BORRADOR;
                         return (
-                          <Enlace key={e.id} a={e.estado === "EN_PRODUCCION" ? "/calendario" : `/entregables/${e.id}`} className="cal-pieza">
+                          <Enlace key={e.id} a={e.estado === "EN_PRODUCCION" ? "/calendario" : `/entregables/${e.id}`} className="cal-pieza" onClick={(ev) => ev.stopPropagation()}>
                             <span style={{ display: "block", background: c.bg, color: c.color, borderRadius: 8, padding: "6px 7px", margin: "-6px -7px" }} title={`${e.titulo} · ${c.texto}`}>
                               {e.titulo}
                               <small>
@@ -307,6 +327,55 @@ function Calendario() {
           </Enlace>
         </div>
       )}
+      <section className="seccion" style={{ marginTop: 32 }}>
+        <div className="seccion-cab">
+          <h2 className="seccion-titulo">
+            {dia ? `Piezas del ${Number(dia.slice(8))} de ${nombreMes}` : `Piezas de ${nombreMes}`} · {lista.length}
+          </h2>
+          {dia && (
+            <button className="enlace" onClick={() => setDia(null)}>
+              Ver todo el mes →
+            </button>
+          )}
+        </div>
+        <p className="seccion-desc">
+          {dia ? "Toca otro día del calendario para cambiar, o vuelve a ver todo el mes." : "Los colores del calendario indican el estado. Aquí tienes todas las piezas del mes, en orden de publicación."}
+        </p>
+        {lista.length === 0 ? (
+          <div className="tarjeta vacio">{dia ? "No hay piezas programadas para este día." : "No hay piezas programadas para este mes."}</div>
+        ) : (
+          <div className="grid-2" style={{ gap: 12 }}>
+            {lista.map((e) => {
+              const c = CAL[e.estado] ?? CAL.BORRADOR;
+              return (
+                <div key={e.id} className="tarjeta fila" style={{ padding: "16px 18px", gap: 16, alignItems: "flex-start", borderRadius: 16 }}>
+                  <span style={{ minWidth: 34, textAlign: "center", color: "var(--c-primario)", lineHeight: 1 }}>
+                    <span style={{ fontSize: 22, display: "block" }}>{Number(e.fechaProgramada!.slice(8, 10))}</span>
+                    <small style={{ fontSize: 10 }}>{MESES_CORTOS[mes - 1]}</small>
+                  </span>
+                  <div style={{ flex: 1, display: "grid", gap: 6 }}>
+                    <p className="negrita" style={{ fontSize: 13.5 }}>{e.titulo}</p>
+                    <p className="texto-xs texto-muted">
+                      {nombreServicio(e.servicioContratadoId)} · {e.canal}
+                      {e.tipo === "GUION" ? " · Guion de reel" : ""}
+                    </p>
+                    <div>
+                      <Etiqueta tono={TONO_CAL[e.estado] ?? "gris"}>{c.texto}</Etiqueta>
+                    </div>
+                    {e.estado === "EN_PRODUCCION" ? (
+                      <span className="texto-xs texto-muted">La verás cuando esté lista para revisión.</span>
+                    ) : (
+                      <Enlace a={`/entregables/${e.id}`} className="enlace">
+                        {e.estado === "LISTO_REVISION" ? "Revisar pieza →" : "Ver pieza →"}
+                      </Enlace>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </>
   );
 }

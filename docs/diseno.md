@@ -46,7 +46,7 @@ aprobadas de las pruebas visuales.
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |
 | `/blog` | 05-blog | |
-| `/calendario` | 08-calendario-del-mes | |
+| `/calendario` | 08-calendario-del-mes | Debajo del calendario, lista «Piezas de octubre» con todas las piezas (del frame móvil); tocar un día filtra la lista |
 | `/brief` | 11-brief-y-referencias | |
 | `/resultados` | 12-resultados | Gráficos dibujados con CSS, sin librería |
 | `/avance` | 13-avance-de-proyectos | |
@@ -71,6 +71,7 @@ con detalle; el resto de pantallas móviles sigue las mismas reglas.
 - **«Próxima publicación».** Figma muestra «Tu ritual, tu momento · 08 oct» aunque hay una pieza aprobada
   el 07 oct. Se interpretó como «la siguiente pieza que espera tu revisión». Confirmar con diseño.
 - **«Contactar a mi equipo».** Abre Crear ticket (la arquitectura lo deja abierto).
+- **Calendario.** El frame de escritorio solo muestra la próxima publicación; se agregó la lista completa del mes que trae el frame móvil, también en escritorio (2 columnas). En móvil cada pieza es un punto de color, como en Figma.
 - **Selectores de periodo** («Octubre 2026») se muestran pero no cambian de mes, salvo en el calendario.
 - **Imágenes.** La única foto del archivo (el sérum) se reutiliza en todas las miniaturas, como en Figma.
   Las miniaturas se componen con HTML (texto de marca + foto) en lugar de imágenes planas.
