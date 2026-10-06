@@ -1,0 +1,17 @@
+{
+  "name": "inoo-oficina-virtual",
+  "private": true,
+  "description": "Oficina virtual de IA y Portal de clientes — monorepo (Inoo / Asesorías Estratégicas)",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w @inoo/portal",
+    "build": "npm run build -w @inoo/portal",
+    "test": "npm run test:api -w @inoo/portal",
+    "test:e2e": "npm run test:e2e -w @inoo/portal",
+    "vista-previa": "npm run vista-previa -w @inoo/portal",
+    "db:semillas": "npm run db:semillas -w @inoo/portal",
+    "entorno:arriba": "docker compose -f infra/local/docker-compose.yml up --build -d",
+    "entorno:abajo": "docker compose -f infra/local/docker-compose.yml down"
+  },
+  "engines": { "node": ">=22" }
+}

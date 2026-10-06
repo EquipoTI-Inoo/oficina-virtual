@@ -1,0 +1,107 @@
+/**
+ * Genera database/semillas/0001_casa_oliva.sql desde src/mock/datos.ts, para que la base de
+ * Postgres del entorno de pruebas tenga exactamente los mismos datos que la API simulada.
+ *   npm run db:semillas
+ */
+import { writeFileSync } from "node:fs";
+import * as D from "../src/mock/datos";
+
+const q = (v: unknown): string => {
+  if (v === null || v === undefined) return "NULL";
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return `ARRAY[${v.map(q).join(", ")}]::text[]`;
+  if (typeof v === "object") return `${q(JSON.stringify(v))}::jsonb`;
+  return `'${String(v).replace(/'/g, "''")}'`;
+};
+const fila = (vals: unknown[]) => `  (${vals.map(q).join(", ")})`;
+const insert = (tabla: string, cols: string[], filas: unknown[][], extra = "") =>
+  `INSERT INTO ${tabla} (${cols.join(", ")})${extra}\nVALUES\n${filas.map(fila).join(",\n")};\n`;
+
+const DIEGO = D.USUARIOS[2].id;
+const piezas = D.piezasIniciales();
+const salida: string[] = [
+  "-- Datos de prueba: Casa Oliva, octubre 2026 (mismos datos que las pantallas de Figma).",
+  "-- GENERADO por apps/portal/scripts/generar-semillas.ts. No editar a mano.",
+  "-- Requiere database/migraciones/0001_esquema.sql. Ejecutar como dueño del esquema (RLS no aplica).",
+  "BEGIN;",
+  "",
+  insert(
+    "usuario",
+    ["id", "email", "nombre", "cargo", "tipo", "rol_equipo"],
+    D.USUARIOS.map((u) => [u.id, u.email, u.nombre, u.cargo, u.tipo, u.rolEquipo]),
+  ),
+];
+const f = D.FICHA_CASA_OLIVA;
+salida.push(
+  insert(
+    "cliente",
+    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd"],
+    D.CLIENTES.map((c) => [
+      c.id, c.nombre, c.slug,
+      c.slug === "casa-oliva" ? f.marca : {}, c.slug === "casa-oliva" ? f.tono : {}, c.slug === "casa-oliva" ? f.publico : {},
+      c.slug === "casa-oliva" ? f.publico.intereses : [], c.slug === "casa-oliva" ? f.canales : [],
+      DIEGO, c.contactoPrincipalId, c.slug === "casa-oliva" ? "demo-casa-oliva" : null, c.slug === "casa-oliva" ? f.driveUrl : null, c.limiteGastoIaUsd,
+    ]),
+  ),
+  insert("miembro_cliente", ["cliente_id", "usuario_id", "rol"], D.MIEMBROS.map((m) => [m.clienteId, m.usuarioId, m.rol])),
+  insert("plan_cliente", ["id", "cliente_id", "nombre", "fecha_inicio", "fecha_fin"], [[f.plan.id, D.CLIENTES[0].id, f.plan.nombre, f.plan.fechaInicio, f.plan.fechaFin]]),
+);
+salida.push(
+  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin)\nSELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.paso, ${q(DIEGO)}::uuid, DATE '2026-01-01', DATE '2026-12-31'\nFROM (VALUES\n${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.categoria, s.siguientePaso])).join(",\n")}\n) AS v(id, cliente_id, categoria, paso)\nJOIN servicio s ON s.categoria = v.categoria::categoria_servicio;\n`,
+  insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.map((s) => [s.id, s.tipoPieza, s.cantidadMensual])),
+  insert("calendario", ["id", "cliente_id", "periodo", "estado", "version", "cupo_ideas_blog", "aprobado_por", "aprobado_en"], [[D.uid(12, 1), D.CLIENTES[0].id, D.PERIODO, "APROBADO_PLAN", 1, 1, DIEGO, "2026-09-28T15:00:00Z"]]),
+  insert(
+    "pieza",
+    ["id", "cliente_id", "servicio_contratado_id", "calendario_id", "tipo", "titulo", "resumen", "canal", "periodo", "fecha_programada", "estado", "version_actual", "version_cliente", "responsable_id", "nota_estado", "publicado_en"],
+    piezas.map((p) => [p.id, p.clienteId, p.servicioId, D.uid(12, 1), p.tipo, p.titulo, p.resumen, p.canal, D.PERIODO, `${p.fecha}T15:00:00Z`, p.estado, p.versionActual, p.versionCliente, DIEGO, p.notaEstado, p.estado === "PUBLICADO" ? `${p.fecha}T15:00:00Z` : null]),
+  ),
+  insert(
+    "version_pieza",
+    ["pieza_id", "numero", "autor_tipo", "autor_usuario_id", "agente", "contenido", "enviada_cliente_en", "enviada_por", "creado_en"],
+    piezas.flatMap((p) => p.versiones.map((v) => [p.id, v.numero, v.autorTipo, v.autorId, v.agente, v.contenido, v.enviadaEn, v.enviadaPorId, v.creadoEn])),
+  ),
+  insert(
+    "evento_pieza",
+    ["pieza_id", "de_estado", "a_estado", "version", "usuario_id", "canal", "comentario", "creado_en"],
+    piezas.flatMap((p) => p.versiones.filter((v) => v.decision).map((v) => [p.id, "LISTO_REVISION", v.decision!.estado, v.numero, v.decision!.usuarioId, "PORTAL", v.decision!.comentario, v.decision!.fecha])),
+  ),
+  insert(
+    "comentario_pieza",
+    ["id", "pieza_id", "version", "autor_id", "texto", "interno", "creado_en"],
+    D.COMENTARIOS_INICIALES.map((c) => [c.id, c.piezaId, c.version, c.autorId, c.texto, c.interno, c.creadoEn]),
+  ),
+  insert(
+    "idea_blog",
+    ["id", "cliente_id", "periodo", "titulo", "palabra_clave", "angulo", "estado", "pieza_id"],
+    D.IDEAS_INICIALES.map((i) => [i.id, D.CLIENTES[0].id, D.PERIODO, i.titulo, i.palabraClave, i.angulo, i.estado, i.estado === "ELEGIDA" ? D.uid(5, 19) : null]),
+  ),
+  insert(
+    "ticket",
+    ["id", "numero", "cliente_id", "creado_por", "asunto", "categoria", "descripcion", "estado", "resumen_estado", "asignado_nombre", "sla_primera_respuesta_en", "resuelto_en", "creado_en", "actualizado_en"],
+    D.TICKETS_INICIALES.map((t) => [
+      t.id, t.numero, D.CLIENTES[0].id, D.USUARIOS[0].id, t.asunto, t.categoria, t.descripcion, t.estado, t.resumenEstado,
+      t.estado === "EN_PROCESO" ? "Diego Castro" : null, new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(), t.estado === "RESUELTO" ? t.actualizadoEn : null, t.creadoEn, t.actualizadoEn,
+    ]),
+    " OVERRIDING SYSTEM VALUE",
+  ),
+  "ALTER TABLE ticket ALTER COLUMN numero RESTART WITH 1043;\n",
+  insert(
+    "brief",
+    ["id", "cliente_id", "periodo", "objetivo_comunicacion", "consideraciones", "estado", "creado_por"],
+    [[D.uid(14, 1), D.CLIENTES[0].id, D.PERIODO, D.BRIEF_INICIAL.objetivoComunicacion, D.BRIEF_INICIAL.consideraciones, "BORRADOR", D.USUARIOS[0].id]],
+  ),
+  insert(
+    "archivo",
+    ["id", "cliente_id", "origen", "almacen", "s3_key", "nombre", "mime", "bytes", "uso", "brief_id", "estado", "subido_por"],
+    D.BRIEF_INICIAL.archivos.map((a) => [a.id, D.CLIENTES[0].id, "CLIENTE", "S3", `clientes/casa-oliva/briefs/2026-10/${a.nombre}`, a.nombre, a.mime, a.bytes, "BRIEF", D.uid(14, 1), "SUBIDO", D.USUARIOS[0].id]),
+  ),
+  insert(
+    "referencia_cliente",
+    ["id", "cliente_id", "tipo", "titulo", "url", "notas", "paleta", "creado_por"],
+    D.REFERENCIAS_INICIALES.map((r) => [r.id, D.CLIENTES[0].id, r.tipo, r.titulo, r.url, r.notas, r.paleta, D.USUARIOS[0].id]),
+  ),
+  "COMMIT;\n",
+);
+const destino = new URL("../../../database/semillas/0001_casa_oliva.sql", import.meta.url);
+writeFileSync(destino, salida.join("\n"));
+console.log(`Semillas escritas en ${destino.pathname}`);

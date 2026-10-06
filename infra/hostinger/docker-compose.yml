@@ -1,0 +1,80 @@
+# Fase 1 — VPS Hostinger KVM 2 (uso interno). Ver docs/configuracion.md §4.
+#   cp .env.example .env && docker compose up -d
+name: inoo-fase1
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMINIO_N8N: ${DOMINIO_N8N}
+      DOMINIO_NOCODB: ${DOMINIO_NOCODB}
+      CORREO_ACME: ${CORREO_ACME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-datos:/data
+      - caddy-config:/config
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ../../database/migraciones/0001_esquema.sql:/docker-entrypoint-initdb.d/01_esquema.sql:ro
+      - postgres-datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 10
+
+  n8n:
+    image: n8nio/n8n:${N8N_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_POSTGRESDB_SCHEMA: n8n
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${DOMINIO_N8N}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${DOMINIO_N8N}/
+      GENERIC_TIMEZONE: America/Lima
+      N8N_SECURE_COOKIE: "true"
+    volumes: [n8n-datos:/home/node/.n8n]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  nocodb:
+    image: nocodb/nocodb:${NOCODB_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      NC_DB: pg://postgres:5432?u=${POSTGRES_USER}&p=${POSTGRES_PASSWORD}&d=nocodb
+      NC_AUTH_JWT_SECRET: ${NOCODB_JWT_SECRET}
+      NC_PUBLIC_URL: https://${DOMINIO_NOCODB}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  respaldo:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "while true; do pg_dump -h postgres -U ${POSTGRES_USER} -Fc ${POSTGRES_DB} > /respaldos/oficina_$$(date +%F).dump;
+      find /respaldos -name '*.dump' -mtime +14 -delete; sleep 86400; done"
+    volumes: [./respaldos:/respaldos]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  caddy-datos:
+  caddy-config:
+  postgres-datos:
+  n8n-datos:

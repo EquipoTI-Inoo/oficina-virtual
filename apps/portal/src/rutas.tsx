@@ -1,0 +1,56 @@
+"use client";
+/**
+ * Tabla única de rutas del portal. La usan:
+ * - la vista previa estática (vista-previa/main.tsx) para resolver rutas con #,
+ * - las pruebas visuales (e2e/visual.spec.ts) para recorrer todas las pantallas,
+ * - docs/diseno.md (relación pantalla ↔ frame de Figma).
+ * En Next.js cada ruta tiene además su archivo en app/ (mismo componente).
+ */
+import type { ComponentType } from "react";
+import { PantallaAvance, PantallaBlog, PantallaBrief, PantallaCalendario, PantallaResultados } from "./pantallas/planificacion";
+import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
+import {
+  PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
+} from "./pantallas/soporte-equipo";
+
+export interface Ruta {
+  patron: string;
+  pantalla: ComponentType;
+  /** Frame de Figma de referencia (docs/diseno/figma/*.png). null = sin diseño. */
+  figma: string | null;
+  espacio: "publico" | "cliente" | "equipo";
+}
+
+export const RUTAS: Ruta[] = [
+  { patron: "/ingresar", pantalla: PantallaIngreso, figma: "02-ingreso", espacio: "publico" },
+  { patron: "/inicio", pantalla: PantallaInicio, figma: "01-inicio", espacio: "cliente" },
+  { patron: "/servicios", pantalla: PantallaServicios, figma: "03-servicios-contratados", espacio: "cliente" },
+  { patron: "/entregables", pantalla: PantallaEntregables, figma: "04-entregables-por-revisar", espacio: "cliente" },
+  { patron: "/entregables/:id", pantalla: PantallaDetallePieza, figma: "06-detalle-de-pieza", espacio: "cliente" },
+  { patron: "/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "cliente" },
+  { patron: "/calendario", pantalla: PantallaCalendario, figma: "08-calendario-del-mes", espacio: "cliente" },
+  { patron: "/brief", pantalla: PantallaBrief, figma: "11-brief-y-referencias", espacio: "cliente" },
+  { patron: "/resultados", pantalla: PantallaResultados, figma: "12-resultados", espacio: "cliente" },
+  { patron: "/avance", pantalla: PantallaAvance, figma: "13-avance-de-proyectos", espacio: "cliente" },
+  { patron: "/soporte", pantalla: PantallaSoporte, figma: "07-soporte", espacio: "cliente" },
+  { patron: "/soporte/nuevo", pantalla: PantallaCrearTicket, figma: "09-crear-ticket", espacio: "cliente" },
+  { patron: "/equipo/panel", pantalla: PantallaPanel, figma: "14-panel-general", espacio: "equipo" },
+  { patron: "/equipo/clientes", pantalla: PantallaClientesEquipo, figma: null, espacio: "equipo" },
+  { patron: "/equipo/clientes/:id", pantalla: PantallaFichaCliente, figma: "15-ficha-de-cliente", espacio: "equipo" },
+  { patron: "/equipo/produccion", pantalla: PantallaBandeja, figma: "16-bandeja-de-produccion", espacio: "equipo" },
+  { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
+  { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
+];
+
+export function resolverRuta(camino: string): { ruta: Ruta; params: Record<string, string> } | null {
+  const partes = camino.split("?")[0].split("/").filter(Boolean);
+  for (const ruta of RUTAS) {
+    const p = ruta.patron.split("/").filter(Boolean);
+    if (p.length !== partes.length) continue;
+    const params: Record<string, string> = {};
+    if (p.every((s, i) => (s.startsWith(":") ? ((params[s.slice(1)] = decodeURIComponent(partes[i])), true) : s === partes[i]))) {
+      return { ruta, params };
+    }
+  }
+  return null;
+}

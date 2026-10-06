@@ -1,0 +1,104 @@
+# Entorno de pruebas local — Portal de clientes Inoo
+#
+#   cd infra/local && cp .env.example .env && docker compose up --build
+#
+#   Portal (API simulada, datos de Figma) http://localhost:3000   → valeria@casaoliva.pe / demo1234
+#   Mock del contrato completo (Prism)    http://localhost:4010
+#   Postgres con esquema + semillas       localhost:5432  (inoo / inoo / oficina_virtual)
+#   Correos (Mailpit, sustituye a SES)    http://localhost:8025
+#   Archivos (MinIO, sustituye a S3)      http://localhost:9001  (inoo / inoo-minio-123)
+#   Perfil "fase1": n8n + NocoDB          docker compose --profile fase1 up
+name: inoo-pruebas
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-inoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-inoo}
+      POSTGRES_DB: ${POSTGRES_DB:-oficina_virtual}
+    ports: ["${PUERTO_POSTGRES:-5432}:5432"]
+    volumes:
+      - ../../database/migraciones/0001_esquema.sql:/docker-entrypoint-initdb.d/01_esquema.sql:ro
+      - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
+      - datos-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-inoo} -d ${POSTGRES_DB:-oficina_virtual}"]
+      interval: 5s
+      retries: 20
+
+  portal:
+    build: ../../apps/portal
+    environment:
+      API_MODO: ${API_MODO:-mock}
+      API_URL_BACKEND: http://prism:4010
+      PERMITIR_MOCK: "true"
+      MOCK_LATENCIA_MS: ${MOCK_LATENCIA_MS:-0}
+    ports: ["${PUERTO_PORTAL:-3000}:3000"]
+    depends_on: [prism]
+
+  prism:
+    image: stoplight/prism:5
+    command: mock -h 0.0.0.0 -d /contrato/openapi.yaml
+    volumes:
+      - ../../docs/arquitectura/openapi.yaml:/contrato/openapi.yaml:ro
+    ports: ["${PUERTO_PRISM:-4010}:4010"]
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["8025:8025", "1025:1025"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USUARIO:-inoo}
+      MINIO_ROOT_PASSWORD: ${MINIO_CLAVE:-inoo-minio-123}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [datos-minio:/data]
+
+  minio-bucket:
+    image: minio/mc:latest
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 $${MINIO_USUARIO:-inoo} $${MINIO_CLAVE:-inoo-minio-123}; do sleep 2; done;
+      mc mb -p local/inoo-contenido-clientes && mc anonymous set none local/inoo-contenido-clientes"
+    environment:
+      MINIO_USUARIO: ${MINIO_USUARIO:-inoo}
+      MINIO_CLAVE: ${MINIO_CLAVE:-inoo-minio-123}
+
+  n8n:
+    profiles: ["fase1"]
+    image: n8nio/n8n:latest
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-oficina_virtual}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-inoo}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-inoo}
+      DB_POSTGRESDB_SCHEMA: n8n
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-cambia-esta-clave-solo-local}
+      GENERIC_TIMEZONE: America/Lima
+      N8N_SMTP_HOST: mailpit
+      N8N_SMTP_PORT: 1025
+      N8N_SMTP_SSL: "false"
+    ports: ["5678:5678"]
+    volumes:
+      - ../../n8n/workflows:/workflows:ro
+      - datos-n8n:/home/node/.n8n
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  nocodb:
+    profiles: ["fase1"]
+    image: nocodb/nocodb:latest
+    environment:
+      NC_DB: pg://postgres:5432?u=${POSTGRES_USER:-inoo}&p=${POSTGRES_PASSWORD:-inoo}&d=nocodb
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  datos-postgres:
+  datos-minio:
+  datos-n8n:

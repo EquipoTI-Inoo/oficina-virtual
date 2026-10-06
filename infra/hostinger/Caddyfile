@@ -1,0 +1,13 @@
+{
+	email {$CORREO_ACME}
+}
+
+{$DOMINIO_N8N} {
+	encode gzip
+	reverse_proxy n8n:5678
+}
+
+{$DOMINIO_NOCODB} {
+	encode gzip
+	reverse_proxy nocodb:8080
+}

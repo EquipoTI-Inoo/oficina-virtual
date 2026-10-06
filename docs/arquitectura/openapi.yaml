@@ -1,0 +1,2862 @@
+openapi: 3.1.0
+info:
+  title: API Portal de Clientes y Oficina Virtual (Inoo)
+  version: 1.1.0
+  summary: Contrato compartido entre backend, portal Next.js (cliente + panel interno) y n8n.
+  description: |
+    Contrato v1 de la API que usan el portal de clientes, el panel interno y las integraciones
+    (n8n, InooWork). Basado en el PRD del 3 oct 2026 y el backlog v1.0.
+
+    **v1.1 (6 oct 2026)**: ajustado a las pantallas de Figma del portal (inicio, servicios, entregables,
+    detalle de pieza, blog, calendario, brief, resultados, avance, soporte, notificaciones, panel general,
+    bandeja de producción y ficha de cliente).
+
+    ## Convenciones
+    - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
+    - **IDs** son UUID, salvo `numero` de ticket (se muestra como `TCK-000123`).
+    - **Dinero** en USD como número con hasta 4 decimales (solo para mostrar; no se cobra nada con esta API).
+    - **Listas paginadas por cursor**: `?limite=20&cursor=...` → `{ "datos": [...], "paginacion": { "siguienteCursor": "..." | null, "total": 4 } }`.
+    - **Errores** en `application/problem+json` (RFC 9457) con un `codigo` estable para que el frontend traduzca.
+    - **Idempotencia**: los POST que crean o deciden algo aceptan `Idempotency-Key`; reintentar con la misma clave devuelve la misma respuesta.
+    - **Visibilidad**: `x-roles` indica quién puede llamar. Un usuario CLIENTE solo ve clientes de los que es miembro.
+      Los campos marcados "solo equipo" no se envían a usuarios CLIENTE (el backend los omite, no los manda en null).
+      Un CLIENTE sí ve en listas y calendario las piezas que se están produciendo, pero con `estado: EN_PRODUCCION`
+      y sin contenido; solo ve el contenido de las versiones que el equipo le envió a revisión.
+
+    ## Autenticación
+    - Portal y panel: `Authorization: Bearer <JWT de Cognito>`. Dos user pools (equipo y clientes); el backend
+      acepta ambos y resuelve el usuario con `GET /me`.
+    - n8n y sincronización InooWork: `X-Api-Key`, con scopes.
+    - Webhooks entrantes de InooWork: firma HMAC-SHA256 en `X-Inoo-Firma`.
+servers:
+  - url: https://clientes.inoo.pe/api/v1
+    description: Producción (dominio propuesto en el PRD, pendiente de confirmar)
+  - url: http://localhost:3000/api/v1
+    description: Desarrollo local
+security:
+  - bearerAuth: []
+tags:
+  - name: Sesión
+  - name: Clientes
+  - name: Referencias y briefs
+  - name: Servicios
+  - name: Piezas
+  - name: Planificación
+  - name: Archivos
+  - name: Paid media
+  - name: Reportes
+  - name: Soporte
+  - name: Correos
+  - name: Panel interno
+  - name: Integraciones
+
+paths:
+  # ------------------------------------------------------------------ Sesión
+  /me:
+    get:
+      tags: [Sesión]
+      operationId: obtenerSesion
+      summary: Usuario actual, su tipo y los clientes a los que tiene acceso
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sesion' }
+              example:
+                usuario: { id: 5b0c1e2a-8f3d-4c6b-9a71-2d4e6f8a0b1c, nombre: Valeria Mendoza, email: valeria@casaoliva.pe, cargo: Administradora, iniciales: VM, tipo: CLIENTE, rolEquipo: null }
+                notificacionesSinLeer: 1
+                clientes:
+                  - { clienteId: 7f3a9c10-2b4d-4e8f-a1c3-5d7e9f0a2b4c, nombre: Casa Oliva, rol: ADMIN_CLIENTE }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  # ------------------------------------------------------------------ Clientes
+  /me/notificaciones:
+    get:
+      tags: [Sesión]
+      operationId: listarNotificaciones
+      summary: Notificaciones de la campana (más recientes primero)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: noLeidas, in: query, schema: { type: boolean, default: false } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/Notificacion' } }
+              example:
+                datos:
+                  - { id: 0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f, tipo: PIEZAS_LISTAS, titulo: Tienes contenido nuevo, cuerpo: 4 piezas listas para revisión. Revisa el contenido de octubre., enlace: /entregables, leida: false, creadoEn: '2026-10-06T13:00:00Z' }
+                paginacion: { siguienteCursor: null, total: 1 }
+
+  /me/notificaciones/leer:
+    post:
+      tags: [Sesión]
+      operationId: marcarNotificacionesLeidas
+      summary: Marcar como leídas (las indicadas o todas)
+      x-roles: [EQUIPO, CLIENTE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+                todas: { type: boolean, default: false }
+      responses:
+        '204': { description: Marcadas }
+
+  /servicios:
+    get:
+      tags: [Servicios]
+      operationId: listarCatalogoServicios
+      summary: Catálogo de servicios de la agencia (para mostrar también los no contratados)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/ServicioCatalogo' } }
+  /clientes:
+    get:
+      tags: [Clientes]
+      operationId: listarClientes
+      summary: Clientes visibles para el usuario (equipo ve todos; cliente ve los suyos)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoCliente' } }
+        - { name: q, in: query, description: Búsqueda por nombre, schema: { type: string } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/ClienteResumen' } }
+    post:
+      tags: [Clientes]
+      operationId: crearCliente
+      summary: Alta de cliente (CU-01). Dispara la creación de carpetas en Drive vía n8n.
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClienteEntrada' }
+      responses:
+        '201':
+          description: Creado. `driveCarpetaId` llega en null y se completa cuando n8n termina (evento `cliente.creado`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Clientes]
+      operationId: obtenerCliente
+      summary: Perfil del cliente (CLI-01)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Clientes]
+      operationId: actualizarCliente
+      summary: Editar perfil (merge parcial)
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClienteEntrada' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cliente' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/inicio:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Clientes]
+      operationId: obtenerInicioCliente
+      summary: Todo lo que pinta la pantalla de Inicio del portal en una sola llamada
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, description: Por defecto el mes actual (America/Lima), schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InicioCliente' }
+              example:
+                periodo: '2026-10'
+                indicadores: { serviciosActivos: 3, porAprobar: 4, ticketsAbiertos: 2 }
+                plan: { nombre: Plan Crecimiento, fechaFin: '2026-12-31' }
+                avanceMes: { totales: 20, aprobadas: 12, publicadas: 3, porRevisar: 4, enProduccion: 4, porcentaje: 60 }
+                pendientes:
+                  - { id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d, tipo: CARRUSEL, titulo: 'Tu ritual, tu momento', canal: INSTAGRAM, periodo: '2026-10', fechaProgramada: '2026-10-08T14:00:00Z', estado: LISTO_REVISION, miniaturaUrl: 'https://archivos.inoo.pe/firmado/ritual.png', actualizadoEn: '2026-10-05T15:30:00Z' }
+                servicios:
+                  - { categoria: REDES_SOCIALES, nombre: Redes sociales, cantidadMensual: 12, unidad: piezas, estado: ACTIVO }
+                  - { categoria: BLOG, nombre: Blog, cantidadMensual: 4, unidad: artículos, estado: ACTIVO }
+                proximaPublicacion: { id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d, titulo: 'Tu ritual, tu momento', fechaProgramada: '2026-10-08T14:00:00Z' }
+                ticketsAbiertos:
+                  - { id: 6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a, codigo: '#1042', asunto: Ajuste de pauta en Meta, estado: EN_PROCESO }
+
+  /clientes/{clienteId}/actividad:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Clientes]
+      operationId: listarActividadCliente
+      summary: '"Historial de la cuenta" de la ficha: versiones creadas, aprobaciones, cambios de marca'
+      x-roles: [EQUIPO]
+      parameters:
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/ActividadCuenta' } }
+  /clientes/{clienteId}/miembros:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Clientes]
+      operationId: listarMiembros
+      summary: Usuarios del cliente con acceso al portal (POR-01)
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Miembro' } }
+    post:
+      tags: [Clientes]
+      operationId: invitarMiembro
+      summary: Invitar a un usuario (crea la cuenta en el pool de clientes y envía el correo)
+      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, nombre, rol]
+              properties:
+                email: { type: string, format: email }
+                nombre: { type: string }
+                rol: { $ref: '#/components/schemas/RolCliente' }
+      responses:
+        '201':
+          description: Invitado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Miembro' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /clientes/{clienteId}/miembros/{usuarioId}:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Clientes]
+      operationId: cambiarRolMiembro
+      summary: Cambiar el rol de un usuario del cliente
+      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rol]
+              properties: { rol: { $ref: '#/components/schemas/RolCliente' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Miembro' }
+    delete:
+      tags: [Clientes]
+      operationId: quitarMiembro
+      summary: Quitar acceso a un usuario del cliente
+      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      responses:
+        '204': { description: Quitado }
+
+  # ------------------------------------------------------------------ Referencias y briefs
+  /clientes/{clienteId}/referencias:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Referencias y briefs]
+      operationId: listarReferencias
+      summary: Marcas que admira, competidores, piezas de ejemplo (CLI-02)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: tipo, in: query, schema: { $ref: '#/components/schemas/TipoReferencia' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Referencia' } }
+    post:
+      tags: [Referencias y briefs]
+      operationId: crearReferencia
+      summary: Agregar referencia. Si lleva archivo, primero se sube con /archivos.
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferenciaEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referencia' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/referencias/{referenciaId}:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: referenciaId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Referencias y briefs]
+      operationId: eliminarReferencia
+      summary: Eliminar referencia
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '204': { description: Eliminada }
+
+  /clientes/{clienteId}/briefs:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Referencias y briefs]
+      operationId: listarBriefs
+      summary: Briefs mensuales del cliente
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Brief' } }
+
+  /clientes/{clienteId}/briefs/{periodo}:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    get:
+      tags: [Referencias y briefs]
+      operationId: obtenerBrief
+      summary: Brief del mes con sus archivos. Si no existe, devuelve uno vacío en BORRADOR (no 404).
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Brief' }
+    put:
+      tags: [Referencias y briefs]
+      operationId: guardarBrief
+      summary: Guardar el borrador ("El enfoque de este mes"). Solo mientras está en BORRADOR para el cliente.
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                objetivoComunicacion: { type: string, maxLength: 500 }
+                consideraciones: { type: string, maxLength: 5000 }
+                contenidoMd: { type: string, description: Solo equipo }
+                driveFileId: { type: string, description: Solo equipo }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Brief' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /clientes/{clienteId}/briefs/{periodo}/enviar:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    post:
+      tags: [Referencias y briefs]
+      operationId: enviarBrief
+      summary: '"Enviar brief y referencias". Firma la declaración de derechos y publica los archivos subidos (CU-05).'
+      description: |
+        Pasa el brief a ENVIADO y todos sus archivos en estado SUBIDO a DISPONIBLE, guardando quién declaró
+        los derechos y cuándo. Avisa al account manager (evento `brief.enviado`).
+      x-roles: [ADMIN_CLIENTE, APROBADOR]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [declaraDerechos]
+              properties:
+                declaraDerechos: { type: boolean, const: true }
+      responses:
+        '200':
+          description: Enviado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Brief' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/briefs/{periodo}/confirmar:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    post:
+      tags: [Referencias y briefs]
+      operationId: confirmarBrief
+      summary: El AM revisa y confirma el brief; dispara al Jefe de Marketing (CU-02)
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses:
+        '200':
+          description: Confirmado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Brief' }
+  /clientes/{clienteId}/servicios:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Servicios]
+      operationId: listarServiciosCliente
+      summary: Plan, resumen del mes y todos los servicios del catálogo (contratados y no contratados) (POR-02)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, description: Por defecto el mes actual (America/Lima), schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiciosCliente' }
+              example:
+                periodo: '2026-10'
+                plan: { id: 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e, nombre: Plan Crecimiento, fechaInicio: '2026-01-01', fechaFin: '2026-12-31', tieneContrato: true }
+                resumenMes: { totales: 20, entregadas: 16, aprobadas: 12, publicadas: 3, porRevisar: 4, enProduccion: 4, porcentaje: 60 }
+                servicios:
+                  - categoria: BLOG
+                    nombre: Blog
+                    descripcion: Artículos optimizados y propuestas editoriales.
+                    unidad: artículos
+                    contratado: true
+                    servicioContratadoId: 3c9d8e7f-6a5b-4c3d-9e2f-1a0b9c8d7e6f
+                    estado: ACTIVO
+                    cantidadMensual: 4
+                    progreso: { totales: 4, entregadas: 3, aprobadas: 2, porRevisar: 1, enProduccion: 1, porcentaje: 75 }
+                  - { categoria: AUDIOVISUAL, nombre: Audiovisual, descripcion: Producción y edición de video., unidad: videos, contratado: false, estado: NO_CONTRATADO, cantidadMensual: 0 }
+    post:
+      tags: [Servicios]
+      operationId: contratarServicio
+      summary: Registrar un servicio contratado con sus entregables incluidos
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServicioContratadoEntrada' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServicioCliente' }
+
+  /clientes/{clienteId}/plan/contrato:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Servicios]
+      operationId: descargarContrato
+      summary: URL firmada del contrato del plan vigente ("Ver contrato")
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UrlFirmada' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /clientes/{clienteId}/avance:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Servicios]
+      operationId: obtenerAvanceCliente
+      summary: Pantalla "Avance de proyectos". Resumen del mes, hitos y siguiente paso por servicio (INO-07)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvanceCliente' }
+
+  /servicios-contratados/{servicioContratadoId}/avance:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: obtenerAvanceServicio
+      summary: Hitos del proyecto de InooWork enlazado, sin notas internas (INO-07; INO-02 para servicios CRM)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvanceServicio' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  # ------------------------------------------------------------------ Piezas
+  /clientes/{clienteId}/piezas:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Piezas]
+      operationId: listarPiezas
+      summary: Entregables del cliente. Para un CLIENTE, BORRADOR y EN_REVISION_INTERNA llegan como EN_PRODUCCION.
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - name: estado
+          in: query
+          description: Uno o varios, separados por coma
+          style: form
+          explode: false
+          schema: { type: array, items: { $ref: '#/components/schemas/EstadoPieza' } }
+        - name: tipo
+          in: query
+          style: form
+          explode: false
+          schema: { type: array, items: { $ref: '#/components/schemas/TipoPieza' } }
+        - { name: canal, in: query, schema: { type: string, examples: [INSTAGRAM] } }
+        - { name: q, in: query, description: Busca en el título, schema: { type: string } }
+        - { name: periodo, in: query, schema: { $ref: '#/components/schemas/Periodo' } }
+        - { name: servicioContratadoId, in: query, schema: { type: string, format: uuid } }
+        - { name: orden, in: query, schema: { type: string, enum: [fechaProgramada, -actualizadoEn], default: fechaProgramada } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/PiezaResumen' } }
+                      conteos:
+                        type: object
+                        description: Piezas por estado con los mismos filtros salvo `estado` (para las pestañas y chips)
+                        additionalProperties: { type: integer }
+    post:
+      tags: [Piezas]
+      operationId: crearPieza
+      summary: '"Nueva pieza" desde la bandeja de producción (hecha por una persona del equipo)'
+      x-roles: [EQUIPO]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PiezaEntrada' }
+      responses:
+        '201':
+          description: Creada en BORRADOR
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+
+  /piezas/{piezaId}:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    get:
+      tags: [Piezas]
+      operationId: obtenerPieza
+      summary: Detalle con la versión vigente. El cliente recibe la versión enviada a revisión (`versionCliente`).
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+              example:
+                id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                clienteId: 7f3a9c10-2b4d-4e8f-a1c3-5d7e9f0a2b4c
+                tipo: BLOG
+                titulo: 5 errores al elegir un CRM
+                canal: BLOG
+                periodo: '2026-11'
+                fechaProgramada: '2026-11-04T14:00:00Z'
+                estado: LISTO_REVISION
+                versionCliente: 2
+                acciones: [APROBAR, SOLICITAR_CAMBIOS, COMENTAR, DESCARGAR]
+                version:
+                  numero: 2
+                  autorTipo: AGENTE
+                  agente: contenido-blog
+                  creadoEn: '2026-10-28T16:20:00Z'
+                  contenido:
+                    tipo: BLOG
+                    tituloSeo: 5 errores al elegir un CRM (y cómo evitarlos)
+                    metaDescripcion: Guía práctica para pymes...
+                    cuerpoMd: "# 5 errores...\n\n## 1. ..."
+                    palabras: 1450
+                  fuentes: [ { titulo: Informe Gartner 2026, url: 'https://example.com/informe' } ]
+                  archivo: { id: 9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b, nombre: APROBADO_Blog_errores-crm_20261028.docx, mime: application/vnd.openxmlformats-officedocument.wordprocessingml.document }
+                  portada: { id: 4f5e6d7c-8b9a-4f0e-9d1c-2b3a4f5e6d7c, nombre: portada.png, mime: image/png, miniaturaUrl: 'https://archivos.inoo.pe/firmado/portada.png' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Piezas]
+      operationId: actualizarPieza
+      summary: Editar metadatos (título, fecha, etiquetas, aptitud para paid media, responsable)
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                titulo: { type: string }
+                fechaProgramada: { type: [string, 'null'], format: date-time }
+                etiquetas: { type: array, items: { type: string } }
+                aptaPaidMedia: { type: boolean }
+                responsableId: { type: [string, 'null'], format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+
+  /piezas/{piezaId}/aprobar:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    post:
+      tags: [Piezas]
+      operationId: aprobarPieza
+      summary: Aprobar la versión que el cliente está viendo (CU-06). LISTO_REVISION → APROBADO_CLIENTE.
+      x-roles: [APROBADOR, ADMIN_CLIENTE, ACCOUNT_MANAGER]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Decision' }
+            example: { version: 2, comentario: 'Perfecto, publíquenlo' }
+      responses:
+        '200':
+          description: Aprobada. Se registra auditoría y sale el correo de confirmación.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /piezas/{piezaId}/solicitar-cambios:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    post:
+      tags: [Piezas]
+      operationId: solicitarCambiosPieza
+      summary: Pedir cambios (comentario obligatorio). LISTO_REVISION → CAMBIOS_SOLICITADOS; crea tarea prioritaria en InooWork.
+      x-roles: [APROBADOR, ADMIN_CLIENTE, ACCOUNT_MANAGER]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Decision'
+                - required: [comentario]
+            example: { version: 2, comentario: Cambiar el CTA final por "Agenda una demo" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /piezas/{piezaId}/transiciones:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    post:
+      tags: [Piezas]
+      operationId: transicionarPieza
+      summary: Cambio de estado genérico del equipo (enviar a revisión interna, liberar al cliente, marcar publicado...)
+      description: |
+        Valida contra la tabla de transiciones. Transiciones del equipo:
+        BORRADOR→EN_REVISION_INTERNA, EN_REVISION_INTERNA→BORRADOR|LISTO_REVISION,
+        LISTO_REVISION→EN_REVISION_INTERNA|APROBADO_CLIENTE|CAMBIOS_SOLICITADOS,
+        CAMBIOS_SOLICITADOS→EN_REVISION_INTERNA, APROBADO_CLIENTE→EN_REVISION_INTERNA (nueva versión; la aprobación
+        anterior no se hereda) y APROBADO_CLIENTE→PUBLICADO.
+      x-roles: [EQUIPO]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado: { $ref: '#/components/schemas/EstadoPieza' }
+                comentario: { type: string }
+                publicadoUrl: { type: string, format: uri, description: Solo al pasar a PUBLICADO }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /piezas/{piezaId}/versiones:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    get:
+      tags: [Piezas]
+      operationId: listarVersiones
+      summary: Historial de versiones con la decisión de cada una. El cliente ve solo las versiones que se le enviaron.
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/VersionPieza' } }
+              example:
+                datos:
+                  - { numero: 2, actual: true, autorTipo: PERSONA, contenido: { tipo: CARRUSEL, imagenes: [] }, enviadaEn: '2026-10-05T15:30:00Z', enviadaPor: { id: 5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f, nombre: Diego Castro }, decision: null, creadoEn: '2026-10-05T15:00:00Z' }
+                  - { numero: 1, actual: false, autorTipo: AGENTE, contenido: { tipo: CARRUSEL, imagenes: [] }, enviadaEn: '2026-09-29T17:00:00Z', enviadaPor: { id: 5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f, nombre: Diego Castro }, decision: { estado: APROBADO_CLIENTE, usuarioNombre: Valeria Mendoza, fecha: '2026-09-30T21:42:00Z' }, creadoEn: '2026-09-29T16:00:00Z' }
+    post:
+      tags: [Piezas]
+      operationId: crearVersionManual
+      summary: Subir una versión hecha por una persona (p. ej. retoque de diseño)
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VersionEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionPieza' }
+
+  /piezas/{piezaId}/historial:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    get:
+      tags: [Piezas]
+      operationId: obtenerHistorialPieza
+      summary: Auditoría de estados (quién aprobó qué y cuándo). El cliente ve solo los eventos desde LISTO_REVISION.
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/EventoPieza' } }
+
+  /piezas/{piezaId}/comentarios:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    get:
+      tags: [Piezas]
+      operationId: listarComentarios
+      summary: Comentarios. Los internos solo los recibe el equipo.
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Comentario' } }
+    post:
+      tags: [Piezas]
+      operationId: comentarPieza
+      summary: Comentar una pieza
+      x-roles: [EQUIPO, CLIENTE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, minLength: 1, maxLength: 5000 }
+                interno: { type: boolean, default: false, description: Ignorado si quien comenta es CLIENTE }
+                ancla: { $ref: '#/components/schemas/AnclaComentario' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comentario' }
+
+  /piezas/{piezaId}/descarga:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    get:
+      tags: [Piezas]
+      operationId: descargarPieza
+      summary: URL firmada temporal del archivo de la versión visible (POR-03)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: version, in: query, description: Solo equipo puede pedir otra versión, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UrlFirmada' }
+
+  # ------------------------------------------------------------------ Planificación
+  /clientes/{clienteId}/calendario/{periodo}:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    get:
+      tags: [Planificación]
+      operationId: obtenerCalendario
+      summary: Calendario del mes con estado por pieza. El cliente lo ve solo si está APROBADO_PLAN.
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: servicioContratadoId, in: query, description: Filtro "Todos los servicios", schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Calendario' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /clientes/{clienteId}/calendario/{periodo}/aprobar:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    post:
+      tags: [Planificación]
+      operationId: aprobarCalendario
+      summary: El AM aprueba el plan; el Jefe de Marketing reparte tareas a subagentes (MKT-02)
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: integer, description: Versión del calendario que se revisó }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Calendario' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /clientes/{clienteId}/calendario/{periodo}/solicitar-cambios:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    post:
+      tags: [Planificación]
+      operationId: solicitarCambiosCalendario
+      summary: El agente regenera las secciones comentadas y sube la versión
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, comentario]
+              properties:
+                version: { type: integer }
+                comentario: { type: string, minLength: 1 }
+                piezaIds: { type: array, items: { type: string, format: uuid }, description: 'Opcional: entradas concretas a rehacer' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Calendario' }
+
+  /clientes/{clienteId}/ideas-blog:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Planificación]
+      operationId: listarIdeasBlog
+      summary: Ideas propuestas del mes y cuántas puede elegir el cliente (POR-04)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [periodo, cupo, confirmadas, datos]
+                properties:
+                  periodo: { $ref: '#/components/schemas/Periodo' }
+                  cupo: { type: integer, description: Artículos del mes que quedan por definir; el cliente elige hasta este número }
+                  confirmadas: { type: integer }
+                  datos: { type: array, items: { $ref: '#/components/schemas/IdeaBlog' } }
+
+  /clientes/{clienteId}/ideas-blog/seleccion:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    post:
+      tags: [Planificación]
+      operationId: confirmarSeleccionIdeas
+      summary: '"Confirmar selección". Las elegidas pasan a ELEGIDA y crean su pieza BLOG; el resto queda DESCARTADA.'
+      description: La selección previa (marcar y desmarcar) es estado del navegador; solo se envía al confirmar.
+      x-roles: [APROBADOR, ADMIN_CLIENTE, ACCOUNT_MANAGER]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [periodo, ideaIds]
+              properties:
+                periodo: { $ref: '#/components/schemas/Periodo' }
+                ideaIds: { type: array, minItems: 1, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/IdeaBlog' } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+
+  /clientes/{clienteId}/archivos:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Archivos]
+      operationId: listarArchivos
+      summary: Biblioteca de contenido del cliente (fotos, videos, documentos)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: categoria, in: query, schema: { type: string } }
+        - { name: etiqueta, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/Archivo' } }
+    post:
+      tags: [Archivos]
+      operationId: iniciarSubida
+      summary: Paso 1 de 3. Registra el archivo y devuelve una URL prefirmada de S3 (PUT, 15 min).
+      description: |
+        Flujo: 1) `POST /clientes/{id}/archivos` → `subida.url`; 2) el navegador hace `PUT` directo a S3 con
+        los `subida.headers`; 3) `POST /archivos/{id}/confirmar`. Archivos sin confirmar se borran a las 24 h.
+
+        | `uso` | Formatos | Máximo | Después de confirmar |
+        |---|---|---|---|
+        | `BRIEF` (requiere `briefPeriodo`) | JPG, PNG, MP4, PDF, DOCX | 100 MB | `SUBIDO`; pasa a `DISPONIBLE` al enviar el brief |
+        | `ADJUNTO_TICKET` | PDF, JPG, PNG, DOCX | 10 MB | `DISPONIBLE` |
+        | `BIBLIOTECA` (solo equipo) | cualquiera de los anteriores | 100 MB | `DISPONIBLE` |
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubidaEntrada' }
+            example:
+              nombre: foto-producto-1.jpg
+              mime: image/jpeg
+              bytes: 2483120
+              sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+              categoria: FOTO
+              etiquetas: [producto, verano]
+              uso: BRIEF
+              briefPeriodo: '2026-10'
+      responses:
+        '201':
+          description: Registrado en PENDIENTE_SUBIDA
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubidaIniciada' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /archivos/{archivoId}/confirmar:
+    parameters: [ { $ref: '#/components/parameters/ArchivoId' } ]
+    post:
+      tags: [Archivos]
+      operationId: confirmarSubida
+      summary: Paso 3 de 3. Verifica el objeto en S3 (tamaño y checksum) y lo marca SUBIDO o DISPONIBLE según su uso.
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Archivo' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /archivos/{archivoId}:
+    parameters: [ { $ref: '#/components/parameters/ArchivoId' } ]
+    patch:
+      tags: [Archivos]
+      operationId: actualizarArchivo
+      summary: Editar nombre, categoría o etiquetas
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre: { type: string }
+                categoria: { type: string }
+                etiquetas: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Archivo' }
+    delete:
+      tags: [Archivos]
+      operationId: eliminarArchivo
+      summary: Eliminar archivo (borrado lógico)
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '204': { description: Eliminado (borrado lógico) }
+
+  /archivos/{archivoId}/descarga:
+    parameters: [ { $ref: '#/components/parameters/ArchivoId' } ]
+    get:
+      tags: [Archivos]
+      operationId: descargarArchivo
+      summary: URL firmada temporal para descargar
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UrlFirmada' }
+
+  # ------------------------------------------------------------------ Paid media
+  /clientes/{clienteId}/biblioteca-paid:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Paid media]
+      operationId: listarBibliotecaPaid
+      summary: Piezas aprobadas aptas para anuncios + contenido del cliente, filtrable por etiquetas (PMD-01)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - name: etiquetas
+          in: query
+          style: form
+          explode: false
+          schema: { type: array, items: { type: string } }
+        - name: tipo
+          in: query
+          style: form
+          explode: false
+          schema: { type: array, items: { $ref: '#/components/schemas/TipoPieza' } }
+        - { name: origen, in: query, schema: { type: string, enum: [PIEZA, ARCHIVO_CLIENTE] } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/ItemBiblioteca' } }
+
+  # ------------------------------------------------------------------ Reportes
+  /clientes/{clienteId}/reportes/resultados:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Reportes]
+      operationId: obtenerResultados
+      summary: Pantalla "Resultados". KPIs, rendimiento por canal, recorrido del cliente y lectura del periodo (POR-06)
+      description: |
+        Sin `desde`/`hasta` devuelve el mes en curso hasta hoy y lo compara con los mismos días del mes anterior.
+        `esMuestra: true` indica que hay datos de ejemplo (el portal muestra el aviso).
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: desde, in: query, schema: { type: string, format: date } }
+        - { name: hasta, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporteResultados' }
+              example:
+                periodo: { desde: '2026-10-01', hasta: '2026-10-06' }
+                comparativa: { desde: '2026-09-01', hasta: '2026-09-06' }
+                esMuestra: true
+                notas: [Solo canales orgánicos; Paid media no está contratado.]
+                indicadores:
+                  - { clave: ALCANCE, etiqueta: Alcance en redes, valor: 20000, detalle: 'Instagram 12 000 · Facebook 8 000' }
+                  - { clave: VISITAS_SITIO, etiqueta: Visitas al sitio, valor: 2400, detalle: Suma de los tres canales }
+                  - { clave: CONTACTOS, etiqueta: Contactos recibidos, valor: 120, detalle: 5 % de las visitas al sitio }
+                  - { clave: CONVERSION, etiqueta: Conversión a compra, valor: 1, unidad: '%', detalle: '24 compras / 2 400 visitas' }
+                canales:
+                  - { canal: INSTAGRAM, metrica: VISITAS_SITIO, total: 1280, variacionPct: 18, puntos: [ { fecha: '2026-10-01', valor: 160 }, { fecha: '2026-10-02', valor: 180 } ] }
+                recorrido:
+                  - { orden: 1, nombre: Descubrimiento, descripcion: personas alcanzadas, valor: 20000, pctEtapaAnterior: null }
+                  - { orden: 2, nombre: Interés, descripcion: visitas al sitio, valor: 2400, pctEtapaAnterior: 12 }
+                lectura: Instagram aporta el 53,3 % de las visitas. La siguiente oportunidad es mejorar el llamado a la acción.
+                informeDisponible: true
+
+  /clientes/{clienteId}/reportes/informe:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Reportes]
+      operationId: descargarInforme
+      summary: '"Descargar informe". URL firmada del PDF del periodo.'
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UrlFirmada' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+
+  /clientes/{clienteId}/tickets:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Soporte]
+      operationId: listarTickets
+      summary: Tickets del cliente (pestañas Todos / Abiertos / Resueltos)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: grupo, in: query, description: 'ABIERTOS = ABIERTO, EN_PROCESO, ESPERANDO_CLIENTE; RESUELTOS = RESUELTO, CERRADO', schema: { type: string, enum: [TODOS, ABIERTOS, RESUELTOS], default: TODOS } }
+        - { name: q, in: query, description: 'Asunto o número (#1042 o 1042)', schema: { type: string } }
+        - name: estado
+          in: query
+          style: form
+          explode: false
+          schema: { type: array, items: { $ref: '#/components/schemas/EstadoTicket' } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/Ticket' } }
+                      conteos:
+                        type: object
+                        required: [todos, abiertos, resueltos]
+                        properties:
+                          todos: { type: integer }
+                          abiertos: { type: integer }
+                          resueltos: { type: integer }
+    post:
+      tags: [Soporte]
+      operationId: crearTicket
+      summary: Abrir ticket (CU-07). Responde al instante; urgencia y área llegan después (evento ticket.clasificado).
+      x-roles: [CLIENTE, EQUIPO]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TicketEntrada' }
+            example:
+              asunto: No veo el blog de noviembre
+              categoria: MARKETING
+              descripcion: En el portal solo aparecen 2 de los 8 blogs del mes.
+              archivoIds: []
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+              example:
+                id: 6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a
+                numero: 1043
+                codigo: '#1043'
+                asunto: No veo el blog de noviembre
+                categoria: MARKETING
+                estado: ABIERTO
+                urgencia: null
+                slaPrimeraRespuestaEn: '2026-11-05T22:00:00Z'
+                creadoEn: '2026-11-04T22:00:00Z'
+
+  /tickets/{ticketId}:
+    parameters: [ { $ref: '#/components/parameters/TicketId' } ]
+    get:
+      tags: [Soporte]
+      operationId: obtenerTicket
+      summary: Detalle del ticket con mensajes
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketDetalle' }
+    patch:
+      tags: [Soporte]
+      operationId: actualizarTicket
+      summary: El cliente solo puede cerrar o reabrir (RESUELTO→ABIERTO dentro de 7 días); el equipo gestiona en InooWork.
+      x-roles: [CLIENTE, EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado: { type: string, enum: [CERRADO, ABIERTO] }
+                comentario: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /tickets/{ticketId}/mensajes:
+    parameters: [ { $ref: '#/components/parameters/TicketId' } ]
+    post:
+      tags: [Soporte]
+      operationId: responderTicket
+      summary: Agregar un mensaje al ticket
+      x-roles: [CLIENTE, EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, minLength: 1, maxLength: 10000 }
+                archivoIds: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeTicket' }
+
+  # ------------------------------------------------------------------ Correos
+  /clientes/{clienteId}/correos-automaticos:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Correos]
+      operationId: listarCorreosAutomaticos
+      summary: Qué correos salen, cuándo, y los últimos enviados (INO-04)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reglas, recientes]
+                properties:
+                  reglas: { type: array, items: { $ref: '#/components/schemas/ReglaCorreo' } }
+                  recientes: { type: array, items: { $ref: '#/components/schemas/CorreoEnviado' } }
+
+  # ------------------------------------------------------------------ Panel interno
+  /panel/clientes:
+    get:
+      tags: [Panel interno]
+      operationId: panelClientes
+      summary: Pantalla "Panel general". Indicadores de la agencia, alertas y fila por cliente.
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: periodo, in: query, schema: { $ref: '#/components/schemas/Periodo' } }
+        - { name: q, in: query, description: Nombre de marca o contacto, schema: { type: string } }
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+        - { name: accountManagerId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resumen, datos]
+                properties:
+                  resumen: { $ref: '#/components/schemas/ResumenAgencia' }
+                  datos: { type: array, items: { $ref: '#/components/schemas/FilaPanelCliente' } }
+
+  /panel/clientes/exportar:
+    get:
+      tags: [Panel interno]
+      operationId: exportarPanelClientes
+      summary: '"Exportar resumen" en CSV con los mismos filtros'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: periodo, in: query, schema: { $ref: '#/components/schemas/Periodo' } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+      responses:
+        '200':
+          description: CSV (UTF-8, separador coma). El frontend lo descarga con fetch + Blob.
+          content:
+            text/csv:
+              schema: { type: string }
+
+  /panel/piezas:
+    get:
+      tags: [Panel interno]
+      operationId: panelBandejaProduccion
+      summary: Pantalla "Bandeja de producción". Piezas agrupadas en columnas por estado, de uno o todos los clientes.
+      description: |
+        Columnas: BORRADOR (BORRADOR + EN_REVISION_INTERNA), EN_REVISION (LISTO_REVISION, esperando al cliente),
+        APROBADO, CAMBIOS_SOLICITADOS y PUBLICADO. Cada columna trae hasta `porColumna` piezas y su `total`;
+        "Ver las otras N" pide la misma columna con `columna` y `cursor`.
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: clienteId, in: query, schema: { type: string, format: uuid } }
+        - { name: periodo, in: query, schema: { $ref: '#/components/schemas/Periodo' } }
+        - { name: servicioContratadoId, in: query, schema: { type: string, format: uuid } }
+        - { name: origen, in: query, schema: { type: string, enum: [AGENTE, PERSONA] } }
+        - { name: columna, in: query, schema: { $ref: '#/components/schemas/ColumnaBandeja' } }
+        - { name: porColumna, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BandejaProduccion' }
+
+  /panel/costos-ia:
+    get:
+      tags: [Panel interno]
+      operationId: panelCostosIa
+      summary: Costo de IA por cliente y por modelo en el periodo (ADM-01)
+      x-roles: [ADMIN]
+      parameters:
+        - { name: periodo, in: query, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporteCostos' }
+
+  /panel/ejecuciones:
+    get:
+      tags: [Panel interno]
+      operationId: panelEjecuciones
+      summary: Ejecuciones de agentes con errores y costo
+      x-roles: [ADMIN]
+      parameters:
+        - { name: clienteId, in: query, schema: { type: string, format: uuid } }
+        - { name: agente, in: query, schema: { type: string } }
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoEjecucion' } }
+        - $ref: '#/components/parameters/Limite'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Pagina'
+                  - properties:
+                      datos: { type: array, items: { $ref: '#/components/schemas/Ejecucion' } }
+
+  # ------------------------------------------------------------------ Integraciones (n8n / InooWork)
+  /integraciones/ejecuciones:
+    post:
+      tags: [Integraciones]
+      operationId: registrarEjecucion
+      summary: n8n abre o cierra una ejecución de agente y reporta consumo por modelo. Idempotente por n8nExecutionId+agente.
+      security: [ { apiKey: [] } ]
+      x-scopes: [ejecuciones:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EjecucionEntrada' }
+            example:
+              clienteId: 7f3a9c10-2b4d-4e8f-a1c3-5d7e9f0a2b4c
+              agente: contenido-blog
+              n8nWorkflowId: wf_12
+              n8nExecutionId: '88231'
+              piezaId: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+              estado: OK
+              consumos:
+                - { proveedor: google, modelo: gemini-3.8-flash, tokensEntrada: 52000, tokensSalida: 4100 }
+                - { proveedor: openai, modelo: gpt-6.1-sol, tokensEntrada: 15000, tokensSalida: 7600 }
+      responses:
+        '200':
+          description: Registrada. Si el gasto del mes cruza el umbral, `alerta` viene informada (y sale el evento presupuesto.alerta).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ejecucionId, gastoMesUsd, limiteUsd, pctLimite, bloquear]
+                properties:
+                  ejecucionId: { type: string, format: uuid }
+                  gastoMesUsd: { type: number }
+                  limiteUsd: { type: number }
+                  pctLimite: { type: number }
+                  alerta: { type: [string, 'null'], enum: [UMBRAL, LIMITE, null] }
+                  bloquear: { type: boolean, description: true si se superó el 100 %; n8n no debe lanzar nuevas ejecuciones no críticas }
+
+  /integraciones/piezas:
+    post:
+      tags: [Integraciones]
+      operationId: crearPiezaDesdeAgente
+      summary: Un agente crea una pieza con su primera versión (estado BORRADOR)
+      security: [ { apiKey: [] } ]
+      x-scopes: [piezas:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PiezaEntradaAgente'
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pieza' }
+
+  /integraciones/piezas/{piezaId}/versiones:
+    parameters: [ { $ref: '#/components/parameters/PiezaId' } ]
+    post:
+      tags: [Integraciones]
+      operationId: crearVersionDesdeAgente
+      summary: Nueva versión tras CAMBIOS_SOLICITADOS; la pieza vuelve a BORRADOR y luego a EN_REVISION_INTERNA
+      security: [ { apiKey: [] } ]
+      x-scopes: [piezas:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VersionEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionPieza' }
+
+  /integraciones/calendarios:
+    post:
+      tags: [Integraciones]
+      operationId: guardarPropuestaCalendario
+      summary: El Jefe de Marketing guarda la propuesta del mes (crea piezas en BORRADOR con fechas y canal)
+      security: [ { apiKey: [] } ]
+      x-scopes: [piezas:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PropuestaCalendario' }
+      responses:
+        '201':
+          description: Creado o nueva versión
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Calendario' }
+
+  /integraciones/inoowork/sincronizacion:
+    post:
+      tags: [Integraciones]
+      operationId: sincronizarInooWork
+      summary: n8n empuja el estado leído de InooWork (proyectos/ítems y tickets). Reemplaza hitos del servicio.
+      description: |
+        InooWork hoy no emite webhooks y solo expone `GET /api/projects` (todos) y `PUT` del proyecto completo.
+        Por defecto n8n consulta cada 5 minutos, calcula diferencias y llama a este endpoint. Si InooWork suma
+        webhooks, apuntarán a `/webhooks/inoowork` con el mismo cuerpo.
+      security: [ { apiKey: [] } ]
+      x-scopes: [inoowork:sync]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SincronizacionInooWork' }
+      responses:
+        '200':
+          description: Aplicada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hitosActualizados: { type: integer }
+                  ticketsActualizados: { type: integer }
+
+  /webhooks/inoowork:
+    post:
+      tags: [Integraciones]
+      operationId: webhookInooWork
+      summary: Entrada futura de webhooks de InooWork (mismo cuerpo que la sincronización), firmada con HMAC
+      security: [ { firmaInooWork: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SincronizacionInooWork' }
+      responses:
+        '204': { description: Aceptado }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+webhooks:
+  eventoPlataforma:
+    post:
+      operationId: eventoPlataforma
+      summary: Eventos que la API envía a n8n (outbox). Firma HMAC-SHA256 del cuerpo en `X-Inoo-Firma`.
+      description: |
+        Entrega al menos una vez, en orden por `id`; el consumidor debe deduplicar por `id`.
+        Reintentos con backoff exponencial hasta 24 h.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventoSaliente' }
+            example:
+              id: 10452
+              tipo: pieza.estado_cambiado
+              ocurridoEn: '2026-11-04T15:02:11Z'
+              clienteId: 7f3a9c10-2b4d-4e8f-a1c3-5d7e9f0a2b4c
+              datos: { piezaId: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d, estado: CAMBIOS_SOLICITADOS, usuarioId: 5b0c1e2a-8f3d-4c6b-9a71-2d4e6f8a0b1c, canal: PORTAL, comentario: Cambiar el CTA }
+      responses:
+        '2XX': { description: Recibido }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: ID token o access token de Cognito (pool de equipo o de clientes)
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    firmaInooWork:
+      type: apiKey
+      in: header
+      name: X-Inoo-Firma
+      description: "sha256=<hex HMAC del cuerpo con el secreto compartido>; junto con X-Inoo-Timestamp (rechazo si > 5 min)"
+
+  parameters:
+    ClienteId: { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    PiezaId: { name: piezaId, in: path, required: true, schema: { type: string, format: uuid } }
+    ArchivoId: { name: archivoId, in: path, required: true, schema: { type: string, format: uuid } }
+    TicketId: { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+    Limite: { name: limite, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    Cursor: { name: cursor, in: query, description: Valor opaco de `paginacion.siguienteCursor`, schema: { type: string } }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: UUID generado por el cliente por cada intención (no por cada reintento). Vigencia 24 h.
+      schema: { type: string, maxLength: 64 }
+
+  responses:
+    NoAutenticado:
+      description: Token ausente, vencido o inválido
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+    SinPermiso:
+      description: Autenticado pero sin permiso para esta acción
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+          example: { type: 'https://clientes.inoo.pe/errores/sin-permiso', title: Sin permiso, status: 403, codigo: SIN_PERMISO }
+    NoEncontrado:
+      description: No existe o no es visible para este usuario (no se distingue, para no filtrar datos de otros clientes)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+    Conflicto:
+      description: Estado o versión desactualizados
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+          example:
+            type: 'https://clientes.inoo.pe/errores/version-desactualizada'
+            title: La pieza cambió mientras la revisabas
+            status: 409
+            codigo: VERSION_DESACTUALIZADA
+            detail: Estás aprobando la versión 2 pero la vigente es la 3.
+    Validacion:
+      description: Datos inválidos
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problema' }
+          example:
+            type: 'https://clientes.inoo.pe/errores/validacion'
+            title: Hay campos con errores
+            status: 422
+            codigo: VALIDACION
+            errores: [ { campo: declaraDerechos, codigo: REQUERIDO, mensaje: Debes declarar que tienes los derechos de uso } ]
+
+  schemas:
+    # ---------- comunes
+    Periodo: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$', examples: ['2026-11'] }
+    Pagina:
+      type: object
+      required: [datos, paginacion]
+      properties:
+        datos: { type: array, items: {} }
+        paginacion:
+          type: object
+          required: [siguienteCursor]
+          properties:
+            siguienteCursor: { type: [string, 'null'] }
+            total: { type: integer, description: Total con los filtros aplicados ("4 entregables") }
+    Problema:
+      type: object
+      required: [type, title, status, codigo]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        codigo:
+          type: string
+          description: Código estable para el frontend
+          enum: [NO_AUTENTICADO, SIN_PERMISO, NO_ENCONTRADO, VALIDACION, TRANSICION_INVALIDA, VERSION_DESACTUALIZADA,
+                 COMENTARIO_REQUERIDO, DERECHOS_NO_DECLARADOS, ARCHIVO_NO_SUBIDO, ARCHIVO_DEMASIADO_GRANDE,
+                 IDEMPOTENCIA_CONFLICTO, LIMITE_PETICIONES, ERROR_INTERNO]
+        errores:
+          type: array
+          items:
+            type: object
+            required: [campo, codigo]
+            properties:
+              campo: { type: string }
+              codigo: { type: string }
+              mensaje: { type: string }
+        traceId: { type: string }
+    UrlFirmada:
+      type: object
+      required: [url, expiraEn]
+      properties:
+        url: { type: string, format: uri }
+        expiraEn: { type: string, format: date-time }
+        nombreArchivo: { type: string }
+
+    # ---------- enums (mismos valores que la base)
+    TipoUsuario: { type: string, enum: [EQUIPO, CLIENTE, SERVICIO] }
+    RolEquipo: { type: string, enum: [ACCOUNT_MANAGER, DISENO, AUDIOVISUAL, PAID_MEDIA, DESARROLLO_WEB, ADMIN] }
+    RolCliente:
+      type: string
+      enum: [ADMIN_CLIENTE, APROBADOR, LECTOR]
+      description: ADMIN_CLIENTE gestiona usuarios; APROBADOR aprueba, sube y abre tickets; LECTOR solo mira y abre tickets.
+    EstadoCliente: { type: string, enum: [ACTIVO, PAUSADO, BAJA] }
+    TipoReferencia: { type: string, enum: [MARCA_ADMIRADA, COMPETIDOR, PIEZA_EJEMPLO, MANUAL_MARCA, LOGO, OTRO] }
+    CategoriaServicio: { type: string, enum: [BLOG, REDES_SOCIALES, ESTATICOS, AUDIOVISUAL, PAID_MEDIA, WEB, CRM] }
+    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, FINALIZADO, NO_CONTRATADO] }
+    EstadoOperativo:
+      type: string
+      enum: [AL_DIA, EN_CURSO, ATENCION]
+      description: 'Calculado. ATENCION si hay piezas atrasadas, tickets fuera de SLA o gasto de IA ≥ umbral; AL_DIA si no hay nada pendiente; EN_CURSO en otro caso.'
+    ColumnaBandeja: { type: string, enum: [BORRADOR, EN_REVISION, APROBADO, CAMBIOS_SOLICITADOS, PUBLICADO] }
+    TipoPieza: { type: string, enum: [BLOG, COPY, ESTATICO, CARRUSEL, PORTADA, GUION, SHOTLIST, STORYBOARD, PROTOTIPO_WEB, ANUNCIO, REPORTE] }
+    EstadoPieza:
+      type: string
+      enum: [BORRADOR, EN_REVISION_INTERNA, LISTO_REVISION, APROBADO_CLIENTE, CAMBIOS_SOLICITADOS, PUBLICADO, EN_PRODUCCION]
+      description: |
+        `EN_PRODUCCION` solo aparece en respuestas a usuarios CLIENTE: reemplaza a BORRADOR y EN_REVISION_INTERNA.
+        Etiquetas para la UI: EN_PRODUCCION «En producción», LISTO_REVISION «Listo para revisión»,
+        APROBADO_CLIENTE «Aprobada», CAMBIOS_SOLICITADOS «Cambios solicitados», PUBLICADO «Publicado».
+    AccionPieza:
+      type: string
+      enum: [APROBAR, SOLICITAR_CAMBIOS, COMENTAR, DESCARGAR, ENVIAR_REVISION_INTERNA, LIBERAR_A_CLIENTE, RETIRAR, MARCAR_PUBLICADO, SUBIR_VERSION]
+    EstadoCalendario: { type: string, enum: [PROPUESTO, CAMBIOS_SOLICITADOS, APROBADO_PLAN] }
+    EstadoIdea: { type: string, enum: [PROPUESTA, ELEGIDA, DESCARTADA] }
+    CanalDecision: { type: string, enum: [PORTAL, PANEL, TELEGRAM, SLACK, SISTEMA] }
+    CategoriaTicket: { type: string, enum: [MARKETING, DISENO, WEB, FACTURACION, OTRO] }
+    UrgenciaTicket: { type: string, enum: [BAJA, MEDIA, ALTA, CRITICA] }
+    EstadoTicket: { type: string, enum: [ABIERTO, EN_PROCESO, ESPERANDO_CLIENTE, RESUELTO, CERRADO] }
+    EstadoHito: { type: string, enum: [SIN_INICIAR, EN_PROGRESO, EN_REVISION, COMPLETADO, BLOQUEADO] }
+    EstadoEjecucion: { type: string, enum: [EN_CURSO, OK, ERROR, CANCELADA] }
+
+    # ---------- sesión y clientes
+    Usuario:
+      type: object
+      required: [id, nombre, email, tipo]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        email: { type: string, format: email }
+        cargo: { type: [string, 'null'], examples: [Administradora] }
+        iniciales: { type: string, examples: [VM] }
+        tipo: { $ref: '#/components/schemas/TipoUsuario' }
+        rolEquipo: { oneOf: [ { $ref: '#/components/schemas/RolEquipo' }, { type: 'null' } ] }
+    PersonaMini:
+      type: object
+      required: [id, nombre]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        cargo: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+    Sesion:
+      type: object
+      required: [usuario, clientes, notificacionesSinLeer]
+      properties:
+        usuario: { $ref: '#/components/schemas/Usuario' }
+        notificacionesSinLeer: { type: integer, description: Punto de la campana }
+        clientes:
+          type: array
+          description: Para EQUIPO viene vacío (ve todos vía /clientes)
+          items:
+            type: object
+            required: [clienteId, nombre, rol]
+            properties:
+              clienteId: { type: string, format: uuid }
+              nombre: { type: string }
+              rol: { $ref: '#/components/schemas/RolCliente' }
+    Notificacion:
+      type: object
+      required: [id, tipo, titulo, leida, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        tipo: { type: string, enum: [PIEZAS_LISTAS, PIEZA_APROBADA, CAMBIOS_REGISTRADOS, TICKET_CREADO, TICKET_RESPONDIDO, TICKET_RESUELTO, BRIEF_RECIBIDO, ALERTA_GASTO_IA] }
+        clienteId: { type: [string, 'null'], format: uuid }
+        titulo: { type: string }
+        cuerpo: { type: [string, 'null'] }
+        enlace: { type: [string, 'null'], description: Ruta interna del portal }
+        leida: { type: boolean }
+        creadoEn: { type: string, format: date-time }
+    Marca:
+      type: object
+      properties:
+        descripcion: { type: string }
+        mensajeCentral: { type: string, examples: [Cuida tu piel. Vuelve a ti.] }
+        campanaActual: { type: string, examples: ['Campaña de octubre: «Tu ritual, tu momento».'] }
+        valores: { type: array, items: { type: string } }
+        paleta: { type: array, items: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' } }
+        tipografias: { type: array, items: { type: string } }
+        logoArchivoId: { type: [string, 'null'], format: uuid }
+    Tono:
+      type: object
+      properties:
+        etiquetas: { type: array, items: { type: string }, examples: [[Cercano, Consciente, Sereno]] }
+        descripcion: { type: string }
+        ejemplo: { type: string, examples: ['«Entre tantos pendientes, regálate una pausa.»'] }
+    Publico:
+      type: object
+      properties:
+        descripcion: { type: string }
+        intereses: { type: array, items: { type: string } }
+        segmentos: { type: [string, 'null'] }
+    ClienteEntrada:
+      type: object
+      properties:
+        nombre: { type: string, minLength: 2 }
+        marca: { $ref: '#/components/schemas/Marca' }
+        tono: { $ref: '#/components/schemas/Tono' }
+        publico: { $ref: '#/components/schemas/Publico' }
+        contactoPrincipalId: { type: string, format: uuid }
+        pilaresContenido: { type: array, items: { type: string } }
+        canales: { type: array, items: { type: string, enum: [INSTAGRAM, FACEBOOK, LINKEDIN, TIKTOK, YOUTUBE, BLOG, WEB] } }
+        wordpressUrl: { type: [string, 'null'], format: uri }
+        accountManagerId: { type: string, format: uuid }
+        limiteGastoIaUsd: { type: number, minimum: 0, description: Solo ADMIN }
+        estado: { $ref: '#/components/schemas/EstadoCliente' }
+    ClienteResumen:
+      type: object
+      required: [id, nombre, estado]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        slug: { type: string }
+        estado: { $ref: '#/components/schemas/EstadoCliente' }
+        logoUrl: { type: [string, 'null'], format: uri }
+    Cliente:
+      description: Ficha de cliente (panel) y perfil (portal)
+      allOf:
+        - $ref: '#/components/schemas/ClienteResumen'
+        - type: object
+          properties:
+            marca: { $ref: '#/components/schemas/Marca' }
+            tono: { $ref: '#/components/schemas/Tono' }
+            publico: { $ref: '#/components/schemas/Publico' }
+            pilaresContenido: { type: array, items: { type: string } }
+            canales: { type: array, items: { type: string } }
+            wordpressUrl: { type: [string, 'null'] }
+            plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
+            contactoPrincipal: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+            accountManager:
+              description: '"Tu equipo de contacto" en el portal y "Responsable de cuenta" en la ficha'
+              oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ]
+            conteos:
+              type: object
+              properties:
+                serviciosActivos: { type: integer }
+                aprobacionesPendientes: { type: integer }
+            driveUrl: { type: [string, 'null'], format: uri, description: Solo equipo }
+            driveCarpetaId: { type: [string, 'null'], description: Solo equipo }
+            limiteGastoIaUsd: { type: number, description: Solo equipo }
+            creadoEn: { type: string, format: date-time }
+    InicioCliente:
+      type: object
+      required: [periodo, indicadores, avanceMes, pendientes, servicios, ticketsAbiertos]
+      properties:
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        indicadores:
+          type: object
+          required: [serviciosActivos, porAprobar, ticketsAbiertos]
+          properties:
+            serviciosActivos: { type: integer }
+            porAprobar: { type: integer, description: También es el contador del menú "Entregables por revisar" }
+            ticketsAbiertos: { type: integer }
+            ideasPorElegir: { type: integer }
+        plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
+        avanceMes: { $ref: '#/components/schemas/ProgresoPiezas' }
+        pendientes: { type: array, description: 'Piezas en LISTO_REVISION, ordenadas por fecha', items: { $ref: '#/components/schemas/PiezaResumen' } }
+        servicios:
+          type: array
+          description: Solo los contratados
+          items:
+            type: object
+            required: [categoria, nombre, cantidadMensual, unidad, estado]
+            properties:
+              categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+              nombre: { type: string }
+              cantidadMensual: { type: integer }
+              unidad: { type: string }
+              estado: { $ref: '#/components/schemas/EstadoServicio' }
+        proximaPublicacion:
+          type: [object, 'null']
+          properties:
+            id: { type: string, format: uuid }
+            titulo: { type: string }
+            fechaProgramada: { type: string, format: date-time }
+        ticketsAbiertos:
+          type: array
+          items:
+            type: object
+            required: [id, codigo, asunto, estado]
+            properties:
+              id: { type: string, format: uuid }
+              codigo: { type: string }
+              asunto: { type: string }
+              estado: { $ref: '#/components/schemas/EstadoTicket' }
+    Miembro:
+      type: object
+      required: [usuarioId, nombre, email, rol]
+      properties:
+        usuarioId: { type: string, format: uuid }
+        nombre: { type: string }
+        email: { type: string, format: email }
+        rol: { $ref: '#/components/schemas/RolCliente' }
+        invitacionPendiente: { type: boolean }
+
+    # ---------- referencias y briefs
+    ReferenciaEntrada:
+      type: object
+      required: [titulo]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoReferencia' }
+        titulo: { type: string, description: '"Nombre o contexto"' }
+        url: { type: string, format: uri }
+        archivoId: { type: string, format: uuid }
+        notas: { type: string, description: 'Qué tomar como inspiración ("Solo como inspiración. No replicar contenido.")' }
+        paleta: { type: array, items: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' } }
+    Referencia:
+      allOf:
+        - $ref: '#/components/schemas/ReferenciaEntrada'
+        - type: object
+          required: [id, creadoEn]
+          properties:
+            id: { type: string, format: uuid }
+            archivo: { oneOf: [ { $ref: '#/components/schemas/ArchivoMini' }, { type: 'null' } ] }
+            creadoEn: { type: string, format: date-time }
+    Brief:
+      type: object
+      required: [periodo, estado, archivos]
+      properties:
+        id: { type: [string, 'null'], format: uuid, description: null si todavía no se guardó }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        estado: { type: string, enum: [BORRADOR, ENVIADO, CONFIRMADO] }
+        objetivoComunicacion: { type: [string, 'null'] }
+        consideraciones: { type: [string, 'null'], description: '"¿Qué debemos tener en cuenta?"' }
+        contenidoMd: { type: [string, 'null'], description: Solo equipo }
+        driveFileId: { type: [string, 'null'], description: Solo equipo }
+        archivos: { type: array, description: Archivos subidos a este brief (SUBIDO o DISPONIBLE), items: { $ref: '#/components/schemas/Archivo' } }
+        enviadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        enviadoEn: { type: [string, 'null'], format: date-time }
+        confirmadoEn: { type: [string, 'null'], format: date-time }
+        actualizadoEn: { type: [string, 'null'], format: date-time }
+    ServicioContratadoEntrada:
+      type: object
+      required: [servicioCodigo, fechaInicio]
+      properties:
+        servicioCodigo: { type: string }
+        planId: { type: string, format: uuid }
+        alcance: { type: string }
+        fechaInicio: { type: string, format: date }
+        fechaFin: { type: [string, 'null'], format: date }
+        inooworkProyectoId: { type: string }
+        entregables:
+          type: array
+          items:
+            type: object
+            required: [tipoPieza, cantidadMensual]
+            properties:
+              tipoPieza: { $ref: '#/components/schemas/TipoPieza' }
+              cantidadMensual: { type: integer, minimum: 1 }
+    ServicioCatalogo:
+      type: object
+      required: [codigo, nombre, categoria, unidad]
+      properties:
+        codigo: { type: string }
+        nombre: { type: string }
+        categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+        descripcion: { type: [string, 'null'] }
+        unidad: { type: string, examples: [artículos, piezas, diseños] }
+    PlanCliente:
+      type: object
+      required: [nombre]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string, examples: [Plan Crecimiento] }
+        fechaInicio: { type: string, format: date }
+        fechaFin: { type: [string, 'null'], format: date }
+        tieneContrato: { type: boolean, description: Si hay PDF para "Ver contrato" }
+    ProgresoPiezas:
+      type: object
+      description: 'Entregada = disponible para revisión o aprobada. porcentaje = aprobadas / totales (las aprobadas incluyen las publicadas).'
+      required: [totales, aprobadas, porRevisar, enProduccion, porcentaje]
+      properties:
+        totales: { type: integer, description: Cuota contratada del mes }
+        entregadas: { type: integer }
+        aprobadas: { type: integer }
+        publicadas: { type: integer }
+        porRevisar: { type: integer }
+        enProduccion: { type: integer }
+        porcentaje: { type: integer, minimum: 0, maximum: 100 }
+    ServicioCliente:
+      type: object
+      description: Un servicio del catálogo visto desde un cliente; `contratado` false para los no contratados.
+      required: [categoria, nombre, unidad, contratado, estado, cantidadMensual]
+      properties:
+        categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+        nombre: { type: string }
+        descripcion: { type: [string, 'null'] }
+        unidad: { type: string }
+        contratado: { type: boolean }
+        servicioContratadoId: { type: [string, 'null'], format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoServicio' }
+        alcance: { type: [string, 'null'] }
+        fechaInicio: { type: [string, 'null'], format: date }
+        fechaFin: { type: [string, 'null'], format: date }
+        cantidadMensual: { type: integer, description: Suma de los entregables incluidos }
+        progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ] }
+        entregables:
+          type: array
+          description: Detalle por tipo de pieza
+          items:
+            type: object
+            required: [tipoPieza, cantidadMensual]
+            properties:
+              tipoPieza: { $ref: '#/components/schemas/TipoPieza' }
+              cantidadMensual: { type: integer }
+    ServiciosCliente:
+      type: object
+      required: [periodo, servicios, resumenMes]
+      properties:
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
+        resumenMes: { $ref: '#/components/schemas/ProgresoPiezas' }
+        servicios: { type: array, description: 'Todo el catálogo, contratados primero', items: { $ref: '#/components/schemas/ServicioCliente' } }
+    Hito:
+      type: object
+      required: [id, titulo, estado]
+      properties:
+        id: { type: string, format: uuid }
+        grupo: { type: [string, 'null'] }
+        titulo: { type: string, examples: [Planificación, Producción, Revisión, Publicación] }
+        estado: { $ref: '#/components/schemas/EstadoHito' }
+        fechaInicio: { type: [string, 'null'], format: date }
+        fechaFin: { type: [string, 'null'], format: date }
+        esperaCliente: { type: boolean, description: 'true → "Tu siguiente paso"' }
+        nota: { type: [string, 'null'], examples: [Por pieza aprobada] }
+        responsableNombre: { type: [string, 'null'] }
+    AvanceServicio:
+      type: object
+      required: [servicioContratadoId, hitos, sincronizadoEn]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+        nombre: { type: string }
+        estado: { type: string, enum: [SIN_INICIAR, EN_CURSO, COMPLETADO, PAUSADO] }
+        progreso: { $ref: '#/components/schemas/ProgresoPiezas' }
+        hitos: { type: array, items: { $ref: '#/components/schemas/Hito' } }
+        siguientePaso:
+          type: [object, 'null']
+          properties:
+            texto: { type: string, examples: ['Revisar «5 hábitos para una piel saludable» y confirmar la idea pendiente.'] }
+            responsable: { $ref: '#/components/schemas/PersonaMini' }
+        sincronizadoEn: { type: string, format: date-time }
+    AvanceCliente:
+      type: object
+      required: [periodo, resumenMes, servicios, noContratados]
+      properties:
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        resumenMes: { $ref: '#/components/schemas/ProgresoPiezas' }
+        piezasPorRevisar:
+          type: array
+          description: '"Tu revisión mantiene el ritmo"'
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              titulo: { type: string }
+              fechaProgramada: { type: string, format: date-time }
+        servicios: { type: array, items: { $ref: '#/components/schemas/AvanceServicio' } }
+        noContratados: { type: array, items: { $ref: '#/components/schemas/ServicioCatalogo' } }
+    PiezaResumen:
+      type: object
+      required: [id, tipo, titulo, periodo, estado]
+      properties:
+        id: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        clienteNombre: { type: string, description: Solo en listados de varios clientes (bandeja) }
+        tipo: { $ref: '#/components/schemas/TipoPieza' }
+        titulo: { type: string }
+        resumen: { type: [string, 'null'] }
+        canal: { type: [string, 'null'] }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        fechaProgramada: { type: [string, 'null'], format: date-time }
+        estado: { $ref: '#/components/schemas/EstadoPieza' }
+        numeroVersion: { type: [integer, 'null'], description: 'Versión vigente; para el cliente, la enviada a revisión' }
+        miniaturaUrl: { type: [string, 'null'], format: uri, description: URL firmada corta (15 min) }
+        servicioContratadoId: { type: [string, 'null'], format: uuid }
+        ideaSeleccionada: { type: boolean, description: La pieza nació de una idea elegida por el cliente }
+        origen:
+          type: object
+          description: 'Solo equipo. "Hecha por agente de IA · Agente Editorial" o "Hecha por una persona · Diego Castro"'
+          properties:
+            tipo: { type: string, enum: [AGENTE, PERSONA] }
+            nombre: { type: string }
+        notaEstado: { type: [string, 'null'], description: 'Solo equipo. "Lista para programar", "Esperando al cliente"' }
+        atrasada: { type: boolean }
+        actualizadoEn: { type: string, format: date-time }
+    PiezaEntrada:
+      type: object
+      required: [tipo, titulo, periodo]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoPieza' }
+        titulo: { type: string }
+        resumen: { type: string }
+        canal: { type: string }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        fechaProgramada: { type: string, format: date-time }
+        servicioContratadoId: { type: string, format: uuid }
+        responsableId: { type: string, format: uuid }
+        version: { $ref: '#/components/schemas/VersionEntrada' }
+    Pieza:
+      allOf:
+        - $ref: '#/components/schemas/PiezaResumen'
+        - type: object
+          required: [clienteId, acciones]
+          properties:
+            clienteId: { type: string, format: uuid }
+            calendarioId: { type: [string, 'null'], format: uuid }
+            versionActual: { type: integer, description: Solo equipo }
+            versionCliente: { type: [integer, 'null'], description: Versión enviada a revisión del cliente }
+            version: { $ref: '#/components/schemas/VersionPieza' }
+            etiquetas: { type: array, items: { type: string } }
+            aptaPaidMedia: { type: boolean }
+            responsable: { type: [object, 'null'], description: Solo equipo, properties: { id: { type: string }, nombre: { type: string } } }
+            publicadoUrl: { type: [string, 'null'], format: uri }
+            publicadoEn: { type: [string, 'null'], format: date-time }
+            acciones:
+              type: array
+              description: Lo que ESTE usuario puede hacer ahora. El frontend pinta botones según esta lista, no según el estado.
+              items: { $ref: '#/components/schemas/AccionPieza' }
+    Decision:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer, description: '`versionCliente` que el usuario vio; si cambió → 409 VERSION_DESACTUALIZADA' }
+        comentario: { type: string, maxLength: 5000 }
+    ArchivoMini:
+      type: object
+      required: [id, nombre, mime]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        mime: { type: string }
+        bytes: { type: [integer, 'null'] }
+        miniaturaUrl: { type: [string, 'null'], format: uri }
+    Fuente:
+      type: object
+      required: [url]
+      properties:
+        titulo: { type: string }
+        url: { type: string, format: uri }
+    VersionPieza:
+      type: object
+      required: [numero, autorTipo, contenido, creadoEn]
+      properties:
+        numero: { type: integer }
+        actual: { type: boolean }
+        autorTipo: { type: string, enum: [AGENTE, PERSONA] }
+        agente: { type: [string, 'null'], description: Solo equipo }
+        autor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Solo equipo }
+        contenido: { $ref: '#/components/schemas/ContenidoPieza' }
+        fuentes: { type: array, items: { $ref: '#/components/schemas/Fuente' } }
+        archivo: { oneOf: [ { $ref: '#/components/schemas/ArchivoMini' }, { type: 'null' } ] }
+        portada: { oneOf: [ { $ref: '#/components/schemas/ArchivoMini' }, { type: 'null' } ] }
+        vistaPreviaUrl: { type: [string, 'null'], format: uri }
+        notaCambios: { type: [string, 'null'] }
+        enviadaEn: { type: [string, 'null'], format: date-time, description: Cuándo se envió al cliente }
+        enviadaPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Persona del equipo que la envió ("Diego Castro, Inoo")' }
+        decision:
+          description: 'Decisión del cliente sobre ESTA versión; una aprobación no se hereda a la siguiente'
+          type: [object, 'null']
+          properties:
+            estado: { type: string, enum: [APROBADO_CLIENTE, CAMBIOS_SOLICITADOS] }
+            usuarioNombre: { type: string }
+            fecha: { type: string, format: date-time }
+            comentario: { type: [string, 'null'] }
+        creadoEn: { type: string, format: date-time }
+    VersionEntrada:
+      type: object
+      required: [contenido]
+      properties:
+        contenido: { $ref: '#/components/schemas/ContenidoPieza' }
+        fuentes: { type: array, items: { $ref: '#/components/schemas/Fuente' } }
+        archivoId: { type: string, format: uuid }
+        portadaArchivoId: { type: string, format: uuid }
+        vistaPreviaUrl: { type: string, format: uri }
+        notaCambios: { type: string }
+        agente: { type: string, description: Obligatorio vía API key }
+        ejecucionId: { type: string, format: uuid }
+        enviarARevisionInterna: { type: boolean, default: true }
+    ContenidoPieza:
+      description: Estructura según el tipo de pieza (discriminador `tipo`).
+      oneOf:
+        - $ref: '#/components/schemas/ContenidoBlog'
+        - $ref: '#/components/schemas/ContenidoCopy'
+        - $ref: '#/components/schemas/ContenidoVisual'
+        - $ref: '#/components/schemas/ContenidoGuion'
+        - $ref: '#/components/schemas/ContenidoPrototipo'
+        - $ref: '#/components/schemas/ContenidoGenerico'
+      discriminator:
+        propertyName: tipo
+        mapping:
+          BLOG: '#/components/schemas/ContenidoBlog'
+          COPY: '#/components/schemas/ContenidoCopy'
+          ANUNCIO: '#/components/schemas/ContenidoCopy'
+          ESTATICO: '#/components/schemas/ContenidoVisual'
+          CARRUSEL: '#/components/schemas/ContenidoVisual'
+          PORTADA: '#/components/schemas/ContenidoVisual'
+          GUION: '#/components/schemas/ContenidoGuion'
+          SHOTLIST: '#/components/schemas/ContenidoGuion'
+          STORYBOARD: '#/components/schemas/ContenidoGuion'
+          PROTOTIPO_WEB: '#/components/schemas/ContenidoPrototipo'
+          REPORTE: '#/components/schemas/ContenidoGenerico'
+    ContenidoBlog:
+      type: object
+      required: [tipo, tituloSeo, cuerpoMd]
+      properties:
+        tipo: { type: string, enum: [BLOG] }
+        tituloSeo: { type: string }
+        metaDescripcion: { type: string, maxLength: 160 }
+        slug: { type: string }
+        cuerpoMd: { type: string, description: 'Markdown con H1/H2 (1200–1800 palabras, US-05)' }
+        palabras: { type: integer }
+    ContenidoCopy:
+      type: object
+      required: [tipo, red, copy]
+      description: Salida JSON del subagente de copies (US-06)
+      properties:
+        tipo: { type: string, enum: [COPY, ANUNCIO] }
+        red: { type: string, enum: [INSTAGRAM, FACEBOOK, LINKEDIN, TIKTOK] }
+        copy: { type: string }
+        hashtags: { type: array, items: { type: string } }
+        cta: { type: string }
+        sugerenciaVisual: { type: string }
+        enfoque: { type: string, description: 'Solo variantes de anuncio: URGENCIA, BENEFICIO, PRUEBA_SOCIAL...' }
+    ContenidoVisual:
+      type: object
+      required: [tipo, imagenes]
+      properties:
+        tipo: { type: string, enum: [ESTATICO, CARRUSEL, PORTADA] }
+        formato: { type: string, examples: ['1080x1350', '1920x1080'] }
+        imagenes:
+          type: array
+          items:
+            type: object
+            required: [archivoId, orden]
+            properties:
+              archivoId: { type: string, format: uuid }
+              orden: { type: integer }
+              etiqueta: { type: string, examples: [Portada], description: 'Se muestra como "Portada · 1 de 3"' }
+              textoEnImagen: { type: string }
+              url: { type: string, format: uri, description: 'Firmada; solo en respuestas' }
+        copyAsociado: { type: string }
+    ContenidoGuion:
+      type: object
+      required: [tipo, escenas]
+      description: Paquete audiovisual (US-08), sin generación de video
+      properties:
+        tipo: { type: string, enum: [GUION, SHOTLIST, STORYBOARD] }
+        objetivo: { type: string }
+        gancho: { type: string, description: Primeros 3 segundos }
+        cta: { type: string }
+        duracionSeg: { type: integer }
+        escenas:
+          type: array
+          items:
+            type: object
+            required: [orden]
+            properties:
+              orden: { type: integer }
+              tiempo: { type: string, examples: ['00:00-00:03'] }
+              tipoPlano: { type: string }
+              angulo: { type: string }
+              audio: { type: string, description: Audio / voz en off }
+              indicacionVisual: { type: string }
+              locacion: { type: string }
+              duracionSeg: { type: integer }
+    ContenidoPrototipo:
+      type: object
+      required: [tipo, vistaPreviaUrl]
+      properties:
+        tipo: { type: string, enum: [PROTOTIPO_WEB] }
+        vistaPreviaUrl: { type: string, format: uri }
+        repositorio: { type: string, description: Solo equipo }
+        pullRequestUrl: { type: string, format: uri, description: Solo equipo }
+        secciones: { type: array, items: { type: string } }
+    ContenidoGenerico:
+      type: object
+      required: [tipo]
+      properties:
+        tipo: { type: string, enum: [REPORTE] }
+        resumenMd: { type: string }
+    EventoPieza:
+      type: object
+      required: [deEstado, aEstado, canal, creadoEn]
+      properties:
+        deEstado: { oneOf: [ { $ref: '#/components/schemas/EstadoPieza' }, { type: 'null' } ] }
+        aEstado: { $ref: '#/components/schemas/EstadoPieza' }
+        version: { type: [integer, 'null'] }
+        usuario: { type: [object, 'null'], properties: { id: { type: string }, nombre: { type: string } } }
+        canal: { $ref: '#/components/schemas/CanalDecision' }
+        comentario: { type: [string, 'null'] }
+        creadoEn: { type: string, format: date-time }
+    AnclaComentario:
+      type: [object, 'null']
+      description: Para comentar un párrafo o un punto de una imagen
+      properties:
+        parrafo: { type: integer }
+        imagenOrden: { type: integer }
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+    Comentario:
+      type: object
+      required: [id, autor, texto, interno, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: [integer, 'null'] }
+        autor:
+          type: object
+          required: [id, nombre, tipo]
+          properties:
+            id: { type: string }
+            nombre: { type: string }
+            tipo: { $ref: '#/components/schemas/TipoUsuario' }
+        texto: { type: string }
+        interno: { type: boolean }
+        ancla: { $ref: '#/components/schemas/AnclaComentario' }
+        creadoEn: { type: string, format: date-time }
+
+    # ---------- planificación
+    Calendario:
+      type: object
+      required: [id, periodo, estado, version, entradas]
+      properties:
+        id: { type: string, format: uuid }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        estado: { $ref: '#/components/schemas/EstadoCalendario' }
+        version: { type: integer }
+        resumen: { type: [string, 'null'] }
+        aprobadoPor: { type: [object, 'null'], properties: { id: { type: string }, nombre: { type: string } } }
+        aprobadoEn: { type: [string, 'null'], format: date-time }
+        entradas: { type: array, items: { $ref: '#/components/schemas/PiezaResumen' } }
+    PropuestaCalendario:
+      type: object
+      required: [clienteId, periodo, entradas]
+      properties:
+        clienteId: { type: string, format: uuid }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        briefId: { type: string, format: uuid }
+        resumen: { type: string }
+        ejecucionId: { type: string, format: uuid }
+        entradas:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [tipo, titulo, fechaProgramada]
+            properties:
+              tipo: { $ref: '#/components/schemas/TipoPieza' }
+              titulo: { type: string }
+              canal: { type: string }
+              fechaProgramada: { type: string, format: date-time }
+              objetivo: { type: string }
+              pilar: { type: string }
+              servicioContratadoId: { type: string, format: uuid }
+    IdeaBlog:
+      type: object
+      required: [id, periodo, titulo, estado]
+      properties:
+        id: { type: string, format: uuid }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        titulo: { type: string }
+        palabraClave: { type: [string, 'null'] }
+        angulo: { type: [string, 'null'] }
+        resumen: { type: [string, 'null'] }
+        fuentes: { type: array, items: { $ref: '#/components/schemas/Fuente' } }
+        estado: { $ref: '#/components/schemas/EstadoIdea' }
+        piezaId: { type: [string, 'null'], format: uuid }
+        decididoEn: { type: [string, 'null'], format: date-time }
+
+    # ---------- archivos
+    SubidaEntrada:
+      type: object
+      required: [nombre, mime, bytes, uso]
+      properties:
+        nombre: { type: string, maxLength: 255 }
+        mime: { type: string, enum: [image/jpeg, image/png, video/mp4, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document] }
+        bytes: { type: integer, minimum: 1, maximum: 104857600 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA] }
+        briefPeriodo: { $ref: '#/components/schemas/Periodo' }
+        categoria: { type: string, enum: [FOTO, VIDEO, DOCUMENTO, LOGO, OTRO] }
+        etiquetas: { type: array, items: { type: string } }
+    SubidaIniciada:
+      type: object
+      required: [archivo, subida]
+      properties:
+        archivo: { $ref: '#/components/schemas/Archivo' }
+        subida:
+          type: object
+          required: [metodo, url, headers, expiraEn]
+          properties:
+            metodo: { type: string, enum: [PUT] }
+            url: { type: string, format: uri }
+            headers: { type: object, additionalProperties: { type: string }, examples: [ { Content-Type: image/jpeg } ] }
+            expiraEn: { type: string, format: date-time }
+    Archivo:
+      allOf:
+        - $ref: '#/components/schemas/ArchivoMini'
+        - type: object
+          required: [estado, origen, creadoEn]
+          properties:
+            origen: { type: string, enum: [CLIENTE, EQUIPO, AGENTE] }
+            categoria: { type: [string, 'null'] }
+            etiquetas: { type: array, items: { type: string } }
+            uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, ENTREGABLE, CONTRATO, INFORME] }
+            estado: { type: string, enum: [PENDIENTE_SUBIDA, SUBIDO, DISPONIBLE, ELIMINADO], description: SUBIDO = en S3 pero el brief aún no se envió }
+            declaraDerechos: { type: boolean }
+            subidoPor: { type: [object, 'null'], properties: { id: { type: string }, nombre: { type: string } } }
+            creadoEn: { type: string, format: date-time }
+
+    # ---------- paid media
+    ItemBiblioteca:
+      type: object
+      required: [origen, id, titulo]
+      properties:
+        origen: { type: string, enum: [PIEZA, ARCHIVO_CLIENTE] }
+        id: { type: string, format: uuid }
+        titulo: { type: string }
+        tipo: { oneOf: [ { $ref: '#/components/schemas/TipoPieza' }, { type: 'null' } ] }
+        etiquetas: { type: array, items: { type: string } }
+        miniaturaUrl: { type: [string, 'null'], format: uri }
+        aprobadoEn: { type: [string, 'null'], format: date-time }
+
+    # ---------- reportes
+    PuntoMetrica:
+      type: object
+      required: [fecha, valor]
+      properties:
+        fecha: { type: string, format: date }
+        valor: { type: number }
+    RangoFechas:
+      type: object
+      required: [desde, hasta]
+      properties:
+        desde: { type: string, format: date }
+        hasta: { type: string, format: date }
+    ReporteResultados:
+      type: object
+      required: [periodo, indicadores, canales, recorrido, esMuestra]
+      properties:
+        periodo: { $ref: '#/components/schemas/RangoFechas' }
+        comparativa: { oneOf: [ { $ref: '#/components/schemas/RangoFechas' }, { type: 'null' } ] }
+        esMuestra: { type: boolean }
+        notas: { type: array, items: { type: string } }
+        indicadores:
+          type: array
+          items:
+            type: object
+            required: [clave, etiqueta, valor]
+            properties:
+              clave: { type: string, enum: [ALCANCE, VISITAS_SITIO, CONTACTOS, CONVERSION, COMPRAS] }
+              etiqueta: { type: string }
+              valor: { type: number }
+              unidad: { type: [string, 'null'] }
+              detalle: { type: [string, 'null'] }
+              variacionPct: { type: [number, 'null'] }
+        canales:
+          type: array
+          description: Rendimiento por canal. Todas las series comparten escala en la UI.
+          items:
+            type: object
+            required: [canal, metrica, total, puntos]
+            properties:
+              canal: { type: string, examples: [INSTAGRAM, FACEBOOK, BLOG] }
+              metrica: { type: string, enum: [VISITAS_SITIO, ALCANCE, INTERACCIONES] }
+              total: { type: number }
+              variacionPct: { type: [number, 'null'], description: Frente al periodo de comparativa }
+              puntos: { type: array, items: { $ref: '#/components/schemas/PuntoMetrica' } }
+        recorrido:
+          type: array
+          description: Embudo del customer journey para el mismo periodo
+          items:
+            type: object
+            required: [orden, nombre, valor]
+            properties:
+              orden: { type: integer }
+              nombre: { type: string }
+              descripcion: { type: [string, 'null'] }
+              valor: { type: [number, 'null'] }
+              pctEtapaAnterior: { type: [number, 'null'] }
+              fuente: { type: string, enum: [MANUAL, META, GA4, CRM] }
+        lectura: { type: [string, 'null'], description: '"Lo que nos dicen los datos"; solo si el equipo la publicó' }
+        informeDisponible: { type: boolean }
+
+    TicketEntrada:
+      type: object
+      required: [asunto, categoria, descripcion]
+      properties:
+        asunto: { type: string, minLength: 3, maxLength: 200 }
+        categoria: { $ref: '#/components/schemas/CategoriaTicket' }
+        descripcion: { type: string, minLength: 1, maxLength: 10000 }
+        piezaId: { type: string, format: uuid }
+        archivoIds: { type: array, items: { type: string, format: uuid } }
+    Ticket:
+      type: object
+      required: [id, numero, codigo, asunto, categoria, estado, slaPrimeraRespuestaEn, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        numero: { type: integer }
+        codigo: { type: string, examples: ['#1042'] }
+        asunto: { type: string }
+        categoria: { $ref: '#/components/schemas/CategoriaTicket' }
+        estado: { $ref: '#/components/schemas/EstadoTicket' }
+        resumenEstado: { type: [string, 'null'], examples: [Diego Castro está revisando tu solicitud.] }
+        urgencia: { oneOf: [ { $ref: '#/components/schemas/UrgenciaTicket' }, { type: 'null' } ] }
+        areaAsignada: { type: [string, 'null'] }
+        asignadoNombre: { type: [string, 'null'] }
+        piezaId: { type: [string, 'null'], format: uuid }
+        slaPrimeraRespuestaEn: { type: string, format: date-time }
+        primeraRespuestaEn: { type: [string, 'null'], format: date-time }
+        resueltoEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
+        actualizadoEn: { type: string, format: date-time }
+    TicketDetalle:
+      allOf:
+        - $ref: '#/components/schemas/Ticket'
+        - type: object
+          required: [descripcion, mensajes]
+          properties:
+            descripcion: { type: string }
+            mensajes: { type: array, items: { $ref: '#/components/schemas/MensajeTicket' } }
+    MensajeTicket:
+      type: object
+      required: [id, autorNombre, texto, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        autorNombre: { type: string }
+        autorTipo: { $ref: '#/components/schemas/TipoUsuario' }
+        texto: { type: string }
+        interno: { type: boolean, description: Solo equipo; al cliente nunca le llegan mensajes internos }
+        adjuntos: { type: array, items: { $ref: '#/components/schemas/ArchivoMini' } }
+        creadoEn: { type: string, format: date-time }
+
+    # ---------- correos
+    ReglaCorreo:
+      type: object
+      required: [evento, descripcion, activa]
+      properties:
+        evento: { type: string, examples: [pieza.lista_revision, ticket.resuelto] }
+        descripcion: { type: string, examples: ['Te avisamos cuando una pieza está lista para tu revisión'] }
+        destinatarios: { type: string, enum: [MIEMBROS_CLIENTE, ACCOUNT_MANAGER, AMBOS] }
+        activa: { type: boolean }
+    CorreoEnviado:
+      type: object
+      required: [id, para, asunto, estado, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        para: { type: string, format: email }
+        asunto: { type: string }
+        evento: { type: [string, 'null'] }
+        estado: { type: string, enum: [PENDIENTE, ENVIADO, FALLIDO] }
+        enviadoEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
+
+    # ---------- panel interno
+    ResumenAgencia:
+      type: object
+      required: [clientesActivos, piezasAtrasadas, aprobacionesPendientes, gastoIaUsd, limiteIaUsd]
+      properties:
+        clientesActivos: { type: integer }
+        piezasAtrasadas: { type: integer }
+        atrasadasPorCliente: { type: array, items: { type: object, properties: { clienteNombre: { type: string }, atrasadas: { type: integer } } } }
+        aprobacionesPendientes: { type: integer }
+        gastoIaUsd: { type: number }
+        limiteIaUsd: { type: number }
+        pctLimite: { type: number }
+        clientesSobreUmbral:
+          type: array
+          description: 'Banner "2 clientes llegaron al 80 % de su límite de IA"'
+          items:
+            type: object
+            properties:
+              clienteId: { type: string, format: uuid }
+              clienteNombre: { type: string }
+              gastoUsd: { type: number }
+              limiteUsd: { type: number }
+              pctLimite: { type: number }
+    FilaPanelCliente:
+      type: object
+      required: [cliente, estadoOperativo, atrasadas, porAprobar, gastoIa]
+      properties:
+        cliente: { $ref: '#/components/schemas/ClienteResumen' }
+        contactoPrincipalNombre: { type: [string, 'null'] }
+        accountManagerNombre: { type: [string, 'null'] }
+        estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
+        atrasadas: { type: integer, description: Piezas con fechaProgramada vencida y no PUBLICADO }
+        porAprobar: { type: integer }
+        piezas:
+          type: object
+          description: Conteo por estado en el periodo
+          additionalProperties: { type: integer }
+        ticketsAbiertos: { type: integer }
+        ticketsFueraSla: { type: integer }
+        gastoIa:
+          type: object
+          required: [gastoUsd, limiteUsd, pctLimite, alerta]
+          properties:
+            gastoUsd: { type: number }
+            limiteUsd: { type: number }
+            pctLimite: { type: number }
+            alerta: { type: boolean, description: 'pctLimite ≥ umbral ("Alerta · Umbral ≥ 80 %")' }
+    BandejaProduccion:
+      type: object
+      required: [columnas, resumen]
+      properties:
+        resumen:
+          type: object
+          properties:
+            total: { type: integer }
+            atrasadas: { type: integer }
+            aprobadas: { type: integer }
+            publicadas: { type: integer }
+            porRevisar: { type: integer }
+            enProduccion: { type: integer }
+        alertaGastoIa:
+          type: [object, 'null']
+          description: Solo cuando se filtra un cliente que superó el umbral
+          properties:
+            clienteNombre: { type: string }
+            gastoUsd: { type: number }
+            limiteUsd: { type: number }
+            pctLimite: { type: number }
+        columnas:
+          type: array
+          items:
+            type: object
+            required: [columna, total, piezas]
+            properties:
+              columna: { $ref: '#/components/schemas/ColumnaBandeja' }
+              total: { type: integer }
+              piezas: { type: array, items: { $ref: '#/components/schemas/PiezaResumen' } }
+              siguienteCursor: { type: [string, 'null'] }
+    ActividadCuenta:
+      type: object
+      required: [fecha, descripcion]
+      properties:
+        fecha: { type: string, format: date-time }
+        usuarioNombre: { type: [string, 'null'] }
+        descripcion: { type: string, examples: ['Aprobó la versión 1 de «Tu ritual, tu momento». No aplica a la versión actual.'] }
+        piezaId: { type: [string, 'null'], format: uuid }
+        etiqueta: { type: [string, 'null'], enum: [POR_REVISAR, APROBADA, CAMBIOS_SOLICITADOS, VERSION_ANTERIOR, null] }
+    ReporteCostos:
+      type: object
+      required: [periodo, totalUsd, clientes]
+      properties:
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        totalUsd: { type: number }
+        clientes:
+          type: array
+          items:
+            type: object
+            required: [clienteId, nombre, gastoUsd, limiteUsd, pctLimite, porModelo]
+            properties:
+              clienteId: { type: string, format: uuid }
+              nombre: { type: string }
+              gastoUsd: { type: number }
+              limiteUsd: { type: number }
+              pctLimite: { type: number }
+              porModelo:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    modelo: { type: string }
+                    tokensEntrada: { type: integer }
+                    tokensSalida: { type: integer }
+                    imagenes: { type: integer }
+                    costoUsd: { type: number }
+    Ejecucion:
+      type: object
+      required: [id, clienteId, agente, estado, iniciadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        clienteNombre: { type: string }
+        agente: { type: string }
+        estado: { $ref: '#/components/schemas/EstadoEjecucion' }
+        piezaId: { type: [string, 'null'], format: uuid }
+        costoUsd: { type: number }
+        error: { type: [string, 'null'] }
+        n8nExecutionUrl: { type: [string, 'null'], format: uri }
+        iniciadoEn: { type: string, format: date-time }
+        finalizadoEn: { type: [string, 'null'], format: date-time }
+
+    # ---------- integraciones
+    EjecucionEntrada:
+      type: object
+      required: [clienteId, agente, n8nExecutionId, estado]
+      properties:
+        clienteId: { type: string, format: uuid }
+        agente: { type: string, enum: [marketing-jefe, contenido-blog, contenido-copies, estaticos, audiovisual-asistido, programacion, desarrollo-web, paid-media, soporte-triaje] }
+        n8nWorkflowId: { type: string }
+        n8nExecutionId: { type: string }
+        piezaId: { type: string, format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoEjecucion' }
+        error: { type: string }
+        consumos:
+          type: array
+          description: El costo lo calcula la API con la tabla de tarifas vigente; n8n no envía montos.
+          items:
+            type: object
+            required: [proveedor, modelo]
+            properties:
+              proveedor: { type: string, enum: [google, openai, anthropic, replicate] }
+              modelo: { type: string }
+              tokensEntrada: { type: integer, minimum: 0 }
+              tokensSalida: { type: integer, minimum: 0 }
+              imagenes: { type: integer, minimum: 0 }
+    PiezaEntradaAgente:
+      type: object
+      required: [clienteId, tipo, titulo, periodo, version]
+      properties:
+        clienteId: { type: string, format: uuid }
+        tipo: { $ref: '#/components/schemas/TipoPieza' }
+        titulo: { type: string }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        canal: { type: string }
+        fechaProgramada: { type: string, format: date-time }
+        calendarioId: { type: string, format: uuid }
+        servicioContratadoId: { type: string, format: uuid }
+        piezaExistenteId: { type: string, format: uuid, description: 'Si el calendario ya creó la pieza, se completa en vez de duplicarla' }
+        version: { $ref: '#/components/schemas/VersionEntrada' }
+    SincronizacionInooWork:
+      type: object
+      properties:
+        proyectos:
+          type: array
+          items:
+            type: object
+            required: [inooworkProyectoId, items]
+            properties:
+              inooworkProyectoId: { type: string, examples: [PROJ-ABC123] }
+              items:
+                type: array
+                items:
+                  type: object
+                  required: [id, name, status]
+                  description: Ítem tal como lo devuelve InooWork (groups[].items[]); `notes` se descarta
+                  properties:
+                    id: { type: string }
+                    grupo: { type: string }
+                    name: { type: string }
+                    status: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Bloqueado] }
+                    assigneeName: { type: string }
+                    dueDate: { type: [string, 'null'], format: date }
+        tickets:
+          type: array
+          items:
+            type: object
+            required: [ticketId, estado]
+            properties:
+              ticketId: { type: string, format: uuid }
+              inooworkRef: { type: string }
+              estado: { $ref: '#/components/schemas/EstadoTicket' }
+              areaAsignada: { type: string }
+              asignadoNombre: { type: string }
+              mensajes:
+                type: array
+                items:
+                  type: object
+                  required: [autorNombre, texto, creadoEn]
+                  properties:
+                    externoId: { type: string, description: Para deduplicar }
+                    autorNombre: { type: string }
+                    texto: { type: string }
+                    interno: { type: boolean }
+                    creadoEn: { type: string, format: date-time }
+    EventoSaliente:
+      type: object
+      required: [id, tipo, ocurridoEn, datos]
+      properties:
+        id: { type: integer }
+        tipo:
+          type: string
+          enum:
+            - cliente.creado             # n8n crea carpetas en Drive y devuelve IDs (PATCH cliente)
+            - brief.enviado              # el cliente envió brief, archivos y derechos; aviso al AM
+            - brief.confirmado           # dispara al Jefe de Marketing
+            - calendario.aprobado        # reparte tareas a subagentes y crea ítems en InooWork
+            - calendario.cambios_solicitados
+            - idea_blog.elegida
+            - pieza.estado_cambiado      # incluye LISTO_REVISION (correo al cliente), CAMBIOS_SOLICITADOS (tarea InooWork), APROBADO_CLIENTE (programar)
+            - comentario.creado
+            - archivo.subido             # indexar en base de conocimiento del cliente
+            - ticket.creado              # triaje con Gemini Flash-Lite y alta en InooWork
+            - ticket.mensaje_cliente
+            - ticket.estado_cambiado     # correo al cliente
+            - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
+        ocurridoEn: { type: string, format: date-time }
+        clienteId: { type: [string, 'null'], format: uuid }
+        datos: { type: object }

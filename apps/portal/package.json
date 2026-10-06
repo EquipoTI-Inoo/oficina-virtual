@@ -1,0 +1,38 @@
+{
+  "name": "@inoo/portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portal de clientes + panel interno (Fase 2) con entorno de pruebas y API simulada",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:api",
+    "test:api": "tsx --test tests/api/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:visual": "playwright test e2e/visual.spec.ts",
+    "test:visual:actualizar": "playwright test e2e/visual.spec.ts --update-snapshots",
+    "vista-previa": "node scripts/construir-vista-previa.mjs",
+    "mock": "tsx scripts/servidor-mock.ts",
+    "db:semillas": "tsx scripts/generar-semillas.ts"
+  },
+  "dependencies": {
+    "next": "^15.5.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-icons": "^5.6.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

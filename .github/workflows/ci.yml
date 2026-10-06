@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  portal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run test:api
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test e2e/flujos.spec.ts e2e/movil.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: apps/portal/playwright-report }
+
+  base-de-datos:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: inoo, POSTGRES_PASSWORD: inoo, POSTGRES_DB: oficina_virtual }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U inoo" --health-interval 5s --health-retries 20
+    env:
+      PGPASSWORD: inoo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Esquema
+        run: psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0001_esquema.sql
+      - name: Semillas
+        run: psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/semillas/0001_casa_oliva.sql
+      - name: Comprobaciones
+        run: psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/pruebas/comprobaciones.sql
+
+  contrato:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npx --yes @redocly/cli@latest lint docs/arquitectura/openapi.yaml
