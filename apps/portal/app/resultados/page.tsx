@@ -1,4 +1,4 @@
-import { PantallaResultados } from "../src/pantallas/planificacion";
+import { PantallaResultados } from "@/src/pantallas/planificacion";
 
 export default function Pagina() {
   return <PantallaResultados />;

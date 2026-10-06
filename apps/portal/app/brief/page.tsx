@@ -1,4 +1,4 @@
-import { PantallaBrief } from "../src/pantallas/planificacion";
+import { PantallaBrief } from "@/src/pantallas/planificacion";
 
 export default function Pagina() {
   return <PantallaBrief />;
