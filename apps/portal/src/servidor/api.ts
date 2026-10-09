@@ -1,10 +1,12 @@
 /**
- * API real de /api/v1 sobre Postgres (API_MODO=db). Primer corte: el flujo central de entregables
- * (CU-06) con las reglas en la base (cambiar_estado_pieza, RLS, auditoría y outbox).
+ * API real de /api/v1 sobre Postgres (API_MODO=db). Cortes: el flujo central de entregables
+ * (CU-06) y soporte (CU-07) con las reglas en la base (cambiar_estado_pieza, RLS, auditoría y outbox).
  *
  * Implementado: GET /me · GET /clientes/{id}/piezas · GET /piezas/{id} · GET /piezas/{id}/versiones ·
  * GET /piezas/{id}/historial · GET|POST /piezas/{id}/comentarios · POST /piezas/{id}/aprobar ·
- * POST /piezas/{id}/solicitar-cambios · POST /piezas/{id}/transiciones.
+ * POST /piezas/{id}/solicitar-cambios · POST /piezas/{id}/transiciones · GET|POST /me/notificaciones(/leer) ·
+ * GET /clientes · GET /clientes/{id} · GET|POST /clientes/{id}/tickets · GET|PATCH /tickets/{id} ·
+ * POST /tickets/{id}/mensajes.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -370,6 +372,221 @@ ruta("POST", "/piezas/:id/transiciones", async (ctx, p, _q, cuerpo) => {
   }
   await ctx.c.query("UPDATE pieza SET nota_estado = $2 WHERE id = $1", [pieza.id, NOTA_ESTADO[b.aEstado]]);
   return piezaCompleta(ctx, await buscarPieza(ctx, p.id));
+});
+
+// ───────────────────────────────────────────── notificaciones
+
+ruta("GET", "/me/notificaciones", async (ctx) => {
+  const { rows } = await ctx.c.query<{ id: string; tipo: string; cliente_id: string | null; titulo: string; cuerpo: string | null; enlace: string | null; leida_en: Date | null; creado_en: Date }>(
+    "SELECT id, tipo, cliente_id, titulo, cuerpo, enlace, leida_en, creado_en FROM notificacion WHERE usuario_id = $1 ORDER BY creado_en DESC LIMIT 50",
+    [ctx.u.usuarioId],
+  );
+  return {
+    datos: rows.map((n) => ({ id: n.id, tipo: n.tipo, clienteId: n.cliente_id, titulo: n.titulo, cuerpo: n.cuerpo, enlace: n.enlace, leida: !!n.leida_en, creadoEn: iso(n.creado_en) })),
+    paginacion: { siguienteCursor: null },
+  };
+});
+
+ruta("POST", "/me/notificaciones/leer", async (ctx, _p, _q, cuerpo) => {
+  const b = (await cuerpo()) as { ids?: string[] };
+  const ids = Array.isArray(b.ids) && b.ids.length ? b.ids : null;
+  await ctx.c.query(`UPDATE notificacion SET leida_en = now() WHERE usuario_id = $1 AND leida_en IS NULL ${ids ? "AND id = ANY($2::uuid[])" : ""}`, ids ? [ctx.u.usuarioId, ids] : [ctx.u.usuarioId]);
+  return null;
+});
+
+// ───────────────────────────────────────────── clientes
+
+ruta("GET", "/clientes", async (ctx) => {
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; slug: string; estado: string }>(
+    `SELECT id, nombre, slug, estado FROM cliente ${ctx.esEquipo ? "" : "WHERE id = ANY($1::uuid[])"} ORDER BY nombre`,
+    ctx.esEquipo ? [] : [ctx.u.clienteIds],
+  );
+  return { datos: rows.map((c) => ({ ...c, logoUrl: null })), paginacion: { siguienteCursor: null } };
+});
+
+ruta("GET", "/clientes/:id", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<Record<string, any>>(
+    `SELECT c.*, cp.nombre AS cp_nombre, cp.cargo AS cp_cargo, cp.email::text AS cp_email,
+            am.nombre AS am_nombre, am.cargo AS am_cargo, am.email::text AS am_email,
+            pl.id AS plan_id, pl.nombre AS plan_nombre, pl.fecha_inicio, pl.fecha_fin, pl.contrato_archivo_id,
+            (SELECT count(*)::int FROM servicio_contratado s WHERE s.cliente_id = c.id AND s.estado = 'ACTIVO') AS servicios_activos,
+            (SELECT count(*)::int FROM pieza x WHERE x.cliente_id = c.id AND x.estado = 'LISTO_REVISION') AS pendientes
+     FROM cliente c
+     LEFT JOIN usuario cp ON cp.id = c.contacto_principal_id
+     LEFT JOIN usuario am ON am.id = c.account_manager_id
+     LEFT JOIN plan_cliente pl ON pl.cliente_id = c.id AND pl.vigente
+     WHERE c.id = $1`,
+    [p.id],
+  );
+  const c = rows[0];
+  const fecha = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d as string | null));
+  const r: S<"Cliente"> = {
+    id: c.id,
+    nombre: c.nombre,
+    slug: c.slug,
+    estado: c.estado,
+    logoUrl: null,
+    marca: c.marca,
+    tono: c.tono,
+    publico: c.publico,
+    pilaresContenido: c.pilares_contenido,
+    canales: c.canales,
+    wordpressUrl: c.wordpress_url,
+    plan: c.plan_id ? { id: c.plan_id, nombre: c.plan_nombre, fechaInicio: fecha(c.fecha_inicio)!, fechaFin: fecha(c.fecha_fin), tieneContrato: !!c.contrato_archivo_id } : null,
+    contactoPrincipal: c.contacto_principal_id ? { id: c.contacto_principal_id, nombre: c.cp_nombre, cargo: c.cp_cargo, email: c.cp_email } : null,
+    accountManager: c.account_manager_id ? { id: c.account_manager_id, nombre: c.am_nombre, cargo: c.am_cargo, email: c.am_email } : null,
+    conteos: { serviciosActivos: c.servicios_activos, aprobacionesPendientes: c.pendientes },
+    creadoEn: iso(c.creado_en)!,
+  };
+  if (ctx.esEquipo) Object.assign(r, { driveUrl: c.drive_url, driveCarpetaId: c.drive_carpeta_id, limiteGastoIaUsd: Number(c.limite_gasto_ia_usd) });
+  return r;
+});
+
+// ───────────────────────────────────────────── tickets (CU-07)
+
+interface FilaTicket {
+  id: string;
+  numero: string | number;
+  cliente_id: string;
+  asunto: string;
+  categoria: S<"CategoriaTicket">;
+  descripcion: string;
+  urgencia: S<"Ticket">["urgencia"];
+  estado: S<"EstadoTicket">;
+  resumen_estado: string | null;
+  area_asignada: string | null;
+  asignado_nombre: string | null;
+  pieza_id: string | null;
+  sla_primera_respuesta_en: Date;
+  primera_respuesta_en: Date | null;
+  resuelto_en: Date | null;
+  creado_en: Date;
+  actualizado_en: Date;
+}
+
+function ticketVista(t: FilaTicket): S<"Ticket"> {
+  return {
+    id: t.id,
+    numero: Number(t.numero),
+    codigo: `#${t.numero}`,
+    asunto: t.asunto,
+    categoria: t.categoria,
+    estado: t.estado,
+    resumenEstado: t.resumen_estado,
+    urgencia: t.urgencia ?? null,
+    areaAsignada: t.area_asignada,
+    asignadoNombre: t.asignado_nombre,
+    piezaId: t.pieza_id,
+    slaPrimeraRespuestaEn: iso(t.sla_primera_respuesta_en)!,
+    primeraRespuestaEn: iso(t.primera_respuesta_en),
+    resueltoEn: iso(t.resuelto_en),
+    creadoEn: iso(t.creado_en)!,
+    actualizadoEn: iso(t.actualizado_en)!,
+  } as S<"Ticket">;
+}
+
+/** RLS de ticket: para un cliente, un ticket de otra cuenta simplemente no existe. */
+async function buscarTicket(ctx: Ctx, id: string): Promise<FilaTicket> {
+  const { rows } = await ctx.c.query<FilaTicket>("SELECT * FROM ticket WHERE id = $1", [id]);
+  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  return rows[0];
+}
+
+const emitirOutbox = (ctx: Ctx, tipo: string, clienteId: string, datos: Record<string, unknown>) =>
+  ctx.c.query("INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ($1, $2, $3)", [tipo, clienteId, JSON.stringify(datos)]);
+
+ruta("GET", "/clientes/:id/tickets", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaTicket>("SELECT * FROM ticket WHERE cliente_id = $1 ORDER BY numero DESC", [p.id]);
+  const abierto = (t: FilaTicket) => !["RESUELTO", "CERRADO"].includes(t.estado);
+  let ts = rows;
+  if (q.get("grupo") === "ABIERTOS") ts = ts.filter(abierto);
+  if (q.get("grupo") === "RESUELTOS") ts = ts.filter((t) => !abierto(t));
+  const texto = q.get("q")?.toLowerCase().replace("#", "");
+  if (texto) ts = ts.filter((t) => t.asunto.toLowerCase().includes(texto) || String(t.numero).includes(texto));
+  return {
+    datos: ts.map(ticketVista),
+    paginacion: { siguienteCursor: null, total: ts.length },
+    conteos: { todos: rows.length, abiertos: rows.filter(abierto).length, resueltos: rows.filter((t) => !abierto(t)).length },
+  };
+});
+
+ruta("POST", "/clientes/:id/tickets", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  const b = (await cuerpo()) as { asunto?: string; categoria?: string; descripcion?: string; piezaId?: string };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!b.asunto || b.asunto.trim().length < 3) errores.push({ campo: "asunto", mensaje: "Escribe un asunto de al menos 3 caracteres" });
+  if (!b.categoria || !["MARKETING", "DISENO", "WEB", "FACTURACION", "OTRO"].includes(b.categoria)) errores.push({ campo: "categoria", mensaje: "Elige una categoría" });
+  if (!b.descripcion?.trim()) errores.push({ campo: "descripcion", mensaje: "Describe tu solicitud" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  // SLA de primera respuesta: un día hábil (sábado y domingo no cuentan).
+  const { rows } = await ctx.c.query<FilaTicket>(
+    `INSERT INTO ticket (cliente_id, creado_por, asunto, categoria, descripcion, resumen_estado, pieza_id, sla_primera_respuesta_en)
+     VALUES ($1, $2, $3, $4, $5, 'Recibimos tu consulta. Te responderemos pronto.', $6,
+             now() + CASE extract(isodow FROM now()) WHEN 5 THEN interval '3 days' WHEN 6 THEN interval '2 days' ELSE interval '1 day' END)
+     RETURNING *`,
+    [p.id, ctx.u.usuarioId, b.asunto!.trim(), b.categoria, b.descripcion!.trim(), b.piezaId ?? null],
+  );
+  const t = rows[0];
+  await emitirOutbox(ctx, "ticket.creado", p.id, { ticketId: t.id, numero: Number(t.numero), categoria: t.categoria, asunto: t.asunto, descripcion: t.descripcion, usuarioId: ctx.u.usuarioId });
+  return { __status: 201, ...ticketVista(t) };
+});
+
+ruta("GET", "/tickets/:id", async (ctx, p) => {
+  const t = await buscarTicket(ctx, p.id);
+  const { rows } = await ctx.c.query<{ id: string; autor_nombre: string; tipo: S<"TipoUsuario"> | null; texto: string; interno: boolean; creado_en: Date }>(
+    `SELECT m.id, m.autor_nombre, u.tipo, m.texto, m.interno, m.creado_en FROM ticket_mensaje m LEFT JOIN usuario u ON u.id = m.autor_id
+     WHERE m.ticket_id = $1 ${ctx.esEquipo ? "" : "AND NOT m.interno"} ORDER BY m.creado_en, m.id`,
+    [t.id],
+  );
+  const mensajes = rows.map((m) => ({ id: m.id, autorNombre: m.autor_nombre, autorTipo: m.tipo ?? "EQUIPO", texto: m.texto, ...(ctx.esEquipo ? { interno: m.interno } : {}), creadoEn: iso(m.creado_en)! }));
+  return { ...ticketVista(t), descripcion: t.descripcion, mensajes } satisfies S<"TicketDetalle">;
+});
+
+ruta("POST", "/tickets/:id/mensajes", async (ctx, p, _q, cuerpo) => {
+  const t = await buscarTicket(ctx, p.id);
+  const b = (await cuerpo()) as { texto?: string; interno?: boolean };
+  if (!b.texto?.trim()) throw new ErrorApi(422, "VALIDACION", "Escribe un mensaje", undefined, [{ campo: "texto", mensaje: "Escribe un mensaje" }]);
+  if (t.estado === "CERRADO") throw new ErrorApi(409, "TRANSICION_INVALIDA", "El ticket está cerrado", "Abre un ticket nuevo y menciona este número.");
+  const interno = ctx.esEquipo && !!b.interno;
+  const { rows } = await ctx.c.query<{ id: string; creado_en: Date }>(
+    "INSERT INTO ticket_mensaje (ticket_id, autor_id, autor_nombre, texto, interno) VALUES ($1, $2, $3, $4, $5) RETURNING id, creado_en",
+    [t.id, ctx.u.usuarioId, ctx.u.nombre, b.texto.trim(), interno],
+  );
+  if (ctx.esEquipo && !interno) {
+    await ctx.c.query("UPDATE ticket SET primera_respuesta_en = coalesce(primera_respuesta_en, now()), actualizado_en = now() WHERE id = $1", [t.id]);
+  } else {
+    await ctx.c.query("UPDATE ticket SET actualizado_en = now() WHERE id = $1", [t.id]);
+  }
+  if (!ctx.esEquipo) await emitirOutbox(ctx, "ticket.mensaje_cliente", t.cliente_id, { ticketId: t.id, numero: Number(t.numero), usuarioId: ctx.u.usuarioId });
+  return { __status: 201, id: rows[0].id, autorNombre: ctx.u.nombre, autorTipo: ctx.u.tipo, texto: b.texto.trim(), interno, creadoEn: iso(rows[0].creado_en) };
+});
+
+ruta("PATCH", "/tickets/:id", async (ctx, p, _q, cuerpo) => {
+  const t = await buscarTicket(ctx, p.id);
+  const b = (await cuerpo()) as { estado?: S<"EstadoTicket">; comentario?: string };
+  const estados: S<"EstadoTicket">[] = ["ABIERTO", "EN_PROCESO", "ESPERANDO_CLIENTE", "RESUELTO", "CERRADO"];
+  if (!b.estado || !estados.includes(b.estado)) throw new ErrorApi(422, "VALIDACION", "Indica el nuevo estado", undefined, [{ campo: "estado", mensaje: "Estado inválido" }]);
+  if (!ctx.esEquipo) {
+    // El cliente solo cierra, o reabre un ticket resuelto dentro de 7 días.
+    const reabrir = b.estado === "ABIERTO" && t.estado === "RESUELTO";
+    const cerrar = b.estado === "CERRADO" && t.estado !== "CERRADO";
+    if (!reabrir && !cerrar) throw new ErrorApi(409, "TRANSICION_INVALIDA", "Solo puedes cerrar el ticket o reabrirlo si ya estaba resuelto");
+    const resuelto = t.resuelto_en ?? t.actualizado_en;
+    if (reabrir && Date.now() - new Date(resuelto).getTime() > 7 * 86_400_000) throw new ErrorApi(409, "PLAZO_VENCIDO", "Pasaron más de 7 días desde que se resolvió", "Abre un ticket nuevo y menciona este número.");
+  }
+  const resumen = b.estado === "CERRADO" ? "Ticket cerrado." : b.estado === "ABIERTO" ? "Reabriste el ticket. Te responderemos pronto." : b.estado === "RESUELTO" ? "Resolvimos tu solicitud." : t.resumen_estado;
+  const { rows } = await ctx.c.query<FilaTicket>(
+    `UPDATE ticket SET estado = $2::estado_ticket, resumen_estado = $3, actualizado_en = now(),
+            resuelto_en = CASE $2::estado_ticket WHEN 'RESUELTO' THEN now() WHEN 'ABIERTO' THEN NULL ELSE resuelto_en END
+     WHERE id = $1 RETURNING *`,
+    [t.id, b.estado, resumen],
+  );
+  const comentario = b.comentario?.trim() || null;
+  if (comentario) await ctx.c.query("INSERT INTO ticket_mensaje (ticket_id, autor_id, autor_nombre, texto) VALUES ($1, $2, $3, $4)", [t.id, ctx.u.usuarioId, ctx.u.nombre, comentario]);
+  await emitirOutbox(ctx, "ticket.estado_cambiado", t.cliente_id, { ticketId: t.id, numero: Number(t.numero), deEstado: t.estado, estado: b.estado, usuarioId: ctx.u.usuarioId, comentario });
+  return ticketVista(rows[0]);
 });
 
 // ───────────────────────────────────────────── despachador

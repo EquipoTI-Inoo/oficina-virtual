@@ -13,7 +13,7 @@ import { manejarSolicitudDb } from "../../src/servidor/api";
 import { comoUsuario, desdePglite, usarBaseDatos } from "../../src/servidor/db";
 import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
-import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
+import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
 
 const sql = (ruta: string) => readFileSync(new URL(`../../../../database/${ruta}`, import.meta.url), "utf8");
 const db = new PGlite({ extensions: { pgcrypto, citext } });
@@ -141,5 +141,93 @@ describe("despachador del outbox", () => {
     assert.deepEqual(rows[0], { intentos: 1, ultimo_error: "HTTP 503" });
     // Recién creado y con un intento fallido: todavía no toca reintentar (espera 30 s).
     assert.deepEqual(await despacharPendientes(base(), { destino: "http://n8n/webhook", secreto: "s", fetch: caido }), { entregados: 0, fallidos: 0 });
+  });
+});
+
+describe("clientes, tickets y notificaciones · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const T1042 = uid(8, 1042);
+  const T1041 = uid(8, 1041);
+  const T1038 = uid(8, 1038);
+
+  test("clientes: el cliente solo ve su cuenta y no los datos internos", async () => {
+    await reiniciar();
+    const lista = await llamar("GET", "/clientes", VALERIA);
+    assert.deepEqual(lista.json.datos.map((c: any) => c.id), [CASA_OLIVA]);
+    const ficha = await llamar("GET", `/clientes/${CASA_OLIVA}`, VALERIA);
+    assert.equal(ficha.status, 200);
+    assert.equal(ficha.json.plan.nombre, "Plan Crecimiento");
+    assert.equal(ficha.json.conteos.serviciosActivos, 3);
+    assert.equal(ficha.json.accountManager.nombre, "Diego Castro");
+    assert.equal(ficha.json.driveUrl, undefined);
+    assert.equal((await llamar("GET", `/clientes/${NATIVA}`, VALERIA)).status, 404);
+    const equipo = await llamar("GET", `/clientes/${CASA_OLIVA}`, DIEGO);
+    assert.equal(typeof equipo.json.limiteGastoIaUsd, "number");
+  });
+
+  test("tickets: lista con conteos y filtros", async () => {
+    await reiniciar();
+    const r = await llamar("GET", `/clientes/${CASA_OLIVA}/tickets?grupo=ABIERTOS`, VALERIA);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.datos.map((t: any) => t.codigo), ["#1042", "#1041"]);
+    assert.deepEqual(r.json.conteos, { todos: 3, abiertos: 2, resueltos: 1 });
+    const q = await llamar("GET", `/clientes/${CASA_OLIVA}/tickets?q=%231038`, VALERIA);
+    assert.deepEqual(q.json.datos.map((t: any) => t.numero), [1038]);
+  });
+
+  test("tickets: crear valida, numera, fija el SLA y deja el evento para n8n", async () => {
+    await reiniciar();
+    const malo = await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "x" });
+    assert.equal(malo.status, 422);
+    assert.deepEqual(malo.json.errores.map((e: any) => e.campo), ["asunto", "categoria", "descripcion"]);
+    const r = await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Cambiar logo del sitio", categoria: "WEB", descripcion: "El logo del header es el antiguo." });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.numero, 1043);
+    assert.equal(r.json.estado, "ABIERTO");
+    assert.ok(Date.parse(r.json.slaPrimeraRespuestaEn) > Date.parse(r.json.creadoEn));
+    const { rows } = await db.query<{ tipo: string; payload: any }>("SELECT tipo, payload FROM outbox_evento ORDER BY id DESC LIMIT 1");
+    assert.equal(rows[0].tipo, "ticket.creado");
+    assert.equal(rows[0].payload.numero, 1043);
+  });
+
+  test("tickets: otro cliente recibe 404 (RLS) y no ve mensajes internos", async () => {
+    await reiniciar();
+    await db.exec(`INSERT INTO usuario (id, email, nombre, tipo) VALUES ('${uid(1, 50)}', 'ana@nativa.pe', 'Ana', 'CLIENTE');
+      INSERT INTO miembro_cliente (cliente_id, usuario_id, rol) VALUES ('${NATIVA}', '${uid(1, 50)}', 'ADMIN_CLIENTE');`);
+    assert.equal((await llamar("GET", `/tickets/${T1042}`, `demo.${uid(1, 50)}`)).status, 404);
+    assert.equal((await llamar("POST", `/tickets/${T1042}/mensajes`, DIEGO, { texto: "Nota para el equipo", interno: true })).status, 201);
+    assert.equal((await llamar("POST", `/tickets/${T1042}/mensajes`, DIEGO, { texto: "Ya movimos el presupuesto." })).status, 201);
+    const cliente = await llamar("GET", `/tickets/${T1042}`, VALERIA);
+    assert.deepEqual(cliente.json.mensajes.map((m: any) => m.texto), ["Ya movimos el presupuesto."]);
+    assert.ok(cliente.json.primeraRespuestaEn, "la primera respuesta pública cuenta para el SLA");
+    const equipo = await llamar("GET", `/tickets/${T1042}`, DIEGO);
+    assert.equal(equipo.json.mensajes.length, 2);
+  });
+
+  test("tickets: el cliente cierra, reabre dentro de 7 días y no reabre vencidos", async () => {
+    await reiniciar();
+    assert.equal((await llamar("PATCH", `/tickets/${T1041}`, VALERIA, { estado: "EN_PROCESO" })).status, 409);
+    const vencido = await llamar("PATCH", `/tickets/${T1038}`, VALERIA, { estado: "ABIERTO" });
+    assert.equal(vencido.json.codigo, "PLAZO_VENCIDO");
+    assert.equal((await llamar("PATCH", `/tickets/${T1041}`, DIEGO, { estado: "RESUELTO" })).json.estado, "RESUELTO");
+    const reabierto = await llamar("PATCH", `/tickets/${T1041}`, VALERIA, { estado: "ABIERTO", comentario: "Sigue sin el número de OC" });
+    assert.equal(reabierto.status, 200);
+    assert.equal(reabierto.json.resueltoEn, null);
+    const cerrado = await llamar("PATCH", `/tickets/${T1041}`, VALERIA, { estado: "CERRADO" });
+    assert.equal(cerrado.json.estado, "CERRADO");
+    assert.equal((await llamar("POST", `/tickets/${T1041}/mensajes`, VALERIA, { texto: "hola" })).status, 409);
+  });
+
+  test("notificaciones: solo las propias y se marcan como leídas", async () => {
+    await reiniciar();
+    await db.exec(`INSERT INTO notificacion (usuario_id, cliente_id, tipo, titulo, enlace) VALUES
+      ('${uid(1, 1)}', '${CASA_OLIVA}', 'PIEZAS_LISTAS', 'Tienes contenido nuevo', '/entregables'),
+      ('${uid(1, 2)}', '${CASA_OLIVA}', 'PIEZAS_LISTAS', 'Para Martín', '/entregables');`);
+    const r = await llamar("GET", "/me/notificaciones", VALERIA);
+    assert.deepEqual(r.json.datos.map((n: any) => [n.titulo, n.leida]), [["Tienes contenido nuevo", false]]);
+    assert.equal((await llamar("GET", "/me", VALERIA)).json.notificacionesSinLeer, 1);
+    assert.equal((await llamar("POST", "/me/notificaciones/leer", VALERIA, {})).status, 204);
+    assert.equal((await llamar("GET", "/me", VALERIA)).json.notificacionesSinLeer, 0);
+    assert.equal((await llamar("GET", "/me", MARTIN_LECTOR)).json.notificacionesSinLeer, 1);
   });
 });
