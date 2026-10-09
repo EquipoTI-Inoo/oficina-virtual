@@ -40,7 +40,14 @@ interface Estado {
   piezas: D.PiezaDemo[];
   comentarios: (typeof D.COMENTARIOS_INICIALES)[number][];
   ideas: { id: string; titulo: string; palabraClave: string; angulo: string; estado: "PROPUESTA" | "ELEGIDA" | "DESCARTADA" }[];
-  tickets: ((typeof D.TICKETS_INICIALES)[number] & { mensajes?: { autor: string; texto: string; creadoEn: string }[] })[];
+  tickets: ((typeof D.TICKETS_INICIALES)[number] & {
+    mensajes?: { autor: string; texto: string; creadoEn: string }[];
+    urgencia?: S<"UrgenciaTicket"> | null;
+    urgenciaJustificacion?: string | null;
+    areaAsignada?: string | null;
+    asignadoNombre?: string | null;
+    inooworkRef?: string | null;
+  })[];
   brief: {
     periodo: string;
     estado: "BORRADOR" | "ENVIADO" | "CONFIRMADO";
@@ -406,9 +413,9 @@ function ticketVista(t: Estado["tickets"][number]): S<"Ticket"> {
     categoria: t.categoria as S<"CategoriaTicket">,
     estado: t.estado as S<"EstadoTicket">,
     resumenEstado: t.resumenEstado,
-    urgencia: null,
-    areaAsignada: null,
-    asignadoNombre: t.estado === "EN_PROCESO" ? "Diego Castro" : null,
+    urgencia: t.urgencia ?? null,
+    areaAsignada: t.areaAsignada ?? null,
+    asignadoNombre: t.asignadoNombre ?? (t.estado === "EN_PROCESO" ? "Diego Castro" : null),
     piezaId: null,
     slaPrimeraRespuestaEn: new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(),
     primeraRespuestaEn: null,
@@ -1694,6 +1701,11 @@ function aplicarSincronizacion(b: Partial<S<"SincronizacionInooWork">>) {
     if (!t) continue;
     const de = t.estado;
     t.estado = tk.estado;
+    if (tk.urgencia) t.urgencia = tk.urgencia;
+    if (tk.urgenciaJustificacion) t.urgenciaJustificacion = tk.urgenciaJustificacion;
+    if (tk.areaAsignada) t.areaAsignada = tk.areaAsignada;
+    if (tk.asignadoNombre) t.asignadoNombre = tk.asignadoNombre;
+    if (tk.inooworkRef) t.inooworkRef = tk.inooworkRef;
     if (tk.asignadoNombre) t.resumenEstado = tk.estado === "RESUELTO" ? "Resolvimos tu solicitud." : `${tk.asignadoNombre} está revisando tu solicitud.`;
     for (const m of (tk.mensajes ?? []).filter((x) => !x.interno)) {
       if (!(t.mensajes ?? []).some((x) => x.creadoEn === m.creadoEn && x.texto === m.texto)) (t.mensajes ??= []).push({ autor: m.autorNombre, texto: m.texto, creadoEn: m.creadoEn });

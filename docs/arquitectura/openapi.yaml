@@ -2824,6 +2824,8 @@ components:
               inooworkRef: { type: string }
               estado: { $ref: '#/components/schemas/EstadoTicket' }
               areaAsignada: { type: string }
+              urgencia: { $ref: '#/components/schemas/UrgenciaTicket' }
+              urgenciaJustificacion: { type: string, description: "Por qué el agente de triaje eligió esa urgencia (solo equipo)" }
               asignadoNombre: { type: string }
               mensajes:
                 type: array

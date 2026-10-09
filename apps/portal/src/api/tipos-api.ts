@@ -1113,7 +1113,7 @@ export interface webhooks {
         get?: never;
         put?: never;
         /**
-         * Eventos que la API envía a n8n (outbox). Firma HMAC-SHA256 del cuerpo en `X-Inoo-Firma`.
+         * Eventos que la API envía a n8n (outbox). Firma HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>` en `X-Inoo-Firma`.
          * @description Entrega al menos una vez, en orden por `id`; el consumidor debe deduplicar por `id`.
          *     Reintentos con backoff exponencial hasta 24 h.
          */
@@ -2285,6 +2285,9 @@ export interface components {
                 inooworkRef?: string;
                 estado: components["schemas"]["EstadoTicket"];
                 areaAsignada?: string;
+                urgencia?: components["schemas"]["UrgenciaTicket"];
+                /** @description Por qué el agente de triaje eligió esa urgencia (solo equipo) */
+                urgenciaJustificacion?: string;
                 asignadoNombre?: string;
                 mensajes?: {
                     /** @description Para deduplicar */

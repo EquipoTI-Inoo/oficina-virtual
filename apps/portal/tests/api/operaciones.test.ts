@@ -297,7 +297,7 @@ describe("InooWork", () => {
       { id: "1", name: "Planificación de noviembre", status: "Completado", assigneeName: "Diego Castro" },
       { id: "2", name: "Aprobar guiones", status: "En Revisión", grupo: "Cliente", dueDate: "2026-11-05" },
     ] }],
-    tickets: [{ ticketId: uid(8, 1041), estado: "RESUELTO", asignadoNombre: "Ana Ruiz", mensajes: [
+    tickets: [{ ticketId: uid(8, 1041), estado: "RESUELTO", asignadoNombre: "Ana Ruiz", urgencia: "ALTA", areaAsignada: "FACTURACION", mensajes: [
       { autorNombre: "Ana Ruiz", texto: "Corregimos la factura.", creadoEn: "2026-10-06T16:00:00Z" },
       { autorNombre: "Ana Ruiz", texto: "Nota interna: revisar ERP", interno: true, creadoEn: "2026-10-06T16:01:00Z" },
     ] }],
@@ -311,6 +311,7 @@ describe("InooWork", () => {
     assert.equal(av.hitos[1].esperaCliente, true);
     const t = (await llamar("GET", `/tickets/${uid(8, 1041)}`, VALERIA)).json;
     assert.equal(t.estado, "RESUELTO");
+    assert.deepEqual([t.urgencia, t.areaAsignada, t.asignadoNombre], ["ALTA", "FACTURACION", "Ana Ruiz"]);
     assert.deepEqual(t.mensajes.map((m: any) => m.texto), ["Corregimos la factura."]);
     const correos = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json.recientes;
     assert.equal(correos[0].evento, "ticket.resuelto");
