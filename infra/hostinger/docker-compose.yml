@@ -25,6 +25,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - ../../database/migraciones/0001_esquema.sql:/docker-entrypoint-initdb.d/01_esquema.sql:ro
+      - ../../database/migraciones/0002_rol_app.sql:/docker-entrypoint-initdb.d/01b_rol_app.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

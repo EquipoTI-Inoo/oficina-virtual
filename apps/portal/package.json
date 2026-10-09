@@ -15,17 +15,22 @@
     "test:visual:actualizar": "playwright test e2e/visual.spec.ts --update-snapshots",
     "vista-previa": "node scripts/construir-vista-previa.mjs",
     "mock": "tsx scripts/servidor-mock.ts",
-    "db:semillas": "tsx scripts/generar-semillas.ts"
+    "db:semillas": "tsx scripts/generar-semillas.ts",
+    "outbox": "tsx scripts/despachar-outbox.ts"
   },
   "dependencies": {
+    "jose": "^6.2.12",
     "next": "^15.5.4",
+    "pg": "^8.23.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.6.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@playwright/test": "^1.55.0",
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "esbuild": "^0.25.0",

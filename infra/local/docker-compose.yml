@@ -20,6 +20,7 @@ services:
     ports: ["${PUERTO_POSTGRES:-5432}:5432"]
     volumes:
       - ../../database/migraciones/0001_esquema.sql:/docker-entrypoint-initdb.d/01_esquema.sql:ro
+      - ../../database/migraciones/0002_rol_app.sql:/docker-entrypoint-initdb.d/01b_rol_app.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - datos-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -31,6 +32,7 @@ services:
     build: ../../apps/portal
     environment:
       API_MODO: ${API_MODO:-mock}
+      DATABASE_URL: postgres://${POSTGRES_USER:-inoo}:${POSTGRES_PASSWORD:-inoo}@postgres:5432/${POSTGRES_DB:-oficina_virtual}
       API_URL_BACKEND: http://prism:4010
       PERMITIR_MOCK: "true"
       MOCK_LATENCIA_MS: ${MOCK_LATENCIA_MS:-0}

@@ -3,6 +3,8 @@ const config = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+  // pg carga módulos nativos opcionales: se usa desde node_modules en lugar de empaquetarlo.
+  serverExternalPackages: ["pg"],
   async headers() {
     return [
       {

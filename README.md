@@ -55,4 +55,6 @@ prompts/ integrations/ templates/   según el PRD
 Hecho: portal con las 16 pantallas de Figma y 4 sin diseño, API simulada con todas las operaciones del
 contrato (incluidas `/integraciones/*` para n8n y el outbox de eventos), pruebas de contrato (45), de interfaz
 y visuales, semillas SQL, Docker local y Fase 1.
-Pendiente: backend real de `/api/v1` sobre Postgres, Cognito, S3, workflows de n8n, integración InooWork.
+Backend real (`API_MODO=db`, primer corte): flujo de entregables sobre Postgres con RLS, `cambiar_estado_pieza()`,
+idempotencia, verificación de JWT de Cognito y despachador del outbox hacia n8n (`docs/configuracion.md` §5).
+Pendiente: el resto de rutas en el backend, S3 real, API keys de integraciones, despliegue en AWS e InooWork.

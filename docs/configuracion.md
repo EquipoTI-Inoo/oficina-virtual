@@ -90,18 +90,39 @@ distintas a las de Figma).
 **Antes de conectar InooWork (INO-00):** desplegar el parche de seguridad en `intranet.inoo.pe`,
 cambiar la contraseña de admin expuesta en el historial y usar la API key solo por header `x-api-key`.
 
-## 5. Pasar del entorno de pruebas al backend real
+## 5. Backend real (`API_MODO=db`)
 
-El frontend solo conoce el contrato. Para usar un backend real basta con:
+El backend vive dentro del portal (`src/servidor/`, decisión 1 de la arquitectura) y usa el mismo
+Postgres del esquema. Las reglas no se duplican en TypeScript: los cambios de estado pasan por
+`cambiar_estado_pieza()`, la visibilidad la garantiza RLS (cada transacción corre como el rol
+`app_portal` con `app.usuario_tipo` y `app.cliente_ids`) y cada cambio deja su evento en `outbox_evento`.
 
-1. Implementar `/api/v1` según `docs/arquitectura/openapi.yaml` (las pruebas de `tests/api` describen
-   las reglas que debe cumplir y pueden adaptarse para correr contra el backend).
-2. Desplegar el portal con `API_MODO=proxy` y `API_URL_BACKEND=<url del backend>`, o mover las rutas
-   reales dentro de `app/api/v1` (decisión 1 de la arquitectura).
-3. Reemplazar el ingreso de prueba (`POST /api/v1/__pruebas/ingresar`, token `demo.<id>`) por Cognito.
-   Está aislado en `PantallaIngreso` y en `src/base.tsx` (`api()` envía `Authorization: Bearer`).
-4. Reemplazar las URLs de subida simuladas por URLs prefirmadas de S3 (el flujo ya es el del contrato:
-   `POST /archivos` → `PUT` directo → `POST /archivos/{id}/confirmar`).
+**Estado del primer corte.** Implementado contra la base: `GET /me`, `GET /clientes/{id}/piezas`,
+`GET /piezas/{id}`, `GET /piezas/{id}/versiones`, `GET /piezas/{id}/historial`,
+`GET|POST /piezas/{id}/comentarios`, `POST /piezas/{id}/aprobar`, `POST /piezas/{id}/solicitar-cambios`,
+`POST /piezas/{id}/transiciones`, con `Idempotency-Key` guardada en la tabla `idempotencia`. El resto del
+contrato responde `501 RUTA_NO_IMPLEMENTADA`; mientras tanto el portal completo sigue funcionando con
+`API_MODO=mock`. Para migrar una ruta: copiarla de `src/mock/api.ts` a `src/servidor/api.ts` con SQL y
+moverla a `tests/api/flujo-piezas.ts` (o a una suite compartida nueva) para que corra contra las dos.
+
+| Variable | Valores | Efecto |
+|---|---|---|
+| `DATABASE_URL` | URL de Postgres | Base con `database/migraciones/0001` y `0002` aplicadas |
+| `AUTH_MODO` | `demo`, `cognito` | `demo`: token `demo.<usuario_id>` (bloqueado en producción salvo `PERMITIR_AUTH_DEMO=true`). `cognito`: JWT de los dos pools, verificado con su JWKS |
+| `COGNITO_REGION`, `COGNITO_POOL_EQUIPO`, `COGNITO_POOL_CLIENTES`, `COGNITO_CLIENT_IDS` | | Pools y apps de Cognito; el `sub` se busca en `usuario.cognito_sub` |
+| `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRETO` | | Destino y secreto del despachador del outbox (`npm run outbox`) |
+
+**Despachador del outbox.** `npm run outbox` entrega a n8n los eventos pendientes, en orden y firmados
+(`X-Inoo-Firma` = HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>`), con reintentos exponenciales hasta 24 h.
+Si un evento falla, los siguientes esperan. Correrlo como segundo proceso del contenedor del portal o como tarea programada.
+
+**Pruebas.** `npm run test:api` corre el flujo de piezas contra la API simulada y contra Postgres 16 en
+proceso (PGlite, sin Docker), con RLS activo, y prueba el despachador. En CI, el job `base-de-datos` además
+aplica las migraciones en un Postgres real.
+
+**Pendiente para producción:** migrar el resto de las rutas, URLs prefirmadas de S3 en
+`POST /clientes/{id}/archivos`, API keys de `/integraciones/*` contra la tabla `api_key` (hash + scopes)
+y el ingreso con Cognito en `PantallaIngreso` (hoy `POST /api/v1/__pruebas/ingresar`).
 
 ## 6. Seguridad del repositorio
 
