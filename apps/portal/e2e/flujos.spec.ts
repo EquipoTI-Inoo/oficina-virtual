@@ -8,10 +8,11 @@ test("ingreso: rechaza la clave incorrecta y entra con la correcta", async ({ pa
   await page.fill("#email", "valeria@casaoliva.pe");
   await page.fill("#clave", "mala");
   await page.click("text=Ingresar al portal");
-  await expect(page.getByRole("alert")).toHaveText("Correo o contraseña incorrectos");
+  await expect(page.getByRole("alert").filter({ hasText: "Correo o contraseña incorrectos" })).toBeVisible();
   await page.fill("#clave", "demo1234");
   await page.click("text=Ingresar al portal");
-  await expect(page.getByRole("heading", { name: /Hola, Valeria/ })).toBeVisible();
+  // La primera visita a /inicio compila la ruta en `next dev`: puede tardar más que el timeout por defecto.
+  await expect(page.getByRole("heading", { name: /Hola, Valeria/ })).toBeVisible({ timeout: 20_000 });
 });
 
 test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {

@@ -69,10 +69,17 @@ function estadoInicial(): Estado {
   };
 }
 
-let E: Estado = estadoInicial();
+// El estado vive en globalThis: `next dev` vuelve a evaluar este módulo al compilar rutas nuevas y,
+// con un `let` de módulo, cada recompilación devolvía los datos de Figma a mitad de una prueba.
+const G = globalThis as { __inooMockEstado?: Estado };
+G.__inooMockEstado ??= estadoInicial();
+const E = new Proxy({} as Estado, {
+  get: (_o, k) => Reflect.get(G.__inooMockEstado!, k),
+  set: (_o, k, v) => Reflect.set(G.__inooMockEstado!, k, v),
+});
 
 export function reiniciarMock() {
-  E = estadoInicial();
+  G.__inooMockEstado = estadoInicial();
 }
 
 // ───────────────────────────────────────────── utilidades

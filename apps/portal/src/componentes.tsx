@@ -258,7 +258,7 @@ function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente
             <Enlace key={n.a} a={n.a} className="nav-item" aria-current={activo ? "page" : undefined}>
               {n.icono}
               <span>{n.texto}</span>
-              {"contador" in n && n.contador && porAprobar > 0 && <span className="nav-contador">{porAprobar}</span>}
+              {"contador" in n && n.contador === true && porAprobar > 0 && <span className="nav-contador">{porAprobar}</span>}
             </Enlace>
           );
         })}

@@ -110,7 +110,7 @@ function Soporte() {
                     <td>
                       <EtiquetaEstado estado={t.estado} mapa={ESTADO_TICKET} />
                     </td>
-                    <td className="texto-muted" style={{ fontSize: 12 }}>{fCorta(t.actualizadoEn)}</td>
+                    <td className="texto-muted" style={{ fontSize: 12 }}>{t.actualizadoEn ? fCorta(t.actualizadoEn) : "—"}</td>
                     <td>
                       <LuChevronRight size={16} />
                     </td>

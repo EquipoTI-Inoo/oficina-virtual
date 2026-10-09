@@ -16,7 +16,7 @@ export default defineConfig({
   use: { baseURL, trace: "retain-on-failure", locale: "es-PE", timezoneId: "America/Lima" },
   expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.02, animations: "disabled" } },
   projects: [
-    { name: "escritorio", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } } },
+    { name: "escritorio", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } }, testIgnore: /movil\.spec\.ts/ },
     { name: "movil", use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } }, testMatch: /movil\.spec\.ts/ },
   ],
   webServer: process.env.BASE_URL
