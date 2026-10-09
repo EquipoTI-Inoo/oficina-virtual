@@ -3,9 +3,8 @@
  * No necesitan servidor: llaman directo a manejarSolicitud(). Ejecutar: npm run test:api
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { beforeEach, describe, test } from "node:test";
-import { manejarSolicitud, reiniciarMock, RUTAS_IMPLEMENTADAS } from "../../src/mock/api";
+import { manejarSolicitud, reiniciarMock } from "../../src/mock/api";
 import { uid } from "../../src/mock/datos";
 
 const VALERIA = `demo.${uid(1, 1)}`;
@@ -184,11 +183,4 @@ describe("panel interno", () => {
   });
 });
 
-test("toda ruta implementada existe en openapi.yaml", () => {
-  const yaml = readFileSync(new URL("../../../../docs/arquitectura/openapi.yaml", import.meta.url), "utf8");
-  const caminos = new Set([...yaml.matchAll(/^  (\/[^:]+):$/gm)].map((m) => m[1].replace(/\{\w+\}/g, "{}")));
-  const faltan = RUTAS_IMPLEMENTADAS.filter((r) => !r.includes("/__pruebas"))
-    .map((r) => r.split(" ")[1].replace(/\{\w+\}/g, "{}"))
-    .filter((c) => !caminos.has(c));
-  assert.deepEqual(faltan, []);
-});
+// La cobertura del contrato (método + ruta, en ambos sentidos) se prueba en operaciones.test.ts.

@@ -64,6 +64,9 @@ export interface ClienteDemo {
   gastoIaUsd: number;
   /** Para clientes sin piezas cargadas en el mock: valores fijos del panel general. */
   resumenFijo?: { atrasadas: number; porAprobar: number };
+  estado?: "ACTIVO" | "PAUSADO" | "BAJA";
+  creadoEn?: string;
+  accountManagerId?: string | null;
 }
 
 export const CLIENTES: ClienteDemo[] = [
@@ -154,6 +157,10 @@ export interface PiezaDemo {
   ideaSeleccionada?: boolean;
   diseno: DisenoMini;
   versiones: VersionDemo[];
+  /** Metadatos que edita el equipo (PATCH /piezas/{id}); por defecto se derivan del tipo y estado. */
+  etiquetas?: string[];
+  aptaPaidMedia?: boolean;
+  responsableId?: string | null;
 }
 
 const DIEGO = uid(1, 3);
@@ -384,4 +391,41 @@ export const ACTIVIDAD = [
   { fecha: "2026-10-05T15:30:00Z", usuarioNombre: "Diego Castro · Inoo", descripcion: "Actualizó «Tu ritual, tu momento» a la versión 2 con el nuevo tono de marca. Sin aprobación todavía.", etiqueta: "POR_REVISAR" },
   { fecha: "2026-09-30T21:42:00Z", usuarioNombre: "Valeria Mendoza", descripcion: "Aprobó la versión 1 de «Tu ritual, tu momento». No aplica a la versión actual.", etiqueta: "APROBADA" },
   { fecha: "2026-09-29T14:00:00Z", usuarioNombre: "Diego Castro · Inoo", descripcion: "Creó la versión 1 de «Tu ritual, tu momento».", etiqueta: "VERSION_ANTERIOR", sinHora: true },
+];
+
+/** Biblioteca del cliente (fotos y videos que ya firmaron derechos), para paid media y agentes. */
+export const BIBLIOTECA_INICIAL = [
+  { id: uid(10, 11), clienteId: uid(2, 1), nombre: "Serum_bodegon_olivo.jpg", mime: "image/jpeg", bytes: 3_145_728, categoria: "Producto", etiquetas: ["serum", "bodegón"], estado: "DISPONIBLE" as const, creadoEn: "2026-09-12T15:00:00Z" },
+  { id: uid(10, 12), clienteId: uid(2, 1), nombre: "Ritual_manos_luz_natural.jpg", mime: "image/jpeg", bytes: 2_831_155, categoria: "Lifestyle", etiquetas: ["ritual", "manos"], estado: "DISPONIBLE" as const, creadoEn: "2026-09-12T15:05:00Z" },
+];
+
+/** Correos automáticos (SES en producción; Mailpit en local). */
+export const CORREOS_INICIALES = [
+  { id: uid(17, 1), para: "valeria@casaoliva.pe", asunto: "Tienes 4 piezas listas para revisión", evento: "pieza.lista_revision", estado: "ENVIADO" as const, enviadoEn: "2026-10-05T15:31:00Z", creadoEn: "2026-10-05T15:30:30Z" },
+  { id: uid(17, 2), para: "valeria@casaoliva.pe", asunto: "Recibimos tu ticket #1041", evento: "ticket.creado", estado: "ENVIADO" as const, enviadoEn: "2026-10-05T18:00:40Z", creadoEn: "2026-10-05T18:00:10Z" },
+  { id: uid(17, 3), para: "valeria@casaoliva.pe", asunto: "Ticket #1038 resuelto", evento: "ticket.resuelto", estado: "ENVIADO" as const, enviadoEn: "2026-10-02T17:01:00Z", creadoEn: "2026-10-02T17:00:20Z" },
+];
+
+/** Ejecuciones de agentes de octubre (n8n). Sus consumos suman el gasto de IA que muestra el panel. */
+export const EJECUCIONES_INICIALES = [
+  {
+    id: uid(18, 1), clienteId: uid(2, 1), clienteNombre: "Casa Oliva", agente: "marketing-jefe", estado: "OK" as const, piezaId: null, costoUsd: 6.4, error: null,
+    n8nExecutionUrl: null, iniciadoEn: "2026-10-01T14:00:00Z", finalizadoEn: "2026-10-01T14:06:00Z", n8nExecutionId: "demo-1",
+    consumos: [{ modelo: "gemini-3.8-flash", tokensEntrada: 2_400_000, tokensSalida: 650_000, imagenes: 0, costoUsd: 4.24 }, { modelo: "gpt-6.1-sol", tokensEntrada: 480_000, tokensSalida: 120_000, imagenes: 0, costoUsd: 2.16 }],
+  },
+  {
+    id: uid(18, 2), clienteId: uid(2, 1), clienteNombre: "Casa Oliva", agente: "contenido-blog", estado: "OK" as const, piezaId: uid(5, 6), costoUsd: 14.6, error: null,
+    n8nExecutionUrl: null, iniciadoEn: "2026-10-03T13:00:00Z", finalizadoEn: "2026-10-03T13:18:00Z", n8nExecutionId: "demo-2",
+    consumos: [{ modelo: "gpt-6.1-sol", tokensEntrada: 3_100_000, tokensSalida: 760_000, imagenes: 0, costoUsd: 13.8 }, { modelo: "gpt-image-2", tokensEntrada: 0, tokensSalida: 0, imagenes: 6, costoUsd: 0.8 }],
+  },
+  {
+    id: uid(18, 3), clienteId: uid(2, 1), clienteNombre: "Casa Oliva", agente: "estaticos", estado: "OK" as const, piezaId: uid(5, 9), costoUsd: 27, error: null,
+    n8nExecutionUrl: null, iniciadoEn: "2026-10-04T16:00:00Z", finalizadoEn: "2026-10-04T16:12:00Z", n8nExecutionId: "demo-3",
+    consumos: [{ modelo: "gpt-image-2", tokensEntrada: 0, tokensSalida: 0, imagenes: 210, costoUsd: 25.2 }, { modelo: "gemini-3.8-flash", tokensEntrada: 1_400_000, tokensSalida: 200_000, imagenes: 0, costoUsd: 1.8 }],
+  },
+  {
+    id: uid(18, 4), clienteId: uid(2, 3), clienteNombre: "Luma Studio", agente: "contenido-copies", estado: "ERROR" as const, piezaId: null, costoUsd: 0.4, error: "Tiempo de espera agotado al llamar a gpt-6.1-sol",
+    n8nExecutionUrl: null, iniciadoEn: "2026-10-06T10:00:00Z", finalizadoEn: "2026-10-06T10:02:00Z", n8nExecutionId: "demo-4",
+    consumos: [{ modelo: "gpt-6.1-sol", tokensEntrada: 150_000, tokensSalida: 10_000, imagenes: 0, costoUsd: 0.4 }],
+  },
 ];

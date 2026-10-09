@@ -1622,7 +1622,7 @@ webhooks:
   eventoPlataforma:
     post:
       operationId: eventoPlataforma
-      summary: Eventos que la API envía a n8n (outbox). Firma HMAC-SHA256 del cuerpo en `X-Inoo-Firma`.
+      summary: Eventos que la API envía a n8n (outbox). Firma HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>` en `X-Inoo-Firma`.
       description: |
         Entrega al menos una vez, en orden por `id`; el consumidor debe deduplicar por `id`.
         Reintentos con backoff exponencial hasta 24 h.
@@ -1654,7 +1654,7 @@ components:
       type: apiKey
       in: header
       name: X-Inoo-Firma
-      description: "sha256=<hex HMAC del cuerpo con el secreto compartido>; junto con X-Inoo-Timestamp (rechazo si > 5 min)"
+      description: "sha256=<hex HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>` con el secreto compartido>. Firmar la marca de tiempo junto al cuerpo impide reenviar un cuerpo viejo con una marca nueva; rechazo si tiene más de 5 min"
 
   parameters:
     ClienteId: { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
