@@ -16,7 +16,8 @@
     "vista-previa": "node scripts/construir-vista-previa.mjs",
     "mock": "tsx scripts/servidor-mock.ts",
     "db:semillas": "tsx scripts/generar-semillas.ts",
-    "outbox": "tsx scripts/despachar-outbox.ts"
+    "outbox": "tsx scripts/despachar-outbox.ts",
+    "api-key": "tsx scripts/crear-api-key.ts"
   },
   "dependencies": {
     "jose": "^6.2.12",

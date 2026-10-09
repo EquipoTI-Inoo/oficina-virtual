@@ -6,7 +6,10 @@
  *   y el client id; el `sub` se busca en usuario.cognito_sub.
  * - AUTH_MODO=demo (desarrollo y pruebas): token `demo.<usuario_id>`, igual que la API simulada.
  *   Un build de producción lo rechaza salvo PERMITIR_AUTH_DEMO=true (solo contenedores de prueba).
+ * - Integraciones (n8n, InooWork): `X-Api-Key: <llave>`; se busca por prefijo en api_key, se compara
+ *   el sha256 y la petición actúa como el usuario SERVICIO de la llave, con sus scopes.
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Consultor, SesionDb } from "./db";
 import { ErrorApi } from "./errores";
@@ -17,6 +20,24 @@ export interface Usuario extends SesionDb {
   cargo: string | null;
   rolEquipo: string | null;
   roles: Record<string, "ADMIN_CLIENTE" | "APROBADOR" | "LECTOR">;
+  /** Solo llaves de integración. */
+  scopes?: string[];
+}
+
+async function autenticarLlave(llave: string, c: Consultor): Promise<Usuario> {
+  const { rows } = await c.query<{ id: string; hash: string; scopes: string[]; usuario_id: string | null; nombre: string; email: string; tipo: Usuario["tipo"] }>(
+    `SELECT k.id, k.hash, k.scopes, k.usuario_id, u.nombre, u.email::text, u.tipo
+     FROM api_key k JOIN usuario u ON u.id = k.usuario_id AND u.activo
+     WHERE k.prefijo = $1 AND k.activa`,
+    [llave.slice(0, 8)],
+  );
+  const k = rows[0];
+  const hash = createHash("sha256").update(llave).digest();
+  if (!k || k.tipo !== "SERVICIO" || !timingSafeEqual(hash, Buffer.from(k.hash, "hex"))) {
+    throw new ErrorApi(401, "NO_AUTENTICADO", "X-Api-Key inválida");
+  }
+  await c.query("UPDATE api_key SET ultimo_uso = now() WHERE id = $1", [k.id]);
+  return { usuarioId: k.usuario_id!, nombre: k.nombre, email: k.email, cargo: null, tipo: "SERVICIO", rolEquipo: null, clienteIds: [], roles: {}, scopes: k.scopes };
 }
 
 const modo = () => process.env.AUTH_MODO ?? "demo";
@@ -50,6 +71,8 @@ async function verificarCognito(token: string): Promise<JWTPayload> {
 }
 
 export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
+  const llave = req.headers.get("x-api-key");
+  if (llave) return autenticarLlave(llave, c);
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!token) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
 

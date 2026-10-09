@@ -6,7 +6,8 @@
  * GET /piezas/{id}/historial · GET|POST /piezas/{id}/comentarios · POST /piezas/{id}/aprobar ·
  * POST /piezas/{id}/solicitar-cambios · POST /piezas/{id}/transiciones · GET|POST /me/notificaciones(/leer) ·
  * GET /clientes · GET /clientes/{id} · GET|POST /clientes/{id}/tickets · GET|PATCH /tickets/{id} ·
- * POST /tickets/{id}/mensajes.
+ * POST /tickets/{id}/mensajes · POST /piezas/{id}/versiones · POST /integraciones/piezas(/{id}/versiones) ·
+ * POST /integraciones/ejecuciones (estas tres con X-Api-Key).
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -25,6 +26,7 @@ interface Ctx {
   u: Usuario;
   c: Consultor;
   esEquipo: boolean;
+  esServicio: boolean;
 }
 
 // ───────────────────────────────────────────── utilidades
@@ -320,7 +322,7 @@ ruta("POST", "/piezas/:id/comentarios", async (ctx, p, _q, cuerpo) => {
 
 /** Todas las transiciones pasan por cambiar_estado_pieza(): valida, audita y deja el evento en el outbox. */
 async function cambiarEstado(ctx: Ctx, pieza: FilaPieza, a: Estado, comentario: string | null, versionEsperada: number | null) {
-  const canal: S<"CanalDecision"> = ctx.esEquipo ? "PANEL" : "PORTAL";
+  const canal: S<"CanalDecision"> = ctx.esServicio ? "SISTEMA" : ctx.esEquipo ? "PANEL" : "PORTAL";
   await ctx.c.query("SELECT 1 FROM cambiar_estado_pieza($1, $2::estado_pieza, $3, $4::canal_decision, $5, $6)", [pieza.id, a, ctx.u.usuarioId, canal, comentario, versionEsperada]);
 }
 
@@ -589,6 +591,172 @@ ruta("PATCH", "/tickets/:id", async (ctx, p, _q, cuerpo) => {
   return ticketVista(rows[0]);
 });
 
+// ───────────────────────────────────────────── versiones e integraciones (n8n, X-Api-Key)
+
+function soloServicio(ctx: Ctx, scope: string) {
+  if (!ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Ruta solo para integraciones (X-Api-Key)");
+  if (!ctx.u.scopes?.includes(scope)) throw new ErrorApi(403, "SIN_PERMISO", `La llave no tiene el scope ${scope}`);
+}
+
+const validacion = (errores: { campo: string; mensaje: string }[]) => {
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+};
+const esUuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+
+/** Lleva la pieza a `a` con transiciones permitidas; si no hay una directa, prueba pasando por BORRADOR (el agente regenera). */
+async function llevarA(ctx: Ctx, pieza: FilaPieza, a: Estado, comentario: string | null) {
+  if (pieza.estado === a) return;
+  const existe = async (de: Estado, hacia: Estado) =>
+    (await ctx.c.query("SELECT 1 FROM transicion_pieza WHERE de_estado = $1 AND a_estado = $2 AND actor = $3", [de, hacia, ctx.u.tipo])).rows.length > 0;
+  const viaBorrador = !(await existe(pieza.estado, a)) && (await existe(pieza.estado, "BORRADOR")) && (await existe("BORRADOR", a));
+  try {
+    for (const paso of viaBorrador ? (["BORRADOR", a] as Estado[]) : [a]) await cambiarEstado(ctx, pieza, paso, comentario, null);
+  } catch (e) {
+    const t = traducirErrorDb(e);
+    if (t?.codigo === "TRANSICION_INVALIDA") t.titulo = `No se puede pasar de ${pieza.estado} a ${a}`;
+    throw t ?? e;
+  }
+  await ctx.c.query("UPDATE pieza SET nota_estado = $2 WHERE id = $1", [pieza.id, NOTA_ESTADO[a]]);
+}
+
+async function nuevaVersion(ctx: Ctx, pieza: FilaPieza, b: Partial<S<"VersionEntrada">>, autor: "AGENTE" | "PERSONA") {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!b.contenido || typeof b.contenido !== "object" || !("tipo" in b.contenido)) errores.push({ campo: "contenido", mensaje: "Incluye el contenido con su tipo" });
+  if (typeof b.enviarARevisionInterna !== "boolean") errores.push({ campo: "enviarARevisionInterna", mensaje: "Indica si la versión pasa a revisión interna" });
+  validacion(errores);
+  if (pieza.estado === "LISTO_REVISION") throw new ErrorApi(409, "PIEZA_EN_REVISION_CLIENTE", "El cliente está revisando esta pieza", "Retírala de revisión antes de subir otra versión.");
+  if (pieza.estado === "PUBLICADO") throw new ErrorApi(409, "PIEZA_PUBLICADA", "La pieza ya está publicada");
+  const numero = pieza.version_actual + 1;
+  const nota = b.notaCambios?.trim() || null;
+  await ctx.c.query(
+    `INSERT INTO version_pieza (pieza_id, numero, autor_tipo, autor_usuario_id, agente, contenido, fuentes, vista_previa_url, ejecucion_id, nota_cambios)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [pieza.id, numero, autor, autor === "PERSONA" ? ctx.u.usuarioId : null, autor === "AGENTE" ? b.agente ?? "agente" : null, JSON.stringify(b.contenido), JSON.stringify(b.fuentes ?? []), b.vistaPreviaUrl ?? null, b.ejecucionId ?? null, nota],
+  );
+  await ctx.c.query("UPDATE pieza SET version_actual = $2, actualizado_en = now() WHERE id = $1", [pieza.id, numero]);
+  if (nota) await ctx.c.query("INSERT INTO comentario_pieza (pieza_id, version, autor_id, texto, interno) VALUES ($1, $2, $3, $4, true)", [pieza.id, numero, ctx.u.usuarioId, nota]);
+  await llevarA(ctx, { ...pieza, version_actual: numero }, b.enviarARevisionInterna ? "EN_REVISION_INTERNA" : "BORRADOR", nota);
+  return numero;
+}
+
+async function versionCreada(ctx: Ctx, piezaId: string, numero: number) {
+  const pieza = await buscarPieza(ctx, piezaId);
+  const v = (await versiones(ctx, piezaId)).find((x) => x.numero === numero)!;
+  return { __status: 201, ...versionVista(ctx, pieza, v) };
+}
+
+ruta("POST", "/piezas/:id/versiones", async (ctx, p, _q, cuerpo) => {
+  if (!ctx.esEquipo || ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
+  const pieza = await buscarPieza(ctx, p.id);
+  return versionCreada(ctx, pieza.id, await nuevaVersion(ctx, pieza, await cuerpo(), "PERSONA"));
+});
+
+ruta("POST", "/integraciones/piezas/:id/versiones", async (ctx, p, _q, cuerpo) => {
+  soloServicio(ctx, "piezas:write");
+  const pieza = await buscarPieza(ctx, p.id);
+  return versionCreada(ctx, pieza.id, await nuevaVersion(ctx, pieza, await cuerpo(), "AGENTE"));
+});
+
+const categoriaDeTipo = (tipo: string) => (tipo === "BLOG" ? "BLOG" : ["ESTATICO", "CARRUSEL", "PORTADA"].includes(tipo) ? "ESTATICOS" : "REDES_SOCIALES");
+
+ruta("POST", "/integraciones/piezas", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "piezas:write");
+  const b = (await cuerpo()) as Partial<S<"PiezaEntradaAgente">>;
+  const cliente = esUuid(b.clienteId) ? (await ctx.c.query("SELECT id FROM cliente WHERE id = $1", [b.clienteId])).rows[0] : null;
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!cliente) errores.push({ campo: "clienteId", mensaje: "Cliente inexistente" });
+  if (!b.tipo) errores.push({ campo: "tipo", mensaje: "Indica el tipo de pieza" });
+  if (!b.titulo?.trim()) errores.push({ campo: "titulo", mensaje: "Indica el título" });
+  if (!b.periodo || !/^\d{4}-\d{2}$/.test(b.periodo)) errores.push({ campo: "periodo", mensaje: "Formato AAAA-MM" });
+  if (!b.version) errores.push({ campo: "version", mensaje: "Incluye la primera versión" });
+  validacion(errores);
+  if (b.piezaExistenteId) {
+    // Pieza ya creada desde la propuesta de calendario: el agente le agrega su versión.
+    const { rows } = await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.id = $1 AND p.cliente_id = $2`, [b.piezaExistenteId, b.clienteId]);
+    if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "La pieza indicada no existe para ese cliente");
+    await nuevaVersion(ctx, rows[0], b.version!, "AGENTE");
+    return { __status: 201, ...(await piezaCompleta(ctx, await buscarPieza(ctx, rows[0].id))) };
+  }
+  let servicioId = b.servicioContratadoId ?? null;
+  if (servicioId) {
+    const ok = esUuid(servicioId) && (await ctx.c.query("SELECT 1 FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [servicioId, b.clienteId])).rows.length > 0;
+    if (!ok) validacion([{ campo: "servicioContratadoId", mensaje: "No pertenece al cliente" }]);
+  } else {
+    const { rows } = await ctx.c.query<{ id: string }>(
+      `SELECT sc.id FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id
+       WHERE sc.cliente_id = $1 AND sc.estado = 'ACTIVO' ORDER BY (s.categoria::text = $2) DESC, sc.fecha_inicio LIMIT 1`,
+      [b.clienteId, categoriaDeTipo(b.tipo!)],
+    );
+    servicioId = rows[0]?.id ?? null;
+  }
+  const { rows } = await ctx.c.query<{ id: string }>(
+    `INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, canal, periodo, fecha_programada, nota_estado)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [b.clienteId, servicioId, b.calendarioId ?? null, b.tipo, b.titulo!.trim(), b.canal ?? (b.tipo === "BLOG" ? "Blog web" : "Instagram"), b.periodo, b.fechaProgramada ?? `${b.periodo}-15T15:00:00Z`, NOTA_ESTADO.BORRADOR],
+  );
+  await nuevaVersion(ctx, await buscarPieza(ctx, rows[0].id), b.version!, "AGENTE");
+  return { __status: 201, ...(await piezaCompleta(ctx, await buscarPieza(ctx, rows[0].id))) };
+});
+
+ruta("POST", "/integraciones/ejecuciones", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "ejecuciones:write");
+  const b = (await cuerpo()) as Partial<S<"EjecucionEntrada">>;
+  const cliente = esUuid(b.clienteId)
+    ? (await ctx.c.query<{ id: string; limite: string; umbral: number }>("SELECT id, limite_gasto_ia_usd AS limite, umbral_alerta_pct AS umbral FROM cliente WHERE id = $1", [b.clienteId])).rows[0]
+    : null;
+  // Tarifa vigente hoy de cada modelo (tarifa_modelo admite cambios de precio con fecha).
+  const { rows: tarifas } = await ctx.c.query<{ modelo: string; entrada: string; salida: string; imagen: string | null }>(
+    `SELECT DISTINCT ON (modelo) modelo, usd_millon_entrada AS entrada, usd_millon_salida AS salida, usd_por_imagen AS imagen
+     FROM tarifa_modelo WHERE modelo = ANY($1) AND vigente_desde <= current_date ORDER BY modelo, vigente_desde DESC`,
+    [[...new Set((b.consumos ?? []).map((k) => k.modelo))]],
+  );
+  const tarifa = Object.fromEntries(tarifas.map((t) => [t.modelo, t]));
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!cliente) errores.push({ campo: "clienteId", mensaje: "Cliente inexistente" });
+  if (!b.agente) errores.push({ campo: "agente", mensaje: "Indica el agente" });
+  if (!b.n8nExecutionId) errores.push({ campo: "n8nExecutionId", mensaje: "Indica el id de la ejecución de n8n" });
+  if (!b.estado) errores.push({ campo: "estado", mensaje: "Indica el estado" });
+  for (const [i, k] of (b.consumos ?? []).entries()) if (!tarifa[k.modelo]) errores.push({ campo: `consumos[${i}].modelo`, mensaje: `Sin tarifa para ${k.modelo}` });
+  validacion(errores);
+  const gastoMes = async () =>
+    Number(
+      (
+        await ctx.c.query<{ g: string }>(
+          `SELECT coalesce(sum(costo_usd), 0) AS g FROM consumo_modelo
+           WHERE cliente_id = $1 AND date_trunc('month', creado_en AT TIME ZONE 'America/Lima') = date_trunc('month', now() AT TIME ZONE 'America/Lima')`,
+          [cliente!.id],
+        )
+      ).rows[0].g,
+    );
+  const antes = await gastoMes();
+  // Idempotente por n8nExecutionId + agente: abrir (EN_CURSO) y cerrar (OK/ERROR) actualizan la misma fila.
+  const { rows } = await ctx.c.query<{ id: string }>(
+    `INSERT INTO ejecucion_agente (cliente_id, agente, n8n_workflow_id, n8n_execution_id, pieza_id, estado, error, finalizado_en)
+     VALUES ($1, $2, $3, $4, $5, $6::estado_ejecucion, $7, CASE WHEN $6::estado_ejecucion = 'EN_CURSO' THEN NULL ELSE now() END)
+     ON CONFLICT (n8n_execution_id, agente) DO UPDATE SET
+       estado = EXCLUDED.estado, error = coalesce(EXCLUDED.error, ejecucion_agente.error),
+       pieza_id = coalesce(EXCLUDED.pieza_id, ejecucion_agente.pieza_id), finalizado_en = EXCLUDED.finalizado_en
+     RETURNING id`,
+    [cliente!.id, b.agente, b.n8nWorkflowId ?? null, b.n8nExecutionId, b.piezaId ?? null, b.estado, b.error ?? null],
+  );
+  for (const k of b.consumos ?? []) {
+    const t = tarifa[k.modelo];
+    const costo = ((k.tokensEntrada ?? 0) * Number(t.entrada) + (k.tokensSalida ?? 0) * Number(t.salida)) / 1_000_000 + (k.imagenes ?? 0) * Number(t.imagen ?? 0);
+    await ctx.c.query(
+      "INSERT INTO consumo_modelo (ejecucion_id, cliente_id, proveedor, modelo, tokens_entrada, tokens_salida, imagenes, costo_usd) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [rows[0].id, cliente!.id, k.proveedor, k.modelo, k.tokensEntrada ?? 0, k.tokensSalida ?? 0, k.imagenes ?? 0, costo.toFixed(6)],
+    );
+  }
+  const gasto = Math.round((await gastoMes()) * 10000) / 10000;
+  const limite = Number(cliente!.limite);
+  const pct = Math.round((gasto / limite) * 1000) / 10;
+  // Alerta al cruzar el umbral (80 % por defecto) y bloqueo de lo no crítico desde el 100 % (decisión 10).
+  if ((antes / limite) * 100 < cliente!.umbral && pct >= cliente!.umbral) {
+    await emitirOutbox(ctx, "presupuesto.alerta", cliente!.id, { gastoUsd: gasto, limiteUsd: limite, pctLimite: pct });
+  }
+  return { ejecucionId: rows[0].id, gastoMesUsd: gasto, limiteUsd: limite, pctLimite: pct, bloquear: pct >= 100 };
+});
+
 // ───────────────────────────────────────────── despachador
 
 function coincide(patron: string, camino: string) {
@@ -642,7 +810,7 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
         const previa = await idempotencia(c, u.usuarioId, clave, hash);
         if (previa) return previa;
       }
-      const resultado = await encontrada.fn({ u, c, esEquipo: u.tipo !== "CLIENTE" }, encontrada.params!, url.searchParams, cuerpo);
+      const resultado = await encontrada.fn({ u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO" }, encontrada.params!, url.searchParams, cuerpo);
       let status = 200;
       let datos = resultado;
       if (resultado && typeof resultado === "object" && !Array.isArray(resultado) && "__status" in resultado) {

@@ -17,7 +17,7 @@ import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, prueba
 
 const sql = (ruta: string) => readFileSync(new URL(`../../../../database/${ruta}`, import.meta.url), "utf8");
 const db = new PGlite({ extensions: { pgcrypto, citext } });
-const SEMILLAS = sql("semillas/0001_casa_oliva.sql");
+const SEMILLAS = `${sql("semillas/0001_casa_oliva.sql")}\n${sql("semillas/0002_integraciones_demo.sql")}`;
 let tablas = "";
 
 async function reiniciar() {
@@ -27,6 +27,7 @@ async function reiniciar() {
 before(async () => {
   await db.exec(sql("migraciones/0001_esquema.sql"));
   await db.exec(sql("migraciones/0002_rol_app.sql"));
+  await db.exec(sql("migraciones/0003_api_key_usuario.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo')",
@@ -229,5 +230,88 @@ describe("clientes, tickets y notificaciones · Postgres", () => {
     assert.equal((await llamar("POST", "/me/notificaciones/leer", VALERIA, {})).status, 204);
     assert.equal((await llamar("GET", "/me", VALERIA)).json.notificacionesSinLeer, 0);
     assert.equal((await llamar("GET", "/me", MARTIN_LECTOR)).json.notificacionesSinLeer, 1);
+  });
+});
+
+describe("integraciones (n8n, X-Api-Key) · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const N8N = { "x-api-key": "demo-n8n" };
+  const blog = { tipo: "BLOG", tituloSeo: "Piel en primavera", cuerpoMd: "# Piel en primavera" };
+
+  test("la llave se valida por hash y los humanos no usan rutas de integración", async () => {
+    await reiniciar();
+    const entrada = { clienteId: CASA_OLIVA, agente: "contenido-blog", n8nExecutionId: "1", estado: "EN_CURSO" };
+    assert.equal((await llamar("POST", "/integraciones/ejecuciones", undefined, entrada, { "x-api-key": "demo-n8nX" })).status, 401);
+    assert.equal((await llamar("POST", "/integraciones/ejecuciones", DIEGO, entrada)).status, 403);
+    assert.equal((await llamar("POST", "/integraciones/ejecuciones", undefined, entrada, N8N)).status, 200);
+    const { rows } = await db.query<{ ultimo_uso: Date | null }>("SELECT ultimo_uso FROM api_key WHERE prefijo = 'demo-n8n'");
+    assert.ok(rows[0].ultimo_uso);
+    await db.exec("UPDATE api_key SET scopes = '{piezas:write}'");
+    assert.equal((await llamar("POST", "/integraciones/ejecuciones", undefined, entrada, N8N)).status, 403);
+  });
+
+  test("el agente crea una pieza con su versión y la deja en revisión interna, auditada como SISTEMA", async () => {
+    await reiniciar();
+    const malo = await llamar("POST", "/integraciones/piezas", undefined, { clienteId: CASA_OLIVA }, N8N);
+    assert.equal(malo.status, 422);
+    const r = await llamar("POST", "/integraciones/piezas", undefined, { clienteId: CASA_OLIVA, tipo: "BLOG", titulo: "Piel en primavera", periodo: "2026-10", version: { contenido: blog, agente: "contenido-blog", enviarARevisionInterna: true } }, N8N);
+    assert.equal(r.status, 201);
+    assert.equal(r.json.estado, "EN_REVISION_INTERNA");
+    assert.equal(r.json.versionActual, 1);
+    assert.equal(r.json.servicioContratadoId, uid(4, 1), "el blog cae en el servicio de blog");
+    assert.deepEqual(r.json.origen, { tipo: "AGENTE", nombre: "contenido-blog" });
+    const { rows } = await db.query<{ canal: string; usuario_id: string }>(`SELECT canal, usuario_id FROM evento_pieza WHERE pieza_id = '${r.json.id}'`);
+    assert.deepEqual(rows, [{ canal: "SISTEMA", usuario_id: uid(1, 99) }]);
+    // El cliente la ve en producción, sin contenido.
+    const cliente = await llamar("GET", `/piezas/${r.json.id}`, VALERIA);
+    assert.equal(cliente.json.estado, "EN_PRODUCCION");
+    assert.equal(cliente.json.version, undefined);
+  });
+
+  test("tras cambios del cliente, la nueva versión del agente vuelve a revisión interna pasando por BORRADOR", async () => {
+    await reiniciar();
+    assert.equal((await llamar("POST", `/piezas/${TU_RITUAL}/solicitar-cambios`, VALERIA, { version: 2, comentario: "Más cálido" })).status, 200);
+    const enRevision = await llamar("POST", `/integraciones/piezas/${TU_RITUAL}/versiones`, undefined, { contenido: { tipo: "COPY", copy: "x" }, enviarARevisionInterna: true }, N8N);
+    assert.equal(enRevision.status, 201);
+    assert.equal(enRevision.json.numero, 3);
+    const p = await llamar("GET", `/piezas/${TU_RITUAL}`, DIEGO);
+    assert.equal(p.json.estado, "EN_REVISION_INTERNA");
+    const h = await llamar("GET", `/piezas/${TU_RITUAL}/historial`, DIEGO);
+    assert.deepEqual(h.json.datos.slice(-2).map((e: any) => e.aEstado), ["BORRADOR", "EN_REVISION_INTERNA"]);
+    // Con la pieza frente al cliente, no se sube otra versión.
+    await llamar("POST", `/piezas/${TU_RITUAL}/transiciones`, DIEGO, { aEstado: "LISTO_REVISION" });
+    const bloqueada = await llamar("POST", `/integraciones/piezas/${TU_RITUAL}/versiones`, undefined, { contenido: { tipo: "COPY", copy: "y" }, enviarARevisionInterna: true }, N8N);
+    assert.equal(bloqueada.json.codigo, "PIEZA_EN_REVISION_CLIENTE");
+  });
+
+  test("el equipo sube versiones a mano (PERSONA)", async () => {
+    await reiniciar();
+    const r = await llamar("POST", `/piezas/${BORRADOR}/versiones`, DIEGO, { contenido: blog, enviarARevisionInterna: true, notaCambios: "Ajusté el título" });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.autorTipo, "PERSONA");
+    assert.equal(r.json.autor.id, uid(1, 3));
+    assert.equal((await llamar("POST", `/piezas/${BORRADOR}/versiones`, VALERIA, { contenido: blog, enviarARevisionInterna: true })).status, 403);
+  });
+
+  test("ejecuciones: idempotentes, costo con la tarifa vigente y alerta al cruzar el 80 %", async () => {
+    await reiniciar();
+    await db.exec(`UPDATE cliente SET limite_gasto_ia_usd = 1 WHERE id = '${CASA_OLIVA}'`);
+    const base = { clienteId: CASA_OLIVA, agente: "contenido-blog", n8nExecutionId: "777" };
+    const a = await llamar("POST", "/integraciones/ejecuciones", undefined, { ...base, estado: "EN_CURSO" }, N8N);
+    const sinTarifa = await llamar("POST", "/integraciones/ejecuciones", undefined, { ...base, estado: "OK", consumos: [{ proveedor: "openai", modelo: "gpt-99", tokensEntrada: 1 }] }, N8N);
+    assert.equal(sinTarifa.status, 422);
+    // gpt-6.1-sol: 2 US$/M entrada y 10 US$/M salida → 100k + 70k = 0,2 + 0,7 = 0,9 US$.
+    const b = await llamar("POST", "/integraciones/ejecuciones", undefined, { ...base, estado: "OK", consumos: [{ proveedor: "openai", modelo: "gpt-6.1-sol", tokensEntrada: 100_000, tokensSalida: 70_000 }] }, N8N);
+    assert.equal(b.status, 200);
+    assert.equal(b.json.ejecucionId, a.json.ejecucionId);
+    assert.deepEqual({ g: b.json.gastoMesUsd, pct: b.json.pctLimite, bloquear: b.json.bloquear }, { g: 0.9, pct: 90, bloquear: false });
+    const { rows } = await db.query<{ estado: string; finalizado_en: Date | null }>(`SELECT estado, finalizado_en FROM ejecucion_agente WHERE id = '${a.json.ejecucionId}'`);
+    assert.equal(rows[0].estado, "OK");
+    assert.ok(rows[0].finalizado_en);
+    const alertas = await db.query<{ payload: any }>("SELECT payload FROM outbox_evento WHERE tipo = 'presupuesto.alerta'");
+    assert.equal(alertas.rows.length, 1);
+    const c = await llamar("POST", "/integraciones/ejecuciones", undefined, { ...base, n8nExecutionId: "778", estado: "OK", consumos: [{ proveedor: "openai", modelo: "gpt-6.1-sol", tokensSalida: 20_000 }] }, N8N);
+    assert.equal(c.json.bloquear, true);
+    assert.equal((await db.query("SELECT 1 FROM outbox_evento WHERE tipo = 'presupuesto.alerta'")).rows.length, 1, "la alerta sale una sola vez");
   });
 });
