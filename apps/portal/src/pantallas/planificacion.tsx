@@ -163,12 +163,12 @@ function Blog() {
 
 // ═════════════════════════════════════════════ Calendario del mes
 
-/** Figma usa en el calendario «Borrador» y «En revisión» (ver arquitectura §8, «Para revisar con diseño»). */
+/** Mismas etiquetas que el resto del portal (antes Figma usaba «Borrador» y «En revisión» solo aquí; ver docs/diseno.md). */
 const CAL: Record<string, { texto: string; bg: string; color: string }> = {
-  EN_PRODUCCION: { texto: "Borrador", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
-  BORRADOR: { texto: "Borrador", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
-  EN_REVISION_INTERNA: { texto: "Borrador", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
-  LISTO_REVISION: { texto: "En revisión", bg: "var(--c-primario-suave)", color: "var(--c-primario)" },
+  EN_PRODUCCION: { texto: "En producción", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
+  BORRADOR: { texto: "En producción", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
+  EN_REVISION_INTERNA: { texto: "En producción", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
+  LISTO_REVISION: { texto: "Listo para revisión", bg: "var(--c-primario-suave)", color: "var(--c-primario)" },
   APROBADO_CLIENTE: { texto: "Aprobado", bg: "var(--c-exito-suave)", color: "var(--c-exito)" },
   CAMBIOS_SOLICITADOS: { texto: "Cambios solicitados", bg: "var(--c-alerta-suave)", color: "var(--c-alerta)" },
   PUBLICADO: { texto: "Publicado", bg: "var(--c-info-suave)", color: "var(--c-info)" },
@@ -251,8 +251,8 @@ function Calendario() {
         </button>
       </div>
       <div className="fila" style={{ gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        <span className="etiqueta" style={{ background: "transparent", color: "var(--c-texto)" }}>Borrador</span>
-        <Etiqueta tono="violeta">En revisión</Etiqueta>
+        <span className="etiqueta" style={{ background: "transparent", color: "var(--c-texto)" }}>En producción</span>
+        <Etiqueta tono="violeta">Listo para revisión</Etiqueta>
         <Etiqueta tono="verde">Aprobado</Etiqueta>
         <Etiqueta tono="ambar">Cambios solicitados</Etiqueta>
         <Etiqueta tono="azul">Publicado</Etiqueta>
@@ -321,7 +321,7 @@ function Calendario() {
               Próxima publicación · {proxima.formato} · {proxima.canal} · Versión {proxima.numeroVersion}
             </p>
           </div>
-          <Etiqueta tono="violeta">En revisión</Etiqueta>
+          <Etiqueta tono="violeta">Listo para revisión</Etiqueta>
           <Enlace a={`/entregables/${proxima.id}`} className="boton">
             Revisar pieza
           </Enlace>

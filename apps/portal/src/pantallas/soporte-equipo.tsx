@@ -10,6 +10,7 @@ import {
   Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
+import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -578,13 +579,34 @@ export function PantallaClientesEquipo() {
   );
 }
 function ClientesEquipo() {
+  const { ir } = useNavegacion();
+  const avisar = useAviso();
+  const [nuevo, setNuevo] = useState(false);
   const { datos: d, error, recargar } = useConsulta<PanelResp>(`/panel/clientes?periodo=${PERIODO_DEMO}`);
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Cuentas" titulo="Clientes" bajada="Todas las cuentas activas de la agencia." />
+      <Cabecera
+        antetitulo="Equipo Inoo · Cuentas"
+        titulo="Clientes"
+        bajada="Todas las cuentas activas de la agencia."
+        accion={
+          <button className="boton boton--primario" onClick={() => setNuevo(true)}>
+            <LuPlus size={18} /> Nuevo cliente
+          </button>
+        }
+      />
       <TablaClientes filas={d.datos} total={d.resumen.clientesActivos} />
+      <NuevoCliente
+        abierto={nuevo}
+        alCerrar={() => setNuevo(false)}
+        alCrear={(id) => {
+          setNuevo(false);
+          avisar({ titulo: "Cliente creado", texto: "n8n está preparando su carpeta en Drive." });
+          ir(`/equipo/clientes/${id}`);
+        }}
+      />
     </>
   );
 }
@@ -604,6 +626,7 @@ type ClienteFicha = S<"Cliente"> & { marca: { descripcion?: string; mensajeCentr
 function Ficha() {
   const { params } = useNavegacion();
   const avisar = useAviso();
+  const [editando, setEditando] = useState(false);
   const id = params.id ?? CLIENTE_DEMO;
   const c = useConsulta<ClienteFicha>(`/clientes/${id}`);
   const s = useConsulta<S<"ServiciosCliente">>(`/clientes/${id}/servicios`);
@@ -621,7 +644,7 @@ function Ficha() {
         titulo="Ficha de cliente"
         bajada="El contexto de marca que guía cada pieza. Información para el equipo de agencia."
         accion={
-          <button className="boton" onClick={() => avisar({ titulo: "Edición de ficha", texto: "En el entorno de pruebas la ficha es de solo lectura (PATCH /clientes/{id} llega con el backend)." })}>
+          <button className="boton" onClick={() => setEditando(true)}>
             <LuPencil size={16} /> Editar ficha
           </button>
         }
@@ -723,6 +746,18 @@ function Ficha() {
         </aside>
       </div>
 
+      {editando && (
+        <EditarFicha
+          cliente={d}
+          abierto={editando}
+          alCerrar={() => setEditando(false)}
+          alGuardar={() => {
+            setEditando(false);
+            avisar({ titulo: "Ficha actualizada", texto: "Los agentes usarán el nuevo contexto desde la próxima ejecución." });
+            void c.recargar();
+          }}
+        />
+      )}
       <div className="tarjeta seccion" style={{ padding: "22px 16px" }}>
         <h3 className="tarjeta-titulo">Historial de la cuenta</h3>
         <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px", fontSize: 10.5 }}>Actividad de marca y versiones. Cada aprobación corresponde a una versión concreta.</p>

@@ -22,7 +22,19 @@ La API simulada aplica las reglas que importan para probar el frontend:
 | Errores | `application/problem+json` con `codigo` y `errores[]` |
 
 Rutas solo de pruebas (no son parte del contrato): `POST /api/v1/__pruebas/ingresar`,
-`POST /api/v1/__pruebas/reiniciar` y `PUT /api/v1/__pruebas/subidas/{id}` (simula el PUT a S3).
+`POST /api/v1/__pruebas/reiniciar`, `PUT /api/v1/__pruebas/subidas/{id}` (simula el PUT a S3) y
+`GET /api/v1/__pruebas/eventos?desde=<id>` (outbox: los eventos que el despachador entregaría a n8n).
+
+### Integraciones (n8n) contra la API simulada
+
+| Qué | Valor en pruebas | Variable |
+|---|---|---|
+| API key de `/integraciones/*` (header `X-Api-Key`) | `demo-n8n` | `MOCK_API_KEY` |
+| Secreto HMAC del webhook de InooWork (`X-Inoo-Firma` = `sha256=` HMAC de `<X-Inoo-Timestamp>.<cuerpo>`) | `demo-secreto` | `MOCK_INOOWORK_SECRETO` |
+| Enviar cada evento del outbox a n8n (firmado igual) | apagado | `MOCK_N8N_WEBHOOK_URL`, `MOCK_N8N_SECRETO` |
+
+Con `MOCK_N8N_WEBHOOK_URL=http://localhost:5678/webhook/inoo-eventos` los workflows de `n8n/workflows/`
+reciben los mismos eventos que en producción (`cliente.creado`, `brief.confirmado`, `pieza.estado_cambiado`…).
 
 ## Datos de prueba
 
@@ -34,6 +46,8 @@ Rutas solo de pruebas (no son parte del contrato): `POST /api/v1/__pruebas/ingre
 | Pieza clave | «Tu ritual, tu momento»: v1 aprobada por Valeria el 30 sep; v2 actual sin aprobar |
 | Tickets | #1042 En curso, #1041 Abierto, #1038 Resuelto |
 | Otros clientes (panel) | Nativa Café, Luma Studio, Andes Salud, Marea Local |
+| Administración | admin@inoo.pe / demo1234 (ve «Costos de IA» y contrata servicios) |
+| Ejecuciones de agentes | 3 de Casa Oliva (suman US$ 48) y 1 con error en Luma |
 | Consumo de IA | Casa Oliva US$ 48/60 y Luma US$ 84/100 en alerta (≥ 80 %) |
 
 Los mismos datos están en SQL (`database/semillas/0001_casa_oliva.sql`), generado desde
@@ -82,6 +96,6 @@ Probar contra el entorno de Docker en lugar de `npm run dev`: `BASE_URL=http://l
   entre varias instancias.
 - Las subidas no guardan el archivo (simulan el PUT a S3). MinIO está en el compose para cuando el backend
   genere URLs prefirmadas reales.
-- Rutas del contrato sin simular (biblioteca de paid media, correos automáticos, miembros, costos de IA,
-  integraciones): responden 404 `RUTA_NO_IMPLEMENTADA`. Para esas, usar Prism (`API_MODO=proxy`).
-- «Editar ficha» del panel muestra un aviso: la edición llega con el backend.
+- La API simulada implementa **todas** las operaciones del contrato (la prueba de cobertura compara método y
+  ruta con `openapi.yaml` en ambos sentidos). Los correos no salen: quedan en «Correos automáticos».
+- Las fichas de los clientes de prueba que no son Casa Oliva muestran la ficha de Casa Oliva hasta que se editan.

@@ -18,6 +18,7 @@ npm run dev            # http://localhost:3000
 | Cliente (administradora) | valeria@casaoliva.pe | demo1234 | Portal de Casa Oliva |
 | Cliente (solo lectura) | martin@casaoliva.pe | demo1234 | Portal, sin poder aprobar |
 | Equipo (account manager) | diego.castro@inoo.pe | demo1234 | Panel interno |
+| Equipo (administración) | admin@inoo.pe | demo1234 | Panel interno + costos de IA |
 
 Entorno completo con Docker (portal, Postgres con semillas, Prism, Mailpit, MinIO):
 
@@ -51,6 +52,7 @@ prompts/ integrations/ templates/   según el PRD
 
 ## Estado
 
-Hecho: portal con las 16 pantallas, API simulada (41 rutas del contrato), pruebas de contrato (22),
-pruebas de interfaz y visuales, semillas SQL, Docker local y Fase 1.
+Hecho: portal con las 16 pantallas de Figma y 4 sin diseño, API simulada con todas las operaciones del
+contrato (incluidas `/integraciones/*` para n8n y el outbox de eventos), pruebas de contrato (45), de interfaz
+y visuales, semillas SQL, Docker local y Fase 1.
 Pendiente: backend real de `/api/v1` sobre Postgres, Cognito, S3, workflows de n8n, integración InooWork.

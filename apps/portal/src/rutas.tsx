@@ -9,6 +9,7 @@
 import type { ComponentType } from "react";
 import { PantallaAvance, PantallaBlog, PantallaBrief, PantallaCalendario, PantallaResultados } from "./pantallas/planificacion";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
+import { PantallaBiblioteca, PantallaCalendarioEquipo, PantallaCostosIa, PantallaUsuarios } from "./pantallas/sin-diseno";
 import {
   PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
 } from "./pantallas/soporte-equipo";
@@ -40,6 +41,10 @@ export const RUTAS: Ruta[] = [
   { patron: "/equipo/produccion", pantalla: PantallaBandeja, figma: "16-bandeja-de-produccion", espacio: "equipo" },
   { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
   { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
+  { patron: "/biblioteca", pantalla: PantallaBiblioteca, figma: null, espacio: "cliente" },
+  { patron: "/usuarios", pantalla: PantallaUsuarios, figma: null, espacio: "cliente" },
+  { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },
+  { patron: "/equipo/costos", pantalla: PantallaCostosIa, figma: null, espacio: "equipo" },
 ];
 
 export function resolverRuta(camino: string): { ruta: Ruta; params: Record<string, string> } | null {

@@ -4,6 +4,7 @@ import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
   LuFolder, LuHeadphones, LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuImage, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
+  LuImages, LuUserCog, LuCoins, LuCalendarCheck,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
@@ -221,16 +222,21 @@ const NAV_CLIENTE = [
   { a: "/resultados", texto: "Resultados", icono: <LuChartNoAxesColumnIncreasing /> },
   { a: "/avance", texto: "Avance de proyectos", icono: <LuListChecks /> },
   { a: "/soporte", texto: "Soporte", icono: <LuHeadphones /> },
+  // Sin frame en Figma (docs/diseno.md): biblioteca de paid media y usuarios del cliente.
+  { a: "/biblioteca", texto: "Biblioteca", icono: <LuImages /> },
+  { a: "/usuarios", texto: "Usuarios y avisos", icono: <LuUserCog /> },
 ];
 const NAV_EQUIPO = [
   { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
   { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 /> },
+  { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
+  { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
 function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente" | "equipo"; porAprobar: number; sesion: S<"Sesion"> | null; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
-  const nav = espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO;
+  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
   const u = sesion?.usuario;
   const salir = () => {
     cerrarSesion();

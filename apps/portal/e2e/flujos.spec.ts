@@ -105,3 +105,24 @@ test("un cliente no entra al panel interno", async ({ page }) => {
   await page.goto("/equipo/panel");
   await expect(page).toHaveURL(/\/inicio$/);
 });
+
+test("usuarios: la administradora invita a una persona con permiso de aprobar", async ({ page }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/usuarios");
+  await page.fill("#inv-nombre", "Rosa Paz");
+  await page.fill("#inv-email", "rosa@casaoliva.pe");
+  await page.getByRole("button", { name: "Invitar" }).click();
+  await expect(page.getByText("Invitación pendiente")).toBeVisible();
+});
+
+test("calendarios: el AM aprueba la propuesta del Jefe de Marketing", async ({ page, request }) => {
+  await request.post("/api/v1/integraciones/calendarios", {
+    headers: { "x-api-key": "demo-n8n" },
+    data: { clienteId: "00000000-0000-4000-8002-000000000001", periodo: "2026-11", entradas: [{ tipo: "COPY", titulo: "Una pausa de noviembre", fechaProgramada: "2026-11-06" }] },
+  });
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/calendarios");
+  await expect(page.getByText("Propuesta por revisar")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Aprobar plan" }).click();
+  await expect(page.getByText("Plan aprobado").first()).toBeVisible();
+});

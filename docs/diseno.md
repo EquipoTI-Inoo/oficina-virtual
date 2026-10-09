@@ -56,7 +56,12 @@ aprobadas de las pruebas visuales.
 | `/equipo/clientes/{id}` | 15-ficha-de-cliente | |
 | `/equipo/produccion` | 16-bandeja-de-produccion | |
 | `/muestras` | 10-muestras-de-estados | Hoja de estados para QA de diseño |
-| `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel |
+| `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel; botón «Nuevo cliente» (modal) |
+| `/biblioteca` | — | Sin diseño: biblioteca de paid media y subida con declaración de derechos |
+| `/usuarios` | — | Sin diseño: usuarios del cliente (solo ADMIN_CLIENTE gestiona) y correos automáticos |
+| `/equipo/calendarios` | — | Sin diseño: revisión y aprobación de la propuesta mensual del Jefe de Marketing |
+| `/equipo/costos` | — | Sin diseño: costos de IA por cliente y modelo, ejecuciones (solo ADMIN; el menú la oculta al resto) |
+| «Editar ficha» | — | Sin diseño: modal sobre la ficha de cliente |
 | `/equipo/piezas/{id}` | — | Sin diseño: detalle de pieza + «Acciones del equipo» |
 | Detalle de ticket | — | Sin diseño: modal sobre Soporte |
 
@@ -66,8 +71,10 @@ con detalle; el resto de pantallas móviles sigue las mismas reglas.
 
 ## Diferencias conocidas con Figma
 
-- **Etiquetas de calendario.** Figma usa «Borrador» y «En revisión» en el calendario y «En producción» y
-  «Listo para revisión» en el resto. Se respetó tal cual; la arquitectura (§8) recomienda unificar.
+- **Etiquetas de calendario (cambiado).** Figma usa «Borrador» y «En revisión» solo en el calendario. Se
+  unificaron con el resto del portal: «En producción» y «Listo para revisión». Pedir a diseño que actualice el frame 08.
+- **Menú lateral.** Tiene entradas que Figma no muestra: «Biblioteca» y «Usuarios y avisos» (cliente),
+  «Calendarios» y «Costos de IA» (equipo). Son las pantallas sin diseño de la tabla anterior.
 - **«Próxima publicación».** Figma muestra «Tu ritual, tu momento · 08 oct» aunque hay una pieza aprobada
   el 07 oct. Se interpretó como «la siguiente pieza que espera tu revisión». Confirmar con diseño.
 - **«Contactar a mi equipo».** Abre Crear ticket (la arquitectura lo deja abierto).
