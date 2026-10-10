@@ -332,7 +332,7 @@ paths:
     get:
       tags: [Referencias y briefs]
       operationId: listarReferencias
-      summary: Marcas que admira, competidores, piezas de ejemplo (CLI-02)
+      summary: Referencias permanentes de la marca (logo, manual, paleta, marcas que admira). Las del mes van en el brief.
       x-roles: [EQUIPO, CLIENTE]
       parameters:
         - { name: tipo, in: query, schema: { $ref: '#/components/schemas/TipoReferencia' } }
@@ -349,8 +349,8 @@ paths:
     post:
       tags: [Referencias y briefs]
       operationId: crearReferencia
-      summary: Agregar referencia. Si lleva archivo, primero se sube con /archivos.
-      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      summary: Agregar una referencia permanente a la ficha. Si lleva archivo, primero se sube con /archivos.
+      x-roles: [EQUIPO]
       requestBody:
         required: true
         content:
@@ -371,8 +371,8 @@ paths:
     delete:
       tags: [Referencias y briefs]
       operationId: eliminarReferencia
-      summary: Eliminar referencia
-      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      summary: Eliminar referencia. El cliente solo quita las de un brief que sigue en BORRADOR.
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
       responses:
         '204': { description: Eliminada }
 
@@ -440,7 +440,7 @@ paths:
     post:
       tags: [Referencias y briefs]
       operationId: enviarBrief
-      summary: '"Enviar brief y referencias". Firma la declaración de derechos y publica los archivos subidos (CU-05).'
+      summary: '"Enviar brief y requerimientos". Firma la declaración de derechos y publica los archivos subidos (CU-05).'
       description: |
         Pasa el brief a ENVIADO y todos sus archivos en estado SUBIDO a DISPONIBLE, guardando quién declaró
         los derechos y cuándo. Avisa al account manager (evento `brief.enviado`).
@@ -471,7 +471,7 @@ paths:
     post:
       tags: [Referencias y briefs]
       operationId: confirmarBrief
-      summary: El AM revisa y confirma el brief; dispara al Jefe de Marketing (CU-02)
+      summary: El AM revisa y confirma el brief; los requerimientos del brief quedan ACEPTADO y se dispara al Jefe de Marketing (CU-02)
       x-roles: [ACCOUNT_MANAGER, ADMIN]
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       responses:
@@ -480,6 +480,95 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Brief' }
+
+  /clientes/{clienteId}/briefs/{periodo}/requerimientos:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    post:
+      tags: [Referencias y briefs]
+      operationId: crearRequerimiento
+      summary: Agregar un requerimiento al brief del mes
+      description: |
+        Con el brief en BORRADOR, el requerimiento es parte del brief. Si el brief ya se envió, queda
+        `fueraDeBrief: true` y PENDIENTE hasta que el account manager lo evalúe contra la cuota
+        (evento `requerimiento.creado`).
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequerimientoEntrada' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Requerimiento' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/briefs/{periodo}/referencias:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+    post:
+      tags: [Referencias y briefs]
+      operationId: crearReferenciaBrief
+      summary: Agregar una referencia de inspiración al brief del mes (solo mientras está en BORRADOR)
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferenciaEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referencia' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /requerimientos/{requerimientoId}:
+    parameters:
+      - { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Referencias y briefs]
+      operationId: actualizarRequerimiento
+      summary: El cliente edita un requerimiento PENDIENTE; el equipo lo acepta o lo rechaza con una nota
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                descripcion: { type: string, minLength: 3, maxLength: 1000 }
+                fechaDeseada: { type: [string, 'null'], format: date }
+                prioridad: { $ref: '#/components/schemas/PrioridadRequerimiento' }
+                estado: { type: string, enum: [ACEPTADO, RECHAZADO], description: Solo equipo }
+                notaEquipo: { type: string, description: 'Solo equipo; se muestra al cliente ("Entra en noviembre")' }
+                piezaId: { type: [string, 'null'], format: uuid, description: Solo equipo o servicio; pieza que lo cumple }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Requerimiento' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Referencias y briefs]
+      operationId: eliminarRequerimiento
+      summary: Quitar un requerimiento PENDIENTE (el cliente, solo los suyos sin decidir)
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      responses:
+        '204': { description: Eliminado }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
   /clientes/{clienteId}/servicios:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
     get:
@@ -891,6 +980,27 @@ paths:
               schema: { $ref: '#/components/schemas/UrlFirmada' }
 
   # ------------------------------------------------------------------ Planificación
+  /clientes/{clienteId}/tablero:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Planificación]
+      operationId: obtenerTablero
+      summary: '"Plan del mes" del cliente: las piezas del mes en columnas por estado (kanban)'
+      description: |
+        Columnas fijas: PLANIFICADO (sin contenido todavía), EN_PRODUCCION (incluye las que se están
+        ajustando tras un pedido de cambios, con `ajustando: true`), POR_REVISAR, APROBADO y PUBLICADO.
+        El cliente ve el mes solo cuando el plan está APROBADO_PLAN (mismo criterio que el calendario).
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
+        - { name: servicioContratadoId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tablero' }
+
   /clientes/{clienteId}/calendario/{periodo}:
     parameters:
       - $ref: '#/components/parameters/ClienteId'
@@ -980,11 +1090,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [periodo, cupo, confirmadas, datos]
+                required: [cupo, datos]
                 properties:
-                  periodo: { $ref: '#/components/schemas/Periodo' }
-                  cupo: { type: integer, description: Artículos del mes que quedan por definir; el cliente elige hasta este número }
-                  confirmadas: { type: integer }
+                  cupo: { $ref: '#/components/schemas/CupoIdeas' }
                   datos: { type: array, items: { $ref: '#/components/schemas/IdeaBlog' } }
 
   /clientes/{clienteId}/ideas-blog/seleccion:
@@ -1013,7 +1121,9 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [cupo, datos]
                 properties:
+                  cupo: { $ref: '#/components/schemas/CupoIdeas' }
                   datos: { type: array, items: { $ref: '#/components/schemas/IdeaBlog' } }
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
@@ -1764,6 +1874,8 @@ components:
       description: ADMIN_CLIENTE gestiona usuarios; APROBADOR aprueba, sube y abre tickets; LECTOR solo mira y abre tickets.
     EstadoCliente: { type: string, enum: [ACTIVO, PAUSADO, BAJA] }
     TipoReferencia: { type: string, enum: [MARCA_ADMIRADA, COMPETIDOR, PIEZA_EJEMPLO, MANUAL_MARCA, LOGO, OTRO] }
+    PrioridadRequerimiento: { type: string, enum: [BAJA, MEDIA, ALTA] }
+    EstadoRequerimiento: { type: string, enum: [PENDIENTE, ACEPTADO, RECHAZADO] }
     CategoriaServicio: { type: string, enum: [BLOG, REDES_SOCIALES, ESTATICOS, AUDIOVISUAL, PAID_MEDIA, WEB, CRM] }
     EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, FINALIZADO, NO_CONTRATADO] }
     EstadoOperativo:
@@ -1986,7 +2098,7 @@ components:
             creadoEn: { type: string, format: date-time }
     Brief:
       type: object
-      required: [periodo, estado, archivos]
+      required: [periodo, estado, archivos, requerimientos, referencias]
       properties:
         id: { type: [string, 'null'], format: uuid, description: null si todavía no se guardó }
         periodo: { $ref: '#/components/schemas/Periodo' }
@@ -1996,10 +2108,35 @@ components:
         contenidoMd: { type: [string, 'null'], description: Solo equipo }
         driveFileId: { type: [string, 'null'], description: Solo equipo }
         archivos: { type: array, description: Archivos subidos a este brief (SUBIDO o DISPONIBLE), items: { $ref: '#/components/schemas/Archivo' } }
+        requerimientos: { type: array, description: 'Pedidos concretos del mes, incluidos los agregados después de enviar el brief', items: { $ref: '#/components/schemas/Requerimiento' } }
+        referencias: { type: array, description: Inspiración de este mes, items: { $ref: '#/components/schemas/Referencia' } }
         enviadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
         enviadoEn: { type: [string, 'null'], format: date-time }
         confirmadoEn: { type: [string, 'null'], format: date-time }
         actualizadoEn: { type: [string, 'null'], format: date-time }
+    RequerimientoEntrada:
+      type: object
+      required: [descripcion]
+      properties:
+        descripcion: { type: string, minLength: 3, maxLength: 1000, examples: ['Post por el Día de la Madre'] }
+        fechaDeseada: { type: [string, 'null'], format: date }
+        prioridad: { $ref: '#/components/schemas/PrioridadRequerimiento' }
+    Requerimiento:
+      type: object
+      required: [id, periodo, descripcion, prioridad, fueraDeBrief, estado, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        descripcion: { type: string }
+        fechaDeseada: { type: [string, 'null'], format: date }
+        prioridad: { $ref: '#/components/schemas/PrioridadRequerimiento' }
+        fueraDeBrief: { type: boolean, description: 'Agregado después de enviar el brief; el AM lo evalúa contra la cuota' }
+        estado: { $ref: '#/components/schemas/EstadoRequerimiento' }
+        notaEquipo: { type: [string, 'null'] }
+        piezaId: { type: [string, 'null'], format: uuid }
+        creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        decididoEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
     ServicioContratadoEntrada:
       type: object
       required: [servicioCodigo, fechaInicio]
@@ -2400,6 +2537,37 @@ components:
         aprobadoPor: { type: [object, 'null'], properties: { id: { type: string }, nombre: { type: string } } }
         aprobadoEn: { type: [string, 'null'], format: date-time }
         entradas: { type: array, items: { $ref: '#/components/schemas/PiezaResumen' } }
+    Tablero:
+      type: object
+      required: [periodo, planAprobado, porRevisar, columnas]
+      properties:
+        periodo: { $ref: '#/components/schemas/Periodo' }
+        planAprobado: { type: boolean, description: 'Si es false, el cliente recibe las columnas vacías' }
+        porRevisar: { type: integer, description: Contador de la columna que pide acción al cliente }
+        columnas:
+          type: array
+          items:
+            type: object
+            required: [clave, titulo, piezas]
+            properties:
+              clave: { type: string, enum: [PLANIFICADO, EN_PRODUCCION, POR_REVISAR, APROBADO, PUBLICADO] }
+              titulo: { type: string }
+              piezas:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/PiezaResumen'
+                    - type: object
+                      required: [ajustando]
+                      properties:
+                        ajustando: { type: boolean, description: 'En producción por un pedido de cambios ("Ajustando tus comentarios")' }
+    CupoIdeas:
+      type: object
+      required: [total, elegidas]
+      properties:
+        total: { type: integer, description: Ideas que el cliente puede elegir este mes }
+        elegidas: { type: integer }
+        confirmada: { type: boolean }
     PropuestaCalendario:
       type: object
       required: [clienteId, periodo, entradas]
@@ -2423,6 +2591,7 @@ components:
               objetivo: { type: string }
               pilar: { type: string }
               servicioContratadoId: { type: string, format: uuid }
+              requerimientoId: { type: string, format: uuid, description: Requerimiento del brief que cumple esta entrada }
     IdeaBlog:
       type: object
       required: [id, periodo, titulo, estado]
@@ -2852,6 +3021,8 @@ components:
             - calendario.aprobado        # reparte tareas a subagentes y crea ítems en InooWork
             - calendario.cambios_solicitados
             - idea_blog.elegida
+            - requerimiento.creado       # el cliente pidió algo fuera del brief; el AM lo evalúa contra la cuota
+            - requerimiento.decidido     # el AM aceptó o rechazó un requerimiento; aviso al cliente
             - pieza.estado_cambiado      # incluye LISTO_REVISION (correo al cliente), CAMBIOS_SOLICITADOS (tarea InooWork), APROBADO_CLIENTE (programar)
             - comentario.creado
             - archivo.subido             # indexar en base de conocimiento del cliente

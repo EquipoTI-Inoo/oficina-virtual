@@ -7,7 +7,7 @@
  * En Next.js cada ruta tiene además su archivo en app/ (mismo componente).
  */
 import type { ComponentType } from "react";
-import { PantallaAvance, PantallaBlog, PantallaBrief, PantallaCalendario, PantallaResultados } from "./pantallas/planificacion";
+import { PantallaAvance, PantallaBlog, PantallaBrief, PantallaPlanMes } from "./pantallas/planificacion";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
 import { PantallaBiblioteca, PantallaCalendarioEquipo, PantallaCostosIa, PantallaUsuarios } from "./pantallas/sin-diseno";
 import {
@@ -29,9 +29,8 @@ export const RUTAS: Ruta[] = [
   { patron: "/entregables", pantalla: PantallaEntregables, figma: "04-entregables-por-revisar", espacio: "cliente" },
   { patron: "/entregables/:id", pantalla: PantallaDetallePieza, figma: "06-detalle-de-pieza", espacio: "cliente" },
   { patron: "/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "cliente" },
-  { patron: "/calendario", pantalla: PantallaCalendario, figma: "08-calendario-del-mes", espacio: "cliente" },
-  { patron: "/brief", pantalla: PantallaBrief, figma: "11-brief-y-referencias", espacio: "cliente" },
-  { patron: "/resultados", pantalla: PantallaResultados, figma: "12-resultados", espacio: "cliente" },
+  { patron: "/plan", pantalla: PantallaPlanMes, figma: null, espacio: "cliente" },
+  { patron: "/brief", pantalla: PantallaBrief, figma: null, espacio: "cliente" },
   { patron: "/avance", pantalla: PantallaAvance, figma: "13-avance-de-proyectos", espacio: "cliente" },
   { patron: "/soporte", pantalla: PantallaSoporte, figma: "07-soporte", espacio: "cliente" },
   { patron: "/soporte/nuevo", pantalla: PantallaCrearTicket, figma: "09-crear-ticket", espacio: "cliente" },

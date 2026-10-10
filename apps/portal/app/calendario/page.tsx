@@ -1,5 +1,6 @@
-import { PantallaCalendario } from "@/src/pantallas/planificacion";
+import { redirect } from "next/navigation";
 
+/** El calendario del cliente pasó a ser el «Plan del mes» (tablero). */
 export default function Pagina() {
-  return <PantallaCalendario />;
+  redirect("/plan");
 }

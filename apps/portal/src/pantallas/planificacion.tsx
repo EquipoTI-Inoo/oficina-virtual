@@ -161,63 +161,49 @@ function Blog() {
   );
 }
 
-// ═════════════════════════════════════════════ Calendario del mes
+// ═════════════════════════════════════════════ Plan del mes (tablero)
 
-/** Mismas etiquetas que el resto del portal (antes Figma usaba «Borrador» y «En revisión» solo aquí; ver docs/diseno.md). */
-const CAL: Record<string, { texto: string; bg: string; color: string }> = {
-  EN_PRODUCCION: { texto: "En producción", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
-  BORRADOR: { texto: "En producción", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
-  EN_REVISION_INTERNA: { texto: "En producción", bg: "var(--c-neutro-suave)", color: "var(--c-texto)" },
-  LISTO_REVISION: { texto: "Listo para revisión", bg: "var(--c-primario-suave)", color: "var(--c-primario)" },
-  APROBADO_CLIENTE: { texto: "Aprobado", bg: "var(--c-exito-suave)", color: "var(--c-exito)" },
-  CAMBIOS_SOLICITADOS: { texto: "Cambios solicitados", bg: "var(--c-alerta-suave)", color: "var(--c-alerta)" },
-  PUBLICADO: { texto: "Publicado", bg: "var(--c-info-suave)", color: "var(--c-info)" },
-};
-
-const TONO_CAL: Record<string, "violeta" | "verde" | "ambar" | "azul" | "gris"> = {
-  LISTO_REVISION: "violeta",
-  APROBADO_CLIENTE: "verde",
-  CAMBIOS_SOLICITADOS: "ambar",
-  PUBLICADO: "azul",
-};
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-export function PantallaCalendario() {
+/** Qué significa cada columna para el cliente (solo «Por revisar» le pide algo). */
+const AYUDA_COLUMNA: Record<string, string> = {
+  PLANIFICADO: "Ideas aprobadas que todavía no empezamos.",
+  EN_PRODUCCION: "Las estamos creando o ajustando.",
+  POR_REVISAR: "Necesitan tu aprobación.",
+  APROBADO: "Listas para publicar en su fecha.",
+  PUBLICADO: "Ya están en tus canales.",
+};
+
+type TarjetaTablero = PiezaUI & { ajustando: boolean };
+
+export function PantallaPlanMes() {
   return (
-    <Estructura espacio="cliente" migas="Calendario del mes">
-      <Calendario />
+    <Estructura espacio="cliente" migas="Plan del mes">
+      <PlanMes />
     </Estructura>
   );
 }
 
-function Calendario() {
+function PlanMes() {
   const [servicio, setServicio] = useState("");
   const [periodo, setPeriodo] = useState(PERIODO_DEMO);
-  const [dia, setDia] = useState<string | null>(null);
   const servicios = useConsulta<S<"ServiciosCliente">>(`/clientes/${clienteActivo()}/servicios`);
-  const cal = useConsulta<S<"Calendario">>(`/clientes/${clienteActivo()}/calendario/${periodo}${servicio ? `?servicioContratadoId=${servicio}` : ""}`);
+  const tablero = useConsulta<S<"Tablero">>(`/clientes/${clienteActivo()}/tablero?periodo=${periodo}${servicio ? `&servicioContratadoId=${servicio}` : ""}`);
   const [anio, mes] = periodo.split("-").map(Number);
   const mover = (d: number) => {
     const f = new Date(Date.UTC(anio, mes - 1 + d, 1));
     setPeriodo(`${f.getUTCFullYear()}-${String(f.getUTCMonth() + 1).padStart(2, "0")}`);
-    setDia(null);
   };
-  const primero = new Date(Date.UTC(anio, mes - 1, 1));
-  const desplaz = (primero.getUTCDay() + 6) % 7;
-  const celdas = Array.from({ length: 35 }, (_, i) => new Date(Date.UTC(anio, mes - 1, 1 - desplaz + i)));
-  const entradas = (cal.datos?.entradas ?? []) as PiezaUI[];
-  const porDia = (d: Date) => entradas.filter((e) => e.fechaProgramada?.slice(0, 10) === d.toISOString().slice(0, 10));
-  const proxima = entradas.find((e) => e.estado === "LISTO_REVISION" && (e.fechaProgramada ?? "") >= HOY_DEMO);
-  const lista = dia ? entradas.filter((e) => e.fechaProgramada?.slice(0, 10) === dia) : entradas;
-  const nombreServicio = (id?: string | null) => servicios.datos?.servicios.find((x) => x.servicioContratadoId === id)?.nombre ?? "";
-  const nombreMes = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][mes - 1];
+  const t = tablero.datos;
+  const total = t?.columnas.reduce((n, c) => n + c.piezas.length, 0) ?? 0;
 
   return (
     <>
       <Cabecera
-        antetitulo={`Casa Oliva · ${nombreMes} ${anio}`.toUpperCase()}
-        titulo="Calendario del mes"
-        bajada="Una vista de todas tus piezas. Publicamos solo el contenido aprobado."
+        antetitulo={`Casa Oliva · ${MESES[mes - 1]} ${anio}`.toUpperCase()}
+        titulo="Plan del mes"
+        bajada="Así va tu contenido. Solo te pedimos revisar lo que está en «Por revisar»; publicamos únicamente lo que apruebas."
         accion={
           <label className="boton" style={{ position: "relative", gap: 10 }}>
             <LuChevronDown size={16} />
@@ -240,151 +226,93 @@ function Calendario() {
             <LuChevronLeft size={18} />
           </button>
           <h2 className="cal-mes" style={{ fontSize: 22, fontWeight: 600, textTransform: "capitalize", textAlign: "center" }}>
-            {nombreMes} {anio}
+            {MESES[mes - 1]} {anio}
           </h2>
           <button className="enlace" style={{ color: "var(--c-tinta)" }} aria-label="Mes siguiente" onClick={() => mover(1)}>
             <LuChevronRight size={18} />
           </button>
         </div>
-        <button className="boton" onClick={() => setPeriodo(PERIODO_DEMO)}>
-          Hoy
-        </button>
+        {periodo !== PERIODO_DEMO && (
+          <button className="boton" onClick={() => setPeriodo(PERIODO_DEMO)}>
+            Mes actual
+          </button>
+        )}
       </div>
-      <div className="fila" style={{ gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        <span className="etiqueta" style={{ background: "transparent", color: "var(--c-texto)" }}>En producción</span>
-        <Etiqueta tono="violeta">Listo para revisión</Etiqueta>
-        <Etiqueta tono="verde">Aprobado</Etiqueta>
-        <Etiqueta tono="ambar">Cambios solicitados</Etiqueta>
-        <Etiqueta tono="azul">Publicado</Etiqueta>
-      </div>
-      {cal.error ? (
-        <ErrorCarga error={cal.error} reintentar={cal.recargar} />
+
+      {tablero.error ? (
+        <ErrorCarga error={tablero.error} reintentar={tablero.recargar} />
+      ) : !t ? (
+        <Cargando />
+      ) : !t.planAprobado ? (
+        <div className="tarjeta vacio">Estamos preparando el plan de {MESES[mes - 1]}. Lo verás aquí apenas tu equipo de cuenta lo apruebe.</div>
+      ) : total === 0 ? (
+        <div className="tarjeta vacio">No hay piezas planificadas para {MESES[mes - 1]}.</div>
       ) : (
-        <div className="cal" aria-busy={cal.cargando}>
-          <div className="cal-cab">
-            {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
-              <div key={d}>{d}</div>
+        <>
+          {t.porRevisar > 0 && (
+            <Aviso icono={<LuCircleCheck size={18} />} titulo={t.porRevisar === 1 ? "Tienes 1 pieza por revisar" : `Tienes ${t.porRevisar} piezas por revisar`}>
+              Revísalas para que podamos publicarlas a tiempo.{" "}
+              <Enlace a="/entregables" className="enlace">
+                Ir a revisar →
+              </Enlace>
+            </Aviso>
+          )}
+          <div className="tablero" aria-busy={tablero.cargando}>
+            {t.columnas.map((c) => (
+              <section key={c.clave} className={`tablero-col${c.clave === "POR_REVISAR" ? " tablero-col--accion" : ""}`} aria-label={`${c.titulo}: ${c.piezas.length}`}>
+                <header className="tablero-cab">
+                  <span className="negrita">{c.titulo}</span>
+                  <span className="tablero-contador">{c.piezas.length}</span>
+                </header>
+                <p className="tablero-ayuda">{AYUDA_COLUMNA[c.clave]}</p>
+                {c.piezas.length === 0 && <p className="tablero-vacio">Nada por aquí.</p>}
+                {(c.piezas as TarjetaTablero[]).map((p) => {
+                  const fecha = p.fechaProgramada ? `${Number(p.fechaProgramada.slice(8, 10))} ${MESES_CORTOS[Number(p.fechaProgramada.slice(5, 7)) - 1]}` : null;
+                  const abre = c.clave !== "PLANIFICADO" && c.clave !== "EN_PRODUCCION";
+                  const cuerpo = (
+                    <>
+                      <span className="tablero-titulo">{p.titulo}</span>
+                      <span className="tablero-meta">
+                        {p.formato ?? "Pieza"} · {p.canal}
+                      </span>
+                      {p.ajustando && (
+                        <Etiqueta tono="ambar" sinPunto>
+                          Ajustando tus comentarios
+                        </Etiqueta>
+                      )}
+                      <span className="tablero-pie">
+                        {fecha && <span>{c.clave === "PUBLICADO" ? `Publicada el ${fecha}` : `Se publica el ${fecha}`}</span>}
+                        {c.clave === "POR_REVISAR" && <span className="texto-primario negrita">Revisar →</span>}
+                      </span>
+                    </>
+                  );
+                  return abre ? (
+                    <Enlace key={p.id} a={`/entregables/${p.id}`} className="tablero-tarjeta tablero-tarjeta--enlace">
+                      {cuerpo}
+                    </Enlace>
+                  ) : (
+                    <div key={p.id} className="tablero-tarjeta">
+                      {cuerpo}
+                    </div>
+                  );
+                })}
+              </section>
             ))}
           </div>
-          {[0, 1, 2, 3, 4].map((s) => (
-            <div className="cal-semana" key={s}>
-              {celdas.slice(s * 7, s * 7 + 7).map((d) => {
-                const fuera = d.getUTCMonth() !== mes - 1;
-                const hoy = d.toISOString().slice(0, 10) === HOY_DEMO;
-                return (
-                  <div
-                    key={d.toISOString()}
-                    className={`cal-dia${fuera ? " cal-dia--fuera" : ""}${hoy ? " cal-dia--hoy" : ""}${dia === d.toISOString().slice(0, 10) ? " cal-dia--elegido" : ""}`}
-                    onClick={() => !fuera && setDia(dia === d.toISOString().slice(0, 10) ? null : d.toISOString().slice(0, 10))}
-                    role={fuera ? undefined : "button"}
-                    tabIndex={fuera ? undefined : 0}
-                    aria-label={fuera ? undefined : `Ver piezas del ${d.getUTCDate()}`}
-                    onKeyDown={(ev) => !fuera && ev.key === "Enter" && setDia(d.toISOString().slice(0, 10))}
-                  >
-                    <span>{d.getUTCDate()}</span>
-                    {!fuera &&
-                      porDia(d).map((e) => {
-                        const c = CAL[e.estado] ?? CAL.BORRADOR;
-                        return (
-                          <Enlace key={e.id} a={e.estado === "EN_PRODUCCION" ? "/calendario" : `/entregables/${e.id}`} className="cal-pieza" onClick={(ev) => ev.stopPropagation()}>
-                            <span style={{ display: "block", background: c.bg, color: c.color, borderRadius: 8, padding: "6px 7px", margin: "-6px -7px" }} title={`${e.titulo} · ${c.texto}`}>
-                              {e.titulo}
-                              <small>
-                                {e.canal}
-                                {e.tipo === "GUION" ? " · Guion de reel" : ""}
-                              </small>
-                            </span>
-                          </Enlace>
-                        );
-                      })}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
+          <p className="texto-xs texto-muted" style={{ margin: "20px 0" }}>
+            {total} piezas en {MESES[mes - 1]}. Las fechas son previstas hasta su publicación.
+          </p>
+        </>
       )}
-      <p className="texto-xs texto-muted" style={{ margin: "24px 0" }}>
-        Hoy: {fHoyLargo(HOY_DEMO).replace(",", "")} · {entradas.length} piezas del mes. Las fechas son previstas hasta su publicación.
-      </p>
-      {proxima && (
-        <div className="tarjeta fila" style={{ padding: "18px 20px", gap: 20, flexWrap: "wrap" }}>
-          <span style={{ width: 54, height: 54, borderRadius: 12, background: "var(--c-primario-suave)", color: "var(--c-primario)", display: "grid", placeItems: "center", textAlign: "center", lineHeight: 1, fontSize: 22 }}>
-            <span>
-              {proxima.fechaProgramada!.slice(8, 10)}
-              <small style={{ display: "block", fontSize: 9, marginTop: 4 }}>OCT</small>
-            </span>
-          </span>
-          <div style={{ flex: "1 1 200px" }}>
-            <p style={{ fontSize: 16, fontWeight: 600 }}>{proxima.titulo}</p>
-            <p className="texto-sm texto-muted" style={{ marginTop: 6 }}>
-              Próxima publicación · {proxima.formato} · {proxima.canal} · Versión {proxima.numeroVersion}
-            </p>
-          </div>
-          <Etiqueta tono="violeta">Listo para revisión</Etiqueta>
-          <Enlace a={`/entregables/${proxima.id}`} className="boton">
-            Revisar pieza
-          </Enlace>
-        </div>
-      )}
-      <section className="seccion" style={{ marginTop: 32 }}>
-        <div className="seccion-cab">
-          <h2 className="seccion-titulo">
-            {dia ? `Piezas del ${Number(dia.slice(8))} de ${nombreMes}` : `Piezas de ${nombreMes}`} · {lista.length}
-          </h2>
-          {dia && (
-            <button className="enlace" onClick={() => setDia(null)}>
-              Ver todo el mes →
-            </button>
-          )}
-        </div>
-        <p className="seccion-desc">
-          {dia ? "Toca otro día del calendario para cambiar, o vuelve a ver todo el mes." : "Los colores del calendario indican el estado. Aquí tienes todas las piezas del mes, en orden de publicación."}
-        </p>
-        {lista.length === 0 ? (
-          <div className="tarjeta vacio">{dia ? "No hay piezas programadas para este día." : "No hay piezas programadas para este mes."}</div>
-        ) : (
-          <div className="grid-2" style={{ gap: 12 }}>
-            {lista.map((e) => {
-              const c = CAL[e.estado] ?? CAL.BORRADOR;
-              return (
-                <div key={e.id} className="tarjeta fila" style={{ padding: "16px 18px", gap: 16, alignItems: "flex-start", borderRadius: 16 }}>
-                  <span style={{ minWidth: 34, textAlign: "center", color: "var(--c-primario)", lineHeight: 1 }}>
-                    <span style={{ fontSize: 22, display: "block" }}>{Number(e.fechaProgramada!.slice(8, 10))}</span>
-                    <small style={{ fontSize: 10 }}>{MESES_CORTOS[mes - 1]}</small>
-                  </span>
-                  <div style={{ flex: 1, display: "grid", gap: 6 }}>
-                    <p className="negrita" style={{ fontSize: 13.5 }}>{e.titulo}</p>
-                    <p className="texto-xs texto-muted">
-                      {nombreServicio(e.servicioContratadoId)} · {e.canal}
-                      {e.tipo === "GUION" ? " · Guion de reel" : ""}
-                    </p>
-                    <div>
-                      <Etiqueta tono={TONO_CAL[e.estado] ?? "gris"}>{c.texto}</Etiqueta>
-                    </div>
-                    {e.estado === "EN_PRODUCCION" ? (
-                      <span className="texto-xs texto-muted">La verás cuando esté lista para revisión.</span>
-                    ) : (
-                      <Enlace a={`/entregables/${e.id}`} className="enlace">
-                        {e.estado === "LISTO_REVISION" ? "Revisar pieza →" : "Ver pieza →"}
-                      </Enlace>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
     </>
   );
 }
 
-// ═════════════════════════════════════════════ Brief y referencias
+// ═════════════════════════════════════════════ Brief y requerimientos
 
 export function PantallaBrief() {
   return (
-    <Estructura espacio="cliente" migas="Brief y referencias">
+    <Estructura espacio="cliente" migas="Brief y requerimientos">
       <Brief />
     </Estructura>
   );
@@ -392,13 +320,19 @@ export function PantallaBrief() {
 
 const MIME_OK = ["image/jpeg", "image/png", "video/mp4", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
 
+const PRIORIDAD: Record<string, [string, "ambar" | "violeta" | "gris"]> = { ALTA: ["Prioridad alta", "ambar"], MEDIA: ["Prioridad media", "violeta"], BAJA: ["Prioridad baja", "gris"] };
+const ESTADO_REQ: Record<string, [string, "gris" | "verde" | "ambar"]> = { PENDIENTE: ["En revisión del equipo", "gris"], ACEPTADO: ["Aceptado", "verde"], RECHAZADO: ["No entra este mes", "ambar"] };
+
 function Brief() {
   const avisar = useAviso();
   const id = clienteActivo();
   const brief = useConsulta<S<"Brief">>(`/clientes/${id}/briefs/${PERIODO_DEMO}`);
-  const refs = useConsulta<{ datos: S<"Referencia">[] }>(`/clientes/${id}/referencias`);
   const [objetivo, setObjetivo] = useState<string | null>(null);
   const [notas, setNotas] = useState<string | null>(null);
+  const [reqTexto, setReqTexto] = useState("");
+  const [reqFecha, setReqFecha] = useState("");
+  const [reqPrioridad, setReqPrioridad] = useState<S<"PrioridadRequerimiento">>("MEDIA");
+  const [errReq, setErrReq] = useState<string | null>(null);
   const [refTitulo, setRefTitulo] = useState("");
   const [refUrl, setRefUrl] = useState("");
   const [errRef, setErrRef] = useState<string | null>(null);
@@ -410,6 +344,8 @@ function Brief() {
   if (!brief.datos) return <Cargando />;
   const b = brief.datos;
   const enviado = b.estado !== "BORRADOR";
+  const delBrief = b.requerimientos.filter((r) => !r.fueraDeBrief);
+  const despues = b.requerimientos.filter((r) => r.fueraDeBrief);
 
   const guardar = async () => {
     if (objetivo === null && notas === null) return;
@@ -440,20 +376,37 @@ function Brief() {
     await api(`/archivos/${archivoId}`, { metodo: "DELETE" }).catch(() => undefined);
     void brief.recargar();
   };
+  const agregarReq = async () => {
+    setErrReq(null);
+    try {
+      await api(`/clientes/${id}/briefs/${PERIODO_DEMO}/requerimientos`, { metodo: "POST", cuerpo: { descripcion: reqTexto, fechaDeseada: reqFecha || null, prioridad: reqPrioridad }, idempotente: true });
+      setReqTexto("");
+      setReqFecha("");
+      setReqPrioridad("MEDIA");
+      if (enviado) avisar({ titulo: "Requerimiento enviado", texto: "Tu equipo de cuenta lo revisará según lo contratado y te responderá aquí." });
+      void brief.recargar();
+    } catch (e) {
+      setErrReq((e as ProblemaApi).errores[0]?.mensaje ?? (e as ProblemaApi).titulo);
+    }
+  };
+  const quitarReq = async (reqId: string) => {
+    await api(`/requerimientos/${reqId}`, { metodo: "DELETE" }).catch((e) => avisar({ titulo: "No se pudo quitar", texto: (e as ProblemaApi).titulo }));
+    void brief.recargar();
+  };
   const agregarRef = async () => {
     setErrRef(null);
     try {
-      await api(`/clientes/${id}/referencias`, { metodo: "POST", cuerpo: { titulo: refTitulo, url: refUrl || undefined, tipo: "COMPETIDOR" } });
+      await api(`/clientes/${id}/briefs/${PERIODO_DEMO}/referencias`, { metodo: "POST", cuerpo: { titulo: refTitulo, url: refUrl || undefined, tipo: "MARCA_ADMIRADA" } });
       setRefTitulo("");
       setRefUrl("");
-      void refs.recargar();
+      void brief.recargar();
     } catch (e) {
       setErrRef((e as ProblemaApi).errores[0]?.mensaje ?? (e as ProblemaApi).titulo);
     }
   };
   const quitarRef = async (refId: string) => {
     await api(`/clientes/${id}/referencias/${refId}`, { metodo: "DELETE" });
-    void refs.recargar();
+    void brief.recargar();
   };
   const enviar = async () => {
     setErrorEnvio(null);
@@ -476,9 +429,30 @@ function Brief() {
     void subir(e.dataTransfer.files);
   };
 
+  const filaReq = (r: S<"Requerimiento">, editable: boolean) => (
+    <div key={r.id} className="fila-suave" style={{ alignItems: "flex-start" }}>
+      <div style={{ display: "grid", gap: 6, flex: 1 }}>
+        <span className="negrita" style={{ fontSize: 12.5 }}>{r.descripcion}</span>
+        <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+          <Etiqueta tono={PRIORIDAD[r.prioridad][1]} sinPunto>
+            {PRIORIDAD[r.prioridad][0]}
+          </Etiqueta>
+          {r.fechaDeseada && <span className="texto-xs texto-muted">Para el {fDiaMes(`${r.fechaDeseada}T12:00:00Z`)}</span>}
+          {enviado && <Etiqueta tono={ESTADO_REQ[r.estado][1]}>{ESTADO_REQ[r.estado][0]}</Etiqueta>}
+        </span>
+        {r.notaEquipo && <span className="texto-xs texto-muted">Tu equipo: {r.notaEquipo}</span>}
+      </div>
+      {editable && (
+        <button className="enlace" style={{ color: "var(--c-muted)" }} aria-label={`Quitar ${r.descripcion}`} onClick={() => quitarReq(r.id)}>
+          <LuX size={14} />
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <>
-      <Cabecera antetitulo="Casa Oliva · Octubre 2026" titulo="Brief y referencias" bajada="Comparte lo que inspira a Casa Oliva. Nos ayudará a crear contenido más cercano a tu marca." />
+      <Cabecera antetitulo="Casa Oliva · Octubre 2026" titulo="Brief y requerimientos" bajada="Cuéntanos qué necesitas este mes y qué te inspira. Con esto planificamos tu contenido." />
       <div className="con-lateral">
         <div className="pila">
           <div className="tarjeta" style={{ display: "grid", gap: 16, padding: "22px 18px" }}>
@@ -498,6 +472,53 @@ function Brief() {
             <p className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>
               {enviado ? `Brief enviado al equipo el ${fDiaMes(b.enviadoEn ?? HOY_DEMO)}.` : "Borrador de brief · Aún no enviado al equipo."}
             </p>
+          </div>
+
+          <div className="tarjeta" style={{ display: "grid", gap: 14, padding: "22px 18px" }}>
+            <div className="fila entre">
+              <h2 className="tarjeta-titulo">Requerimientos del mes</h2>
+              <Etiqueta tono="violeta">{b.requerimientos.length}</Etiqueta>
+            </div>
+            <p className="texto-xs texto-muted">Pedidos concretos: una fecha especial, un lanzamiento, un tema que quieres tocar. Cada uno se convierte en una o más piezas del plan.</p>
+            {delBrief.length === 0 && !enviado && <p className="texto-sm texto-muted">Todavía no agregaste requerimientos.</p>}
+            {delBrief.map((r) => filaReq(r, !enviado))}
+            {enviado && (
+              <>
+                <h3 className="negrita" style={{ fontSize: 12.5, marginTop: 6 }}>¿Necesitas algo más este mes?</h3>
+                <p className="texto-xs texto-muted">Lo que agregues ahora lo revisa tu equipo de cuenta según lo contratado y te responde aquí.</p>
+                {despues.map((r) => filaReq(r, r.estado === "PENDIENTE"))}
+              </>
+            )}
+            <div className="campo">
+              <label htmlFor="req-descripcion">{enviado ? "Nuevo requerimiento" : "¿Qué necesitas?"}</label>
+              <div className="entrada">
+                <input id="req-descripcion" placeholder="Post por el lanzamiento del sérum de noche" value={reqTexto} onChange={(e) => setReqTexto(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid-2" style={{ gap: 12 }}>
+              <div className="campo">
+                <label htmlFor="req-fecha">Para cuándo (opcional)</label>
+                <div className="entrada">
+                  <input id="req-fecha" type="date" value={reqFecha} onChange={(e) => setReqFecha(e.target.value)} />
+                </div>
+              </div>
+              <div className="campo">
+                <label htmlFor="req-prioridad">Prioridad</label>
+                <div className="entrada">
+                  <select id="req-prioridad" value={reqPrioridad} onChange={(e) => setReqPrioridad(e.target.value as S<"PrioridadRequerimiento">)} style={{ border: 0, background: "none", width: "100%", outline: "none" }}>
+                    <option value="ALTA">Alta</option>
+                    <option value="MEDIA">Media</option>
+                    <option value="BAJA">Baja</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            {errReq && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errReq}</span>}
+            <div>
+              <button className="boton" onClick={agregarReq}>
+                <LuPlus size={16} /> Agregar requerimiento
+              </button>
+            </div>
           </div>
 
           <div className="tarjeta" style={{ display: "grid", gap: 14, padding: "22px 18px" }}>
@@ -556,71 +577,80 @@ function Brief() {
           </div>
 
           <div className="tarjeta" style={{ display: "grid", gap: 16, padding: "22px 18px" }}>
-            <h2 className="tarjeta-titulo">Enlaces de competidores e inspiración</h2>
-            <div className="campo">
-              <label htmlFor="ref-titulo">Nombre o contexto</label>
-              <div className="entrada">
-                <input id="ref-titulo" placeholder="Referencia de fotografía y tono editorial" value={refTitulo} onChange={(e) => setRefTitulo(e.target.value)} />
-              </div>
-            </div>
-            <div className="campo">
-              <label htmlFor="ref-url">Enlace</label>
-              <div className="entrada">
-                <input id="ref-url" type="url" placeholder="https://www.natura.com.pe" value={refUrl} onChange={(e) => setRefUrl(e.target.value)} />
-                <span className="icono-campo">
-                  <LuLink size={16} />
-                </span>
-              </div>
-              {errRef && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errRef}</span>}
-            </div>
-            <div>
-              <button className="boton" onClick={agregarRef}>
-                <LuPlus size={16} /> Agregar enlace
-              </button>
-            </div>
-            {refs.datos?.datos
-              .filter((r) => r.url)
-              .map((r) => (
-                <div key={r.id} className="fila-suave" style={{ alignItems: "flex-start" }}>
-                  <div className="fila" style={{ alignItems: "flex-start", gap: 10 }}>
-                    <LuLink size={14} style={{ marginTop: 2, color: "var(--c-muted)" }} />
-                    <div style={{ display: "grid", gap: 4 }}>
-                      <span className="negrita" style={{ fontSize: 11.5 }}>{r.titulo}</span>
-                      <a className="texto-xs texto-primario" href={r.url!} target="_blank" rel="noreferrer">
+            <h2 className="tarjeta-titulo">Referencias de este mes</h2>
+            {!enviado && (
+              <>
+                <div className="campo">
+                  <label htmlFor="ref-titulo">Nombre o contexto</label>
+                  <div className="entrada">
+                    <input id="ref-titulo" placeholder="Referencia de fotografía y tono editorial" value={refTitulo} onChange={(e) => setRefTitulo(e.target.value)} />
+                  </div>
+                </div>
+                <div className="campo">
+                  <label htmlFor="ref-url">Enlace</label>
+                  <div className="entrada">
+                    <input id="ref-url" type="url" placeholder="https://www.natura.com.pe" value={refUrl} onChange={(e) => setRefUrl(e.target.value)} />
+                    <span className="icono-campo">
+                      <LuLink size={16} />
+                    </span>
+                  </div>
+                  {errRef && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errRef}</span>}
+                </div>
+                <div>
+                  <button className="boton" onClick={agregarRef}>
+                    <LuPlus size={16} /> Agregar enlace
+                  </button>
+                </div>
+              </>
+            )}
+            {b.referencias.length === 0 && <p className="texto-sm texto-muted">Sin referencias para este mes.</p>}
+            {b.referencias.map((r) => (
+              <div key={r.id} className="fila-suave" style={{ alignItems: "flex-start" }}>
+                <div className="fila" style={{ alignItems: "flex-start", gap: 10 }}>
+                  <LuLink size={14} style={{ marginTop: 2, color: "var(--c-muted)" }} />
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <span className="negrita" style={{ fontSize: 11.5 }}>{r.titulo}</span>
+                    {r.url && (
+                      <a className="texto-xs texto-primario" href={r.url} target="_blank" rel="noreferrer">
                         {r.url}
                       </a>
-                      <span className="texto-xs texto-muted" style={{ fontSize: 10 }}>{r.notas}</span>
-                    </div>
+                    )}
+                    {r.notas && <span className="texto-xs texto-muted" style={{ fontSize: 10 }}>{r.notas}</span>}
                   </div>
+                </div>
+                {!enviado && (
                   <button className="enlace" style={{ color: "var(--c-muted)" }} aria-label={`Quitar ${r.titulo}`} onClick={() => quitarRef(r.id)}>
                     <LuX size={14} />
                   </button>
-                </div>
-              ))}
+                )}
+              </div>
+            ))}
           </div>
 
-          <div className="tarjeta" style={{ display: "grid", gap: 14, padding: "22px 18px" }}>
-            <h2 className="tarjeta-titulo">Derechos de uso</h2>
-            <label className="casilla" style={{ alignItems: "flex-start", color: "var(--c-tinta)", fontSize: 12, lineHeight: 1.6 }}>
-              <input type="checkbox" checked={derechos || enviado} disabled={enviado} onChange={(e) => setDerechos(e.target.checked)} style={{ marginTop: 3 }} />
-              Declaro que tengo los derechos de uso de las fotos, videos y documentos que comparto, y autorizo a Inoo a utilizarlos para los contenidos de Casa Oliva. *
-            </label>
-            {!enviado && !derechos && (
-              <span className="texto-xs" role={errorEnvio ? "alert" : undefined} style={{ color: "var(--c-alerta)", fontSize: 10 }}>
-                {errorEnvio ?? "Obligatorio: marca la casilla para enviar el brief."}
-              </span>
-            )}
-            <button className={`boton boton--bloque${derechos && !enviado ? " boton--primario" : ""}`} aria-disabled={!derechos || enviado} disabled={enviado} onClick={enviar} style={{ height: 40 }}>
-              {enviado ? "Brief enviado" : "Enviar brief y referencias"}
-            </button>
-          </div>
+          {!enviado && (
+            <div className="tarjeta" style={{ display: "grid", gap: 14, padding: "22px 18px" }}>
+              <h2 className="tarjeta-titulo">Derechos de uso</h2>
+              <label className="casilla" style={{ alignItems: "flex-start", color: "var(--c-tinta)", fontSize: 12, lineHeight: 1.6 }}>
+                <input type="checkbox" checked={derechos} onChange={(e) => setDerechos(e.target.checked)} style={{ marginTop: 3 }} />
+                Declaro que tengo los derechos de uso de las fotos, videos y documentos que comparto, y autorizo a Inoo a utilizarlos para los contenidos de Casa Oliva. *
+              </label>
+              {!derechos && (
+                <span className="texto-xs" role={errorEnvio ? "alert" : undefined} style={{ color: "var(--c-alerta)", fontSize: 10 }}>
+                  {errorEnvio ?? "Obligatorio: marca la casilla para enviar el brief."}
+                </span>
+              )}
+              <button className={`boton boton--bloque${derechos ? " boton--primario" : ""}`} aria-disabled={!derechos} onClick={enviar} style={{ height: 40 }}>
+                Enviar brief y requerimientos
+              </button>
+            </div>
+          )}
         </div>
 
         <aside className="pila">
           <div className="tarjeta" style={{ display: "grid", gap: 12, padding: "22px 18px", fontSize: 11.5, color: "var(--c-muted)" }}>
-            <h3 className="tarjeta-titulo">Una buena referencia ayuda</h3>
+            <h3 className="tarjeta-titulo">Un buen requerimiento ayuda</h3>
             <LuSparkles size={20} color="var(--c-primario)" />
-            <p style={{ lineHeight: 1.6 }}>Cuéntanos qué te gusta de cada ejemplo: la luz, el mensaje, el formato o la sensación que transmite.</p>
+            <p style={{ lineHeight: 1.6 }}>Di qué necesitas, para cuándo y por qué es importante. Si tienes un ejemplo que te guste, súmalo en las referencias del mes.</p>
             <p className="negrita" style={{ color: "var(--c-tinta)", fontSize: 11.5 }}>Antes de compartir</p>
             <ul style={{ margin: 0, paddingLeft: 14, lineHeight: 1.5, fontSize: 10.5 }}>
               <li>Usa archivos de buena calidad.</li>
@@ -630,12 +660,12 @@ function Brief() {
             </ul>
           </div>
           <Aviso icono={<LuShieldCheck size={16} />} titulo="Tu marca, tu contenido">
-            Los enlaces de competidores sirven como referencia, no como autorización para copiar sus materiales.
+            Las referencias de otras marcas sirven como inspiración, no como autorización para copiar sus materiales.
           </Aviso>
           <div className="tarjeta" style={{ display: "grid", gap: 12, padding: "22px 18px" }}>
             <h3 className="tarjeta-titulo">Tu equipo de contacto</h3>
             <p className="negrita" style={{ fontSize: 12 }}>Diego Castro · Inoo</p>
-            <p className="texto-xs texto-muted">Nos encargamos de revisar el brief antes de iniciar la producción.</p>
+            <p className="texto-xs texto-muted">Revisa el brief y tus requerimientos antes de iniciar la producción.</p>
             <Enlace a="/soporte/nuevo" className="enlace">
               Contactar a mi equipo →
             </Enlace>

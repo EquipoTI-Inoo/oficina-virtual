@@ -13,6 +13,7 @@ import { manejarSolicitudDb } from "../../src/servidor/api";
 import { comoUsuario, desdePglite, usarBaseDatos } from "../../src/servidor/db";
 import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
+import { pruebasPlanificacion } from "./flujo-planificacion";
 import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
 
 const sql = (ruta: string) => readFileSync(new URL(`../../../../database/${ruta}`, import.meta.url), "utf8");
@@ -28,6 +29,7 @@ before(async () => {
   await db.exec(sql("migraciones/0001_esquema.sql"));
   await db.exec(sql("migraciones/0002_rol_app.sql"));
   await db.exec(sql("migraciones/0003_api_key_usuario.sql"));
+  await db.exec(sql("migraciones/0004_requerimientos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo')",
@@ -38,6 +40,9 @@ before(async () => {
 });
 
 pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, async () =>
+  (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows,
+);
 
 describe("solo en Postgres", () => {
   const llamar = crearLlamar((req) => manejarSolicitudDb(req));

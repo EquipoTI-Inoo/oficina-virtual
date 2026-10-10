@@ -61,11 +61,16 @@ test("CU-07: crear un ticket", async ({ page }) => {
   await expect(page.getByText("#1043")).toBeVisible();
 });
 
-test("CU-05: brief con archivo, enlace y derechos de uso", async ({ page }) => {
+test("CU-05: brief con requerimiento, archivo, enlace y derechos de uso", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/brief");
-  await page.getByRole("button", { name: "Enviar brief y referencias" }).click({ force: true });
+  await page.getByRole("button", { name: "Enviar brief y requerimientos" }).click({ force: true });
   await expect(page.getByRole("alert").filter({ hasText: "Obligatorio" })).toBeVisible();
+  await page.fill("#req-descripcion", "Post por el aniversario de la marca");
+  await page.fill("#req-fecha", "2026-10-28");
+  await page.selectOption("#req-prioridad", "ALTA");
+  await page.getByRole("button", { name: "Agregar requerimiento" }).click();
+  await expect(page.getByText("Post por el aniversario de la marca")).toBeVisible();
   await page.fill("#ref-titulo", "Aesop");
   await page.fill("#ref-url", "aesop.com");
   await page.getByRole("button", { name: "Agregar enlace" }).click();
@@ -73,8 +78,24 @@ test("CU-05: brief con archivo, enlace y derechos de uso", async ({ page }) => {
   await page.setInputFiles("input[type=file]", { name: "logo.png", mimeType: "image/png", buffer: Buffer.from("x") });
   await expect(page.getByText("4 archivos listos para enviar")).toBeVisible();
   await page.getByText("Declaro que tengo").click();
-  await page.getByRole("button", { name: "Enviar brief y referencias" }).click();
+  await page.getByRole("button", { name: "Enviar brief y requerimientos" }).click();
   await expect(page.getByText("Brief enviado").first()).toBeVisible();
+  // Después de enviar, lo nuevo queda para que el AM lo evalúe.
+  await page.fill("#req-descripcion", "Historia por el Día de la Canción Criolla");
+  await page.getByRole("button", { name: "Agregar requerimiento" }).click();
+  await expect(page.getByText("Requerimiento enviado")).toBeVisible();
+  await expect(page.getByText("En revisión del equipo").last()).toBeVisible();
+});
+
+test("plan del mes: tablero por estado con lo que espera revisión", async ({ page }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/plan");
+  await expect(page.getByRole("heading", { name: "Plan del mes" })).toBeVisible();
+  const porRevisar = page.locator(".tablero-col--accion");
+  await expect(porRevisar.getByText("Por revisar")).toBeVisible();
+  await expect(page.getByText("Ajustando tus comentarios").first()).toBeVisible();
+  await porRevisar.locator(".tablero-tarjeta--enlace").first().click();
+  await expect(page).toHaveURL(/\/entregables\//);
 });
 
 test("blog: elegir otra idea", async ({ page }) => {

@@ -757,6 +757,577 @@ ruta("POST", "/integraciones/ejecuciones", async (ctx, _p, _q, cuerpo) => {
   return { ejecucionId: rows[0].id, gastoMesUsd: gasto, limiteUsd: limite, pctLimite: pct, bloquear: pct >= 100 };
 });
 
+// ───────────────────────────────────────────── roles
+
+/**
+ * x-roles del contrato. Roles de equipo (ACCOUNT_MANAGER, ADMIN; EQUIPO = cualquiera del equipo)
+ * y roles dentro del cliente (ADMIN_CLIENTE, APROBADOR, LECTOR; CLIENTE = cualquiera). Las llaves de
+ * integración pasan: sus límites son los scopes.
+ */
+function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
+  if (ctx.esServicio) return;
+  if (ctx.esEquipo) {
+    if (roles.includes("EQUIPO") || (ctx.u.rolEquipo && roles.includes(ctx.u.rolEquipo))) return;
+    throw new ErrorApi(403, "SIN_PERMISO", "Tu rol en el equipo no permite esta acción");
+  }
+  const rol = clienteId ? ctx.u.roles[clienteId] : null;
+  if (rol && (roles.includes("CLIENTE") || roles.includes(rol))) return;
+  throw new ErrorApi(403, "SIN_PERMISO", "Tu rol no permite esta acción");
+}
+
+const soloEquipo = (ctx: Ctx) => {
+  if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
+};
+const PERIODO_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+function exigirPeriodo(periodo: string | null | undefined, campo = "periodo"): string {
+  if (!periodo || !PERIODO_RE.test(periodo)) throw new ErrorApi(422, "VALIDACION", "Indica el mes", undefined, [{ campo, mensaje: "Formato AAAA-MM" }]);
+  return periodo;
+}
+const persona = (id: string | null, nombre: string | null) => (id ? { id, nombre: nombre ?? "" } : null);
+/** Mes en curso en Lima (UTC-5). */
+const PERIODO_ACTUAL = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 7);
+
+// ───────────────────────────────────────────── brief y requerimientos
+
+interface FilaBrief {
+  id: string;
+  cliente_id: string;
+  periodo: string;
+  estado: "BORRADOR" | "ENVIADO" | "CONFIRMADO";
+  objetivo_comunicacion: string | null;
+  consideraciones: string | null;
+  contenido_md: string | null;
+  drive_file_id: string | null;
+  enviado_por: string | null;
+  enviado_por_nombre: string | null;
+  enviado_en: Date | null;
+  confirmado_en: Date | null;
+  actualizado_en: Date;
+}
+
+async function filaBrief(ctx: Ctx, clienteId: string, periodo: string): Promise<FilaBrief | null> {
+  const { rows } = await ctx.c.query<FilaBrief>(
+    "SELECT b.*, u.nombre AS enviado_por_nombre FROM brief b LEFT JOIN usuario u ON u.id = b.enviado_por WHERE b.cliente_id = $1 AND b.periodo = $2",
+    [clienteId, periodo],
+  );
+  return rows[0] ?? null;
+}
+
+/** El brief se crea al primer guardado, requerimiento o referencia del mes. */
+async function asegurarBrief(ctx: Ctx, clienteId: string, periodo: string): Promise<FilaBrief> {
+  await ctx.c.query("INSERT INTO brief (cliente_id, periodo, creado_por) VALUES ($1, $2, $3) ON CONFLICT (cliente_id, periodo) DO NOTHING", [clienteId, periodo, ctx.u.usuarioId]);
+  return (await filaBrief(ctx, clienteId, periodo))!;
+}
+
+interface FilaRequerimiento {
+  id: string;
+  cliente_id: string;
+  brief_id: string;
+  periodo: string;
+  brief_estado: FilaBrief["estado"];
+  descripcion: string;
+  fecha_deseada: Date | string | null;
+  prioridad: S<"PrioridadRequerimiento">;
+  fuera_de_brief: boolean;
+  estado: S<"EstadoRequerimiento">;
+  nota_equipo: string | null;
+  pieza_id: string | null;
+  creado_por: string | null;
+  creado_por_nombre: string | null;
+  decidido_en: Date | null;
+  creado_en: Date;
+}
+
+const SELECT_REQUERIMIENTO = `
+  SELECT r.*, b.periodo, b.estado AS brief_estado, u.nombre AS creado_por_nombre
+  FROM requerimiento r JOIN brief b ON b.id = r.brief_id LEFT JOIN usuario u ON u.id = r.creado_por`;
+
+const fechaSola = (d: Date | string | null) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
+
+function requerimientoVista(r: FilaRequerimiento): S<"Requerimiento"> {
+  return {
+    id: r.id,
+    periodo: r.periodo,
+    descripcion: r.descripcion,
+    fechaDeseada: fechaSola(r.fecha_deseada),
+    prioridad: r.prioridad,
+    fueraDeBrief: r.fuera_de_brief,
+    estado: r.estado,
+    notaEquipo: r.nota_equipo,
+    piezaId: r.pieza_id,
+    creadoPor: persona(r.creado_por, r.creado_por_nombre),
+    decididoEn: iso(r.decidido_en),
+    creadoEn: iso(r.creado_en)!,
+  };
+}
+
+interface FilaReferencia { id: string; tipo: S<"TipoReferencia">; titulo: string; url: string | null; notas: string | null; paleta: string[]; archivo_id: string | null; brief_id: string | null; creado_en: Date }
+const referenciaVista = (r: FilaReferencia): S<"Referencia"> => ({
+  id: r.id, tipo: r.tipo, titulo: r.titulo, url: r.url ?? undefined, notas: r.notas ?? undefined, paleta: r.paleta, archivoId: r.archivo_id ?? undefined, creadoEn: iso(r.creado_en)!,
+}) as S<"Referencia">;
+
+async function briefVista(ctx: Ctx, clienteId: string, periodo: string): Promise<S<"Brief">> {
+  const b = await filaBrief(ctx, clienteId, periodo);
+  if (!b) return { id: null, periodo, estado: "BORRADOR", objetivoComunicacion: null, consideraciones: null, archivos: [], requerimientos: [], referencias: [], enviadoPor: null, enviadoEn: null, confirmadoEn: null, actualizadoEn: null };
+  const archivos = await ctx.c.query<{ id: string; nombre: string; mime: string; bytes: string | null; estado: string; origen: string; creado_en: Date }>(
+    "SELECT id, nombre, mime, bytes, estado, origen, creado_en FROM archivo WHERE brief_id = $1 AND estado IN ('SUBIDO', 'DISPONIBLE') ORDER BY creado_en, nombre",
+    [b.id],
+  );
+  const reqs = await ctx.c.query<FilaRequerimiento>(`${SELECT_REQUERIMIENTO} WHERE r.brief_id = $1 ORDER BY r.creado_en, r.id`, [b.id]);
+  const refs = await ctx.c.query<FilaReferencia>("SELECT * FROM referencia_cliente WHERE brief_id = $1 ORDER BY creado_en DESC, id", [b.id]);
+  const r: S<"Brief"> = {
+    id: b.id,
+    periodo: b.periodo,
+    estado: b.estado,
+    objetivoComunicacion: b.objetivo_comunicacion,
+    consideraciones: b.consideraciones,
+    archivos: archivos.rows.map((a) => ({ id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes === null ? null : Number(a.bytes), estado: a.estado, uso: "BRIEF", origen: a.origen, creadoEn: iso(a.creado_en) }) as unknown as S<"Archivo">),
+    requerimientos: reqs.rows.map(requerimientoVista),
+    referencias: refs.rows.map(referenciaVista),
+    enviadoPor: persona(b.enviado_por, b.enviado_por_nombre),
+    enviadoEn: iso(b.enviado_en),
+    confirmadoEn: iso(b.confirmado_en),
+    actualizadoEn: iso(b.actualizado_en),
+  };
+  if (ctx.esEquipo) Object.assign(r, { contenidoMd: b.contenido_md, driveFileId: b.drive_file_id });
+  return r;
+}
+
+ruta("GET", "/clientes/:id/briefs", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<{ periodo: string }>("SELECT periodo FROM brief WHERE cliente_id = $1 ORDER BY periodo DESC", [p.id]);
+  return { datos: await Promise.all(rows.map((b) => briefVista(ctx, p.id, b.periodo))) };
+});
+
+ruta("GET", "/clientes/:id/briefs/:periodo", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  return briefVista(ctx, p.id, exigirPeriodo(p.periodo));
+});
+
+ruta("PUT", "/clientes/:id/briefs/:periodo", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = (await cuerpo()) as { objetivoComunicacion?: string; consideraciones?: string; contenidoMd?: string; driveFileId?: string };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((b.objetivoComunicacion?.length ?? 0) > 500) errores.push({ campo: "objetivoComunicacion", mensaje: "Máximo 500 caracteres" });
+  if ((b.consideraciones?.length ?? 0) > 5000) errores.push({ campo: "consideraciones", mensaje: "Máximo 5 000 caracteres" });
+  validacion(errores);
+  const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(p.periodo));
+  if (!ctx.esEquipo && brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+  await ctx.c.query(
+    `UPDATE brief SET objetivo_comunicacion = coalesce($2, objetivo_comunicacion), consideraciones = coalesce($3, consideraciones),
+            contenido_md = coalesce($4, contenido_md), drive_file_id = coalesce($5, drive_file_id), actualizado_en = now()
+     WHERE id = $1`,
+    [brief.id, b.objetivoComunicacion ?? null, b.consideraciones ?? null, ctx.esEquipo ? b.contenidoMd ?? null : null, ctx.esEquipo ? b.driveFileId ?? null : null],
+  );
+  return briefVista(ctx, p.id, p.periodo);
+});
+
+ruta("POST", "/clientes/:id/briefs/:periodo/enviar", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ADMIN_CLIENTE", "APROBADOR"]);
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "El brief lo envía el cliente");
+  const b = (await cuerpo()) as { declaraDerechos?: boolean };
+  if (b.declaraDerechos !== true) {
+    throw new ErrorApi(422, "DERECHOS_REQUERIDOS", "Obligatorio: marca la casilla para enviar el brief.", undefined, [{ campo: "declaraDerechos", mensaje: "Obligatorio: marca la casilla para enviar el brief." }]);
+  }
+  const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(p.periodo));
+  if (brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+  await ctx.c.query("UPDATE brief SET estado = 'ENVIADO', declara_derechos = true, enviado_por = $2, enviado_en = now(), actualizado_en = now() WHERE id = $1", [brief.id, ctx.u.usuarioId]);
+  // La declaración firma los archivos subidos: quedan DISPONIBLE para el equipo y los agentes (POR-05).
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "UPDATE archivo SET estado = 'DISPONIBLE', declara_derechos = true, declarado_por = $2, declarado_en = now() WHERE brief_id = $1 AND estado = 'SUBIDO' RETURNING id",
+    [brief.id, ctx.u.usuarioId],
+  );
+  await emitirOutbox(ctx, "brief.enviado", p.id, { periodo: p.periodo, briefId: brief.id, usuarioId: ctx.u.usuarioId, archivoIds: rows.map((a) => a.id) });
+  return briefVista(ctx, p.id, p.periodo);
+});
+
+ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const brief = await filaBrief(ctx, p.id, exigirPeriodo(p.periodo));
+  if (!brief || brief.estado === "BORRADOR") throw new ErrorApi(409, "BRIEF_SIN_ENVIAR", "El cliente todavía no envió el brief");
+  if (brief.estado === "CONFIRMADO") throw new ErrorApi(409, "BRIEF_CONFIRMADO", "El brief ya está confirmado");
+  await ctx.c.query("UPDATE brief SET estado = 'CONFIRMADO', confirmado_por = $2, confirmado_en = now(), actualizado_en = now() WHERE id = $1", [brief.id, ctx.u.usuarioId]);
+  // Lo pedido dentro del brief entra con él; lo agregado después lo decide el AM uno por uno.
+  await ctx.c.query(
+    "UPDATE requerimiento SET estado = 'ACEPTADO', decidido_por = $2, decidido_en = now() WHERE brief_id = $1 AND NOT fuera_de_brief AND estado = 'PENDIENTE'",
+    [brief.id, ctx.u.usuarioId],
+  );
+  // n8n escucha brief.confirmado y arranca al Jefe de Marketing (CU-02).
+  await emitirOutbox(ctx, "brief.confirmado", p.id, { periodo: p.periodo, briefId: brief.id, usuarioId: ctx.u.usuarioId });
+  return briefVista(ctx, p.id, p.periodo);
+});
+
+function validarRequerimiento(b: { descripcion?: unknown; fechaDeseada?: unknown; prioridad?: unknown }, parcial: boolean) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((!parcial || b.descripcion !== undefined) && (typeof b.descripcion !== "string" || b.descripcion.trim().length < 3 || b.descripcion.length > 1000)) {
+    errores.push({ campo: "descripcion", mensaje: "Describe lo que necesitas (al menos 3 caracteres)" });
+  }
+  if (b.fechaDeseada !== undefined && b.fechaDeseada !== null && !(typeof b.fechaDeseada === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fechaDeseada))) {
+    errores.push({ campo: "fechaDeseada", mensaje: "Usa el formato AAAA-MM-DD" });
+  }
+  if (b.prioridad !== undefined && !["BAJA", "MEDIA", "ALTA"].includes(b.prioridad as string)) errores.push({ campo: "prioridad", mensaje: "Elige baja, media o alta" });
+  validacion(errores);
+}
+
+ruta("POST", "/clientes/:id/briefs/:periodo/requerimientos", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = (await cuerpo()) as { descripcion?: string; fechaDeseada?: string | null; prioridad?: S<"PrioridadRequerimiento"> };
+  validarRequerimiento(b, false);
+  const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(p.periodo));
+  // Después de enviar el brief, lo nuevo queda fuera del brief y el AM lo evalúa contra la cuota.
+  const fuera = brief.estado !== "BORRADOR";
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO requerimiento (cliente_id, brief_id, descripcion, fecha_deseada, prioridad, fuera_de_brief, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+    [p.id, brief.id, b.descripcion!.trim(), b.fechaDeseada ?? null, b.prioridad ?? "MEDIA", fuera, ctx.u.usuarioId],
+  );
+  const r = (await ctx.c.query<FilaRequerimiento>(`${SELECT_REQUERIMIENTO} WHERE r.id = $1`, [rows[0].id])).rows[0];
+  if (fuera) {
+    await emitirOutbox(ctx, "requerimiento.creado", p.id, { requerimientoId: r.id, periodo: p.periodo, prioridad: r.prioridad, fechaDeseada: fechaSola(r.fecha_deseada), usuarioId: ctx.u.usuarioId });
+  }
+  return { __status: 201, ...requerimientoVista(r) };
+});
+
+async function buscarRequerimiento(ctx: Ctx, id: string): Promise<FilaRequerimiento> {
+  const { rows } = await ctx.c.query<FilaRequerimiento>(`${SELECT_REQUERIMIENTO} WHERE r.id = $1`, [id]);
+  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
+  return rows[0];
+}
+
+/** El cliente solo toca requerimientos sin decidir, y los del brief solo mientras el brief sigue en borrador. */
+function puedeEditarRequerimiento(ctx: Ctx, r: FilaRequerimiento) {
+  exigirRol(ctx, r.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  if (ctx.esEquipo) return;
+  if (r.estado !== "PENDIENTE") throw new ErrorApi(409, "REQUERIMIENTO_DECIDIDO", "El equipo ya revisó este requerimiento", "Si necesitas cambiarlo, agrega uno nuevo.");
+  if (!r.fuera_de_brief && r.brief_estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo", "Agrega un requerimiento nuevo y el equipo lo evaluará.");
+}
+
+ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, cuerpo) => {
+  const r = await buscarRequerimiento(ctx, p.id);
+  puedeEditarRequerimiento(ctx, r);
+  const b = (await cuerpo()) as { descripcion?: string; fechaDeseada?: string | null; prioridad?: S<"PrioridadRequerimiento">; estado?: "ACEPTADO" | "RECHAZADO"; notaEquipo?: string; piezaId?: string | null };
+  if (!ctx.esEquipo && (b.estado !== undefined || b.notaEquipo !== undefined || b.piezaId !== undefined)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el equipo acepta o rechaza requerimientos");
+  validarRequerimiento(b, true);
+  if (b.estado !== undefined && !["ACEPTADO", "RECHAZADO"].includes(b.estado)) validacion([{ campo: "estado", mensaje: "Usa ACEPTADO o RECHAZADO" }]);
+  if (b.piezaId && !esUuid(b.piezaId)) validacion([{ campo: "piezaId", mensaje: "Pieza inválida" }]);
+  const nota = b.notaEquipo === undefined ? r.nota_equipo : b.notaEquipo.trim() || null;
+  if (b.estado === "RECHAZADO" && !nota) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Explícale al cliente por qué no entra", undefined, [{ campo: "notaEquipo", mensaje: "Obligatorio al rechazar" }]);
+  const decide = b.estado !== undefined && b.estado !== r.estado;
+  await ctx.c.query(
+    `UPDATE requerimiento SET descripcion = $2, fecha_deseada = $3, prioridad = $4, nota_equipo = $5, pieza_id = $6, estado = $7::estado_requerimiento,
+            decidido_por = CASE WHEN $8 THEN $9::uuid ELSE decidido_por END, decidido_en = CASE WHEN $8 THEN now() ELSE decidido_en END
+     WHERE id = $1`,
+    [
+      r.id,
+      b.descripcion?.trim() ?? r.descripcion,
+      b.fechaDeseada === undefined ? fechaSola(r.fecha_deseada) : b.fechaDeseada,
+      b.prioridad ?? r.prioridad,
+      nota,
+      b.piezaId === undefined ? r.pieza_id : b.piezaId,
+      b.estado ?? r.estado,
+      decide,
+      ctx.u.usuarioId,
+    ],
+  );
+  const nuevo = await buscarRequerimiento(ctx, r.id);
+  if (decide) await emitirOutbox(ctx, "requerimiento.decidido", r.cliente_id, { requerimientoId: r.id, estado: nuevo.estado, notaEquipo: nuevo.nota_equipo, usuarioId: ctx.u.usuarioId });
+  return requerimientoVista(nuevo);
+});
+
+ruta("DELETE", "/requerimientos/:id", async (ctx, p) => {
+  const r = await buscarRequerimiento(ctx, p.id);
+  puedeEditarRequerimiento(ctx, r);
+  await ctx.c.query("DELETE FROM requerimiento WHERE id = $1", [r.id]);
+  return null;
+});
+
+// ───────────────────────────────────────────── referencias (ficha permanente y del brief)
+
+async function nuevaReferencia(ctx: Ctx, clienteId: string, briefId: string | null, cuerpo: () => Promise<Record<string, unknown>>) {
+  const b = (await cuerpo()) as { titulo?: string; url?: string; tipo?: string; notas?: string; paleta?: string[]; archivoId?: string };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!b.titulo?.trim()) errores.push({ campo: "titulo", mensaje: "Escribe un nombre o contexto" });
+  if (b.url && !/^https?:\/\//.test(b.url)) errores.push({ campo: "url", mensaje: "El enlace debe empezar con https://" });
+  if (b.tipo && !["MARCA_ADMIRADA", "COMPETIDOR", "PIEZA_EJEMPLO", "MANUAL_MARCA", "LOGO", "OTRO"].includes(b.tipo)) errores.push({ campo: "tipo", mensaje: "Tipo inválido" });
+  if (b.paleta && !(Array.isArray(b.paleta) && b.paleta.every((c) => /^#[0-9A-Fa-f]{6}$/.test(c)))) errores.push({ campo: "paleta", mensaje: "Colores en formato #RRGGBB" });
+  if (b.archivoId && !esUuid(b.archivoId)) errores.push({ campo: "archivoId", mensaje: "Archivo inválido" });
+  validacion(errores);
+  const { rows } = await ctx.c.query<FilaReferencia>(
+    `INSERT INTO referencia_cliente (cliente_id, tipo, titulo, url, archivo_id, notas, paleta, creado_por, brief_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [clienteId, b.tipo ?? "OTRO", b.titulo!.trim(), b.url ?? null, b.archivoId ?? null, b.notas?.trim() || "Solo como inspiración. No replicar contenido.", b.paleta ?? [], ctx.u.usuarioId, briefId],
+  );
+  return { __status: 201, ...referenciaVista(rows[0]) };
+}
+
+ruta("GET", "/clientes/:id/referencias", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const tipo = q.get("tipo");
+  const { rows } = await ctx.c.query<FilaReferencia>(
+    `SELECT * FROM referencia_cliente WHERE cliente_id = $1 AND brief_id IS NULL ${tipo ? "AND tipo::text = $2" : ""} ORDER BY creado_en DESC, id`,
+    tipo ? [p.id, tipo] : [p.id],
+  );
+  return { datos: rows.map(referenciaVista), paginacion: { siguienteCursor: null } };
+});
+
+ruta("POST", "/clientes/:id/referencias", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO"]);
+  return nuevaReferencia(ctx, p.id, null, cuerpo);
+});
+
+ruta("POST", "/clientes/:id/briefs/:periodo/referencias", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(p.periodo));
+  if (!ctx.esEquipo && brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+  return nuevaReferencia(ctx, p.id, brief.id, cuerpo);
+});
+
+ruta("DELETE", "/clientes/:id/referencias/:ref", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<{ id: string; brief_estado: string | null; brief_id: string | null }>(
+    "SELECT r.id, r.brief_id, b.estado AS brief_estado FROM referencia_cliente r LEFT JOIN brief b ON b.id = r.brief_id WHERE r.id = $1 AND r.cliente_id = $2",
+    [p.ref, p.id],
+  );
+  const r = rows[0];
+  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa referencia");
+  if (r.brief_id) {
+    // Las del brief: el cliente las quita mientras el brief sigue en borrador.
+    exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+    if (!ctx.esEquipo && r.brief_estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+  } else exigirRol(ctx, p.id, ["EQUIPO"]);
+  await ctx.c.query("DELETE FROM referencia_cliente WHERE id = $1", [r.id]);
+  return null;
+});
+
+// ───────────────────────────────────────────── calendario y plan del mes (kanban)
+
+interface FilaCalendario { id: string; periodo: string; estado: S<"EstadoCalendario">; version: number; resumen: string | null; aprobado_por: string | null; aprobado_por_nombre: string | null; aprobado_en: Date | null; cupo_ideas_blog: number }
+
+async function filaCalendario(ctx: Ctx, clienteId: string, periodo: string): Promise<FilaCalendario | null> {
+  const { rows } = await ctx.c.query<FilaCalendario>(
+    "SELECT c.*, u.nombre AS aprobado_por_nombre FROM calendario c LEFT JOIN usuario u ON u.id = c.aprobado_por WHERE c.cliente_id = $1 AND c.periodo = $2",
+    [clienteId, periodo],
+  );
+  return rows[0] ?? null;
+}
+
+/** El cliente ve el mes solo con el plan aprobado (sin calendario = mes sin plan propuesto). */
+const planVisible = (ctx: Ctx, cal: FilaCalendario | null) => ctx.esEquipo || !cal || cal.estado === "APROBADO_PLAN";
+
+async function piezasDelPeriodo(ctx: Ctx, clienteId: string, periodo: string, servicioId?: string | null) {
+  const { rows } = await ctx.c.query<FilaPieza>(
+    `${SELECT_PIEZA} WHERE p.cliente_id = $1 AND p.periodo = $2 ${servicioId ? "AND p.servicio_contratado_id = $3" : ""} ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
+    servicioId ? [clienteId, periodo, servicioId] : [clienteId, periodo],
+  );
+  return rows;
+}
+
+async function calendarioVista(ctx: Ctx, clienteId: string, periodo: string, servicioId?: string | null): Promise<S<"Calendario">> {
+  const cal = await filaCalendario(ctx, clienteId, periodo);
+  if (!cal) throw new ErrorApi(404, "NO_ENCONTRADO", "Todavía no hay plan para ese mes");
+  const ps = planVisible(ctx, cal) ? await piezasDelPeriodo(ctx, clienteId, periodo, servicioId) : [];
+  return {
+    id: cal.id,
+    periodo,
+    estado: cal.estado,
+    version: cal.version,
+    resumen: cal.resumen,
+    aprobadoPor: cal.aprobado_por ? { id: cal.aprobado_por, nombre: cal.aprobado_por_nombre ?? "" } : null,
+    aprobadoEn: iso(cal.aprobado_en),
+    entradas: ps.map((x) => resumenPieza(ctx, x)),
+  };
+}
+
+ruta("GET", "/clientes/:id/calendario/:periodo", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const servicio = q.get("servicioContratadoId");
+  return calendarioVista(ctx, p.id, exigirPeriodo(p.periodo), servicio && esUuid(servicio) ? servicio : null);
+});
+
+async function decidirCalendario(ctx: Ctx, p: Record<string, string>, cuerpo: () => Promise<Record<string, unknown>>, a: "APROBADO_PLAN" | "CAMBIOS_SOLICITADOS") {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { version?: number; comentario?: string; piezaIds?: string[] };
+  const cal = await filaCalendario(ctx, p.id, exigirPeriodo(p.periodo));
+  if (!cal) throw new ErrorApi(404, "NO_ENCONTRADO", "Todavía no hay una propuesta de calendario para ese mes");
+  if (typeof b.version !== "number") validacion([{ campo: "version", mensaje: "Indica la versión que revisaste" }]);
+  if (b.version !== cal.version) throw new ErrorApi(409, "VERSION_DESACTUALIZADA", "El calendario cambió mientras lo revisabas", `Revisaste la versión ${b.version} pero la vigente es la ${cal.version}.`);
+  if (cal.estado !== "PROPUESTO") throw new ErrorApi(409, "TRANSICION_INVALIDA", cal.estado === "APROBADO_PLAN" ? "El plan ya está aprobado" : "El agente está preparando una nueva versión");
+  if (a === "CAMBIOS_SOLICITADOS" && !b.comentario?.trim()) {
+    throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Cuéntale al agente qué ajustar", undefined, [{ campo: "comentario", mensaje: "Indica qué cambiar en la propuesta" }]);
+  }
+  if (a === "APROBADO_PLAN") {
+    await ctx.c.query("UPDATE calendario SET estado = 'APROBADO_PLAN', aprobado_por = $2, aprobado_en = now() WHERE id = $1", [cal.id, ctx.u.usuarioId]);
+    const ids = (await ctx.c.query<{ id: string }>("SELECT id FROM pieza WHERE calendario_id = $1 ORDER BY fecha_programada", [cal.id])).rows.map((x) => x.id);
+    await emitirOutbox(ctx, "calendario.aprobado", p.id, { periodo: p.periodo, version: cal.version, usuarioId: ctx.u.usuarioId, piezaIds: ids });
+  } else {
+    await ctx.c.query("UPDATE calendario SET estado = 'CAMBIOS_SOLICITADOS' WHERE id = $1", [cal.id]);
+    await emitirOutbox(ctx, "calendario.cambios_solicitados", p.id, { periodo: p.periodo, version: cal.version, usuarioId: ctx.u.usuarioId, comentario: b.comentario!.trim(), piezaIds: b.piezaIds ?? [] });
+  }
+  return calendarioVista(ctx, p.id, p.periodo);
+}
+ruta("POST", "/clientes/:id/calendario/:periodo/aprobar", (ctx, p, _q, cuerpo) => decidirCalendario(ctx, p, cuerpo, "APROBADO_PLAN"));
+ruta("POST", "/clientes/:id/calendario/:periodo/solicitar-cambios", (ctx, p, _q, cuerpo) => decidirCalendario(ctx, p, cuerpo, "CAMBIOS_SOLICITADOS"));
+
+const COLUMNAS_TABLERO = [
+  { clave: "PLANIFICADO", titulo: "Planificado" },
+  { clave: "EN_PRODUCCION", titulo: "En producción" },
+  { clave: "POR_REVISAR", titulo: "Por revisar" },
+  { clave: "APROBADO", titulo: "Aprobado" },
+  { clave: "PUBLICADO", titulo: "Publicado" },
+] as const;
+
+/** Sin contenido todavía → planificado; con cambios pedidos → en producción, «ajustando». */
+function columnaDe(p: FilaPieza): (typeof COLUMNAS_TABLERO)[number]["clave"] {
+  if (p.estado === "LISTO_REVISION") return "POR_REVISAR";
+  if (p.estado === "APROBADO_CLIENTE") return "APROBADO";
+  if (p.estado === "PUBLICADO") return "PUBLICADO";
+  if (p.estado === "CAMBIOS_SOLICITADOS") return "EN_PRODUCCION";
+  return p.version_actual === 0 ? "PLANIFICADO" : "EN_PRODUCCION";
+}
+
+ruta("GET", "/clientes/:id/tablero", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo"));
+  const servicio = q.get("servicioContratadoId");
+  const cal = await filaCalendario(ctx, p.id, periodo);
+  const planAprobado = !cal || cal.estado === "APROBADO_PLAN";
+  const ps = planVisible(ctx, cal) ? await piezasDelPeriodo(ctx, p.id, periodo, servicio && esUuid(servicio) ? servicio : null) : [];
+  const r: S<"Tablero"> = {
+    periodo,
+    planAprobado,
+    porRevisar: ps.filter((x) => x.estado === "LISTO_REVISION").length,
+    columnas: COLUMNAS_TABLERO.map((k) => ({
+      ...k,
+      piezas: ps.filter((x) => columnaDe(x) === k.clave).map((x) => ({ ...resumenPieza(ctx, x), ajustando: x.estado === "CAMBIOS_SOLICITADOS" })),
+    })),
+  };
+  return r;
+});
+
+// ───────────────────────────────────────────── ideas de blog (POR-04)
+
+interface FilaIdea { id: string; periodo: string; titulo: string; palabra_clave: string | null; angulo: string | null; resumen: string | null; fuentes: S<"Fuente">[]; estado: S<"EstadoIdea">; pieza_id: string | null; decidido_en: Date | null }
+const ideaVista = (i: FilaIdea): S<"IdeaBlog"> => ({
+  id: i.id, periodo: i.periodo, titulo: i.titulo, palabraClave: i.palabra_clave, angulo: i.angulo, resumen: i.resumen, fuentes: i.fuentes ?? [], estado: i.estado, piezaId: i.pieza_id, decididoEn: iso(i.decidido_en),
+});
+
+async function ideasDelMes(ctx: Ctx, clienteId: string, periodo: string) {
+  const ideas = (await ctx.c.query<FilaIdea>("SELECT * FROM idea_blog WHERE cliente_id = $1 AND periodo = $2 ORDER BY creado_en, id", [clienteId, periodo])).rows;
+  const cal = await filaCalendario(ctx, clienteId, periodo);
+  const elegidas = ideas.filter((i) => i.estado === "ELEGIDA").length;
+  return { datos: ideas.map(ideaVista), cupo: { total: cal?.cupo_ideas_blog ?? 0, elegidas, confirmada: elegidas > 0 } };
+}
+
+ruta("GET", "/clientes/:id/ideas-blog", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  return ideasDelMes(ctx, p.id, exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL()));
+});
+
+ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["APROBADOR", "ADMIN_CLIENTE", "ACCOUNT_MANAGER"]);
+  const b = (await cuerpo()) as { periodo?: string; ideaIds?: string[] };
+  const periodo = exigirPeriodo(b.periodo);
+  const ids = Array.isArray(b.ideaIds) ? b.ideaIds.filter(esUuid) : [];
+  const cal = await filaCalendario(ctx, p.id, periodo);
+  const cupo = cal?.cupo_ideas_blog ?? 0;
+  if (!ids.length || ids.length > cupo) {
+    throw new ErrorApi(422, "CUPO_EXCEDIDO", `Elige ${cupo === 1 ? "1 idea" : `hasta ${cupo} ideas`}`, `Tu plan incluye ${cupo} ${cupo === 1 ? "idea" : "ideas"} por desarrollar este mes.`);
+  }
+  const ideas = (await ctx.c.query<FilaIdea>("SELECT * FROM idea_blog WHERE cliente_id = $1 AND periodo = $2 FOR UPDATE", [p.id, periodo])).rows;
+  if (ids.some((id) => !ideas.some((i) => i.id === id))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa idea");
+  // Las piezas BLOG de ideas que dejan de estar elegidas se reutilizan para las nuevas (el cupo no crece).
+  const libres = ideas.filter((i) => i.estado === "ELEGIDA" && !ids.includes(i.id) && i.pieza_id).map((i) => i.pieza_id!);
+  await ctx.c.query("UPDATE idea_blog SET estado = 'PROPUESTA', pieza_id = NULL, decidido_por = NULL, decidido_en = NULL WHERE cliente_id = $1 AND periodo = $2 AND NOT (id = ANY($3::uuid[]))", [p.id, periodo, ids]);
+  for (const idea of ideas.filter((i) => ids.includes(i.id) && i.estado !== "ELEGIDA")) {
+    let piezaId = libres.shift() ?? null;
+    if (piezaId) {
+      await ctx.c.query("UPDATE pieza SET titulo = $2, actualizado_en = now() WHERE id = $1", [piezaId, idea.titulo]);
+    } else {
+      const servicio = (await ctx.c.query<{ id: string }>(
+        "SELECT sc.id FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.categoria = 'BLOG' AND sc.estado = 'ACTIVO' LIMIT 1",
+        [p.id],
+      )).rows[0]?.id ?? null;
+      piezaId = (await ctx.c.query<{ id: string }>(
+        "INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, canal, periodo, fecha_programada, nota_estado) VALUES ($1, $2, $3, 'BLOG', $4, 'Blog web', $5, $6, $7) RETURNING id",
+        [p.id, servicio, cal?.id ?? null, idea.titulo, periodo, `${periodo}-25T15:00:00Z`, "Idea elegida por el cliente"],
+      )).rows[0].id;
+    }
+    await ctx.c.query("UPDATE idea_blog SET estado = 'ELEGIDA', pieza_id = $2, decidido_por = $3, decidido_en = now() WHERE id = $1", [idea.id, piezaId, ctx.u.usuarioId]);
+    await emitirOutbox(ctx, "idea_blog.elegida", p.id, { ideaId: idea.id, piezaId, usuarioId: ctx.u.usuarioId });
+  }
+  return ideasDelMes(ctx, p.id, periodo);
+});
+
+// ───────────────────────────────────────────── propuesta de calendario del Jefe de Marketing (n8n)
+
+ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "calendarios:write");
+  const b = (await cuerpo()) as Partial<S<"PropuestaCalendario">>;
+  const cliente = esUuid(b.clienteId) ? (await ctx.c.query<{ id: string }>("SELECT id FROM cliente WHERE id = $1", [b.clienteId])).rows[0] : null;
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!cliente) errores.push({ campo: "clienteId", mensaje: "Cliente inexistente" });
+  if (!b.periodo || !PERIODO_RE.test(b.periodo)) errores.push({ campo: "periodo", mensaje: "Formato AAAA-MM" });
+  if (!b.entradas?.length) errores.push({ campo: "entradas", mensaje: "La propuesta no tiene publicaciones" });
+  for (const [i, x] of (b.entradas ?? []).entries()) {
+    if (!x.titulo?.trim()) errores.push({ campo: `entradas[${i}].titulo`, mensaje: "Falta el título" });
+    if (!x.tipo) errores.push({ campo: `entradas[${i}].tipo`, mensaje: "Falta el tipo" });
+    if (!x.fechaProgramada?.startsWith(b.periodo ?? "-")) errores.push({ campo: `entradas[${i}].fechaProgramada`, mensaje: "La fecha debe caer dentro del periodo" });
+    if (x.servicioContratadoId && !esUuid(x.servicioContratadoId)) errores.push({ campo: `entradas[${i}].servicioContratadoId`, mensaje: "Servicio inválido" });
+    if (x.requerimientoId && !esUuid(x.requerimientoId)) errores.push({ campo: `entradas[${i}].requerimientoId`, mensaje: "Requerimiento inválido" });
+  }
+  validacion(errores);
+  const periodo = b.periodo!;
+  const previo = await filaCalendario(ctx, cliente!.id, periodo);
+  if (previo?.estado === "APROBADO_PLAN") throw new ErrorApi(409, "PLAN_APROBADO", "El plan de ese mes ya está aprobado");
+  if (previo?.estado === "PROPUESTO") throw new ErrorApi(409, "PROPUESTA_PENDIENTE", "Ya hay una propuesta esperando la revisión del AM");
+  const brief = await filaBrief(ctx, cliente!.id, periodo);
+  let calId: string;
+  if (previo) {
+    // Nueva versión tras un pedido de cambios: se reemplazan las piezas propuestas que aún no tienen contenido.
+    await ctx.c.query("DELETE FROM pieza WHERE calendario_id = $1 AND version_actual = 0", [previo.id]);
+    await ctx.c.query("UPDATE calendario SET estado = 'PROPUESTO', version = version + 1, resumen = $2, aprobado_por = NULL, aprobado_en = NULL WHERE id = $1", [previo.id, b.resumen ?? null]);
+    calId = previo.id;
+  } else {
+    calId = (await ctx.c.query<{ id: string }>(
+      "INSERT INTO calendario (cliente_id, periodo, brief_id, resumen) VALUES ($1, $2, $3, $4) RETURNING id",
+      [cliente!.id, periodo, brief?.id ?? null, b.resumen ?? null],
+    )).rows[0].id;
+  }
+  const servicios = (await ctx.c.query<{ id: string; categoria: string }>(
+    "SELECT sc.id, s.categoria::text AS categoria FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND sc.estado = 'ACTIVO' ORDER BY sc.fecha_inicio",
+    [cliente!.id],
+  )).rows;
+  for (const [i, x] of b.entradas!.entries()) {
+    let servicioId = x.servicioContratadoId ?? null;
+    if (servicioId && !servicios.some((s) => s.id === servicioId)) validacion([{ campo: `entradas[${i}].servicioContratadoId`, mensaje: "No pertenece al cliente" }]);
+    servicioId ??= servicios.find((s) => s.categoria === categoriaDeTipo(x.tipo))?.id ?? servicios[0]?.id ?? null;
+    const piezaId = (await ctx.c.query<{ id: string }>(
+      `INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, resumen, canal, periodo, fecha_programada, nota_estado, etiquetas)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Propuesta del Jefe de Marketing', $10) RETURNING id`,
+      [cliente!.id, servicioId, calId, x.tipo, x.titulo.trim(), x.objetivo ?? null, x.canal ?? (x.tipo === "BLOG" ? "Blog web" : "Instagram"), periodo, x.fechaProgramada, x.pilar ? [x.pilar] : []],
+    )).rows[0].id;
+    if (x.requerimientoId) {
+      // La entrada cumple un requerimiento del brief: queda enlazado y, si seguía pendiente, aceptado.
+      await ctx.c.query(
+        `UPDATE requerimiento SET pieza_id = $2,
+                estado = CASE WHEN estado = 'PENDIENTE' THEN 'ACEPTADO'::estado_requerimiento ELSE estado END,
+                decidido_en = CASE WHEN estado = 'PENDIENTE' THEN now() ELSE decidido_en END
+         WHERE id = $1 AND cliente_id = $3`,
+        [x.requerimientoId, piezaId, cliente!.id],
+      );
+    }
+  }
+  return { __status: 201, ...(await calendarioVista(ctx, cliente!.id, periodo)) };
+});
+
 // ───────────────────────────────────────────── despachador
 
 function coincide(patron: string, camino: string) {

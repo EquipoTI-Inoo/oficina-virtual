@@ -217,9 +217,8 @@ const NAV_CLIENTE = [
   { a: "/servicios", texto: "Servicios contratados", icono: <LuLayers /> },
   { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: true },
   { a: "/blog", texto: "Blog", icono: <LuFileText /> },
-  { a: "/calendario", texto: "Calendario del mes", icono: <LuCalendarDays /> },
-  { a: "/brief", texto: "Brief y referencias", icono: <LuFolder /> },
-  { a: "/resultados", texto: "Resultados", icono: <LuChartNoAxesColumnIncreasing /> },
+  { a: "/plan", texto: "Plan del mes", icono: <LuColumns3 /> },
+  { a: "/brief", texto: "Brief y requerimientos", icono: <LuFolder /> },
   { a: "/avance", texto: "Avance de proyectos", icono: <LuListChecks /> },
   { a: "/soporte", texto: "Soporte", icono: <LuHeadphones /> },
   // Sin frame en Figma (docs/diseno.md): biblioteca de paid media y usuarios del cliente.

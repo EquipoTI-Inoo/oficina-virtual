@@ -1,5 +1,6 @@
-import { PantallaResultados } from "@/src/pantallas/planificacion";
+import { redirect } from "next/navigation";
 
+/** Los resultados del mes ahora están en Inicio; el detalle va en el informe descargable. */
 export default function Pagina() {
-  return <PantallaResultados />;
+  redirect("/inicio");
 }

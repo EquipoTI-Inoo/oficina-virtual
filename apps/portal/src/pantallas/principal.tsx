@@ -180,8 +180,8 @@ function Inicio() {
         ligero
         bajada={`Todo lo que estamos creando para ${sesion?.clientes[0]?.nombre ?? "Casa Oliva"}, en un solo lugar.`}
         accion={
-          <Enlace a="/calendario" className="boton solo-escritorio">
-            <LuCalendarDays size={18} /> Calendario del mes
+          <Enlace a="/plan" className="boton solo-escritorio">
+            <LuCalendarDays size={18} /> Plan del mes
           </Enlace>
         }
       />
@@ -240,6 +240,8 @@ function Inicio() {
         )}
       </section>
 
+      <ResultadosDelMes />
+
       <div className="grid-2 seccion">
         <div className="tarjeta" style={{ padding: "22px 20px" }}>
           <h3 className="tarjeta-titulo">Servicios activos</h3>
@@ -287,6 +289,59 @@ function Inicio() {
   );
 }
 
+/** Resultados del mes dentro de Inicio (la pantalla Resultados salió del menú; el detalle va en el informe). */
+function ResultadosDelMes() {
+  const avisar = useAviso();
+  const { datos: r } = useConsulta<S<"ReporteResultados">>(`/clientes/${clienteActivo()}/reportes/resultados`);
+  if (!r) return null;
+  const descargar = async () => {
+    try {
+      const u = await api<{ url: string }>(`/clientes/${clienteActivo()}/reportes/informe?periodo=${r.periodo.desde.slice(0, 7)}`);
+      window.open(u.url, "_blank");
+    } catch (e) {
+      avisar({ titulo: "No pudimos preparar el informe", texto: (e as ProblemaApi).titulo });
+    }
+  };
+  const numero = (v: number) => v.toLocaleString("es-PE");
+  return (
+    <section className="seccion">
+      <div className="seccion-cab">
+        <div className="fila">
+          <h2 className="seccion-titulo">Resultados del mes</h2>
+          {r.esMuestra && <Etiqueta tono="gris">Datos de ejemplo</Etiqueta>}
+        </div>
+        {r.informeDisponible && (
+          <button className="boton" onClick={descargar}>
+            <LuDownload size={16} /> Descargar informe
+          </button>
+        )}
+      </div>
+      <p className="seccion-desc">
+        Del {fDiaMes(`${r.periodo.desde}T12:00:00Z`)} al {fDiaMes(`${r.periodo.hasta}T12:00:00Z`)}, comparado con el mismo tramo del mes anterior. El detalle por canal y el recorrido de tus clientes están en el informe.
+      </p>
+      <div className="grid-4">
+        {r.indicadores.slice(0, 4).map((k) => (
+          <div key={k.clave} className="tarjeta kpi">
+            <div className="kpi-cab">{k.etiqueta}</div>
+            <div className="kpi-valor">
+              {numero(k.valor)}
+              {k.unidad ?? ""}
+            </div>
+            <div className="kpi-pie">
+              {typeof k.variacionPct === "number" && (
+                <span style={{ color: k.variacionPct >= 0 ? "var(--c-exito)" : "var(--c-alerta)", fontWeight: 600 }}>
+                  {k.variacionPct >= 0 ? "▲" : "▼"} {Math.abs(k.variacionPct)}%{" "}
+                </span>
+              )}
+              {k.detalle}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function AsiVaElMes({ progreso: a, proxima, nota, conEnlace = true }: { progreso: S<"ProgresoPiezas">; proxima?: { titulo?: string; fechaProgramada?: string } | null; nota?: string; conEnlace?: boolean }) {
   return (
     <div className="tarjeta" style={{ padding: "22px 20px" }}>
@@ -328,8 +383,8 @@ export function TodoAlDia() {
       </span>
       <h3 style={{ fontSize: 20, fontWeight: 600 }}>¡Todo al día!</h3>
       <p className="texto-sm texto-muted">No tienes piezas pendientes de revisión. Te avisaremos cuando haya algo nuevo para ti.</p>
-      <Enlace a="/calendario" className="boton boton--bloque">
-        Ver calendario
+      <Enlace a="/plan" className="boton boton--bloque">
+        Ver plan del mes
       </Enlace>
     </div>
   );

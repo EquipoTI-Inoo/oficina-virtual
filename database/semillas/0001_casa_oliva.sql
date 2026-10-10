@@ -1,6 +1,6 @@
 -- Datos de prueba: Casa Oliva, octubre 2026 (mismos datos que las pantallas de Figma).
 -- GENERADO por apps/portal/scripts/generar-semillas.ts. No editar a mano.
--- Requiere database/migraciones/0001_esquema.sql. Ejecutar como dueño del esquema (RLS no aplica).
+-- Requiere las migraciones de database/migraciones/. Ejecutar como dueño del esquema (RLS no aplica).
 BEGIN;
 
 INSERT INTO usuario (id, email, nombre, cargo, tipo, rol_equipo)
@@ -139,9 +139,14 @@ VALUES
   ('00000000-0000-4000-8010-000000000002', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Ritual_diario.mp4', 'Ritual_diario.mp4', 'video/mp4', 19503513, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001'),
   ('00000000-0000-4000-8010-000000000003', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Guía_de_marca.pdf', 'Guía_de_marca.pdf', 'application/pdf', 1258291, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001');
 
-INSERT INTO referencia_cliente (id, cliente_id, tipo, titulo, url, notas, paleta, creado_por)
+INSERT INTO referencia_cliente (id, cliente_id, tipo, titulo, url, notas, paleta, creado_por, brief_id)
 VALUES
-  ('00000000-0000-4000-8011-000000000001', '00000000-0000-4000-8002-000000000001', 'COMPETIDOR', 'Natura Perú · Competidor', 'https://www.natura.com.pe', 'Solo como inspiración. No replicar contenido.', ARRAY[]::text[], '00000000-0000-4000-8001-000000000001'),
-  ('00000000-0000-4000-8011-000000000002', '00000000-0000-4000-8002-000000000001', 'PIEZA_EJEMPLO', 'Luz cálida, texturas naturales', NULL, 'Producto de referencia de «Tu ritual, tu momento». Paleta crema y verde oliva.', ARRAY['#3F5547', '#F3E9DD', '#E6E9E0']::text[], '00000000-0000-4000-8001-000000000001');
+  ('00000000-0000-4000-8011-000000000001', '00000000-0000-4000-8002-000000000001', 'COMPETIDOR', 'Natura Perú · Competidor', 'https://www.natura.com.pe', 'Solo como inspiración. No replicar contenido.', ARRAY[]::text[], '00000000-0000-4000-8001-000000000001', '00000000-0000-4000-8014-000000000001'),
+  ('00000000-0000-4000-8011-000000000002', '00000000-0000-4000-8002-000000000001', 'PIEZA_EJEMPLO', 'Luz cálida, texturas naturales', NULL, 'Producto de referencia de «Tu ritual, tu momento». Paleta crema y verde oliva.', ARRAY['#3F5547', '#F3E9DD', '#E6E9E0']::text[], '00000000-0000-4000-8001-000000000001', NULL);
+
+INSERT INTO requerimiento (id, cliente_id, brief_id, descripcion, fecha_deseada, prioridad, fuera_de_brief, estado, creado_por, creado_en)
+VALUES
+  ('00000000-0000-4000-8019-000000000001', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8014-000000000001', 'Anunciar el lanzamiento del sérum de noche en redes', '2026-10-20', 'ALTA', false, 'PENDIENTE', '00000000-0000-4000-8001-000000000001', '2026-10-04T15:10:00Z'),
+  ('00000000-0000-4000-8019-000000000002', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8014-000000000001', 'Un artículo de blog sobre cómo proteger la piel en verano', NULL, 'MEDIA', false, 'PENDIENTE', '00000000-0000-4000-8001-000000000001', '2026-10-04T15:12:00Z');
 
 COMMIT;

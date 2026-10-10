@@ -58,7 +58,8 @@ interface Estado {
     confirmadoEn?: string | null;
     confirmadoPorId?: string | null;
   };
-  referencias: { id: string; tipo: string; titulo: string; url: string | null; notas: string | null; paleta: string[] }[];
+  referencias: { id: string; tipo: string; titulo: string; url: string | null; notas: string | null; paleta: string[]; briefPeriodo: string | null }[];
+  requerimientos: D.RequerimientoDemo[];
   notificacionesLeidas: Set<string>;
   idempotencia: Map<string, { status: number; cuerpo: unknown }>;
   secuencia: number;
@@ -109,6 +110,7 @@ function estadoInicial(): Estado {
     tickets: structuredClone(D.TICKETS_INICIALES),
     brief: structuredClone(D.BRIEF_INICIAL),
     referencias: structuredClone(D.REFERENCIAS_INICIALES),
+    requerimientos: structuredClone(D.REQUERIMIENTOS_INICIALES),
     notificacionesLeidas: new Set(),
     idempotencia: new Map(),
     secuencia: 1,
@@ -516,24 +518,39 @@ ruta("GET", "/clientes/:id/actividad", (ctx, p) => {
   accesoCliente(ctx, p.id);
   return { datos: D.ACTIVIDAD.map((a) => ({ ...a, piezaId: D.uid(5, 5) })), paginacion: { siguienteCursor: null } };
 });
+const referenciaVista = ({ briefPeriodo: _b, ...r }: Estado["referencias"][number]) => ({ ...r, creadoEn: "2026-10-01T15:00:00Z" }) as S<"Referencia">;
+
+async function nuevaReferencia(req: Request, briefPeriodo: string | null) {
+  const b = await cuerpo<{ titulo?: string; url?: string; tipo?: string; notas?: string; paleta?: string[] }>(req);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!b.titulo?.trim()) errores.push({ campo: "titulo", mensaje: "Escribe un nombre o contexto" });
+  if (b.url && !/^https?:\/\//.test(b.url)) errores.push({ campo: "url", mensaje: "El enlace debe empezar con https://" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, errores);
+  const r = { id: nuevoId(11), tipo: b.tipo ?? "OTRO", titulo: b.titulo!.trim(), url: b.url ?? null, notas: b.notas?.trim() || "Solo como inspiración. No replicar contenido.", paleta: b.paleta ?? [], briefPeriodo };
+  E.referencias.unshift(r);
+  return { __status: 201, ...referenciaVista(r) };
+}
+
+// Permanentes de la marca (logo, manual, paleta): las maneja el equipo desde la ficha.
 ruta("GET", "/clientes/:id/referencias", (ctx, p) => {
   accesoCliente(ctx, p.id);
-  return { datos: E.referencias.map((r) => ({ ...r, creadoEn: "2026-10-01T15:00:00Z" })), paginacion: { siguienteCursor: null } };
+  return { datos: E.referencias.filter((r) => !r.briefPeriodo).map(referenciaVista), paginacion: { siguienteCursor: null } };
 });
 ruta("POST", "/clientes/:id/referencias", async (ctx, p, _q, req) => {
   accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
-  const b = await cuerpo<{ titulo?: string; url?: string; tipo?: string }>(req);
-  if (!b.titulo?.trim()) throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, [{ campo: "titulo", mensaje: "Escribe un nombre o contexto" }]);
-  if (b.url && !/^https?:\/\//.test(b.url)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, [{ campo: "url", mensaje: "El enlace debe empezar con https://" }]);
-  const r = { id: nuevoId(11), tipo: b.tipo ?? "OTRO", titulo: b.titulo.trim(), url: b.url ?? null, notas: "Solo como inspiración. No replicar contenido.", paleta: [] };
-  E.referencias.unshift(r);
-  return { __status: 201, ...r };
+  exigirRol(ctx, p.id, ["EQUIPO"]);
+  return nuevaReferencia(req, null);
 });
 ruta("DELETE", "/clientes/:id/referencias/:ref", (ctx, p) => {
   accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
-  E.referencias = E.referencias.filter((r) => r.id !== p.ref);
+  const r = E.referencias.find((x) => x.id === p.ref);
+  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa referencia");
+  if (r.briefPeriodo) {
+    // Las del brief: el cliente las quita mientras el brief sigue en borrador.
+    exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+    if (!ctx.esEquipo && E.brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+  } else exigirRol(ctx, p.id, ["EQUIPO"]);
+  E.referencias = E.referencias.filter((x) => x.id !== p.ref);
   return null;
 });
 
@@ -733,6 +750,46 @@ ruta("GET", "/clientes/:id/calendario/:periodo", (ctx, p, q) => {
   return calendarioVista(ctx, c.id, p.periodo, q.get("servicioContratadoId"));
 });
 
+// Plan del mes (kanban del cliente)
+const COLUMNAS_TABLERO = [
+  { clave: "PLANIFICADO", titulo: "Planificado" },
+  { clave: "EN_PRODUCCION", titulo: "En producción" },
+  { clave: "POR_REVISAR", titulo: "Por revisar" },
+  { clave: "APROBADO", titulo: "Aprobado" },
+  { clave: "PUBLICADO", titulo: "Publicado" },
+] as const;
+type ClaveColumna = (typeof COLUMNAS_TABLERO)[number]["clave"];
+
+/** Misma regla en la base: sin contenido todavía → planificado; con cambios pedidos → en producción, ajustando. */
+function columnaDe(estado: D.Estado, versionActual: number): ClaveColumna {
+  if (estado === "LISTO_REVISION") return "POR_REVISAR";
+  if (estado === "APROBADO_CLIENTE") return "APROBADO";
+  if (estado === "PUBLICADO") return "PUBLICADO";
+  if (estado === "CAMBIOS_SOLICITADOS") return "EN_PRODUCCION";
+  return versionActual === 0 ? "PLANIFICADO" : "EN_PRODUCCION";
+}
+
+ruta("GET", "/clientes/:id/tablero", (ctx, p, q) => {
+  const c = accesoCliente(ctx, p.id);
+  const periodo = q.get("periodo");
+  if (!periodo || !/^\d{4}-\d{2}$/.test(periodo)) throw new ErrorApi(422, "VALIDACION", "Indica el mes", undefined, [{ campo: "periodo", mensaje: "Formato AAAA-MM" }]);
+  const reg = E.calendarios[`${c.id}:${periodo}`];
+  const planAprobado = !reg || reg.estado === "APROBADO_PLAN";
+  let ps = planAprobado || ctx.esEquipo ? piezasDe(c.id).filter((x) => x.fecha.startsWith(periodo)) : [];
+  if (q.get("servicioContratadoId")) ps = ps.filter((x) => x.servicioId === q.get("servicioContratadoId"));
+  ps = [...ps].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const r: S<"Tablero"> = {
+    periodo,
+    planAprobado,
+    porRevisar: ps.filter((x) => x.estado === "LISTO_REVISION").length,
+    columnas: COLUMNAS_TABLERO.map((k) => ({
+      ...k,
+      piezas: ps.filter((x) => columnaDe(x.estado, x.versionActual) === k.clave).map((x) => ({ ...resumenPieza(ctx, x), ajustando: x.estado === "CAMBIOS_SOLICITADOS" })),
+    })),
+  };
+  return r;
+});
+
 // Blog
 ruta("GET", "/clientes/:id/ideas-blog", (ctx, p) => {
   accesoCliente(ctx, p.id);
@@ -758,6 +815,37 @@ ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, req) => {
 });
 
 // Brief y archivos
+function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
+  const autor = persona(r.creadoPorId);
+  return {
+    id: r.id, periodo: r.periodo, descripcion: r.descripcion, fechaDeseada: r.fechaDeseada, prioridad: r.prioridad, fueraDeBrief: r.fueraDeBrief,
+    estado: r.estado, notaEquipo: r.notaEquipo, piezaId: r.piezaId, creadoPor: autor ? { id: autor.id, nombre: autor.nombre } : null, decididoEn: r.decididoEn, creadoEn: r.creadoEn,
+  };
+}
+
+function validarRequerimiento(b: { descripcion?: unknown; fechaDeseada?: unknown; prioridad?: unknown }, parcial: boolean) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((!parcial || b.descripcion !== undefined) && (typeof b.descripcion !== "string" || b.descripcion.trim().length < 3)) errores.push({ campo: "descripcion", mensaje: "Describe lo que necesitas (al menos 3 caracteres)" });
+  if (b.fechaDeseada !== undefined && b.fechaDeseada !== null && !(typeof b.fechaDeseada === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fechaDeseada))) errores.push({ campo: "fechaDeseada", mensaje: "Usa el formato AAAA-MM-DD" });
+  if (b.prioridad !== undefined && !["BAJA", "MEDIA", "ALTA"].includes(b.prioridad as string)) errores.push({ campo: "prioridad", mensaje: "Elige baja, media o alta" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+}
+
+function buscarRequerimiento(ctx: Ctx, id: string) {
+  const r = E.requerimientos.find((x) => x.id === id);
+  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
+  accesoCliente(ctx, r.clienteId);
+  return r;
+}
+
+/** El cliente solo toca requerimientos sin decidir, y los del brief solo mientras el brief sigue en borrador. */
+function clientePuedeEditar(ctx: Ctx, r: D.RequerimientoDemo) {
+  exigirRol(ctx, r.clienteId, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  if (ctx.esEquipo) return;
+  if (r.estado !== "PENDIENTE") throw new ErrorApi(409, "REQUERIMIENTO_DECIDIDO", "El equipo ya revisó este requerimiento", "Si necesitas cambiarlo, agrega uno nuevo.");
+  if (!r.fueraDeBrief && E.brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo", "Agrega un requerimiento nuevo y el equipo lo evaluará.");
+}
+
 const briefVista = (): S<"Brief"> => ({
   id: D.uid(14, 1),
   periodo: E.brief.periodo,
@@ -768,6 +856,8 @@ const briefVista = (): S<"Brief"> => ({
     (a) =>
       ({ id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes, estado: a.estado ?? (E.brief.estado === "BORRADOR" ? "SUBIDO" : "DISPONIBLE"), uso: "BRIEF", origen: "CLIENTE", creadoEn: "2026-10-04T15:00:00Z" }) as unknown as S<"Archivo">,
   ),
+  requerimientos: E.requerimientos.filter((r) => r.periodo === E.brief.periodo).map(requerimientoVista),
+  referencias: E.referencias.filter((r) => r.briefPeriodo === E.brief.periodo).map(referenciaVista),
   enviadoPor: E.brief.estado === "BORRADOR" ? null : persona(E.usuarios[0].id),
   enviadoEn: E.brief.enviadoEn ?? null,
   confirmadoEn: E.brief.confirmadoEn ?? null,
@@ -845,6 +935,57 @@ ruta("POST", "/clientes/:id/briefs/:periodo/enviar", async (ctx, p, _q, req) => 
   emitir("brief.enviado", p.id, { periodo: p.periodo, usuarioId: ctx.usuario.id, archivoIds: E.brief.archivos.map((a) => a.id) });
   registrarCorreo(E.usuarios[2].email, `${ctx.usuario.nombre} envió el brief de ${p.periodo}`, "brief.enviado");
   return briefVista();
+});
+
+ruta("POST", "/clientes/:id/briefs/:periodo/requerimientos", async (ctx, p, _q, req) => {
+  accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = await cuerpo<{ descripcion?: string; fechaDeseada?: string | null; prioridad?: D.PrioridadRequerimiento }>(req);
+  validarRequerimiento(b, false);
+  // Después de enviar el brief, lo nuevo queda fuera del brief y el AM lo evalúa contra la cuota.
+  const fueraDeBrief = E.brief.periodo === p.periodo && E.brief.estado !== "BORRADOR";
+  const r: D.RequerimientoDemo = {
+    id: nuevoId(19), clienteId: p.id, periodo: p.periodo, descripcion: b.descripcion!.trim(), fechaDeseada: b.fechaDeseada ?? null, prioridad: b.prioridad ?? "MEDIA",
+    fueraDeBrief, estado: "PENDIENTE", notaEquipo: null, piezaId: null, creadoPorId: ctx.usuario.id, decididoEn: null, creadoEn: new Date().toISOString(),
+  };
+  E.requerimientos.push(r);
+  if (fueraDeBrief) {
+    emitir("requerimiento.creado", p.id, { requerimientoId: r.id, periodo: r.periodo, prioridad: r.prioridad, fechaDeseada: r.fechaDeseada, usuarioId: ctx.usuario.id });
+    registrarCorreo(E.usuarios[2].email, `${ctx.usuario.nombre} agregó un requerimiento para ${p.periodo}`, "requerimiento.creado");
+  }
+  return { __status: 201, ...requerimientoVista(r) };
+});
+ruta("POST", "/clientes/:id/briefs/:periodo/referencias", async (ctx, p, _q, req) => {
+  accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  if (!ctx.esEquipo && E.brief.periodo === p.periodo && E.brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+  return nuevaReferencia(req, p.periodo);
+});
+ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, req) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  clientePuedeEditar(ctx, r);
+  const b = await cuerpo<{ descripcion?: string; fechaDeseada?: string | null; prioridad?: D.PrioridadRequerimiento; estado?: "ACEPTADO" | "RECHAZADO"; notaEquipo?: string; piezaId?: string | null }>(req);
+  if (!ctx.esEquipo && (b.estado !== undefined || b.notaEquipo !== undefined || b.piezaId !== undefined)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el equipo acepta o rechaza requerimientos");
+  validarRequerimiento(b, true);
+  if (b.estado !== undefined && !["ACEPTADO", "RECHAZADO"].includes(b.estado)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, [{ campo: "estado", mensaje: "Usa ACEPTADO o RECHAZADO" }]);
+  if (b.estado === "RECHAZADO" && !b.notaEquipo?.trim()) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Explícale al cliente por qué no entra", undefined, [{ campo: "notaEquipo", mensaje: "Obligatorio al rechazar" }]);
+  if (b.descripcion !== undefined) r.descripcion = b.descripcion.trim();
+  if (b.fechaDeseada !== undefined) r.fechaDeseada = b.fechaDeseada;
+  if (b.prioridad !== undefined) r.prioridad = b.prioridad;
+  if (b.notaEquipo !== undefined) r.notaEquipo = b.notaEquipo.trim() || null;
+  if (b.piezaId !== undefined) r.piezaId = b.piezaId;
+  if (b.estado && b.estado !== r.estado) {
+    r.estado = b.estado;
+    r.decididoEn = new Date().toISOString();
+    emitir("requerimiento.decidido", r.clienteId, { requerimientoId: r.id, estado: r.estado, notaEquipo: r.notaEquipo, usuarioId: ctx.usuario.id });
+  }
+  return requerimientoVista(r);
+});
+ruta("DELETE", "/requerimientos/:id", (ctx, p) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  clientePuedeEditar(ctx, r);
+  E.requerimientos = E.requerimientos.filter((x) => x.id !== r.id);
+  return null;
 });
 
 // Resultados y avance
@@ -1224,6 +1365,10 @@ ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", (ctx, p) => {
   E.brief.estado = "CONFIRMADO";
   E.brief.confirmadoEn = new Date().toISOString();
   E.brief.confirmadoPorId = ctx.usuario.id;
+  for (const r of E.requerimientos.filter((x) => x.clienteId === p.id && x.periodo === p.periodo && !x.fueraDeBrief && x.estado === "PENDIENTE")) {
+    r.estado = "ACEPTADO";
+    r.decididoEn = E.brief.confirmadoEn;
+  }
   // n8n escucha brief.confirmado y arranca al Jefe de Marketing (CU-02).
   emitir("brief.confirmado", p.id, { periodo: p.periodo, briefId: D.uid(14, 1), usuarioId: ctx.usuario.id });
   return briefVista();
@@ -1666,8 +1811,17 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, req) => {
   if (reg) E.piezas = E.piezas.filter((x) => !(x.clienteId === c!.id && x.fecha.startsWith(b.periodo!) && x.versionActual === 0));
   E.calendarios[clave] = { estado: "PROPUESTO", version: (reg?.version ?? 0) + 1, resumen: b.resumen ?? null, aprobadoPorId: null, aprobadoEn: null };
   for (const x of b.entradas!) {
+    const piezaId = nuevoId(5);
+    const req = x.requerimientoId ? E.requerimientos.find((r) => r.id === x.requerimientoId && r.clienteId === c!.id) : undefined;
+    if (req) {
+      req.piezaId = piezaId;
+      if (req.estado === "PENDIENTE") {
+        req.estado = "ACEPTADO";
+        req.decididoEn = new Date().toISOString();
+      }
+    }
     E.piezas.push({
-      id: nuevoId(5), clienteId: c!.id, servicioId: servicioPara(c!.id, x.tipo, x.servicioContratadoId), tipo: x.tipo, titulo: x.titulo.trim(), resumen: x.objetivo ?? null,
+      id: piezaId, clienteId: c!.id, servicioId: servicioPara(c!.id, x.tipo, x.servicioContratadoId), tipo: x.tipo, titulo: x.titulo.trim(), resumen: x.objetivo ?? null,
       canal: x.canal ?? (x.tipo === "BLOG" ? "Blog web" : "Instagram"), formato: ETIQUETA_TIPO[x.tipo] ?? "Pieza", fecha: x.fechaProgramada.slice(0, 10),
       estado: "BORRADOR", versionActual: 0, versionCliente: null, notaEstado: "Propuesta del Jefe de Marketing", etiquetas: x.pilar ? [x.pilar] : undefined,
       diseno: { fondo: "crema", titular: x.titulo.trim(), foto: x.tipo !== "BLOG" }, versiones: [],

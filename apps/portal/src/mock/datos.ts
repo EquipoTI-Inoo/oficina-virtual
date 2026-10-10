@@ -358,8 +358,32 @@ export const BRIEF_INICIAL = {
 };
 
 export const REFERENCIAS_INICIALES = [
-  { id: uid(11, 1), tipo: "COMPETIDOR", titulo: "Natura Perú · Competidor", url: "https://www.natura.com.pe", notas: "Solo como inspiración. No replicar contenido.", paleta: [] as string[] },
-  { id: uid(11, 2), tipo: "PIEZA_EJEMPLO", titulo: "Luz cálida, texturas naturales", url: null, notas: "Producto de referencia de «Tu ritual, tu momento». Paleta crema y verde oliva.", paleta: ["#3F5547", "#F3E9DD", "#E6E9E0"] },
+  // briefPeriodo: referencia de inspiración de ese mes (va en el brief); null: permanente de la marca (ficha).
+  { id: uid(11, 1), tipo: "COMPETIDOR", titulo: "Natura Perú · Competidor", url: "https://www.natura.com.pe", notas: "Solo como inspiración. No replicar contenido.", paleta: [] as string[], briefPeriodo: PERIODO as string | null },
+  { id: uid(11, 2), tipo: "PIEZA_EJEMPLO", titulo: "Luz cálida, texturas naturales", url: null, notas: "Producto de referencia de «Tu ritual, tu momento». Paleta crema y verde oliva.", paleta: ["#3F5547", "#F3E9DD", "#E6E9E0"], briefPeriodo: null as string | null },
+];
+
+export type PrioridadRequerimiento = "BAJA" | "MEDIA" | "ALTA";
+export type EstadoRequerimiento = "PENDIENTE" | "ACEPTADO" | "RECHAZADO";
+export interface RequerimientoDemo {
+  id: string;
+  clienteId: string;
+  periodo: string;
+  descripcion: string;
+  fechaDeseada: string | null;
+  prioridad: PrioridadRequerimiento;
+  fueraDeBrief: boolean;
+  estado: EstadoRequerimiento;
+  notaEquipo: string | null;
+  piezaId: string | null;
+  creadoPorId: string;
+  decididoEn: string | null;
+  creadoEn: string;
+}
+
+export const REQUERIMIENTOS_INICIALES: RequerimientoDemo[] = [
+  { id: uid(19, 1), clienteId: uid(2, 1), periodo: PERIODO, descripcion: "Anunciar el lanzamiento del sérum de noche en redes", fechaDeseada: "2026-10-20", prioridad: "ALTA", fueraDeBrief: false, estado: "PENDIENTE", notaEquipo: null, piezaId: null, creadoPorId: uid(1, 1), decididoEn: null, creadoEn: "2026-10-04T15:10:00Z" },
+  { id: uid(19, 2), clienteId: uid(2, 1), periodo: PERIODO, descripcion: "Un artículo de blog sobre cómo proteger la piel en verano", fechaDeseada: null, prioridad: "MEDIA", fueraDeBrief: false, estado: "PENDIENTE", notaEquipo: null, piezaId: null, creadoPorId: uid(1, 1), decididoEn: null, creadoEn: "2026-10-04T15:12:00Z" },
 ];
 
 export const RESULTADOS = {

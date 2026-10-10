@@ -22,7 +22,7 @@ const piezas = D.piezasIniciales();
 const salida: string[] = [
   "-- Datos de prueba: Casa Oliva, octubre 2026 (mismos datos que las pantallas de Figma).",
   "-- GENERADO por apps/portal/scripts/generar-semillas.ts. No editar a mano.",
-  "-- Requiere database/migraciones/0001_esquema.sql. Ejecutar como dueño del esquema (RLS no aplica).",
+  "-- Requiere las migraciones de database/migraciones/. Ejecutar como dueño del esquema (RLS no aplica).",
   "BEGIN;",
   "",
   insert(
@@ -97,8 +97,13 @@ salida.push(
   ),
   insert(
     "referencia_cliente",
-    ["id", "cliente_id", "tipo", "titulo", "url", "notas", "paleta", "creado_por"],
-    D.REFERENCIAS_INICIALES.map((r) => [r.id, D.CLIENTES[0].id, r.tipo, r.titulo, r.url, r.notas, r.paleta, D.USUARIOS[0].id]),
+    ["id", "cliente_id", "tipo", "titulo", "url", "notas", "paleta", "creado_por", "brief_id"],
+    D.REFERENCIAS_INICIALES.map((r) => [r.id, D.CLIENTES[0].id, r.tipo, r.titulo, r.url, r.notas, r.paleta, D.USUARIOS[0].id, r.briefPeriodo ? D.uid(14, 1) : null]),
+  ),
+  insert(
+    "requerimiento",
+    ["id", "cliente_id", "brief_id", "descripcion", "fecha_deseada", "prioridad", "fuera_de_brief", "estado", "creado_por", "creado_en"],
+    D.REQUERIMIENTOS_INICIALES.map((r) => [r.id, r.clienteId, D.uid(14, 1), r.descripcion, r.fechaDeseada, r.prioridad, r.fueraDeBrief, r.estado, r.creadoPorId, r.creadoEn]),
   ),
   "COMMIT;\n",
 );
