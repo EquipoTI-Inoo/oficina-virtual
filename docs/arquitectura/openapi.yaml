@@ -14,7 +14,8 @@ info:
     **v1.2 (12 oct 2026)**: catálogo real de servicios (`CodigoServicio`) con variantes y detalle, plantillas
     de proyecto con etapas y % de avance acumulado, y etapas por proyecto que mueve el equipo. El cliente solo
     ve los servicios que tiene contratados. El Inicio del cliente resume su cuenta (lo que antes era la ficha
-    del equipo): servicios con avance, responsable, carpeta de Drive, pagos, su marca (si aplica) y actividad.
+    del equipo): servicios con avance, responsable, carpeta de Drive, su marca (si aplica), actividad y, sin montos,
+    un aviso si un pago vence pronto. Los pagos, usuarios, correos y ayuda están en "Mi cuenta".
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -243,12 +244,33 @@ paths:
                     unidad: entregas
                     estado: ACTIVO
                     avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO, atrasada: false }, totalEtapas: 4, etapasCompletadas: 1 }
-                pagos:
-                  - { id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d, concepto: Mensualidad de octubre, monto: 4800, moneda: PEN, fechaVencimiento: '2026-10-15', estado: PENDIENTE }
+                avisoPago: { concepto: Mensualidad de octubre, fechaVencimiento: '2026-10-15', estado: POR_VENCER, vencidos: 0 }
                 marca: { mensajeCentral: Cuida tu piel. Vuelve a ti., tono: [Cercano, Consciente, Sereno] }
                 actividad:
                   - { fecha: '2026-10-06T15:00:00Z', texto: 'Terminamos la etapa «Sesión de contenido» de Social Media Pro', tipo: ETAPA }
                 ticketsAbiertos: []
+
+  /clientes/{clienteId}/pagos:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Clientes]
+      operationId: listarPagosCliente
+      summary: '"Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados'
+      description: Solo la persona que administra la cuenta y el equipo; otros roles del cliente reciben 403.
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pendientes, pagados]
+                properties:
+                  pendientes: { type: array, description: Por fecha de vencimiento, items: { $ref: '#/components/schemas/PagoProgramado' } }
+                  pagados: { type: array, description: Los más recientes primero, items: { $ref: '#/components/schemas/PagoProgramado' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /clientes/{clienteId}/actividad:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
@@ -2125,10 +2147,15 @@ components:
             contactoPrincipal: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
             responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable de cuenta en Inoo ("Tu equipo Inoo")' }
             driveUrl: { type: [string, 'null'], format: uri }
-        pagos:
-          type: array
-          description: Próximos pagos y los vencidos sin pagar, por fecha (máximo 3)
-          items: { $ref: '#/components/schemas/PagoProgramado' }
+        avisoPago:
+          description: 'El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE y el equipo.'
+          type: [object, 'null']
+          required: [concepto, fechaVencimiento, estado]
+          properties:
+            concepto: { type: string }
+            fechaVencimiento: { type: string, format: date }
+            estado: { type: string, enum: [VENCIDO, POR_VENCER] }
+            vencidos: { type: integer, description: 'Cuántos pagos están vencidos en total' }
         marca:
           description: 'Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null'
           type: [object, 'null']
@@ -2193,6 +2220,7 @@ components:
         moneda: { type: string, enum: [PEN, USD] }
         fechaVencimiento: { type: string, format: date }
         estado: { type: string, enum: [PENDIENTE, PAGADO, VENCIDO], description: 'VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)' }
+        pagadoEn: { type: [string, 'null'], format: date }
     Miembro:
       type: object
       required: [usuarioId, nombre, email, rol]

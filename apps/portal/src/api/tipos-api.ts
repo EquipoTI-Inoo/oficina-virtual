@@ -131,6 +131,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/{clienteId}/pagos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * "Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados
+         * @description Solo la persona que administra la cuenta y el equipo; otros roles del cliente reciben 403.
+         */
+        get: operations["listarPagosCliente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/actividad": {
         parameters: {
             query?: never;
@@ -1513,8 +1535,16 @@ export interface components {
                 /** Format: uri */
                 driveUrl?: string | null;
             };
-            /** @description Próximos pagos y los vencidos sin pagar, por fecha (máximo 3) */
-            pagos?: components["schemas"]["PagoProgramado"][];
+            /** @description El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE y el equipo. */
+            avisoPago?: {
+                concepto: string;
+                /** Format: date */
+                fechaVencimiento: string;
+                /** @enum {string} */
+                estado: "VENCIDO" | "POR_VENCER";
+                /** @description Cuántos pagos están vencidos en total */
+                vencidos?: number;
+            } | null;
             /** @description Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null */
             marca?: {
                 mensajeCentral?: string | null;
@@ -1581,6 +1611,8 @@ export interface components {
              * @enum {string}
              */
             estado: "PENDIENTE" | "PAGADO" | "VENCIDO";
+            /** Format: date */
+            pagadoEn?: string | null;
         };
         Miembro: {
             /** Format: uuid */
@@ -3084,16 +3116,12 @@ export interface operations {
                      *           }
                      *         }
                      *       ],
-                     *       "pagos": [
-                     *         {
-                     *           "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
-                     *           "concepto": "Mensualidad de octubre",
-                     *           "monto": 4800,
-                     *           "moneda": "PEN",
-                     *           "fechaVencimiento": "2026-10-15",
-                     *           "estado": "PENDIENTE"
-                     *         }
-                     *       ],
+                     *       "avisoPago": {
+                     *         "concepto": "Mensualidad de octubre",
+                     *         "fechaVencimiento": "2026-10-15",
+                     *         "estado": "POR_VENCER",
+                     *         "vencidos": 0
+                     *       },
                      *       "marca": {
                      *         "mensajeCentral": "Cuida tu piel. Vuelve a ti.",
                      *         "tono": [
@@ -3115,6 +3143,35 @@ export interface operations {
                     "application/json": components["schemas"]["InicioCliente"];
                 };
             };
+        };
+    };
+    listarPagosCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Por fecha de vencimiento */
+                        pendientes: components["schemas"]["PagoProgramado"][];
+                        /** @description Los más recientes primero */
+                        pagados: components["schemas"]["PagoProgramado"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     listarActividadCliente: {

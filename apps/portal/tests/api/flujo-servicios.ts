@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
-import { CASA_OLIVA, crearLlamar, DIEGO, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
+import { CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
 
 const ADMIN = `demo.${uid(1, 4)}`;
 const CRM = uid(4, 3);
@@ -77,6 +77,17 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.ok((await eventos()).some((e) => e.tipo === "etapa.actualizada" && e.datos.etapaId === etapas[1].id));
       // Reabrir la etapa la saca del %.
       assert.equal((await llamar("PATCH", ruta(1), DIEGO, { estado: "EN_PROGRESO" })).json.avance.porcentaje, 20);
+    });
+
+    test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
+      await reiniciar();
+      const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);
+      assert.equal(r.status, 200);
+      assert.deepEqual([r.json.pendientes[0].concepto, r.json.pendientes[0].estado, r.json.pendientes[0].monto], ["Implementación de CRM · cuota 2 de 3", "VENCIDO", 3200]);
+      assert.deepEqual(r.json.pagados.map((x: any) => [x.concepto, x.pagadoEn]), [["Mensualidad de septiembre", "2026-09-14"]]);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, MARTIN_LECTOR)).status, 403);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, DIEGO)).status, 200);
+      assert.equal((await llamar("GET", `/clientes/${NATIVA}/pagos`, VALERIA)).status, 404);
     });
 
     test("contratar: variante obligatoria donde aplica y etapas desde la plantilla", async () => {

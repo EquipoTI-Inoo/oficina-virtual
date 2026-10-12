@@ -93,15 +93,13 @@ describe("aprobaciones (CU-06)", () => {
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");
   });
-  test("Inicio = «Tu cuenta»: equipo, Drive, pagos, marca solo si aplica y actividad breve", async () => {
+  test("Inicio = «Tu cuenta»: equipo, Drive, aviso de pago sin montos, marca solo si aplica y actividad breve", async () => {
     const r = (await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json;
     assert.equal(r.cuenta.responsable.nombre, "Diego Castro");
     assert.match(r.cuenta.driveUrl, /^https:\/\/drive\.google\.com/);
-    assert.deepEqual(r.pagos.map((x: any) => [x.concepto, x.estado]), [
-      ["Implementación de CRM · cuota 2 de 3", "VENCIDO"],
-      ["Mensualidad de octubre", "PENDIENTE"],
-      ["Web e-commerce · 2.º hito", "PENDIENTE"],
-    ]);
+    assert.deepEqual(r.avisoPago, { concepto: "Implementación de CRM · cuota 2 de 3", fechaVencimiento: "2026-10-02", estado: "VENCIDO", vencidos: 1 });
+    assert.equal(r.pagos, undefined, "en Inicio no hay montos ni lista de pagos");
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, MARTIN_LECTOR)).json.avisoPago, null, "solo quien administra la cuenta ve pagos");
     assert.equal(r.marca.mensajeCentral, "Cuida tu piel. Vuelve a ti.");
     assert.ok(r.actividad.length <= 4 && r.actividad.every((x: any) => x.fecha <= "2026-10-06T15:00:00Z"), "breve y sin fechas futuras");
     assert.equal(r.indicadores.requerimientosPendientes, 0);

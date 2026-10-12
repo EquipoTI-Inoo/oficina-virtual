@@ -596,7 +596,31 @@ const SERVICIOS_DE_MARCA = ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA"];
 
 const pagoVista = (x: D.PagoDemo): S<"PagoProgramado"> => ({
   id: x.id, concepto: x.concepto, servicioContratadoId: x.servicioContratadoId, monto: x.monto, moneda: x.moneda, fechaVencimiento: x.fechaVencimiento,
-  estado: x.estado === "PENDIENTE" && x.fechaVencimiento < D.HOY.slice(0, 10) ? "VENCIDO" : x.estado,
+  estado: x.estado === "PENDIENTE" && x.fechaVencimiento < D.HOY.slice(0, 10) ? "VENCIDO" : x.estado, pagadoEn: x.pagadoEn,
+});
+const pendientesDe = (clienteId: string) =>
+  E.pagos.filter((x) => x.clienteId === clienteId && x.estado === "PENDIENTE").sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento));
+/** Los pagos (y su aviso en Inicio) solo los ve quien administra la cuenta y el equipo. */
+const veePagos = (ctx: Ctx, clienteId: string) => ctx.esEquipo || rolEn(ctx, clienteId) === "ADMIN_CLIENTE";
+
+/** Aviso de Inicio, sin monto: el pago más urgente si ya venció o vence en 7 días. */
+function avisoPago(clienteId: string): S<"InicioCliente">["avisoPago"] {
+  const hoy = D.HOY.slice(0, 10);
+  const limite = new Date(Date.parse(`${hoy}T12:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
+  const xs = pendientesDe(clienteId);
+  const vencidos = xs.filter((x) => x.fechaVencimiento < hoy).length;
+  const x = xs[0];
+  if (!x || x.fechaVencimiento > limite) return null;
+  return { concepto: x.concepto, fechaVencimiento: x.fechaVencimiento, estado: x.fechaVencimiento < hoy ? "VENCIDO" : "POR_VENCER", vencidos };
+}
+
+ruta("GET", "/clientes/:id/pagos", (ctx, p) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  return {
+    pendientes: pendientesDe(c.id).map(pagoVista),
+    pagados: E.pagos.filter((x) => x.clienteId === c.id && x.estado === "PAGADO").sort((a, b) => b.fechaVencimiento.localeCompare(a.fechaVencimiento)).map(pagoVista),
+  };
 });
 
 /** Actividad reciente, breve: aprobaciones del cliente, publicaciones y etapas terminadas. */
@@ -634,11 +658,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
       responsable: persona(c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId),
       driveUrl: fichaDe(c.id).driveUrl ?? null,
     },
-    pagos: E.pagos
-      .filter((x) => x.clienteId === c.id && x.estado === "PENDIENTE")
-      .sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento))
-      .slice(0, 3)
-      .map(pagoVista),
+    avisoPago: veePagos(ctx, c.id) ? avisoPago(c.id) : null,
     marca: serviciosDe(c.id).some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
       ? (() => {
           const f = fichaDe(c.id);

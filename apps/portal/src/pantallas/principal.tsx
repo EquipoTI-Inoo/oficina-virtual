@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   LuArrowRight, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight,
-  LuCircleCheck, LuDownload, LuEyeOff, LuEye, LuFileText, LuInfo, LuLayers, LuMail, LuMessageSquare,
+  LuCircleCheck, LuDownload, LuEyeOff, LuEye, LuInfo, LuLayers, LuMail, LuMessageSquare,
   LuClipboardList, LuExternalLink, LuSearch, LuShieldCheck, LuSparkles, LuWallet,
 } from "react-icons/lu";
 import {
@@ -165,13 +165,10 @@ export function PantallaInicio() {
   );
 }
 
-const MONEDA: Record<string, string> = { PEN: "S/", USD: "US$" };
-const fMonto = (monto: number, moneda: string) => `${MONEDA[moneda] ?? moneda} ${monto.toLocaleString("es-PE", { minimumFractionDigits: 0 })}`;
-
 /**
  * Inicio = «Tu cuenta» (reunión 12 oct): lo esencial de la ficha que antes solo veía el equipo.
- * Conciso: servicios con su avance lineal, equipo Inoo, Drive, pagos, la marca (solo si aplica)
- * y una actividad reciente breve. El detalle de cada servicio vive en su perfil de proyecto.
+ * Conciso: servicios con su avance lineal, equipo Inoo, Drive, la marca (solo si aplica) y una
+ * actividad reciente breve. De los pagos solo un aviso sin montos; el detalle está en Mi cuenta.
  */
 function Inicio() {
   const { sesion } = usePortal();
@@ -180,9 +177,7 @@ function Inicio() {
   if (!d) return <Cargando />;
   const nombre = sesion?.usuario.nombre.split(" ")[0] ?? "";
   const cuenta = d.cuenta;
-  const pagos = d.pagos ?? [];
-  const proximo = pagos[0];
-  const vencidos = pagos.filter((x) => x.estado === "VENCIDO").length;
+  const pago = d.avisoPago;
   const req = d.indicadores.requerimientosPendientes;
   return (
     <>
@@ -192,7 +187,17 @@ function Inicio() {
         ligero
         bajada={`Así va todo lo que hacemos para ${cuenta?.nombre ?? sesion?.clientes[0]?.nombre ?? "tu marca"}.`}
       />
-      <div className="grid-4 kpis">
+      {pago && (
+        <Aviso icono={<LuWallet size={18} />} tono={pago.estado === "VENCIDO" ? "alerta" : undefined}>
+          {pago.estado === "VENCIDO"
+            ? `${pago.vencidos && pago.vencidos > 1 ? `Tienes ${pago.vencidos} pagos vencidos. ` : ""}«${pago.concepto}» venció el ${fDiaMes(pago.fechaVencimiento)}.`
+            : `«${pago.concepto}» vence el ${fDiaMes(pago.fechaVencimiento)}.`}{" "}
+          <Enlace a="/cuenta/pagos" className="enlace">
+            Ver mis pagos →
+          </Enlace>
+        </Aviso>
+      )}
+      <div className={`grid-3 kpis${pago ? " seccion" : ""}`}>
         <Enlace a="/servicios" className="tarjeta kpi">
           <div className="kpi-cab">
             Servicios activos <LuLayers size={16} />
@@ -213,15 +218,6 @@ function Inicio() {
           </div>
           <div className="kpi-valor">{req}</div>
           <div className="kpi-pie">{req === 0 ? "No te pedimos nada por ahora" : req === 1 ? "Pendiente de enviarnos" : "Pendientes de enviarnos"}</div>
-        </div>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">
-            Próximo pago <LuWallet size={16} />
-          </div>
-          <div className="kpi-valor" style={{ fontSize: proximo ? 26 : undefined }}>{proximo ? fDiaMes(proximo.fechaVencimiento) : "—"}</div>
-          <div className="kpi-pie" style={vencidos ? { color: "var(--c-alerta)" } : undefined}>
-            {vencidos ? `${vencidos} ${vencidos === 1 ? "pago vencido" : "pagos vencidos"}` : proximo ? fMonto(proximo.monto, proximo.moneda) : "Sin pagos pendientes"}
-          </div>
         </div>
       </div>
 
@@ -292,21 +288,6 @@ function Inicio() {
               </a>
             </div>
           )}
-          <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Próximos pagos</h3>
-            {pagos.length === 0 && <p className="texto-xs texto-muted">No tienes pagos pendientes.</p>}
-            {pagos.map((x) => (
-              <div key={x.id} className="fila entre" style={{ alignItems: "flex-start" }}>
-                <span>
-                  <span className="negrita" style={{ display: "block", fontSize: 12.5 }}>{x.concepto}</span>
-                  <span className="texto-xs" style={{ color: x.estado === "VENCIDO" ? "var(--c-alerta)" : "var(--c-muted)" }}>
-                    {x.estado === "VENCIDO" ? `Venció el ${fDiaMes(x.fechaVencimiento)}` : `Vence el ${fDiaMes(x.fechaVencimiento)}`}
-                  </span>
-                </span>
-                <span className="negrita" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{fMonto(x.monto, x.moneda)}</span>
-              </div>
-            ))}
-          </div>
         </aside>
       </div>
     </>
@@ -458,10 +439,6 @@ export function PantallaServicios() {
 
 function Servicios() {
   const { datos: d, error, recargar } = useConsulta<S<"ServiciosCliente">>(`/clientes/${clienteActivo()}/servicios`);
-  const verContrato = async () => {
-    const u = await api<{ url: string }>(`/clientes/${clienteActivo()}/plan/contrato`);
-    window.open(u.url, "_blank");
-  };
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
   // La API solo devuelve lo contratado (reunión 12 oct): lo no contratado no ocupa espacio.
@@ -473,11 +450,6 @@ function Servicios() {
         antetitulo="Casa Oliva · Octubre 2026"
         titulo="Mis servicios"
         bajada="Lo que tienes contratado y en qué etapa está cada servicio."
-        accion={
-          <button className="boton" onClick={verContrato}>
-            <LuFileText size={18} /> Ver contrato
-          </button>
-        }
       />
       <div className="tarjeta" style={{ padding: "24px 24px 20px" }}>
         <div className="fila entre" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>

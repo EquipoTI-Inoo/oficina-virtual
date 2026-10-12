@@ -9,7 +9,8 @@
 import type { ComponentType } from "react";
 import { PantallaAvance, PantallaBlog, PantallaPlanMes } from "./pantallas/planificacion";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
-import { PantallaCalendarioEquipo, PantallaCostosIa, PantallaUsuarios } from "./pantallas/sin-diseno";
+import { PantallaCalendarioEquipo, PantallaCostosIa } from "./pantallas/sin-diseno";
+import { PantallaCuenta } from "./pantallas/cuenta";
 import {
   PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
 } from "./pantallas/soporte-equipo";
@@ -37,7 +38,11 @@ export const RUTAS: Ruta[] = [
   { patron: "/equipo/produccion", pantalla: PantallaBandeja, figma: "16-bandeja-de-produccion", espacio: "equipo" },
   { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
   { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
-  { patron: "/usuarios", pantalla: PantallaUsuarios, figma: null, espacio: "cliente" },
+  { patron: "/cuenta", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
+  { patron: "/cuenta/pagos", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
+  { patron: "/cuenta/usuarios", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
+  { patron: "/cuenta/notificaciones", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
+  { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/equipo/plan", pantalla: PantallaPlanMes, figma: null, espacio: "equipo" },
   { patron: "/equipo/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "equipo" },
   { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },

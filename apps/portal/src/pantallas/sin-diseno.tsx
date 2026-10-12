@@ -5,7 +5,7 @@
  * tomarlas como diseño final.
  */
 import { useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronLeft, LuChevronRight, LuMail, LuPencil, LuPlus, LuTriangleAlert, LuUpload } from "react-icons/lu";
+import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuTriangleAlert, LuUpload } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, Modal, useAviso, usePortal } from "../componentes";
 
@@ -156,104 +156,6 @@ function Biblioteca() {
 }
 
 // ═════════════════════════════════════════════ Cliente · Usuarios y avisos (POR-01, INO-04)
-
-export function PantallaUsuarios() {
-  return (
-    <Estructura espacio="cliente" migas="Usuarios y avisos">
-      <Usuarios />
-    </Estructura>
-  );
-}
-
-const ROL_CLIENTE: Record<string, string> = { ADMIN_CLIENTE: "Administra la cuenta", APROBADOR: "Aprueba piezas", LECTOR: "Solo lectura" };
-const DESTINATARIOS: Record<string, string> = { MIEMBROS_CLIENTE: "Tu equipo", ACCOUNT_MANAGER: "Inoo", AMBOS: "Tu equipo e Inoo" };
-
-function Usuarios() {
-  const { sesion } = usePortal();
-  const id = clienteActivo();
-  const esAdmin = sesion?.clientes[0]?.rol === "ADMIN_CLIENTE";
-  const miembros = useConsulta<{ datos: S<"Miembro">[] }>(sesion ? (esAdmin ? `/clientes/${id}/miembros` : null) : null);
-  const correos = useConsulta<{ reglas: S<"ReglaCorreo">[]; recientes: S<"CorreoEnviado">[] }>(`/clientes/${id}/correos-automaticos`);
-  return (
-    <>
-      <Cabecera antetitulo="Tu cuenta" titulo="Usuarios y avisos" bajada="Quién entra al portal y qué correos enviamos. Los accesos los gestiona tu equipo Inoo." />
-      <section className="tarjeta" style={{ padding: "24px 18px" }}>
-        <h2 className="tarjeta-titulo" style={{ marginBottom: 16 }}>Usuarios del portal</h2>
-        {!esAdmin ? (
-          <p className="texto-sm texto-muted">La lista de usuarios la ve la persona que administra la cuenta. Para dar acceso a alguien más, escríbele a tu equipo Inoo.</p>
-        ) : miembros.error ? (
-          <ErrorCarga error={miembros.error} reintentar={miembros.recargar} />
-        ) : !miembros.datos ? (
-          <Cargando />
-        ) : (
-          <>
-            <div className="tabla-envoltura">
-              <table className="tabla" style={{ fontSize: 12 }}>
-                <thead>
-                  <tr>
-                    <th>Persona</th>
-                    <th>Permiso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {miembros.datos.datos.map((m) => (
-                    <tr key={m.usuarioId} style={{ cursor: "default" }}>
-                      <td>
-                        <p className="negrita">
-                          {m.nombre} {m.usuarioId === sesion?.usuario.id && <span className="texto-muted">(tú)</span>}
-                        </p>
-                        <p className="texto-xs texto-muted" style={{ marginTop: 4 }}>
-                          {m.email} {m.invitacionPendiente && <Etiqueta tono="ambar">Invitación pendiente</Etiqueta>}
-                        </p>
-                      </td>
-                      <td>{ROL_CLIENTE[m.rol] ?? m.rol}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="texto-xs texto-muted" style={{ marginTop: 16 }}>
-              Para dar acceso a alguien más de tu equipo o cambiar permisos, envíale los datos a tu equipo Inoo y lo hacemos por ti.
-            </p>
-          </>
-        )}
-      </section>
-
-      <section className="grid-2 seccion" style={{ alignItems: "start" }}>
-        <div className="tarjeta" style={{ padding: "24px 18px", display: "grid", gap: 14 }}>
-          <h2 className="tarjeta-titulo">Correos automáticos</h2>
-          {correos.datos?.reglas.map((r) => (
-            <div key={r.evento} className="fila" style={{ gap: 12 }}>
-              <LuMail size={16} color="var(--c-primario)" />
-              <span style={{ flex: 1 }}>
-                <span className="negrita" style={{ display: "block", fontSize: 12 }}>{r.descripcion}</span>
-                <span className="texto-xs texto-muted">Para: {DESTINATARIOS[r.destinatarios ?? "MIEMBROS_CLIENTE"]}</span>
-              </span>
-              <Etiqueta tono={r.activa ? "verde" : "gris"}>{r.activa ? "Activo" : "Pausado"}</Etiqueta>
-            </div>
-          ))}
-        </div>
-        <div className="tarjeta" style={{ padding: "24px 18px" }}>
-          <h2 className="tarjeta-titulo" style={{ marginBottom: 14 }}>Últimos correos enviados</h2>
-          {!correos.datos ? (
-            <Cargando />
-          ) : (
-            <div className="lista-suave">
-              {correos.datos.recientes.map((c) => (
-                <div key={c.id} className="fila-suave" style={{ padding: "12px 6px", display: "grid", gap: 4 }}>
-                  <span className="negrita" style={{ fontSize: 12 }}>{c.asunto}</span>
-                  <span className="texto-xs texto-muted">
-                    {c.para} · {c.enviadoEn ? fDiaHora(c.enviadoEn) : "Pendiente"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-    </>
-  );
-}
 
 // ═════════════════════════════════════════════ Equipo · Calendarios (CU-02, MKT-02)
 

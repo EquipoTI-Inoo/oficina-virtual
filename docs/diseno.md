@@ -41,7 +41,7 @@ aprobadas de las pruebas visuales.
 | Ruta | Frame | Notas |
 |---|---|---|
 | `/ingresar` | 02-ingreso | |
-| `/inicio` | 01-inicio | «Tu cuenta» (reunión 12 oct): lo esencial de la ficha del cliente: servicios con avance lineal, equipo Inoo, Drive, próximos pagos, «Tu marca» plegable (solo con Social Media Pro, Brandformance o Paid Media) y actividad reciente breve |
+| `/inicio` | 01-inicio | «Tu cuenta» (reunión 12 oct): lo esencial de la ficha del cliente: servicios con avance lineal, equipo Inoo, Drive, aviso de pago sin montos (vencido o en 7 días), «Tu marca» plegable (solo con Social Media Pro, Brandformance o Paid Media) y actividad reciente breve |
 | `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados, con título «Servicio - Marca», variante o detalle (CRM, licencias) y avance por etapas (reunión 12 oct) |
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |
@@ -58,7 +58,7 @@ aprobadas de las pruebas visuales.
 | `/muestras` | 10-muestras-de-estados | Hoja de estados para QA de diseño |
 | `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel; botón «Nuevo cliente» (modal) |
 | `/biblioteca` | — | Retirada del menú: irá dentro del servicio Paid Media. Redirige a `/servicios` |
-| `/usuarios` | — | Sin diseño: usuarios del cliente en solo lectura (solo el equipo los gestiona) y correos automáticos |
+| `/cuenta`, `/cuenta/{pagos,usuarios,notificaciones,ayuda}` | — | Sin diseño: «Mi cuenta», desde la foto de perfil (arriba a la derecha). Datos y contrato, pagos (solo ADMIN_CLIENTE), usuarios en solo lectura, correos automáticos y ayuda (WhatsApp por área, números de relleno). `/usuarios` redirige aquí |
 | `/equipo/calendarios` | — | Sin diseño: revisión y aprobación de la propuesta mensual del Jefe de Marketing |
 | `/equipo/costos` | — | Sin diseño: costos de IA por cliente y modelo, ejecuciones (solo ADMIN; el menú la oculta al resto) |
 | «Editar ficha» | — | Sin diseño: modal sobre la ficha de cliente |

@@ -1,10 +1,10 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
   LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy,
+  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
@@ -247,14 +247,13 @@ export function Modal({ abierto, alCerrar, children, etiqueta }: { abierto: bool
 
 // ───────────────────────────── estructura (barra lateral + superior)
 
-// Reunión del 12 oct 2026: el cliente solo ve sus servicios, lo que tiene por revisar y su cuenta.
+// Reunión del 12 oct 2026: el cliente solo ve sus servicios y lo que tiene por revisar.
 // Blog y Plan del mes pasan al equipo; Brief se reemplaza por Requerimientos; Biblioteca entra en
-// Paid Media; Soporte sale del menú (queda escondido detrás de «Contactar a mi equipo»).
+// Paid Media. Usuarios, pagos, correos y ayuda (soporte) están en «Mi cuenta», desde la foto de perfil.
 const NAV_CLIENTE = [
   { a: "/inicio", texto: "Inicio", icono: <LuHouse /> },
   { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
   { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: true },
-  { a: "/usuarios", texto: "Usuarios y avisos", icono: <LuUserCog /> },
 ];
 const NAV_EQUIPO = [
   { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },
@@ -306,7 +305,7 @@ function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente
           <LuSparkles size={18} />
           <strong>Estamos contigo.</strong>
           <span>Tu equipo Inoo, a un mensaje de distancia.</span>
-          <Enlace a="/soporte/nuevo" className="enlace">
+          <Enlace a="/cuenta/ayuda" className="enlace">
             Contactar a mi equipo →
           </Enlace>
         </div>
@@ -318,7 +317,13 @@ function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente
         </div>
       )}
       <div className="persona">
-        <span className="avatar">{u?.iniciales ?? "··"}</span>
+        {espacio === "cliente" ? (
+          <Enlace a="/cuenta" className="avatar" aria-label="Mi cuenta" onClick={alNavegar}>
+            {u?.iniciales ?? "··"}
+          </Enlace>
+        ) : (
+          <span className="avatar">{u?.iniciales ?? "··"}</span>
+        )}
         <span>
           <span className="persona-nombre" style={{ display: "block" }}>{u?.nombre ?? ""}</span>
           <span className="persona-cargo">{u?.cargo ?? ""}</span>
@@ -329,6 +334,60 @@ function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente
       </div>
       </div>
     </aside>
+  );
+}
+
+/** Foto de perfil del cliente: abre «Mi cuenta» (datos, pagos, usuarios, correos y ayuda). */
+function MenuCuenta({ sesion }: { sesion: S<"Sesion"> | null }) {
+  const { ir } = useNavegacion();
+  const [abierto, setAbierto] = useState(false);
+  const caja = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!abierto) return;
+    const fuera = (e: globalThis.MouseEvent) => !caja.current?.contains(e.target as Node) && setAbierto(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setAbierto(false);
+    document.addEventListener("mousedown", fuera);
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", fuera);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [abierto]);
+  const esAdmin = sesion?.clientes[0]?.rol === "ADMIN_CLIENTE";
+  const opciones = [
+    { a: "/cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
+    ...(esAdmin ? [{ a: "/cuenta/pagos", texto: "Pagos", icono: <LuWallet size={16} /> }] : []),
+    { a: "/cuenta/usuarios", texto: "Usuarios", icono: <LuUsers size={16} /> },
+    { a: "/cuenta/ayuda", texto: "Ayuda", icono: <LuLifeBuoy size={16} /> },
+  ];
+  const salir = () => {
+    cerrarSesion();
+    ir("/ingresar");
+  };
+  return (
+    <div className="menu-cuenta" ref={caja}>
+      <button type="button" className="avatar avatar--boton" aria-label="Abrir mi cuenta" aria-haspopup="menu" aria-expanded={abierto} onClick={() => setAbierto((v) => !v)}>
+        {sesion?.usuario.iniciales ?? ""}
+      </button>
+      {abierto && (
+        <div className="menu-cuenta-caja" role="menu">
+          <div className="menu-cuenta-cab">
+            <strong>{sesion?.usuario.nombre}</strong>
+            <span>{sesion?.usuario.email}</span>
+          </div>
+          {opciones.map((o) => (
+            <Enlace key={o.a} a={o.a} role="menuitem" className="menu-cuenta-item" onClick={() => setAbierto(false)}>
+              {o.icono}
+              {o.texto}
+            </Enlace>
+          ))}
+          <button type="button" role="menuitem" className="menu-cuenta-item menu-cuenta-salir" onClick={salir}>
+            <LuLogOut size={16} />
+            Cerrar sesión
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -384,7 +443,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
               <button className="campana" data-sin-leer={sinLeer} aria-label={sinLeer ? "Notificaciones sin leer" : "Notificaciones"} onClick={marcarLeidas}>
                 <LuBell size={18} />
               </button>
-              <span className="avatar">{me.datos?.usuario.iniciales ?? ""}</span>
+              {espacio === "cliente" ? <MenuCuenta sesion={me.datos} /> : <span className="avatar">{me.datos?.usuario.iniciales ?? ""}</span>}
             </div>
           </div>
           <main className="contenido">{children}</main>

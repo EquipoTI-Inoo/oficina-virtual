@@ -9,7 +9,7 @@
  * POST /tickets/{id}/mensajes · POST /piezas/{id}/versiones · POST /integraciones/piezas(/{id}/versiones) ·
  * POST /integraciones/ejecuciones (estas tres con X-Api-Key) · GET /servicios · GET|POST /clientes/{id}/servicios ·
  * GET /clientes/{id}/avance · GET /servicios-contratados/{id}/avance · PATCH /servicios-contratados/{id}/etapas/{id} ·
- * GET /plantillas.
+ * GET /plantillas · GET /clientes/{id}/pagos.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -1544,6 +1544,24 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, usuarioId: ctx.u.usuarioId });
   const { etapas: _e, ...v } = await servicioVista(ctx, await buscarServicio(ctx, id), PERIODO_ACTUAL());
   return { __status: 201, ...v };
+});
+
+// «Mi cuenta → Pagos»: solo quien administra la cuenta y el equipo. VENCIDO se calcula al leer.
+ruta("GET", "/clientes/:id/pagos", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  const { rows } = await ctx.c.query<{ id: string; concepto: string; servicio_contratado_id: string | null; monto: string; moneda: "PEN" | "USD"; fecha_vencimiento: Date; estado: "PENDIENTE" | "PAGADO"; pagado_en: Date | null }>(
+    "SELECT * FROM pago_programado WHERE cliente_id = $1 ORDER BY fecha_vencimiento", [p.id],
+  );
+  const hoy = HOY_LIMA();
+  const vista = (x: (typeof rows)[number]): S<"PagoProgramado"> => {
+    const vence = fechaIso(x.fecha_vencimiento)!;
+    return {
+      id: x.id, concepto: x.concepto, servicioContratadoId: x.servicio_contratado_id, monto: Number(x.monto), moneda: x.moneda, fechaVencimiento: vence,
+      estado: x.estado === "PENDIENTE" && vence < hoy ? "VENCIDO" : x.estado, pagadoEn: fechaIso(x.pagado_en),
+    };
+  };
+  return { pendientes: rows.filter((x) => x.estado === "PENDIENTE").map(vista), pagados: rows.filter((x) => x.estado === "PAGADO").reverse().map(vista) };
 });
 
 ruta("GET", "/plantillas", async (ctx, _p, q) => {

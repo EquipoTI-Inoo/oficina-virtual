@@ -77,7 +77,7 @@ test("el cliente ya no ve Blog, Plan del mes ni Brief en su menú", async ({ pag
   await page.goto("/inicio");
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
   await expect(menu.getByText("Mis servicios")).toBeVisible();
-  for (const fuera of ["Blog", "Plan del mes", "Brief y requerimientos", "Soporte", "Biblioteca", "Avance de proyectos"]) {
+  for (const fuera of ["Blog", "Plan del mes", "Brief y requerimientos", "Soporte", "Biblioteca", "Avance de proyectos", "Usuarios y avisos"]) {
     await expect(menu.getByText(fuera, { exact: true })).toHaveCount(0);
   }
   await page.goto("/plan");
@@ -113,9 +113,31 @@ test("un cliente no entra al panel interno", async ({ page }) => {
   await expect(page).toHaveURL(/\/inicio$/);
 });
 
+test("mi cuenta: la foto de perfil abre pagos, usuarios y ayuda", async ({ page }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/inicio");
+  await expect(page.getByText(/venció el 02 oct/)).toBeVisible();
+  await expect(page.getByText("S/ 3,200")).toHaveCount(0);
+  await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
+  await page.getByRole("menuitem", { name: "Pagos" }).click();
+  await expect(page).toHaveURL(/\/cuenta\/pagos$/);
+  await expect(page.getByText("Mensualidad de octubre")).toBeVisible();
+  await page.getByRole("tab", { name: "Ayuda" }).click();
+  await expect(page.getByText("Pagos y facturación")).toBeVisible();
+});
+
+test("mi cuenta: quien solo lee no ve pagos", async ({ page }) => {
+  await entrarComo(page, "lector");
+  await page.goto("/inicio");
+  await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
+  await expect(page.getByRole("menuitem", { name: "Ayuda" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Pagos" })).toHaveCount(0);
+});
+
 test("usuarios: la administradora ve su equipo pero no puede invitar", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/usuarios");
+  await expect(page).toHaveURL(/\/cuenta\/usuarios$/);
   await expect(page.getByText("Martín Salas")).toBeVisible();
   await expect(page.getByRole("button", { name: "Invitar" })).toHaveCount(0);
   await expect(page.getByText(/envíale los datos a tu equipo Inoo/)).toBeVisible();
