@@ -17,7 +17,9 @@ info:
     del equipo): servicios con avance, responsable, carpeta de Drive, su marca (si aplica), actividad y, sin montos,
     un aviso si un pago vence pronto. Los pagos, usuarios, correos y ayuda están en "Mi cuenta". Cada servicio
     tiene su perfil de proyecto: métricas de su plantilla, etapas, reuniones, entregables por revisar y
-    comentarios del cliente.
+    comentarios del cliente. Requerimientos: la agencia le pide al cliente (brief, accesos, catálogo) desde una
+    plantilla con formulario y fecha límite en días hábiles; si se atrasa, se corre el cronograma del servicio y se
+    le avisa. Reemplazan a los requerimientos del brief (cliente → agencia) del 10 oct.
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -47,6 +49,7 @@ tags:
   - name: Sesión
   - name: Clientes
   - name: Referencias y briefs
+  - name: Requerimientos
   - name: Servicios
   - name: Piezas
   - name: Planificación
@@ -482,7 +485,7 @@ paths:
     post:
       tags: [Referencias y briefs]
       operationId: enviarBrief
-      summary: '"Enviar brief y requerimientos". Firma la declaración de derechos y publica los archivos subidos (CU-05).'
+      summary: 'Enviar el brief del mes. Firma la declaración de derechos y publica los archivos subidos (CU-05).'
       description: |
         Pasa el brief a ENVIADO y todos sus archivos en estado SUBIDO a DISPONIBLE, guardando quién declaró
         los derechos y cuándo. Avisa al account manager (evento `brief.enviado`).
@@ -513,7 +516,7 @@ paths:
     post:
       tags: [Referencias y briefs]
       operationId: confirmarBrief
-      summary: El AM revisa y confirma el brief; los requerimientos del brief quedan ACEPTADO y se dispara al Jefe de Marketing (CU-02)
+      summary: El AM revisa y confirma el brief y se dispara al Jefe de Marketing (CU-02)
       x-roles: [ACCOUNT_MANAGER, ADMIN]
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       responses:
@@ -522,33 +525,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Brief' }
-
-  /clientes/{clienteId}/briefs/{periodo}/requerimientos:
-    parameters:
-      - $ref: '#/components/parameters/ClienteId'
-      - { name: periodo, in: path, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
-    post:
-      tags: [Referencias y briefs]
-      operationId: crearRequerimiento
-      summary: Agregar un requerimiento al brief del mes
-      description: |
-        Con el brief en BORRADOR, el requerimiento es parte del brief. Si el brief ya se envió, queda
-        `fueraDeBrief: true` y PENDIENTE hasta que el account manager lo evalúe contra la cuota
-        (evento `requerimiento.creado`).
-      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
-      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RequerimientoEntrada' }
-      responses:
-        '201':
-          description: Creado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Requerimiento' }
-        '422': { $ref: '#/components/responses/Validacion' }
 
   /clientes/{clienteId}/briefs/{periodo}/referencias:
     parameters:
@@ -573,27 +549,131 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /plantillas-requerimiento:
+    get:
+      tags: [Requerimientos]
+      operationId: listarPlantillasRequerimiento
+      summary: Plantillas de requerimiento con su formulario (brief web, kickoff de CRM, accesos, catálogo…)
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/PlantillaRequerimiento' } }
+
+  /clientes/{clienteId}/requerimientos:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Requerimientos]
+      operationId: listarRequerimientos
+      summary: 'Requerimientos del cliente: pendientes (incluye observados) primero, por fecha límite; luego los enviados y aprobados'
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: servicioContratadoId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, pendientes, atrasados]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Requerimiento' } }
+                  pendientes: { type: integer }
+                  atrasados: { type: integer }
+    post:
+      tags: [Requerimientos]
+      operationId: crearRequerimiento
+      summary: 'El equipo le pide algo al cliente desde una plantilla. Emite `requerimiento.creado` (correo con la fecha límite).'
+      x-roles: [EQUIPO]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequerimientoEntrada' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Requerimiento' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /requerimientos/{requerimientoId}:
     parameters:
       - { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } }
-    patch:
-      tags: [Referencias y briefs]
-      operationId: actualizarRequerimiento
-      summary: El cliente edita un requerimiento PENDIENTE; el equipo lo acepta o lo rechaza con una nota
-      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+    get:
+      tags: [Requerimientos]
+      operationId: obtenerRequerimiento
+      summary: Requerimiento con su formulario y lo que el cliente respondió
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Requerimiento' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /requerimientos/{requerimientoId}/respuesta:
+    parameters:
+      - { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Requerimientos]
+      operationId: responderRequerimiento
+      summary: 'El cliente guarda su respuesta (borrador) o la envía (`enviar: true`)'
+      description: |
+        Solo con el requerimiento PENDIENTE u OBSERVADO. Al enviar se exigen los campos obligatorios, pasa a
+        ENVIADO y se emite `requerimiento.enviado`. Si se envía tarde, el cronograma del servicio se corre los
+        días hábiles de atraso que aún no se habían aplicado.
+      x-roles: [ADMIN_CLIENTE, APROBADOR]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [respuestas]
               properties:
-                descripcion: { type: string, minLength: 3, maxLength: 1000 }
-                fechaDeseada: { type: [string, 'null'], format: date }
-                prioridad: { $ref: '#/components/schemas/PrioridadRequerimiento' }
-                estado: { type: string, enum: [ACEPTADO, RECHAZADO], description: Solo equipo }
-                notaEquipo: { type: string, description: 'Solo equipo; se muestra al cliente ("Entra en noviembre")' }
-                piezaId: { type: [string, 'null'], format: uuid, description: Solo equipo o servicio; pieza que lo cumple }
+                respuestas: { type: object, additionalProperties: true, description: 'Clave del campo → valor (texto, booleano o [{archivoId, nombre}])' }
+                enviar: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Requerimiento' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /requerimientos/{requerimientoId}/revision:
+    parameters:
+      - { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Requerimientos]
+      operationId: revisarRequerimiento
+      summary: 'El equipo aprueba lo enviado u observa (pide corregir algo con una nota). Emite `requerimiento.revisado`.'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APROBADO, OBSERVADO] }
+                nota: { type: string, description: Obligatoria al observar; la ve el cliente }
+                nuevaFechaLimite: { type: string, format: date, description: 'Al observar: nuevo plazo (por defecto, el mismo)' }
       responses:
         '200':
           description: OK
@@ -602,14 +682,29 @@ paths:
               schema: { $ref: '#/components/schemas/Requerimiento' }
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
-    delete:
-      tags: [Referencias y briefs]
-      operationId: eliminarRequerimiento
-      summary: Quitar un requerimiento PENDIENTE (el cliente, solo los suyos sin decidir)
-      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+
+  /integraciones/requerimientos/atrasos:
+    post:
+      tags: [Integraciones]
+      operationId: aplicarAtrasosRequerimientos
+      summary: 'n8n, una vez al día: corre el cronograma de los servicios con requerimientos vencidos y avisa al cliente'
+      description: |
+        Para cada requerimiento PENDIENTE u OBSERVADO con la fecha límite vencida, corre las etapas sin completar
+        de su servicio los días hábiles de atraso que faltan aplicar y emite `requerimiento.atrasado` (n8n manda
+        el correo). Idempotente: correrlo dos veces el mismo día no vuelve a correr nada.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
       responses:
-        '204': { description: Eliminado }
-        '409': { $ref: '#/components/responses/Conflicto' }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revisados, corridos]
+                properties:
+                  revisados: { type: integer, description: Requerimientos vencidos revisados }
+                  corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
 
   /clientes/{clienteId}/servicios:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
@@ -2035,8 +2130,11 @@ components:
       description: ADMIN_CLIENTE gestiona usuarios; APROBADOR aprueba, sube y abre tickets; LECTOR solo mira y abre tickets.
     EstadoCliente: { type: string, enum: [ACTIVO, PAUSADO, BAJA] }
     TipoReferencia: { type: string, enum: [MARCA_ADMIRADA, COMPETIDOR, PIEZA_EJEMPLO, MANUAL_MARCA, LOGO, OTRO] }
-    PrioridadRequerimiento: { type: string, enum: [BAJA, MEDIA, ALTA] }
-    EstadoRequerimiento: { type: string, enum: [PENDIENTE, ACEPTADO, RECHAZADO] }
+    EstadoRequerimiento:
+      type: string
+      description: 'PENDIENTE: el cliente aún no lo envía · ENVIADO: espera revisión del equipo · OBSERVADO: el equipo pidió corregir algo · APROBADO: listo'
+      enum: [PENDIENTE, ENVIADO, OBSERVADO, APROBADO]
+    TipoCampo: { type: string, enum: [TEXTO, TEXTO_LARGO, LISTA, URL, OPCION, SI_NO, ARCHIVOS] }
     CodigoServicio:
       type: string
       description: Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
@@ -2317,7 +2415,7 @@ components:
             creadoEn: { type: string, format: date-time }
     Brief:
       type: object
-      required: [periodo, estado, archivos, requerimientos, referencias]
+      required: [periodo, estado, archivos, referencias]
       properties:
         id: { type: [string, 'null'], format: uuid, description: null si todavía no se guardó }
         periodo: { $ref: '#/components/schemas/Periodo' }
@@ -2327,35 +2425,63 @@ components:
         contenidoMd: { type: [string, 'null'], description: Solo equipo }
         driveFileId: { type: [string, 'null'], description: Solo equipo }
         archivos: { type: array, description: Archivos subidos a este brief (SUBIDO o DISPONIBLE), items: { $ref: '#/components/schemas/Archivo' } }
-        requerimientos: { type: array, description: 'Pedidos concretos del mes, incluidos los agregados después de enviar el brief', items: { $ref: '#/components/schemas/Requerimiento' } }
         referencias: { type: array, description: Inspiración de este mes, items: { $ref: '#/components/schemas/Referencia' } }
         enviadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
         enviadoEn: { type: [string, 'null'], format: date-time }
         confirmadoEn: { type: [string, 'null'], format: date-time }
         actualizadoEn: { type: [string, 'null'], format: date-time }
+    CampoFormulario:
+      type: object
+      required: [clave, etiqueta, tipo, obligatorio]
+      properties:
+        clave: { type: string, examples: [objetivo] }
+        etiqueta: { type: string, examples: ['¿Para qué quieres el sitio?'] }
+        tipo: { $ref: '#/components/schemas/TipoCampo' }
+        obligatorio: { type: boolean }
+        ayuda: { type: [string, 'null'] }
+        opciones: { type: array, description: Solo OPCION, items: { type: string } }
+    PlantillaRequerimiento:
+      type: object
+      required: [codigo, nombre, diasHabiles, servicios, campos]
+      properties:
+        codigo: { type: string, examples: [BRIEF_WEB] }
+        nombre: { type: string, examples: [Brief de desarrollo web] }
+        descripcion: { type: [string, 'null'] }
+        servicios: { type: array, description: 'Servicios donde se suele pedir (vacío = cualquiera)', items: { $ref: '#/components/schemas/CodigoServicio' } }
+        diasHabiles: { type: integer, description: Plazo por defecto }
+        campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
     RequerimientoEntrada:
       type: object
-      required: [descripcion]
+      required: [plantillaCodigo, servicioContratadoId]
       properties:
-        descripcion: { type: string, minLength: 3, maxLength: 1000, examples: ['Post por el Día de la Madre'] }
-        fechaDeseada: { type: [string, 'null'], format: date }
-        prioridad: { $ref: '#/components/schemas/PrioridadRequerimiento' }
+        plantillaCodigo: { type: string, examples: [BRIEF_WEB] }
+        servicioContratadoId: { type: string, format: uuid }
+        titulo: { type: string, description: 'Por defecto, el nombre de la plantilla' }
+        mensaje: { type: string, description: 'Nota para el cliente («Lo necesitamos para arrancar el diseño»)' }
+        diasHabiles: { type: integer, minimum: 1, maximum: 30, description: 'Plazo; por defecto el de la plantilla' }
     Requerimiento:
       type: object
-      required: [id, periodo, descripcion, prioridad, fueraDeBrief, estado, creadoEn]
+      required: [id, servicioContratadoId, servicioTitulo, titulo, estado, emitidoEn, fechaLimite, diasAtraso, campos, respuestas]
       properties:
         id: { type: string, format: uuid }
-        periodo: { $ref: '#/components/schemas/Periodo' }
-        descripcion: { type: string }
-        fechaDeseada: { type: [string, 'null'], format: date }
-        prioridad: { $ref: '#/components/schemas/PrioridadRequerimiento' }
-        fueraDeBrief: { type: boolean, description: 'Agregado después de enviar el brief; el AM lo evalúa contra la cuota' }
+        servicioContratadoId: { type: string, format: uuid }
+        servicioTitulo: { type: string, examples: [Diseño y desarrollo web - Casa Oliva] }
+        plantillaCodigo: { type: [string, 'null'] }
+        titulo: { type: string }
+        descripcion: { type: [string, 'null'] }
+        mensaje: { type: [string, 'null'] }
         estado: { $ref: '#/components/schemas/EstadoRequerimiento' }
-        notaEquipo: { type: [string, 'null'] }
-        piezaId: { type: [string, 'null'], format: uuid }
+        emitidoEn: { type: string, format: date-time }
+        fechaLimite: { type: string, format: date, description: 'Vence a las 23:59 de Lima de ese día' }
+        diasAtraso: { type: integer, description: 'Días hábiles de atraso (hasta hoy o hasta que se envió)' }
+        diasCorridos: { type: integer, description: 'Días hábiles que ya se corrió el cronograma por este atraso' }
+        campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
+        respuestas: { type: object, additionalProperties: true }
+        notaEquipo: { type: [string, 'null'], description: 'Al observar: qué hay que corregir' }
+        enviadoEn: { type: [string, 'null'], format: date-time }
+        enviadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        revisadoEn: { type: [string, 'null'], format: date-time }
         creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
-        decididoEn: { type: [string, 'null'], format: date-time }
-        creadoEn: { type: string, format: date-time }
     ServicioContratadoEntrada:
       type: object
       description: Crea el proyecto con las etapas de la plantilla del servicio (y variante). Las fechas previstas se calculan en días hábiles desde `fechaInicio`.
@@ -2937,7 +3063,6 @@ components:
               objetivo: { type: string }
               pilar: { type: string }
               servicioContratadoId: { type: string, format: uuid }
-              requerimientoId: { type: string, format: uuid, description: Requerimiento del brief que cumple esta entrada }
     IdeaBlog:
       type: object
       required: [id, periodo, titulo, estado]
@@ -2962,7 +3087,7 @@ components:
         mime: { type: string, enum: [image/jpeg, image/png, video/mp4, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document] }
         bytes: { type: integer, minimum: 1, maximum: 104857600 }
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
-        uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA] }
+        uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, REQUERIMIENTO] }
         briefPeriodo: { $ref: '#/components/schemas/Periodo' }
         categoria: { type: string, enum: [FOTO, VIDEO, DOCUMENTO, LOGO, OTRO] }
         etiquetas: { type: array, items: { type: string } }
@@ -2988,7 +3113,7 @@ components:
             origen: { type: string, enum: [CLIENTE, EQUIPO, AGENTE] }
             categoria: { type: [string, 'null'] }
             etiquetas: { type: array, items: { type: string } }
-            uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, ENTREGABLE, CONTRATO, INFORME] }
+            uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, ENTREGABLE, CONTRATO, INFORME, REQUERIMIENTO] }
             estado: { type: string, enum: [PENDIENTE_SUBIDA, SUBIDO, DISPONIBLE, ELIMINADO], description: SUBIDO = en S3 pero el brief aún no se envió }
             declaraDerechos: { type: boolean }
             subidoPor: { type: [object, 'null'], properties: { id: { type: string }, nombre: { type: string } } }
@@ -3367,8 +3492,10 @@ components:
             - calendario.aprobado        # reparte tareas a subagentes y crea ítems en InooWork
             - calendario.cambios_solicitados
             - idea_blog.elegida
-            - requerimiento.creado       # el cliente pidió algo fuera del brief; el AM lo evalúa contra la cuota
-            - requerimiento.decidido     # el AM aceptó o rechazó un requerimiento; aviso al cliente
+            - requerimiento.creado       # la agencia le pidió algo al cliente; correo con la fecha límite
+            - requerimiento.enviado      # el cliente lo completó; aviso al responsable
+            - requerimiento.revisado     # el equipo lo aprobó u observó; aviso al cliente
+            - requerimiento.atrasado     # pasó la fecha límite; se corrió el cronograma y correo «no podemos avanzar sin esto»
             - pieza.estado_cambiado      # incluye LISTO_REVISION (correo al cliente), CAMBIOS_SOLICITADOS (tarea InooWork), APROBADO_CLIENTE (programar)
             - comentario.creado
             - archivo.subido             # indexar en base de conocimiento del cliente

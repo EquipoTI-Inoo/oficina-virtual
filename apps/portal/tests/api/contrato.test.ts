@@ -88,7 +88,7 @@ describe("aislamiento por cliente y permisos", () => {
 describe("aprobaciones (CU-06)", () => {
   test("los números de Inicio coinciden con Figma", async () => {
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
-    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0, requerimientosPendientes: 0 });
+    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0, requerimientosPendientes: 3 });
     assert.equal(r.json.avanceMes.porcentaje, 60);
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");
@@ -102,7 +102,7 @@ describe("aprobaciones (CU-06)", () => {
     assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, MARTIN_LECTOR)).json.avisoPago, null, "solo quien administra la cuenta ve pagos");
     assert.equal(r.marca.mensajeCentral, "Cuida tu piel. Vuelve a ti.");
     assert.ok(r.actividad.length <= 4 && r.actividad.every((x: any) => x.fecha <= "2026-10-06T15:00:00Z"), "breve y sin fechas futuras");
-    assert.equal(r.indicadores.requerimientosPendientes, 0);
+    assert.equal(r.indicadores.requerimientosPendientes, 3);
     // Sin servicios de marca o contenido no hay sección «Tu marca».
     assert.equal((await llamar("GET", `/clientes/${NATIVA}/inicio`, DIEGO)).json.marca, null);
   });

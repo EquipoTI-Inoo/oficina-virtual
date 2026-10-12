@@ -11,6 +11,7 @@
  */
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
+import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -641,6 +642,10 @@ function actividadReciente(clienteId: string, limite = 4): S<"InicioCliente">["a
     const sc = E.servicios.find((x) => x.id === e.servicioContratadoId)!;
     xs.push({ fecha: `${e.fechaFin}T22:00:00Z`, texto: `Terminamos «${e.nombre}» de ${servicioDeCatalogo(sc.codigo)!.nombre}`, tipo: "ETAPA" });
   }
+  for (const r of E.requerimientos.filter((x) => x.clienteId === clienteId)) {
+    xs.push({ fecha: r.emitidoEn, texto: `Te pedimos «${r.titulo}»`, tipo: "REQUERIMIENTO" });
+    if (r.enviadoEn) xs.push({ fecha: r.enviadoEn, texto: `Enviaste «${r.titulo}»`, tipo: "REQUERIMIENTO" });
+  }
   return xs.filter((x) => x.fecha <= D.HOY).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, limite);
 }
 
@@ -653,8 +658,10 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
   const abiertos = E.tickets.filter((t) => !["RESUELTO", "CERRADO"].includes(t.estado));
   const r: S<"InicioCliente"> = {
     periodo: D.PERIODO,
-    // Los requerimientos de la agencia al cliente llegan en la fase 3; hasta entonces no hay pendientes.
-    indicadores: { serviciosActivos: serviciosDe(c.id).length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0, requerimientosPendientes: 0 },
+    indicadores: {
+      serviciosActivos: serviciosDe(c.id).length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0,
+      requerimientosPendientes: E.requerimientos.filter((r) => r.clienteId === c.id && pendienteParaCliente(r.estado)).length,
+    },
     plan: fichaDe(c.id).plan,
     cuenta: {
       nombre: c.nombre,
@@ -898,37 +905,6 @@ ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, req) => {
 });
 
 // Brief y archivos
-function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
-  const autor = persona(r.creadoPorId);
-  return {
-    id: r.id, periodo: r.periodo, descripcion: r.descripcion, fechaDeseada: r.fechaDeseada, prioridad: r.prioridad, fueraDeBrief: r.fueraDeBrief,
-    estado: r.estado, notaEquipo: r.notaEquipo, piezaId: r.piezaId, creadoPor: autor ? { id: autor.id, nombre: autor.nombre } : null, decididoEn: r.decididoEn, creadoEn: r.creadoEn,
-  };
-}
-
-function validarRequerimiento(b: { descripcion?: unknown; fechaDeseada?: unknown; prioridad?: unknown }, parcial: boolean) {
-  const errores: { campo: string; mensaje: string }[] = [];
-  if ((!parcial || b.descripcion !== undefined) && (typeof b.descripcion !== "string" || b.descripcion.trim().length < 3)) errores.push({ campo: "descripcion", mensaje: "Describe lo que necesitas (al menos 3 caracteres)" });
-  if (b.fechaDeseada !== undefined && b.fechaDeseada !== null && !(typeof b.fechaDeseada === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fechaDeseada))) errores.push({ campo: "fechaDeseada", mensaje: "Usa el formato AAAA-MM-DD" });
-  if (b.prioridad !== undefined && !["BAJA", "MEDIA", "ALTA"].includes(b.prioridad as string)) errores.push({ campo: "prioridad", mensaje: "Elige baja, media o alta" });
-  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-}
-
-function buscarRequerimiento(ctx: Ctx, id: string) {
-  const r = E.requerimientos.find((x) => x.id === id);
-  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
-  accesoCliente(ctx, r.clienteId);
-  return r;
-}
-
-/** El cliente solo toca requerimientos sin decidir, y los del brief solo mientras el brief sigue en borrador. */
-function clientePuedeEditar(ctx: Ctx, r: D.RequerimientoDemo) {
-  exigirRol(ctx, r.clienteId, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
-  if (ctx.esEquipo) return;
-  if (r.estado !== "PENDIENTE") throw new ErrorApi(409, "REQUERIMIENTO_DECIDIDO", "El equipo ya revisó este requerimiento", "Si necesitas cambiarlo, agrega uno nuevo.");
-  if (!r.fueraDeBrief && E.brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo", "Agrega un requerimiento nuevo y el equipo lo evaluará.");
-}
-
 const briefVista = (): S<"Brief"> => ({
   id: D.uid(14, 1),
   periodo: E.brief.periodo,
@@ -939,7 +915,6 @@ const briefVista = (): S<"Brief"> => ({
     (a) =>
       ({ id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes, estado: a.estado ?? (E.brief.estado === "BORRADOR" ? "SUBIDO" : "DISPONIBLE"), uso: "BRIEF", origen: "CLIENTE", creadoEn: "2026-10-04T15:00:00Z" }) as unknown as S<"Archivo">,
   ),
-  requerimientos: E.requerimientos.filter((r) => r.periodo === E.brief.periodo).map(requerimientoVista),
   referencias: E.referencias.filter((r) => r.briefPeriodo === E.brief.periodo).map(referenciaVista),
   enviadoPor: E.brief.estado === "BORRADOR" ? null : persona(E.usuarios[0].id),
   enviadoEn: E.brief.enviadoEn ?? null,
@@ -966,14 +941,14 @@ ruta("POST", "/clientes/:id/archivos", async (ctx, p, _q, req) => {
   const limite = b.uso === "ADJUNTO_TICKET" ? 10 : 100;
   if (!b.nombre || !b.mime || typeof b.bytes !== "number") throw new ErrorApi(422, "VALIDACION", "Faltan datos del archivo");
   if (b.bytes > limite * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", `El archivo supera ${limite} MB`);
-  const permitidos = /^(image\/(jpeg|png)|video\/mp4|application\/pdf|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/;
+  const permitidos = /^(image\/(jpeg|png)|video\/mp4|application\/pdf|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/;
   if (!permitidos.test(b.mime)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido");
   const id = nuevoId(10);
   const tipo = b.mime.startsWith("image") ? "Foto" : b.mime.startsWith("video") ? "Video" : "Documento";
   if (b.uso === "BIBLIOTECA") {
     if (b.declaraDerechos !== true) throw new ErrorApi(422, "DERECHOS_REQUERIDOS", "Declara que tienes los derechos de uso del archivo", undefined, [{ campo: "declaraDerechos", mensaje: "Obligatorio para la biblioteca" }]);
     E.biblioteca.push({ id, clienteId: p.id, nombre: b.nombre, mime: b.mime, bytes: b.bytes, categoria: null, etiquetas: [], estado: "PENDIENTE_SUBIDA", creadoEn: new Date().toISOString() });
-  } else if (b.uso !== "ADJUNTO_TICKET") E.brief.archivos.push({ id, nombre: b.nombre, mime: b.mime, bytes: b.bytes, tipo, estado: "PENDIENTE_SUBIDA" });
+  } else if (b.uso === undefined || b.uso === "BRIEF") E.brief.archivos.push({ id, nombre: b.nombre, mime: b.mime, bytes: b.bytes, tipo, estado: "PENDIENTE_SUBIDA" });
   return {
     __status: 201,
     archivo: { id, nombre: b.nombre, mime: b.mime, bytes: b.bytes, estado: "PENDIENTE_SUBIDA", uso: b.uso ?? "BRIEF" },
@@ -1020,55 +995,139 @@ ruta("POST", "/clientes/:id/briefs/:periodo/enviar", async (ctx, p, _q, req) => 
   return briefVista();
 });
 
-ruta("POST", "/clientes/:id/briefs/:periodo/requerimientos", async (ctx, p, _q, req) => {
-  accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
-  const b = await cuerpo<{ descripcion?: string; fechaDeseada?: string | null; prioridad?: D.PrioridadRequerimiento }>(req);
-  validarRequerimiento(b, false);
-  // Después de enviar el brief, lo nuevo queda fuera del brief y el AM lo evalúa contra la cuota.
-  const fueraDeBrief = E.brief.periodo === p.periodo && E.brief.estado !== "BORRADOR";
-  const r: D.RequerimientoDemo = {
-    id: nuevoId(19), clienteId: p.id, periodo: p.periodo, descripcion: b.descripcion!.trim(), fechaDeseada: b.fechaDeseada ?? null, prioridad: b.prioridad ?? "MEDIA",
-    fueraDeBrief, estado: "PENDIENTE", notaEquipo: null, piezaId: null, creadoPorId: ctx.usuario.id, decididoEn: null, creadoEn: new Date().toISOString(),
-  };
-  E.requerimientos.push(r);
-  if (fueraDeBrief) {
-    emitir("requerimiento.creado", p.id, { requerimientoId: r.id, periodo: r.periodo, prioridad: r.prioridad, fechaDeseada: r.fechaDeseada, usuarioId: ctx.usuario.id });
-    registrarCorreo(E.usuarios[2].email, `${ctx.usuario.nombre} agregó un requerimiento para ${p.periodo}`, "requerimiento.creado");
-  }
-  return { __status: 201, ...requerimientoVista(r) };
-});
 ruta("POST", "/clientes/:id/briefs/:periodo/referencias", async (ctx, p, _q, req) => {
   accesoCliente(ctx, p.id);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
   if (!ctx.esEquipo && E.brief.periodo === p.periodo && E.brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
   return nuevaReferencia(req, p.periodo);
 });
-ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, req) => {
+// ───────────────────────────────────────────── requerimientos de la agencia al cliente (reunión 12 oct)
+
+function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
+  const sc = E.servicios.find((x) => x.id === r.servicioContratadoId)!;
+  const pl = plantillaRequerimiento(r.plantillaCodigo);
+  const hasta = pendienteParaCliente(r.estado) ? D.HOY : r.enviadoEn ?? D.HOY;
+  return {
+    id: r.id, servicioContratadoId: r.servicioContratadoId, servicioTitulo: tituloDe(sc), plantillaCodigo: r.plantillaCodigo, titulo: r.titulo,
+    descripcion: pl?.descripcion ?? null, mensaje: r.mensaje, estado: r.estado, emitidoEn: r.emitidoEn, fechaLimite: r.fechaLimite,
+    diasAtraso: diasAtraso(r.fechaLimite, hasta), diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
+    notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: persona(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
+  };
+}
+
+function buscarRequerimiento(ctx: Ctx, id: string) {
+  const r = E.requerimientos.find((x) => x.id === id);
+  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
+  accesoCliente(ctx, r.clienteId);
+  return r;
+}
+
+/**
+ * Corre el cronograma del servicio por el atraso que aún no se aplicó (días hábiles después de la fecha
+ * límite hasta `hasta`). Solo mueve etapas sin completar. Devuelve cuántos días corrió.
+ */
+function aplicarAtraso(r: D.RequerimientoDemo, hasta: string) {
+  const delta = diasAtraso(r.fechaLimite, hasta) - r.diasCorridos;
+  if (delta <= 0) return 0;
+  for (const e of E.etapas.filter((x) => x.servicioContratadoId === r.servicioContratadoId && x.estado !== "COMPLETADO")) {
+    e.fechaInicio = correrFecha(e.fechaInicio, delta);
+    e.fechaEstimada = correrFecha(e.fechaEstimada, delta);
+  }
+  r.diasCorridos += delta;
+  return delta;
+}
+
+ruta("GET", "/plantillas-requerimiento", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: PLANTILLAS_REQUERIMIENTO.map((p): S<"PlantillaRequerimiento"> => ({ ...p })) };
+});
+
+ruta("GET", "/clientes/:id/requerimientos", (ctx, p, q) => {
+  const c = accesoCliente(ctx, p.id);
+  const sc = q.get("servicioContratadoId");
+  const xs = E.requerimientos.filter((r) => r.clienteId === c.id && (!sc || r.servicioContratadoId === sc)).map(requerimientoVista);
+  const abiertos = xs.filter((r) => pendienteParaCliente(r.estado)).sort((a, b) => a.fechaLimite.localeCompare(b.fechaLimite));
+  const resto = xs.filter((r) => !pendienteParaCliente(r.estado)).sort((a, b) => b.emitidoEn.localeCompare(a.emitidoEn));
+  return { datos: [...abiertos, ...resto], pendientes: abiertos.length, atrasados: abiertos.filter((r) => r.diasAtraso > 0).length };
+});
+
+ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  soloEquipo(ctx);
+  const b = await cuerpo<Partial<S<"RequerimientoEntrada">>>(req);
+  const pl = b.plantillaCodigo ? plantillaRequerimiento(b.plantillaCodigo) : undefined;
+  const sc = E.servicios.find((x) => x.id === b.servicioContratadoId && x.clienteId === c.id);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!pl) errores.push({ campo: "plantillaCodigo", mensaje: "Elige qué le pedimos al cliente" });
+  if (!sc) errores.push({ campo: "servicioContratadoId", mensaje: "Elige un servicio contratado de este cliente" });
+  if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
+  if (b.titulo !== undefined && b.titulo.trim().length < 3) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const emitidoEn = D.HOY;
+  const r: D.RequerimientoDemo = {
+    id: nuevoId(19), servicioContratadoId: sc!.id, clienteId: c.id, plantillaCodigo: pl!.codigo, titulo: b.titulo?.trim() || pl!.nombre, mensaje: b.mensaje?.trim() || null,
+    respuestas: {}, estado: "PENDIENTE", emitidoEn, fechaLimite: fechaLimite(emitidoEn, b.diasHabiles ?? pl!.diasHabiles), diasCorridos: 0, notaEquipo: null,
+    enviadoEn: null, enviadoPorId: null, revisadoEn: null, creadoPorId: ctx.usuario.id,
+  };
+  E.requerimientos.push(r);
+  emitir("requerimiento.creado", c.id, { requerimientoId: r.id, servicioContratadoId: sc!.id, fechaLimite: r.fechaLimite, usuarioId: ctx.usuario.id });
+  registrarCorreo(E.usuarios[0].email, `Te pedimos: ${r.titulo} (hasta el ${fechaCorta(r.fechaLimite)})`, "requerimiento.creado");
+  return { __status: 201, ...requerimientoVista(r) };
+});
+
+ruta("GET", "/requerimientos/:id", (ctx, p) => requerimientoVista(buscarRequerimiento(ctx, p.id)));
+
+ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
-  clientePuedeEditar(ctx, r);
-  const b = await cuerpo<{ descripcion?: string; fechaDeseada?: string | null; prioridad?: D.PrioridadRequerimiento; estado?: "ACEPTADO" | "RECHAZADO"; notaEquipo?: string; piezaId?: string | null }>(req);
-  if (!ctx.esEquipo && (b.estado !== undefined || b.notaEquipo !== undefined || b.piezaId !== undefined)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el equipo acepta o rechaza requerimientos");
-  validarRequerimiento(b, true);
-  if (b.estado !== undefined && !["ACEPTADO", "RECHAZADO"].includes(b.estado)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, [{ campo: "estado", mensaje: "Usa ACEPTADO o RECHAZADO" }]);
-  if (b.estado === "RECHAZADO" && !b.notaEquipo?.trim()) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Explícale al cliente por qué no entra", undefined, [{ campo: "notaEquipo", mensaje: "Obligatorio al rechazar" }]);
-  if (b.descripcion !== undefined) r.descripcion = b.descripcion.trim();
-  if (b.fechaDeseada !== undefined) r.fechaDeseada = b.fechaDeseada;
-  if (b.prioridad !== undefined) r.prioridad = b.prioridad;
-  if (b.notaEquipo !== undefined) r.notaEquipo = b.notaEquipo.trim() || null;
-  if (b.piezaId !== undefined) r.piezaId = b.piezaId;
-  if (b.estado && b.estado !== r.estado) {
-    r.estado = b.estado;
-    r.decididoEn = new Date().toISOString();
-    emitir("requerimiento.decidido", r.clienteId, { requerimientoId: r.id, estado: r.estado, notaEquipo: r.notaEquipo, usuarioId: ctx.usuario.id });
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Solo el cliente responde sus requerimientos");
+  exigirRol(ctx, r.clienteId, ["ADMIN_CLIENTE", "APROBADOR"]);
+  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
+  const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean }>(req);
+  const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {};
+  const errores = validarRespuestas(plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [], respuestas, b.enviar === true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", b.enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
+  r.respuestas = respuestas;
+  if (b.enviar) {
+    r.estado = "ENVIADO";
+    r.enviadoEn = D.HOY;
+    r.enviadoPorId = ctx.usuario.id;
+    const corridos = aplicarAtraso(r, D.HOY);
+    emitir("requerimiento.enviado", r.clienteId, { requerimientoId: r.id, diasAtraso: diasAtraso(r.fechaLimite, D.HOY), diasCorridos: corridos, usuarioId: ctx.usuario.id });
+    registrarCorreo(E.usuarios[2].email, `${ctx.usuario.nombre} envió «${r.titulo}»`, "requerimiento.enviado");
   }
   return requerimientoVista(r);
 });
-ruta("DELETE", "/requerimientos/:id", (ctx, p) => {
+
+ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
-  clientePuedeEditar(ctx, r);
-  E.requerimientos = E.requerimientos.filter((x) => x.id !== r.id);
-  return null;
+  soloEquipo(ctx);
+  const b = await cuerpo<{ decision?: string; nota?: string; nuevaFechaLimite?: string }>(req);
+  if (b.decision !== "APROBADO" && b.decision !== "OBSERVADO") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "decision", mensaje: "Usa APROBADO u OBSERVADO" }]);
+  if (r.estado !== "ENVIADO") throw new ErrorApi(409, "REQUERIMIENTO_SIN_ENVIAR", "El cliente todavía no envió este requerimiento");
+  if (b.decision === "OBSERVADO" && !b.nota?.trim()) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Cuéntale al cliente qué falta", undefined, [{ campo: "nota", mensaje: "Obligatoria al observar" }]);
+  if (b.nuevaFechaLimite !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(b.nuevaFechaLimite)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "nuevaFechaLimite", mensaje: "Usa el formato AAAA-MM-DD" }]);
+  r.estado = b.decision;
+  r.revisadoEn = D.HOY;
+  r.notaEquipo = b.decision === "OBSERVADO" ? b.nota!.trim() : null;
+  if (b.decision === "OBSERVADO" && b.nuevaFechaLimite) r.fechaLimite = b.nuevaFechaLimite;
+  emitir("requerimiento.revisado", r.clienteId, { requerimientoId: r.id, decision: r.estado, nota: r.notaEquipo, usuarioId: ctx.usuario.id });
+  registrarCorreo(E.usuarios[0].email, b.decision === "APROBADO" ? `Recibimos «${r.titulo}», ¡gracias!` : `Falta algo en «${r.titulo}»`, "requerimiento.revisado");
+  return requerimientoVista(r);
+});
+
+ruta("POST", "/integraciones/requerimientos/atrasos", (ctx) => {
+  soloServicio(ctx);
+  let revisados = 0;
+  let corridos = 0;
+  for (const r of E.requerimientos.filter((x) => pendienteParaCliente(x.estado) && x.fechaLimite < D.HOY.slice(0, 10))) {
+    revisados++;
+    const delta = aplicarAtraso(r, D.HOY);
+    if (!delta) continue;
+    corridos++;
+    emitir("requerimiento.atrasado", r.clienteId, { requerimientoId: r.id, servicioContratadoId: r.servicioContratadoId, diasAtraso: r.diasCorridos, diasCorridosHoy: delta });
+    registrarCorreo(E.usuarios[0].email, `No podemos avanzar sin «${r.titulo}»`, "requerimiento.atrasado");
+  }
+  return { revisados, corridos };
 });
 
 // Resultados y avance
@@ -1444,10 +1503,6 @@ ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", (ctx, p) => {
   E.brief.estado = "CONFIRMADO";
   E.brief.confirmadoEn = new Date().toISOString();
   E.brief.confirmadoPorId = ctx.usuario.id;
-  for (const r of E.requerimientos.filter((x) => x.clienteId === p.id && x.periodo === p.periodo && !x.fueraDeBrief && x.estado === "PENDIENTE")) {
-    r.estado = "ACEPTADO";
-    r.decididoEn = E.brief.confirmadoEn;
-  }
   // n8n escucha brief.confirmado y arranca al Jefe de Marketing (CU-02).
   emitir("brief.confirmado", p.id, { periodo: p.periodo, briefId: D.uid(14, 1), usuarioId: ctx.usuario.id });
   return briefVista();
@@ -2003,14 +2058,6 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, req) => {
   E.calendarios[clave] = { estado: "PROPUESTO", version: (reg?.version ?? 0) + 1, resumen: b.resumen ?? null, aprobadoPorId: null, aprobadoEn: null };
   for (const x of b.entradas!) {
     const piezaId = nuevoId(5);
-    const req = x.requerimientoId ? E.requerimientos.find((r) => r.id === x.requerimientoId && r.clienteId === c!.id) : undefined;
-    if (req) {
-      req.piezaId = piezaId;
-      if (req.estado === "PENDIENTE") {
-        req.estado = "ACEPTADO";
-        req.decididoEn = new Date().toISOString();
-      }
-    }
     E.piezas.push({
       id: piezaId, clienteId: c!.id, servicioId: servicioPara(c!.id, x.tipo, x.servicioContratadoId), tipo: x.tipo, titulo: x.titulo.trim(), resumen: x.objetivo ?? null,
       canal: x.canal ?? (x.tipo === "BLOG" ? "Blog web" : "Instagram"), formato: ETIQUETA_TIPO[x.tipo] ?? "Pieza", fecha: x.fechaProgramada.slice(0, 10),

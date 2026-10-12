@@ -15,6 +15,8 @@ import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
+import { pruebasRequerimientos } from "./flujo-requerimientos";
+import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
 import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
 
@@ -35,9 +37,10 @@ before(async () => {
   await db.exec(sql("migraciones/0005_catalogo_servicios.sql"));
   await db.exec(sql("migraciones/0006_pagos.sql"));
   await db.exec(sql("migraciones/0007_perfil_proyecto.sql"));
+  await db.exec(sql("migraciones/0008_requerimientos_agencia.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
-    "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla')",
+    "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
   );
   tablas = rows[0].t;
   await reiniciar();
@@ -48,6 +51,8 @@ pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows;
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+// El backend usa la fecha real de Lima para los atrasos.
+pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {
@@ -55,6 +60,12 @@ describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mism
       "SELECT codigo, nombre, modalidad::text AS modalidad, variantes FROM servicio WHERE activo ORDER BY orden",
     );
     assert.deepEqual(rows, CATALOGO_SERVICIOS.map((s) => ({ codigo: s.codigo, nombre: s.nombre, modalidad: s.modalidad, variantes: s.variantes })));
+  });
+  test("plantillas de requerimiento (0008 y src/dominio/requerimientos.ts)", async () => {
+    const { rows } = await db.query<{ codigo: string; nombre: string; descripcion: string; servicios: string[]; diasHabiles: number; campos: unknown }>(
+      `SELECT codigo, nombre, descripcion, servicios, dias_habiles AS "diasHabiles", campos FROM plantilla_requerimiento WHERE activa ORDER BY codigo`,
+    );
+    assert.deepEqual(rows, [...PLANTILLAS_REQUERIMIENTO].sort((a, b) => (a.codigo < b.codigo ? -1 : 1)));
   });
   test("plantillas y etapas", async () => {
     const { rows } = await db.query<{ servicio: string; variante: string | null; nombre: string; metricas: string[]; etapas: unknown }>(

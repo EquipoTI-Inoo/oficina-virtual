@@ -5,6 +5,7 @@
  */
 import { writeFileSync } from "node:fs";
 import * as D from "../src/mock/datos";
+import { plantillaRequerimiento } from "../src/dominio/requerimientos";
 
 const q = (v: unknown): string => {
   if (v === null || v === undefined) return "NULL";
@@ -129,8 +130,11 @@ LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coale
   ),
   insert(
     "requerimiento",
-    ["id", "cliente_id", "brief_id", "descripcion", "fecha_deseada", "prioridad", "fuera_de_brief", "estado", "creado_por", "creado_en"],
-    D.REQUERIMIENTOS_INICIALES.map((r) => [r.id, r.clienteId, D.uid(14, 1), r.descripcion, r.fechaDeseada, r.prioridad, r.fueraDeBrief, r.estado, r.creadoPorId, r.creadoEn]),
+    ["id", "servicio_contratado_id", "cliente_id", "plantilla_codigo", "titulo", "mensaje", "campos", "respuestas", "estado", "emitido_en", "fecha_limite", "dias_corridos", "nota_equipo", "enviado_en", "enviado_por", "revisado_en", "creado_por"],
+    D.REQUERIMIENTOS_INICIALES.map((r) => [
+      r.id, r.servicioContratadoId, r.clienteId, r.plantillaCodigo, r.titulo, r.mensaje, JSON.stringify(plantillaRequerimiento(r.plantillaCodigo)!.campos), r.respuestas, r.estado,
+      r.emitidoEn, r.fechaLimite, r.diasCorridos, r.notaEquipo, r.enviadoEn, r.enviadoPorId, r.revisadoEn, r.creadoPorId,
+    ]),
   ),
   "COMMIT;\n",
 );

@@ -7,6 +7,6 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO api_key (nombre, prefijo, hash, scopes, usuario_id)
 VALUES ('n8n-demo', 'demo-n8n', encode(digest('demo-n8n', 'sha256'), 'hex'),
-        ARRAY['piezas:write', 'ejecuciones:write', 'calendarios:write', 'tickets:sync'],
+        ARRAY['piezas:write', 'ejecuciones:write', 'calendarios:write', 'tickets:sync', 'requerimientos:write'],
         '00000000-0000-4000-8001-000000000099')
 ON CONFLICT (prefijo) DO NOTHING;

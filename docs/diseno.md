@@ -58,6 +58,7 @@ aprobadas de las pruebas visuales.
 | `/muestras` | 10-muestras-de-estados | Hoja de estados para QA de diseño |
 | `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel; botón «Nuevo cliente» (modal) |
 | `/biblioteca` | — | Retirada del menú: irá dentro del servicio Paid Media. Redirige a `/servicios` |
+| `/requerimientos`, `/requerimientos/{id}` | — | Sin diseño: lo que la agencia le pide al cliente (reunión 12 oct). Lista con plazo y atraso en días hábiles; formulario según la plantilla (texto, lista, enlace, opción, sí/no, archivos) con borrador y envío. El equipo revisa (aprobar u observar) en la misma pantalla y pide requerimientos desde la ficha del cliente |
 | `/cuenta`, `/cuenta/{pagos,usuarios,notificaciones,ayuda}` | — | Sin diseño: «Mi cuenta», desde la foto de perfil (arriba a la derecha). Datos y contrato, pagos (solo ADMIN_CLIENTE), usuarios en solo lectura, correos automáticos y ayuda (WhatsApp por área, números de relleno). `/usuarios` redirige aquí |
 | `/equipo/calendarios` | — | Sin diseño: revisión y aprobación de la propuesta mensual del Jefe de Marketing |
 | `/equipo/costos` | — | Sin diseño: costos de IA por cliente y modelo, ejecuciones (solo ADMIN; el menú la oculta al resto) |

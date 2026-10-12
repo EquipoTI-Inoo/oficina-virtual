@@ -7,9 +7,10 @@
  */
 import { useState } from "react";
 import { LuCalendarClock, LuCircleCheck, LuMessageSquare } from "react-icons/lu";
-import { api, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, ICONO_SERVICIO, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes } from "./principal";
+import { FilaRequerimiento } from "./requerimientos";
 
 const ESTADO_AVANCE: Record<string, [string, "verde" | "azul" | "gris"]> = {
   SIN_INICIAR: ["Por iniciar", "gris"],
@@ -99,6 +100,8 @@ function Proyecto() {
             </section>
           )}
 
+          <RequerimientosDelServicio servicioId={d.servicioContratadoId} />
+
           {d.progreso && <AsiVaElMes progreso={d.progreso} conEnlace={false} />}
 
           <Comentarios servicioId={d.servicioContratadoId} />
@@ -118,6 +121,28 @@ function Proyecto() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** Lo que le pedimos al cliente para este servicio (solo si hay algo pendiente o reciente). */
+function RequerimientosDelServicio({ servicioId }: { servicioId: string }) {
+  const { datos } = useConsulta<{ datos: S<"Requerimiento">[]; pendientes: number }>(`/clientes/${clienteActivo()}/requerimientos?servicioContratadoId=${servicioId}`);
+  const abiertos = datos?.datos.filter((r) => r.estado === "PENDIENTE" || r.estado === "OBSERVADO") ?? [];
+  if (!abiertos.length) return null;
+  return (
+    <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
+      <div className="fila entre">
+        <h2 className="tarjeta-titulo">Necesitamos de ti</h2>
+        <Enlace a="/requerimientos" className="enlace">
+          Ver todos →
+        </Enlace>
+      </div>
+      <div className="lista-suave">
+        {abiertos.map((r) => (
+          <FilaRequerimiento key={r.id} r={r} />
+        ))}
+      </div>
+    </section>
   );
 }
 

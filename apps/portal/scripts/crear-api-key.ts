@@ -1,7 +1,7 @@
 /**
  * Crea una llave de integración (n8n, InooWork) y su usuario SERVICIO. Imprime la llave una sola
  * vez: en la base queda solo el sha256. Requiere DATABASE_URL (dueño del esquema).
- *   npm run api-key -- n8n-produccion piezas:write,ejecuciones:write,calendarios:write,tickets:sync
+ *   npm run api-key -- n8n-produccion piezas:write,ejecuciones:write,calendarios:write,tickets:sync,requerimientos:write
  */
 import { createHash, randomBytes } from "node:crypto";
 import { baseDatos } from "../src/servidor/db";

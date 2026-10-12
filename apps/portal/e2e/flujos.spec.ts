@@ -31,7 +31,7 @@ test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
   await expect(page.getByText("Versión 2 aprobada")).toBeVisible();
   await expect(page.getByText("Aprobaste la versión 2")).toBeVisible();
   await page.goto("/inicio");
-  await expect(page.locator(".nav-contador")).toHaveText("3");
+  await expect(page.locator(".nav-item", { hasText: "Entregables" }).locator(".nav-contador")).toHaveText("3");
 });
 
 test("CU-06: pedir cambios con comentario", async ({ page }) => {
@@ -98,6 +98,35 @@ test("perfil del proyecto: desde Mis servicios, métricas, etapas y una consulta
   await expect(page.getByText("¿Podemos mover la capacitación al jueves?").last()).toBeVisible();
   await page.goto("/avance");
   await expect(page).toHaveURL(/\/servicios$/);
+});
+
+test("requerimientos: el cliente completa el catálogo y lo envía", async ({ page }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/requerimientos");
+  await expect(page.getByText("Tienes un requerimiento atrasado")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Atrasado 1 día hábil")).toBeVisible();
+  await page.getByText("Catálogo de productos para la tienda").click();
+  await page.getByRole("button", { name: "Enviar a Inoo" }).click();
+  await expect(page.getByText("Completa al menos un campo")).toBeVisible();
+  await page.fill("#campo-lista", "Sérum de noche, S/ 89, hidrata mientras duermes");
+  await page.getByRole("button", { name: "Guardar borrador" }).click();
+  await expect(page.getByText("Borrador guardado")).toBeVisible();
+  await page.getByRole("button", { name: "Enviar a Inoo" }).click();
+  await expect(page).toHaveURL(/\/requerimientos$/);
+  await expect(page.locator(".nav-item", { hasText: "Requerimientos" }).locator(".nav-contador")).toHaveText("2");
+  await expect(page.locator(".fila-suave", { hasText: "Catálogo de productos" })).toContainText("En revisión");
+});
+
+test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await page.getByRole("button", { name: "Pedir requerimiento" }).click();
+  await page.selectOption("#req-plantilla", "INFO_IA");
+  await expect(page.getByText("Plazo sugerido: 3 días hábiles")).toBeVisible();
+  await page.selectOption("#req-servicio", { label: "Social Media Pro - Casa Oliva" });
+  await page.getByRole("button", { name: "Pedir al cliente" }).click();
+  await expect(page.getByText("Requerimiento enviado")).toBeVisible();
+  await expect(page.getByText("Información de tu empresa para la IA")).toBeVisible();
 });
 
 test("blog (equipo): elegir otra idea", async ({ page }) => {

@@ -8,6 +8,7 @@
  */
 
 import { etapasDesdePlantilla, plantillaPara, type CodigoServicio, type EstadoEtapa } from "../dominio/servicios";
+import { fechaLimite, plantillaRequerimiento } from "../dominio/requerimientos";
 
 export const HOY = "2026-10-06T15:00:00Z";
 export const PERIODO = "2026-10";
@@ -410,27 +411,47 @@ export const REFERENCIAS_INICIALES = [
   { id: uid(11, 2), tipo: "PIEZA_EJEMPLO", titulo: "Luz cálida, texturas naturales", url: null, notas: "Producto de referencia de «Tu ritual, tu momento». Paleta crema y verde oliva.", paleta: ["#3F5547", "#F3E9DD", "#E6E9E0"], briefPeriodo: null as string | null },
 ];
 
-export type PrioridadRequerimiento = "BAJA" | "MEDIA" | "ALTA";
-export type EstadoRequerimiento = "PENDIENTE" | "ACEPTADO" | "RECHAZADO";
+/**
+ * Requerimientos de la agencia a Casa Oliva (reunión 12 oct). «Hoy» es el martes 6 de octubre: los
+ * usuarios del CRM vencieron el lunes 5 (1 día hábil de atraso), el catálogo vence el 8 y el brief de
+ * noviembre el 13. Los dos últimos ya se enviaron y aprobaron.
+ */
 export interface RequerimientoDemo {
   id: string;
+  servicioContratadoId: string;
   clienteId: string;
-  periodo: string;
-  descripcion: string;
-  fechaDeseada: string | null;
-  prioridad: PrioridadRequerimiento;
-  fueraDeBrief: boolean;
-  estado: EstadoRequerimiento;
+  plantillaCodigo: string;
+  titulo: string;
+  mensaje: string | null;
+  respuestas: Record<string, unknown>;
+  estado: "PENDIENTE" | "ENVIADO" | "OBSERVADO" | "APROBADO";
+  emitidoEn: string;
+  fechaLimite: string;
+  diasCorridos: number;
   notaEquipo: string | null;
-  piezaId: string | null;
+  enviadoEn: string | null;
+  enviadoPorId: string | null;
+  revisadoEn: string | null;
   creadoPorId: string;
-  decididoEn: string | null;
-  creadoEn: string;
 }
 
+const req = (n: number, sc: string, plantilla: string, titulo: string, emitidoEn: string, x: Partial<RequerimientoDemo> = {}): RequerimientoDemo => ({
+  id: uid(19, n), servicioContratadoId: sc, clienteId: uid(2, 1), plantillaCodigo: plantilla, titulo, mensaje: null, respuestas: {}, estado: "PENDIENTE",
+  emitidoEn, fechaLimite: fechaLimite(emitidoEn, plantillaRequerimiento(plantilla)!.diasHabiles), diasCorridos: 0, notaEquipo: null,
+  enviadoEn: null, enviadoPorId: null, revisadoEn: null, creadoPorId: DIEGO, ...x,
+});
+
 export const REQUERIMIENTOS_INICIALES: RequerimientoDemo[] = [
-  { id: uid(19, 1), clienteId: uid(2, 1), periodo: PERIODO, descripcion: "Anunciar el lanzamiento del sérum de noche en redes", fechaDeseada: "2026-10-20", prioridad: "ALTA", fueraDeBrief: false, estado: "PENDIENTE", notaEquipo: null, piezaId: null, creadoPorId: uid(1, 1), decididoEn: null, creadoEn: "2026-10-04T15:10:00Z" },
-  { id: uid(19, 2), clienteId: uid(2, 1), periodo: PERIODO, descripcion: "Un artículo de blog sobre cómo proteger la piel en verano", fechaDeseada: null, prioridad: "MEDIA", fueraDeBrief: false, estado: "PENDIENTE", notaEquipo: null, piezaId: null, creadoPorId: uid(1, 1), decididoEn: null, creadoEn: "2026-10-04T15:12:00Z" },
+  req(1, uid(4, 3), "USUARIOS_CRM", "Usuarios del CRM", "2026-10-01T15:00:00Z", { mensaje: "Con esto creamos las 3 licencias de HubSpot.", respuestas: { administrador: "Valeria Mendoza" } }),
+  req(2, uid(4, 4), "CATALOGO_PRODUCTOS", "Catálogo de productos para la tienda", "2026-10-05T16:00:00Z", { mensaje: "Lo necesitamos para la etapa de carga de productos." }),
+  req(3, uid(4, 2), "BRIEF_SOCIAL", "Brief de contenido de noviembre", "2026-10-06T14:00:00Z"),
+  req(4, uid(4, 4), "BRIEF_WEB", "Brief de la tienda online", "2026-09-21T15:00:00Z", {
+    estado: "APROBADO", enviadoEn: "2026-09-24T20:00:00Z", enviadoPorId: VALERIA, revisadoEn: "2026-09-25T14:00:00Z",
+    respuestas: { objetivo: "Vender en línea nuestra línea de cuidado facial.", publico: "Mujeres de 25 a 45 que cuidan su piel.", secciones: "Inicio\nTienda\nNosotros\nContacto", dominio: "Solo dominio" },
+  }),
+  req(5, uid(4, 1), "ACCESOS_WEB", "Acceso a casaoliva.pe", "2026-09-01T15:00:00Z", {
+    estado: "APROBADO", enviadoEn: "2026-09-02T18:00:00Z", enviadoPorId: VALERIA, revisadoEn: "2026-09-03T14:00:00Z", respuestas: { url: "https://casaoliva.pe", usuario: true },
+  }),
 ];
 
 export const RESULTADOS = {

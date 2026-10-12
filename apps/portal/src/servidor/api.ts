@@ -9,7 +9,10 @@
  * POST /tickets/{id}/mensajes · POST /piezas/{id}/versiones · POST /integraciones/piezas(/{id}/versiones) ·
  * POST /integraciones/ejecuciones (estas tres con X-Api-Key) · GET /servicios · GET|POST /clientes/{id}/servicios ·
  * GET /clientes/{id}/avance · GET /servicios-contratados/{id}/avance · PATCH /servicios-contratados/{id}/etapas/{id} ·
- * GET /plantillas · GET /clientes/{id}/pagos · GET /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/comentarios.
+ * GET /plantillas · GET /clientes/{id}/pagos · GET /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/comentarios ·
+ * requerimientos de la agencia al cliente
+ * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
+ * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos).
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -20,6 +23,7 @@ import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
+import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -796,7 +800,7 @@ const persona = (id: string | null, nombre: string | null) => (id ? { id, nombre
 /** Mes en curso en Lima (UTC-5). */
 const PERIODO_ACTUAL = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 7);
 
-// ───────────────────────────────────────────── brief y requerimientos
+// ───────────────────────────────────────────── brief
 
 interface FilaBrief {
   id: string;
@@ -822,52 +826,10 @@ async function filaBrief(ctx: Ctx, clienteId: string, periodo: string): Promise<
   return rows[0] ?? null;
 }
 
-/** El brief se crea al primer guardado, requerimiento o referencia del mes. */
+/** El brief se crea al primer guardado o referencia del mes. */
 async function asegurarBrief(ctx: Ctx, clienteId: string, periodo: string): Promise<FilaBrief> {
   await ctx.c.query("INSERT INTO brief (cliente_id, periodo, creado_por) VALUES ($1, $2, $3) ON CONFLICT (cliente_id, periodo) DO NOTHING", [clienteId, periodo, ctx.u.usuarioId]);
   return (await filaBrief(ctx, clienteId, periodo))!;
-}
-
-interface FilaRequerimiento {
-  id: string;
-  cliente_id: string;
-  brief_id: string;
-  periodo: string;
-  brief_estado: FilaBrief["estado"];
-  descripcion: string;
-  fecha_deseada: Date | string | null;
-  prioridad: S<"PrioridadRequerimiento">;
-  fuera_de_brief: boolean;
-  estado: S<"EstadoRequerimiento">;
-  nota_equipo: string | null;
-  pieza_id: string | null;
-  creado_por: string | null;
-  creado_por_nombre: string | null;
-  decidido_en: Date | null;
-  creado_en: Date;
-}
-
-const SELECT_REQUERIMIENTO = `
-  SELECT r.*, b.periodo, b.estado AS brief_estado, u.nombre AS creado_por_nombre
-  FROM requerimiento r JOIN brief b ON b.id = r.brief_id LEFT JOIN usuario u ON u.id = r.creado_por`;
-
-const fechaSola = (d: Date | string | null) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
-
-function requerimientoVista(r: FilaRequerimiento): S<"Requerimiento"> {
-  return {
-    id: r.id,
-    periodo: r.periodo,
-    descripcion: r.descripcion,
-    fechaDeseada: fechaSola(r.fecha_deseada),
-    prioridad: r.prioridad,
-    fueraDeBrief: r.fuera_de_brief,
-    estado: r.estado,
-    notaEquipo: r.nota_equipo,
-    piezaId: r.pieza_id,
-    creadoPor: persona(r.creado_por, r.creado_por_nombre),
-    decididoEn: iso(r.decidido_en),
-    creadoEn: iso(r.creado_en)!,
-  };
 }
 
 interface FilaReferencia { id: string; tipo: S<"TipoReferencia">; titulo: string; url: string | null; notas: string | null; paleta: string[]; archivo_id: string | null; brief_id: string | null; creado_en: Date }
@@ -877,12 +839,11 @@ const referenciaVista = (r: FilaReferencia): S<"Referencia"> => ({
 
 async function briefVista(ctx: Ctx, clienteId: string, periodo: string): Promise<S<"Brief">> {
   const b = await filaBrief(ctx, clienteId, periodo);
-  if (!b) return { id: null, periodo, estado: "BORRADOR", objetivoComunicacion: null, consideraciones: null, archivos: [], requerimientos: [], referencias: [], enviadoPor: null, enviadoEn: null, confirmadoEn: null, actualizadoEn: null };
+  if (!b) return { id: null, periodo, estado: "BORRADOR", objetivoComunicacion: null, consideraciones: null, archivos: [], referencias: [], enviadoPor: null, enviadoEn: null, confirmadoEn: null, actualizadoEn: null };
   const archivos = await ctx.c.query<{ id: string; nombre: string; mime: string; bytes: string | null; estado: string; origen: string; creado_en: Date }>(
     "SELECT id, nombre, mime, bytes, estado, origen, creado_en FROM archivo WHERE brief_id = $1 AND estado IN ('SUBIDO', 'DISPONIBLE') ORDER BY creado_en, nombre",
     [b.id],
   );
-  const reqs = await ctx.c.query<FilaRequerimiento>(`${SELECT_REQUERIMIENTO} WHERE r.brief_id = $1 ORDER BY r.creado_en, r.id`, [b.id]);
   const refs = await ctx.c.query<FilaReferencia>("SELECT * FROM referencia_cliente WHERE brief_id = $1 ORDER BY creado_en DESC, id", [b.id]);
   const r: S<"Brief"> = {
     id: b.id,
@@ -891,7 +852,6 @@ async function briefVista(ctx: Ctx, clienteId: string, periodo: string): Promise
     objetivoComunicacion: b.objetivo_comunicacion,
     consideraciones: b.consideraciones,
     archivos: archivos.rows.map((a) => ({ id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes === null ? null : Number(a.bytes), estado: a.estado, uso: "BRIEF", origen: a.origen, creadoEn: iso(a.creado_en) }) as unknown as S<"Archivo">),
-    requerimientos: reqs.rows.map(requerimientoVista),
     referencias: refs.rows.map(referenciaVista),
     enviadoPor: persona(b.enviado_por, b.enviado_por_nombre),
     enviadoEn: iso(b.enviado_en),
@@ -960,98 +920,9 @@ ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", async (ctx, p) => {
   if (!brief || brief.estado === "BORRADOR") throw new ErrorApi(409, "BRIEF_SIN_ENVIAR", "El cliente todavía no envió el brief");
   if (brief.estado === "CONFIRMADO") throw new ErrorApi(409, "BRIEF_CONFIRMADO", "El brief ya está confirmado");
   await ctx.c.query("UPDATE brief SET estado = 'CONFIRMADO', confirmado_por = $2, confirmado_en = now(), actualizado_en = now() WHERE id = $1", [brief.id, ctx.u.usuarioId]);
-  // Lo pedido dentro del brief entra con él; lo agregado después lo decide el AM uno por uno.
-  await ctx.c.query(
-    "UPDATE requerimiento SET estado = 'ACEPTADO', decidido_por = $2, decidido_en = now() WHERE brief_id = $1 AND NOT fuera_de_brief AND estado = 'PENDIENTE'",
-    [brief.id, ctx.u.usuarioId],
-  );
   // n8n escucha brief.confirmado y arranca al Jefe de Marketing (CU-02).
   await emitirOutbox(ctx, "brief.confirmado", p.id, { periodo: p.periodo, briefId: brief.id, usuarioId: ctx.u.usuarioId });
   return briefVista(ctx, p.id, p.periodo);
-});
-
-function validarRequerimiento(b: { descripcion?: unknown; fechaDeseada?: unknown; prioridad?: unknown }, parcial: boolean) {
-  const errores: { campo: string; mensaje: string }[] = [];
-  if ((!parcial || b.descripcion !== undefined) && (typeof b.descripcion !== "string" || b.descripcion.trim().length < 3 || b.descripcion.length > 1000)) {
-    errores.push({ campo: "descripcion", mensaje: "Describe lo que necesitas (al menos 3 caracteres)" });
-  }
-  if (b.fechaDeseada !== undefined && b.fechaDeseada !== null && !(typeof b.fechaDeseada === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fechaDeseada))) {
-    errores.push({ campo: "fechaDeseada", mensaje: "Usa el formato AAAA-MM-DD" });
-  }
-  if (b.prioridad !== undefined && !["BAJA", "MEDIA", "ALTA"].includes(b.prioridad as string)) errores.push({ campo: "prioridad", mensaje: "Elige baja, media o alta" });
-  validacion(errores);
-}
-
-ruta("POST", "/clientes/:id/briefs/:periodo/requerimientos", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
-  const b = (await cuerpo()) as { descripcion?: string; fechaDeseada?: string | null; prioridad?: S<"PrioridadRequerimiento"> };
-  validarRequerimiento(b, false);
-  const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(p.periodo));
-  // Después de enviar el brief, lo nuevo queda fuera del brief y el AM lo evalúa contra la cuota.
-  const fuera = brief.estado !== "BORRADOR";
-  const { rows } = await ctx.c.query<{ id: string }>(
-    "INSERT INTO requerimiento (cliente_id, brief_id, descripcion, fecha_deseada, prioridad, fuera_de_brief, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-    [p.id, brief.id, b.descripcion!.trim(), b.fechaDeseada ?? null, b.prioridad ?? "MEDIA", fuera, ctx.u.usuarioId],
-  );
-  const r = (await ctx.c.query<FilaRequerimiento>(`${SELECT_REQUERIMIENTO} WHERE r.id = $1`, [rows[0].id])).rows[0];
-  if (fuera) {
-    await emitirOutbox(ctx, "requerimiento.creado", p.id, { requerimientoId: r.id, periodo: p.periodo, prioridad: r.prioridad, fechaDeseada: fechaSola(r.fecha_deseada), usuarioId: ctx.u.usuarioId });
-  }
-  return { __status: 201, ...requerimientoVista(r) };
-});
-
-async function buscarRequerimiento(ctx: Ctx, id: string): Promise<FilaRequerimiento> {
-  const { rows } = await ctx.c.query<FilaRequerimiento>(`${SELECT_REQUERIMIENTO} WHERE r.id = $1`, [id]);
-  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
-  return rows[0];
-}
-
-/** El cliente solo toca requerimientos sin decidir, y los del brief solo mientras el brief sigue en borrador. */
-function puedeEditarRequerimiento(ctx: Ctx, r: FilaRequerimiento) {
-  exigirRol(ctx, r.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
-  if (ctx.esEquipo) return;
-  if (r.estado !== "PENDIENTE") throw new ErrorApi(409, "REQUERIMIENTO_DECIDIDO", "El equipo ya revisó este requerimiento", "Si necesitas cambiarlo, agrega uno nuevo.");
-  if (!r.fuera_de_brief && r.brief_estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo", "Agrega un requerimiento nuevo y el equipo lo evaluará.");
-}
-
-ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, cuerpo) => {
-  const r = await buscarRequerimiento(ctx, p.id);
-  puedeEditarRequerimiento(ctx, r);
-  const b = (await cuerpo()) as { descripcion?: string; fechaDeseada?: string | null; prioridad?: S<"PrioridadRequerimiento">; estado?: "ACEPTADO" | "RECHAZADO"; notaEquipo?: string; piezaId?: string | null };
-  if (!ctx.esEquipo && (b.estado !== undefined || b.notaEquipo !== undefined || b.piezaId !== undefined)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el equipo acepta o rechaza requerimientos");
-  validarRequerimiento(b, true);
-  if (b.estado !== undefined && !["ACEPTADO", "RECHAZADO"].includes(b.estado)) validacion([{ campo: "estado", mensaje: "Usa ACEPTADO o RECHAZADO" }]);
-  if (b.piezaId && !esUuid(b.piezaId)) validacion([{ campo: "piezaId", mensaje: "Pieza inválida" }]);
-  const nota = b.notaEquipo === undefined ? r.nota_equipo : b.notaEquipo.trim() || null;
-  if (b.estado === "RECHAZADO" && !nota) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Explícale al cliente por qué no entra", undefined, [{ campo: "notaEquipo", mensaje: "Obligatorio al rechazar" }]);
-  const decide = b.estado !== undefined && b.estado !== r.estado;
-  await ctx.c.query(
-    `UPDATE requerimiento SET descripcion = $2, fecha_deseada = $3, prioridad = $4, nota_equipo = $5, pieza_id = $6, estado = $7::estado_requerimiento,
-            decidido_por = CASE WHEN $8 THEN $9::uuid ELSE decidido_por END, decidido_en = CASE WHEN $8 THEN now() ELSE decidido_en END
-     WHERE id = $1`,
-    [
-      r.id,
-      b.descripcion?.trim() ?? r.descripcion,
-      b.fechaDeseada === undefined ? fechaSola(r.fecha_deseada) : b.fechaDeseada,
-      b.prioridad ?? r.prioridad,
-      nota,
-      b.piezaId === undefined ? r.pieza_id : b.piezaId,
-      b.estado ?? r.estado,
-      decide,
-      ctx.u.usuarioId,
-    ],
-  );
-  const nuevo = await buscarRequerimiento(ctx, r.id);
-  if (decide) await emitirOutbox(ctx, "requerimiento.decidido", r.cliente_id, { requerimientoId: r.id, estado: nuevo.estado, notaEquipo: nuevo.nota_equipo, usuarioId: ctx.u.usuarioId });
-  return requerimientoVista(nuevo);
-});
-
-ruta("DELETE", "/requerimientos/:id", async (ctx, p) => {
-  const r = await buscarRequerimiento(ctx, p.id);
-  puedeEditarRequerimiento(ctx, r);
-  await ctx.c.query("DELETE FROM requerimiento WHERE id = $1", [r.id]);
-  return null;
 });
 
 // ───────────────────────────────────────────── referencias (ficha permanente y del brief)
@@ -1287,7 +1158,6 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, cuerpo) => {
     if (!x.tipo) errores.push({ campo: `entradas[${i}].tipo`, mensaje: "Falta el tipo" });
     if (!x.fechaProgramada?.startsWith(b.periodo ?? "-")) errores.push({ campo: `entradas[${i}].fechaProgramada`, mensaje: "La fecha debe caer dentro del periodo" });
     if (x.servicioContratadoId && !esUuid(x.servicioContratadoId)) errores.push({ campo: `entradas[${i}].servicioContratadoId`, mensaje: "Servicio inválido" });
-    if (x.requerimientoId && !esUuid(x.requerimientoId)) errores.push({ campo: `entradas[${i}].requerimientoId`, mensaje: "Requerimiento inválido" });
   }
   validacion(errores);
   const periodo = b.periodo!;
@@ -1312,21 +1182,11 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, cuerpo) => {
     let servicioId = x.servicioContratadoId ?? null;
     if (servicioId && !servicios.some((s) => s.id === servicioId)) validacion([{ campo: `entradas[${i}].servicioContratadoId`, mensaje: "No pertenece al cliente" }]);
     servicioId ??= await servicioParaTipo(ctx, cliente!.id, x.tipo);
-    const piezaId = (await ctx.c.query<{ id: string }>(
+    await ctx.c.query(
       `INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, resumen, canal, periodo, fecha_programada, nota_estado, etiquetas)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Propuesta del Jefe de Marketing', $10) RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Propuesta del Jefe de Marketing', $10)`,
       [cliente!.id, servicioId, calId, x.tipo, x.titulo.trim(), x.objetivo ?? null, x.canal ?? (x.tipo === "BLOG" ? "Blog web" : "Instagram"), periodo, x.fechaProgramada, x.pilar ? [x.pilar] : []],
-    )).rows[0].id;
-    if (x.requerimientoId) {
-      // La entrada cumple un requerimiento del brief: queda enlazado y, si seguía pendiente, aceptado.
-      await ctx.c.query(
-        `UPDATE requerimiento SET pieza_id = $2,
-                estado = CASE WHEN estado = 'PENDIENTE' THEN 'ACEPTADO'::estado_requerimiento ELSE estado END,
-                decidido_en = CASE WHEN estado = 'PENDIENTE' THEN now() ELSE decidido_en END
-         WHERE id = $1 AND cliente_id = $3`,
-        [x.requerimientoId, piezaId, cliente!.id],
-      );
-    }
+    );
   }
   return { __status: 201, ...(await calendarioVista(ctx, cliente!.id, periodo)) };
 });
@@ -1689,6 +1549,183 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
+});
+
+// ───────────────────────────────────────────── requerimientos de la agencia al cliente (reunión 12 oct)
+
+interface FilaReq {
+  id: string;
+  servicio_contratado_id: string;
+  cliente_id: string;
+  plantilla_codigo: string | null;
+  plantilla_descripcion: string | null;
+  servicio_nombre: string;
+  servicio_marca: string | null;
+  cliente_nombre: string;
+  titulo: string;
+  mensaje: string | null;
+  campos: Campo[];
+  respuestas: Record<string, unknown>;
+  estado: S<"EstadoRequerimiento">;
+  emitido_en: Date;
+  fecha_limite: Date | string;
+  dias_corridos: number;
+  nota_equipo: string | null;
+  enviado_en: Date | null;
+  enviado_por: string | null;
+  enviado_por_nombre: string | null;
+  revisado_en: Date | null;
+  creado_por: string | null;
+  creado_por_nombre: string | null;
+}
+const SELECT_REQ = `
+  SELECT r.*, pr.descripcion AS plantilla_descripcion, s.nombre AS servicio_nombre, sc.marca AS servicio_marca, c.nombre AS cliente_nombre,
+         ue.nombre AS enviado_por_nombre, uc.nombre AS creado_por_nombre
+  FROM requerimiento r
+  JOIN servicio_contratado sc ON sc.id = r.servicio_contratado_id
+  JOIN servicio s ON s.id = sc.servicio_id
+  JOIN cliente c ON c.id = r.cliente_id
+  LEFT JOIN plantilla_requerimiento pr ON pr.codigo = r.plantilla_codigo
+  LEFT JOIN usuario ue ON ue.id = r.enviado_por
+  LEFT JOIN usuario uc ON uc.id = r.creado_por`;
+
+function reqVista(r: FilaReq): S<"Requerimiento"> {
+  const limite = fechaIso(r.fecha_limite)!;
+  const hasta = pendienteParaCliente(r.estado) ? HOY_LIMA() : (iso(r.enviado_en) ?? HOY_LIMA());
+  return {
+    id: r.id, servicioContratadoId: r.servicio_contratado_id, servicioTitulo: tituloServicio(r.servicio_nombre, r.servicio_marca ?? r.cliente_nombre),
+    plantillaCodigo: r.plantilla_codigo, titulo: r.titulo, descripcion: r.plantilla_descripcion, mensaje: r.mensaje, estado: r.estado,
+    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
+    notaEquipo: r.nota_equipo, enviadoEn: iso(r.enviado_en), enviadoPor: persona(r.enviado_por, r.enviado_por_nombre), revisadoEn: iso(r.revisado_en),
+    creadoPor: persona(r.creado_por, r.creado_por_nombre),
+  };
+}
+
+async function buscarReq(ctx: Ctx, id: string, bloquear = false): Promise<FilaReq> {
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
+  const { rows } = await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.id = $1${bloquear ? " FOR UPDATE OF r" : ""}`, [id]);
+  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
+  await accesoCliente(ctx, rows[0].cliente_id);
+  return rows[0];
+}
+
+/** Corre las etapas sin completar del servicio por el atraso aún no aplicado. Devuelve los días que corrió. */
+async function aplicarAtrasoDb(ctx: Ctx, r: FilaReq, hasta: string): Promise<number> {
+  const delta = diasAtraso(fechaIso(r.fecha_limite)!, hasta) - r.dias_corridos;
+  if (delta <= 0) return 0;
+  const etapas = (await ctx.c.query<{ id: string; fecha_inicio: Date | null; fecha_estimada: Date | null }>(
+    "SELECT id, fecha_inicio, fecha_estimada FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND estado <> 'COMPLETADO' FOR UPDATE", [r.servicio_contratado_id],
+  )).rows;
+  for (const e of etapas) {
+    await ctx.c.query("UPDATE etapa_proyecto SET fecha_inicio = $2, fecha_estimada = $3, actualizado_en = now() WHERE id = $1", [
+      e.id, correrFecha(fechaIso(e.fecha_inicio), delta), correrFecha(fechaIso(e.fecha_estimada), delta),
+    ]);
+  }
+  await ctx.c.query("UPDATE requerimiento SET dias_corridos = dias_corridos + $2 WHERE id = $1", [r.id, delta]);
+  return delta;
+}
+
+ruta("GET", "/plantillas-requerimiento", async (ctx) => {
+  soloEquipo(ctx);
+  const { rows } = await ctx.c.query<S<"PlantillaRequerimiento">>(
+    `SELECT codigo, nombre, descripcion, servicios, dias_habiles AS "diasHabiles", campos FROM plantilla_requerimiento WHERE activa ORDER BY nombre`,
+  );
+  return { datos: rows };
+});
+
+ruta("GET", "/clientes/:id/requerimientos", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const sc = q.get("servicioContratadoId");
+  const { rows } = await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.cliente_id = $1 AND ($2::uuid IS NULL OR r.servicio_contratado_id = $2) ORDER BY r.fecha_limite, r.emitido_en DESC`, [
+    p.id, sc && esUuid(sc) ? sc : null,
+  ]);
+  const xs = rows.map(reqVista);
+  const abiertos = xs.filter((r) => pendienteParaCliente(r.estado));
+  const resto = xs.filter((r) => !pendienteParaCliente(r.estado)).sort((a, b) => b.emitidoEn.localeCompare(a.emitidoEn));
+  return { datos: [...abiertos, ...resto], pendientes: abiertos.length, atrasados: abiertos.filter((r) => r.diasAtraso > 0).length };
+});
+
+ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as Partial<S<"RequerimientoEntrada">>;
+  const pl = typeof b.plantillaCodigo === "string"
+    ? (await ctx.c.query<{ codigo: string; nombre: string; dias_habiles: number; campos: Campo[] }>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [b.plantillaCodigo])).rows[0]
+    : undefined;
+  const sc = typeof b.servicioContratadoId === "string" && esUuid(b.servicioContratadoId)
+    ? (await ctx.c.query<{ id: string }>("SELECT id FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [b.servicioContratadoId, p.id])).rows[0]
+    : undefined;
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!pl) errores.push({ campo: "plantillaCodigo", mensaje: "Elige qué le pedimos al cliente" });
+  if (!sc) errores.push({ campo: "servicioContratadoId", mensaje: "Elige un servicio contratado de este cliente" });
+  if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
+  if (b.titulo !== undefined && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
+  if (errores.length) validacion(errores);
+  const hoy = HOY_LIMA();
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO requerimiento (servicio_contratado_id, cliente_id, plantilla_codigo, titulo, mensaje, campos, fecha_limite, creado_por)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [sc!.id, p.id, pl!.codigo, b.titulo?.trim() || pl!.nombre, b.mensaje?.trim() || null, JSON.stringify(pl!.campos), fechaLimite(hoy, b.diasHabiles ?? pl!.dias_habiles), ctx.u.usuarioId],
+  )).rows[0].id;
+  const r = await buscarReq(ctx, id);
+  await emitirOutbox(ctx, "requerimiento.creado", p.id, { requerimientoId: id, servicioContratadoId: sc!.id, fechaLimite: fechaIso(r.fecha_limite), usuarioId: ctx.u.usuarioId });
+  return { __status: 201, ...reqVista(r) };
+});
+
+ruta("GET", "/requerimientos/:id", async (ctx, p) => reqVista(await buscarReq(ctx, p.id)));
+
+ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
+  const r = await buscarReq(ctx, p.id, true);
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Solo el cliente responde sus requerimientos");
+  exigirRol(ctx, r.cliente_id, ["ADMIN_CLIENTE", "APROBADOR"]);
+  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
+  const b = (await cuerpo()) as { respuestas?: unknown; enviar?: unknown };
+  const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? (b.respuestas as Record<string, unknown>) : {};
+  const enviar = b.enviar === true;
+  const errores = validarRespuestas(r.campos, respuestas, enviar);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
+  if (!enviar) {
+    await ctx.c.query("UPDATE requerimiento SET respuestas = $2 WHERE id = $1", [r.id, JSON.stringify(respuestas)]);
+    return reqVista(await buscarReq(ctx, r.id));
+  }
+  await ctx.c.query("UPDATE requerimiento SET respuestas = $2, estado = 'ENVIADO', enviado_en = now(), enviado_por = $3 WHERE id = $1", [r.id, JSON.stringify(respuestas), ctx.u.usuarioId]);
+  const corridos = await aplicarAtrasoDb(ctx, r, HOY_LIMA());
+  await emitirOutbox(ctx, "requerimiento.enviado", r.cliente_id, { requerimientoId: r.id, diasAtraso: diasAtraso(fechaIso(r.fecha_limite)!, HOY_LIMA()), diasCorridos: corridos, usuarioId: ctx.u.usuarioId });
+  return reqVista(await buscarReq(ctx, r.id));
+});
+
+ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
+  const r = await buscarReq(ctx, p.id, true);
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as { decision?: unknown; nota?: unknown; nuevaFechaLimite?: unknown };
+  if (b.decision !== "APROBADO" && b.decision !== "OBSERVADO") validacion([{ campo: "decision", mensaje: "Usa APROBADO u OBSERVADO" }]);
+  if (r.estado !== "ENVIADO") throw new ErrorApi(409, "REQUERIMIENTO_SIN_ENVIAR", "El cliente todavía no envió este requerimiento");
+  const nota = typeof b.nota === "string" ? b.nota.trim() : "";
+  if (b.decision === "OBSERVADO" && !nota) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Cuéntale al cliente qué falta", undefined, [{ campo: "nota", mensaje: "Obligatoria al observar" }]);
+  if (b.nuevaFechaLimite !== undefined && !(typeof b.nuevaFechaLimite === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.nuevaFechaLimite))) validacion([{ campo: "nuevaFechaLimite", mensaje: "Usa el formato AAAA-MM-DD" }]);
+  const observar = b.decision === "OBSERVADO";
+  await ctx.c.query(
+    `UPDATE requerimiento SET estado = $2::estado_requerimiento, revisado_en = now(), revisado_por = $3, nota_equipo = $4,
+            fecha_limite = coalesce($5::date, fecha_limite) WHERE id = $1`,
+    [r.id, b.decision, ctx.u.usuarioId, observar ? nota : null, observar && typeof b.nuevaFechaLimite === "string" ? b.nuevaFechaLimite : null],
+  );
+  await emitirOutbox(ctx, "requerimiento.revisado", r.cliente_id, { requerimientoId: r.id, decision: b.decision, nota: observar ? nota : null, usuarioId: ctx.u.usuarioId });
+  return reqVista(await buscarReq(ctx, r.id));
+});
+
+// n8n, una vez al día: corre el cronograma por los requerimientos vencidos y pide el correo de aviso.
+ruta("POST", "/integraciones/requerimientos/atrasos", async (ctx) => {
+  soloServicio(ctx, "requerimientos:write");
+  const hoy = HOY_LIMA();
+  const { rows } = await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.estado IN ('PENDIENTE', 'OBSERVADO') AND r.fecha_limite < $1::date FOR UPDATE OF r`, [hoy]);
+  let corridos = 0;
+  for (const r of rows) {
+    const delta = await aplicarAtrasoDb(ctx, r, hoy);
+    if (!delta) continue;
+    corridos++;
+    await emitirOutbox(ctx, "requerimiento.atrasado", r.cliente_id, { requerimientoId: r.id, servicioContratadoId: r.servicio_contratado_id, diasAtraso: r.dias_corridos + delta, diasCorridosHoy: delta });
+  }
+  return { revisados: rows.length, corridos };
 });
 
 // ───────────────────────────────────────────── despachador

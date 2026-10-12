@@ -309,7 +309,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * "Enviar brief y requerimientos". Firma la declaración de derechos y publica los archivos subidos (CU-05).
+         * Enviar el brief del mes. Firma la declaración de derechos y publica los archivos subidos (CU-05).
          * @description Pasa el brief a ENVIADO y todos sus archivos en estado SUBIDO a DISPONIBLE, guardando quién declaró
          *     los derechos y cuándo. Avisa al account manager (evento `brief.enviado`).
          */
@@ -332,33 +332,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** El AM revisa y confirma el brief; los requerimientos del brief quedan ACEPTADO y se dispara al Jefe de Marketing (CU-02) */
+        /** El AM revisa y confirma el brief y se dispara al Jefe de Marketing (CU-02) */
         post: operations["confirmarBrief"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/clientes/{clienteId}/briefs/{periodo}/requerimientos": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-                periodo: components["schemas"]["Periodo"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Agregar un requerimiento al brief del mes
-         * @description Con el brief en BORRADOR, el requerimiento es parte del brief. Si el brief ya se envió, queda
-         *     `fueraDeBrief: true` y PENDIENTE hasta que el account manager lo evalúe contra la cuota
-         *     (evento `requerimiento.creado`).
-         */
-        post: operations["crearRequerimiento"];
         delete?: never;
         options?: never;
         head?: never;
@@ -385,7 +360,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plantillas-requerimiento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plantillas de requerimiento con su formulario (brief web, kickoff de CRM, accesos, catálogo…) */
+        get: operations["listarPlantillasRequerimiento"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/requerimientos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Requerimientos del cliente: pendientes (incluye observados) primero, por fecha límite; luego los enviados y aprobados */
+        get: operations["listarRequerimientos"];
+        put?: never;
+        /** El equipo le pide algo al cliente desde una plantilla. Emite `requerimiento.creado` (correo con la fecha límite). */
+        post: operations["crearRequerimiento"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/requerimientos/{requerimientoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        /** Requerimiento con su formulario y lo que el cliente respondió */
+        get: operations["obtenerRequerimiento"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/requerimientos/{requerimientoId}/respuesta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * El cliente guarda su respuesta (borrador) o la envía (`enviar: true`)
+         * @description Solo con el requerimiento PENDIENTE u OBSERVADO. Al enviar se exigen los campos obligatorios, pasa a
+         *     ENVIADO y se emite `requerimiento.enviado`. Si se envía tarde, el cronograma del servicio se corre los
+         *     días hábiles de atraso que aún no se habían aplicado.
+         */
+        put: operations["responderRequerimiento"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/requerimientos/{requerimientoId}/revision": {
         parameters: {
             query?: never;
             header?: never;
@@ -396,13 +451,34 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
-        /** Quitar un requerimiento PENDIENTE (el cliente, solo los suyos sin decidir) */
-        delete: operations["eliminarRequerimiento"];
+        /** El equipo aprueba lo enviado u observa (pide corregir algo con una nota). Emite `requerimiento.revisado`. */
+        post: operations["revisarRequerimiento"];
+        delete?: never;
         options?: never;
         head?: never;
-        /** El cliente edita un requerimiento PENDIENTE; el equipo lo acepta o lo rechaza con una nota */
-        patch: operations["actualizarRequerimiento"];
+        patch?: never;
+        trace?: never;
+    };
+    "/integraciones/requerimientos/atrasos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * n8n, una vez al día: corre el cronograma de los servicios con requerimientos vencidos y avisa al cliente
+         * @description Para cada requerimiento PENDIENTE u OBSERVADO con la fecha límite vencida, corre las etapas sin completar
+         *     de su servicio los días hábiles de atraso que faltan aplicar y emite `requerimiento.atrasado` (n8n manda
+         *     el correo). Idempotente: correrlo dos veces el mismo día no vuelve a correr nada.
+         */
+        post: operations["aplicarAtrasosRequerimientos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/clientes/{clienteId}/servicios": {
@@ -1370,10 +1446,13 @@ export interface components {
         EstadoCliente: "ACTIVO" | "PAUSADO" | "BAJA";
         /** @enum {string} */
         TipoReferencia: "MARCA_ADMIRADA" | "COMPETIDOR" | "PIEZA_EJEMPLO" | "MANUAL_MARCA" | "LOGO" | "OTRO";
+        /**
+         * @description PENDIENTE: el cliente aún no lo envía · ENVIADO: espera revisión del equipo · OBSERVADO: el equipo pidió corregir algo · APROBADO: listo
+         * @enum {string}
+         */
+        EstadoRequerimiento: "PENDIENTE" | "ENVIADO" | "OBSERVADO" | "APROBADO";
         /** @enum {string} */
-        PrioridadRequerimiento: "BAJA" | "MEDIA" | "ALTA";
-        /** @enum {string} */
-        EstadoRequerimiento: "PENDIENTE" | "ACEPTADO" | "RECHAZADO";
+        TipoCampo: "TEXTO" | "TEXTO_LARGO" | "LISTA" | "URL" | "OPCION" | "SI_NO" | "ARCHIVOS";
         /**
          * @description Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
          * @enum {string}
@@ -1699,8 +1778,6 @@ export interface components {
             driveFileId?: string | null;
             /** @description Archivos subidos a este brief (SUBIDO o DISPONIBLE) */
             archivos: components["schemas"]["Archivo"][];
-            /** @description Pedidos concretos del mes, incluidos los agregados después de enviar el brief */
-            requerimientos: components["schemas"]["Requerimiento"][];
             /** @description Inspiración de este mes */
             referencias: components["schemas"]["Referencia"][];
             enviadoPor?: components["schemas"]["PersonaMini"] | null;
@@ -1711,32 +1788,76 @@ export interface components {
             /** Format: date-time */
             actualizadoEn?: string | null;
         };
+        CampoFormulario: {
+            /** @example objetivo */
+            clave: string;
+            /** @example ¿Para qué quieres el sitio? */
+            etiqueta: string;
+            tipo: components["schemas"]["TipoCampo"];
+            obligatorio: boolean;
+            ayuda?: string | null;
+            /** @description Solo OPCION */
+            opciones?: string[];
+        };
+        PlantillaRequerimiento: {
+            /** @example BRIEF_WEB */
+            codigo: string;
+            /** @example Brief de desarrollo web */
+            nombre: string;
+            descripcion?: string | null;
+            /** @description Servicios donde se suele pedir (vacío = cualquiera) */
+            servicios: components["schemas"]["CodigoServicio"][];
+            /** @description Plazo por defecto */
+            diasHabiles: number;
+            campos: components["schemas"]["CampoFormulario"][];
+        };
         RequerimientoEntrada: {
-            /** @example Post por el Día de la Madre */
-            descripcion: string;
-            /** Format: date */
-            fechaDeseada?: string | null;
-            prioridad?: components["schemas"]["PrioridadRequerimiento"];
+            /** @example BRIEF_WEB */
+            plantillaCodigo: string;
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** @description Por defecto, el nombre de la plantilla */
+            titulo?: string;
+            /** @description Nota para el cliente («Lo necesitamos para arrancar el diseño») */
+            mensaje?: string;
+            /** @description Plazo; por defecto el de la plantilla */
+            diasHabiles?: number;
         };
         Requerimiento: {
             /** Format: uuid */
             id: string;
-            periodo: components["schemas"]["Periodo"];
-            descripcion: string;
-            /** Format: date */
-            fechaDeseada?: string | null;
-            prioridad: components["schemas"]["PrioridadRequerimiento"];
-            /** @description Agregado después de enviar el brief; el AM lo evalúa contra la cuota */
-            fueraDeBrief: boolean;
-            estado: components["schemas"]["EstadoRequerimiento"];
-            notaEquipo?: string | null;
             /** Format: uuid */
-            piezaId?: string | null;
+            servicioContratadoId: string;
+            /** @example Diseño y desarrollo web - Casa Oliva */
+            servicioTitulo: string;
+            plantillaCodigo?: string | null;
+            titulo: string;
+            descripcion?: string | null;
+            mensaje?: string | null;
+            estado: components["schemas"]["EstadoRequerimiento"];
+            /** Format: date-time */
+            emitidoEn: string;
+            /**
+             * Format: date
+             * @description Vence a las 23:59 de Lima de ese día
+             */
+            fechaLimite: string;
+            /** @description Días hábiles de atraso (hasta hoy o hasta que se envió) */
+            diasAtraso: number;
+            /** @description Días hábiles que ya se corrió el cronograma por este atraso */
+            diasCorridos?: number;
+            campos: components["schemas"]["CampoFormulario"][];
+            respuestas: {
+                [key: string]: unknown;
+            };
+            /** @description Al observar: qué hay que corregir */
+            notaEquipo?: string | null;
+            /** Format: date-time */
+            enviadoEn?: string | null;
+            enviadoPor?: components["schemas"]["PersonaMini"] | null;
+            /** Format: date-time */
+            revisadoEn?: string | null;
             creadoPor?: components["schemas"]["PersonaMini"] | null;
-            /** Format: date-time */
-            decididoEn?: string | null;
-            /** Format: date-time */
-            creadoEn: string;
         };
         /** @description Crea el proyecto con las etapas de la plantilla del servicio (y variante). Las fechas previstas se calculan en días hábiles desde `fechaInicio`. */
         ServicioContratadoEntrada: {
@@ -2375,11 +2496,6 @@ export interface components {
                 pilar?: string;
                 /** Format: uuid */
                 servicioContratadoId?: string;
-                /**
-                 * Format: uuid
-                 * @description Requerimiento del brief que cumple esta entrada
-                 */
-                requerimientoId?: string;
             }[];
         };
         IdeaBlog: {
@@ -2404,7 +2520,7 @@ export interface components {
             bytes: number;
             sha256?: string;
             /** @enum {string} */
-            uso: "BRIEF" | "ADJUNTO_TICKET" | "BIBLIOTECA";
+            uso: "BRIEF" | "ADJUNTO_TICKET" | "BIBLIOTECA" | "REQUERIMIENTO";
             briefPeriodo?: components["schemas"]["Periodo"];
             /** @enum {string} */
             categoria?: "FOTO" | "VIDEO" | "DOCUMENTO" | "LOGO" | "OTRO";
@@ -2435,7 +2551,7 @@ export interface components {
             categoria?: string | null;
             etiquetas?: string[];
             /** @enum {string} */
-            uso?: "BRIEF" | "ADJUNTO_TICKET" | "BIBLIOTECA" | "ENTREGABLE" | "CONTRATO" | "INFORME";
+            uso?: "BRIEF" | "ADJUNTO_TICKET" | "BIBLIOTECA" | "ENTREGABLE" | "CONTRATO" | "INFORME" | "REQUERIMIENTO";
             /**
              * @description SUBIDO = en S3 pero el brief aún no se envió
              * @enum {string}
@@ -2788,7 +2904,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.decidido" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -3621,37 +3737,6 @@ export interface operations {
             };
         };
     };
-    crearRequerimiento: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description UUID generado por el cliente por cada intención (no por cada reintento). Vigencia 24 h. */
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-                periodo: components["schemas"]["Periodo"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RequerimientoEntrada"];
-            };
-        };
-        responses: {
-            /** @description Creado */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Requerimiento"];
-                };
-            };
-            422: components["responses"]["Validacion"];
-        };
-    };
     crearReferenciaBrief: {
         parameters: {
             query?: never;
@@ -3681,7 +3766,88 @@ export interface operations {
             422: components["responses"]["Validacion"];
         };
     };
-    eliminarRequerimiento: {
+    listarPlantillasRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PlantillaRequerimiento"][];
+                    };
+                };
+            };
+        };
+    };
+    listarRequerimientos: {
+        parameters: {
+            query?: {
+                servicioContratadoId?: string;
+            };
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Requerimiento"][];
+                        pendientes: number;
+                        atrasados: number;
+                    };
+                };
+            };
+        };
+    };
+    crearRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description UUID generado por el cliente por cada intención (no por cada reintento). Vigencia 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequerimientoEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Requerimiento"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    obtenerRequerimiento: {
         parameters: {
             query?: never;
             header?: never;
@@ -3692,17 +3858,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Eliminado */
-            204: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Requerimiento"];
+                };
             };
-            409: components["responses"]["Conflicto"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
-    actualizarRequerimiento: {
+    responderRequerimiento: {
         parameters: {
             query?: never;
             header?: never;
@@ -3714,22 +3882,51 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    descripcion?: string;
-                    /** Format: date */
-                    fechaDeseada?: string | null;
-                    prioridad?: components["schemas"]["PrioridadRequerimiento"];
+                    /** @description Clave del campo → valor (texto, booleano o [{archivoId, nombre}]) */
+                    respuestas: {
+                        [key: string]: unknown;
+                    };
+                    /** @default false */
+                    enviar?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Requerimiento"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    revisarRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "APROBADO" | "OBSERVADO";
+                    /** @description Obligatoria al observar; la ve el cliente */
+                    nota?: string;
                     /**
-                     * @description Solo equipo
-                     * @enum {string}
+                     * Format: date
+                     * @description Al observar: nuevo plazo (por defecto, el mismo)
                      */
-                    estado?: "ACEPTADO" | "RECHAZADO";
-                    /** @description Solo equipo; se muestra al cliente ("Entra en noviembre") */
-                    notaEquipo?: string;
-                    /**
-                     * Format: uuid
-                     * @description Solo equipo o servicio; pieza que lo cumple
-                     */
-                    piezaId?: string | null;
+                    nuevaFechaLimite?: string;
                 };
             };
         };
@@ -3745,6 +3942,31 @@ export interface operations {
             };
             409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    aplicarAtrasosRequerimientos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Requerimientos vencidos revisados */
+                        revisados: number;
+                        /** @description Requerimientos cuyo atraso corrió el cronograma hoy */
+                        corridos: number;
+                    };
+                };
+            };
         };
     };
     listarServiciosCliente: {

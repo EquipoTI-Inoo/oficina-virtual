@@ -4,7 +4,7 @@ import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
   LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet,
+  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
@@ -253,7 +253,8 @@ export function Modal({ abierto, alCerrar, children, etiqueta }: { abierto: bool
 const NAV_CLIENTE = [
   { a: "/inicio", texto: "Inicio", icono: <LuHouse /> },
   { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
-  { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: true },
+  { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: "porAprobar" },
+  { a: "/requerimientos", texto: "Requerimientos", icono: <LuClipboardList />, contador: "requerimientos" },
 ];
 const NAV_EQUIPO = [
   { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },
@@ -265,7 +266,7 @@ const NAV_EQUIPO = [
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
-function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente" | "equipo"; porAprobar: number; sesion: S<"Sesion"> | null; alNavegar?: () => void }) {
+function Lateral({ espacio, contadores, sesion, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
   const u = sesion?.usuario;
@@ -276,10 +277,10 @@ function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente
   return (
     <aside className="lateral" aria-label="Menú principal">
       <div className="lateral-interior">
-      <div className="logo-bloque">
+      <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/panel"} className="logo-bloque" aria-label="Ir al inicio" onClick={alNavegar} style={{ display: "block", color: "inherit", textDecoration: "none" }}>
         <span className="logo">inoo</span>
         <span className="logo-sub">{espacio === "cliente" ? "Portal de clientes" : "Espacio de equipo"}</span>
-      </div>
+      </Enlace>
       <button className="cuenta" type="button" aria-label="Cambiar de cuenta">
         <span className={`avatar avatar--cuadrado${espacio === "cliente" ? " avatar--cliente" : ""}`}>{espacio === "cliente" ? "CO" : "IN"}</span>
         <span>
@@ -295,7 +296,7 @@ function Lateral({ espacio, porAprobar, sesion, alNavegar }: { espacio: "cliente
             <Enlace key={n.a} a={n.a} className="nav-item" aria-current={activo ? "page" : undefined}>
               {n.icono}
               <span>{n.texto}</span>
-              {"contador" in n && n.contador === true && porAprobar > 0 && <span className="nav-contador">{porAprobar}</span>}
+              {"contador" in n && typeof n.contador === "string" && (contadores[n.contador] ?? 0) > 0 && <span className="nav-contador">{contadores[n.contador]}</span>}
             </Enlace>
           );
         })}
@@ -414,6 +415,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   }, [me.error, ir]);
 
   const porAprobar = inicio.datos?.indicadores.porAprobar ?? 0;
+  const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
   const nombreCuenta = espacio === "cliente" ? me.datos?.clientes[0]?.nombre ?? "Casa Oliva" : "Equipo Inoo";
   const marcarLeidas = async () => {
@@ -424,14 +426,16 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   return (
     <ContextoPortal.Provider value={{ sesion: me.datos, porAprobar, refrescar: () => void inicio.recargar() }}>
       <div className={`app${flotante ? " app--flotante" : ""}`}>
-        <Lateral espacio={espacio} porAprobar={porAprobar} sesion={me.datos} />
+        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} />
         <div className="principal">
           <div className="superior">
             <div className="fila">
               <button className="boton-menu" aria-label="Abrir menú" onClick={() => setMenu(true)}>
                 <LuMenu size={22} />
               </button>
-              <span className="logo superior-logo">inoo</span>
+              <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/panel"} className="logo superior-logo" aria-label="Ir al inicio" style={{ textDecoration: "none" }}>
+                inoo
+              </Enlace>
               <nav className="migas" aria-label="Ruta">
                 <span>{nombreCuenta}</span>
                 <LuChevronRight size={14} color="var(--c-tinta)" />
@@ -452,7 +456,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
       {menu && (
         <div className="cajon" onClick={() => setMenu(false)}>
           <div onClick={(e) => e.stopPropagation()}>
-            <Lateral espacio={espacio} porAprobar={porAprobar} sesion={me.datos} alNavegar={() => setMenu(false)} />
+            <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} alNavegar={() => setMenu(false)} />
             <button className="modal-cerrar" style={{ position: "fixed", left: "min(280px, 78vw)", top: 24, zIndex: 51 }} aria-label="Cerrar menú" onClick={() => setMenu(false)}>
               <LuX size={18} />
             </button>

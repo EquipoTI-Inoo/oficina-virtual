@@ -1,11 +1,12 @@
 /**
- * Brief y requerimientos, referencias del mes, plan del mes (kanban) y propuesta de calendario.
+ * Brief del mes, referencias, plan del mes (kanban) y propuesta de calendario. Los requerimientos de la
+ * agencia al cliente (reunión 12 oct) están en flujo-requerimientos.ts.
  * Suite compartida: corre contra la API simulada (mock.flujo.test.ts) y contra Postgres (db.test.ts).
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
-import { CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
+import { CASA_OLIVA, crearLlamar, DIEGO, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
 
 const N8N = { "x-api-key": "demo-n8n" };
 const CAMBIOS = uid(5, 17);
@@ -17,33 +18,15 @@ export function pruebasPlanificacion(nombre: string, manejar: Manejador, reinici
   const llamar = crearLlamar(manejar);
   const enviarBrief = () => llamar("POST", `${BRIEF}/enviar`, VALERIA, { declaraDerechos: true });
 
-  describe(`brief y requerimientos · ${nombre}`, () => {
-    test("el brief trae sus requerimientos y las referencias del mes; la ficha, las permanentes", async () => {
+  describe(`brief · ${nombre}`, () => {
+    test("el brief trae las referencias del mes; la ficha, las permanentes", async () => {
       await reiniciar();
       const b = await llamar("GET", BRIEF, VALERIA);
       assert.equal(b.status, 200);
-      assert.deepEqual(b.json.requerimientos.map((r: any) => [r.prioridad, r.estado, r.fueraDeBrief]), [["ALTA", "PENDIENTE", false], ["MEDIA", "PENDIENTE", false]]);
+      assert.equal(b.json.requerimientos, undefined, "los requerimientos ya no son parte del brief");
       assert.deepEqual(b.json.referencias.map((r: any) => r.titulo), ["Natura Perú · Competidor"]);
       const ficha = await llamar("GET", `/clientes/${CASA_OLIVA}/referencias`, VALERIA);
       assert.deepEqual(ficha.json.datos.map((r: any) => r.titulo), ["Luz cálida, texturas naturales"]);
-    });
-
-    test("en borrador: agregar, editar y quitar requerimientos; validación y roles", async () => {
-      await reiniciar();
-      const malo = await llamar("POST", `${BRIEF}/requerimientos`, VALERIA, { descripcion: "x", prioridad: "URGENTE", fechaDeseada: "20/10" });
-      assert.equal(malo.status, 422);
-      assert.deepEqual(malo.json.errores.map((e: any) => e.campo).sort(), ["descripcion", "fechaDeseada", "prioridad"]);
-      assert.equal((await llamar("POST", `${BRIEF}/requerimientos`, MARTIN_LECTOR, { descripcion: "Post de aniversario" })).status, 403);
-      const r = await llamar("POST", `${BRIEF}/requerimientos`, VALERIA, { descripcion: "Post de aniversario", fechaDeseada: "2026-10-28" });
-      assert.equal(r.status, 201);
-      assert.equal(r.json.prioridad, "MEDIA");
-      assert.equal(r.json.fueraDeBrief, false);
-      assert.equal(r.json.creadoPor.nombre, "Valeria Mendoza");
-      const editado = await llamar("PATCH", `/requerimientos/${r.json.id}`, VALERIA, { prioridad: "ALTA" });
-      assert.equal(editado.json.prioridad, "ALTA");
-      assert.equal((await llamar("PATCH", `/requerimientos/${r.json.id}`, VALERIA, { estado: "ACEPTADO" })).status, 403, "el cliente no se acepta a sí mismo");
-      assert.equal((await llamar("DELETE", `/requerimientos/${r.json.id}`, VALERIA)).status, 204);
-      assert.equal((await llamar("GET", BRIEF, VALERIA)).json.requerimientos.length, 2);
     });
 
     test("referencias: el cliente las agrega al brief, no a la ficha permanente", async () => {
@@ -59,34 +42,13 @@ export function pruebasPlanificacion(nombre: string, manejar: Manejador, reinici
       assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/referencias`, DIEGO, { titulo: "Manual de marca 2026", tipo: "MANUAL_MARCA", notas: "Versión vigente" })).status, 201);
     });
 
-    test("tras enviar: lo nuevo queda fuera del brief y avisa al AM; lo enviado ya no se edita", async () => {
+    test("enviar y confirmar el brief: el AM confirma y se avisa al Jefe de Marketing", async () => {
       await reiniciar();
-      const [primero] = (await llamar("GET", BRIEF, VALERIA)).json.requerimientos;
+      assert.equal((await llamar("POST", `${BRIEF}/confirmar`, DIEGO)).json.codigo, "BRIEF_SIN_ENVIAR");
       assert.equal((await enviarBrief()).status, 200);
-      const extra = await llamar("POST", `${BRIEF}/requerimientos`, VALERIA, { descripcion: "Historia por el Día de la Canción Criolla", fechaDeseada: "2026-10-31", prioridad: "BAJA" });
-      assert.equal(extra.status, 201);
-      assert.equal(extra.json.fueraDeBrief, true);
-      const ev = (await eventos()).filter((e) => e.tipo === "requerimiento.creado");
-      assert.equal(ev.length, 1);
-      assert.equal(ev[0].datos.requerimientoId, extra.json.id);
-      assert.equal((await llamar("PATCH", `/requerimientos/${primero.id}`, VALERIA, { prioridad: "BAJA" })).json.codigo, "BRIEF_ENVIADO");
       assert.equal((await llamar("POST", `${BRIEF}/referencias`, VALERIA, { titulo: "Tarde", url: "https://x.pe" })).status, 409);
-      assert.equal((await llamar("PATCH", `/requerimientos/${extra.json.id}`, VALERIA, { prioridad: "MEDIA" })).status, 200, "el suyo fuera del brief sí, mientras esté pendiente");
-    });
-
-    test("el AM confirma el brief (acepta lo del brief) y decide lo de fuera con una nota", async () => {
-      await reiniciar();
-      await enviarBrief();
-      const extra = (await llamar("POST", `${BRIEF}/requerimientos`, VALERIA, { descripcion: "Video de 30 segundos para TikTok" })).json;
-      assert.equal((await llamar("POST", `${BRIEF}/confirmar`, DIEGO)).status, 200);
-      const b = (await llamar("GET", BRIEF, VALERIA)).json;
-      assert.deepEqual(b.requerimientos.map((r: any) => r.estado), ["ACEPTADO", "ACEPTADO", "PENDIENTE"]);
-      assert.equal((await llamar("PATCH", `/requerimientos/${extra.id}`, DIEGO, { estado: "RECHAZADO" })).json.codigo, "COMENTARIO_REQUERIDO");
-      const rechazado = await llamar("PATCH", `/requerimientos/${extra.id}`, DIEGO, { estado: "RECHAZADO", notaEquipo: "Audiovisual no está en tu plan; te enviamos una propuesta." });
-      assert.equal(rechazado.json.estado, "RECHAZADO");
-      assert.ok(rechazado.json.decididoEn);
-      assert.ok((await eventos()).some((e) => e.tipo === "requerimiento.decidido" && e.datos.estado === "RECHAZADO"));
-      assert.equal((await llamar("DELETE", `/requerimientos/${extra.id}`, VALERIA)).json.codigo, "REQUERIMIENTO_DECIDIDO");
+      assert.equal((await llamar("POST", `${BRIEF}/confirmar`, DIEGO)).json.estado, "CONFIRMADO");
+      assert.ok((await eventos()).some((e) => e.tipo === "brief.confirmado"));
     });
   });
 
@@ -109,22 +71,18 @@ export function pruebasPlanificacion(nombre: string, manejar: Manejador, reinici
       assert.ok(filtrado.columnas.every((c: any) => c.piezas.every((p: any) => p.servicioContratadoId === uid(4, 1))));
     });
 
-    test("propuesta del agente: el cliente no ve el mes hasta que el AM aprueba; cumple requerimientos", async () => {
+    test("propuesta del agente: el cliente no ve el mes hasta que el AM aprueba", async () => {
       await reiniciar();
-      const [req] = (await llamar("GET", BRIEF, VALERIA)).json.requerimientos;
       const propuesta = {
         clienteId: CASA_OLIVA,
         periodo: "2026-11",
         resumen: "Noviembre: rituales de noche",
         entradas: [
-          { tipo: "COPY", titulo: "Llega el sérum de noche", canal: "Instagram", fechaProgramada: "2026-11-05T15:00:00Z", requerimientoId: req.id },
+          { tipo: "COPY", titulo: "Llega el sérum de noche", canal: "Instagram", fechaProgramada: "2026-11-05T15:00:00Z" },
           { tipo: "BLOG", titulo: "Rutina de noche en 3 pasos", fechaProgramada: "2026-11-12T15:00:00Z" },
         ],
       };
       assert.equal((await llamar("POST", "/integraciones/calendarios", undefined, propuesta, N8N)).status, 201);
-      const cumplido = (await llamar("GET", BRIEF, VALERIA)).json.requerimientos.find((r: any) => r.id === req.id);
-      assert.equal(cumplido.estado, "ACEPTADO");
-      assert.ok(cumplido.piezaId);
       const oculto = (await llamar("GET", `/clientes/${CASA_OLIVA}/tablero?periodo=2026-11`, VALERIA)).json;
       assert.equal(oculto.planAprobado, false);
       assert.ok(oculto.columnas.every((c: any) => c.piezas.length === 0));

@@ -10,6 +10,7 @@ import {
   Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
+import { RequerimientosDelCliente } from "./requerimientos";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
@@ -714,6 +715,7 @@ function Ficha() {
               ))}
             </div>
           </div>
+          <RequerimientosDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>

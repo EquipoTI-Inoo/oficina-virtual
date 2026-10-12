@@ -9,6 +9,7 @@
 import type { ComponentType } from "react";
 import { PantallaBlog, PantallaPlanMes } from "./pantallas/planificacion";
 import { PantallaProyecto } from "./pantallas/proyecto";
+import { PantallaRequerimiento, PantallaRequerimientos } from "./pantallas/requerimientos";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
 import { PantallaCalendarioEquipo, PantallaCostosIa } from "./pantallas/sin-diseno";
 import { PantallaCuenta } from "./pantallas/cuenta";
@@ -29,6 +30,8 @@ export const RUTAS: Ruta[] = [
   { patron: "/inicio", pantalla: PantallaInicio, figma: "01-inicio", espacio: "cliente" },
   { patron: "/servicios", pantalla: PantallaServicios, figma: "03-servicios-contratados", espacio: "cliente" },
   { patron: "/servicios/:id", pantalla: PantallaProyecto, figma: "13-avance-de-proyectos", espacio: "cliente" },
+  { patron: "/requerimientos", pantalla: PantallaRequerimientos, figma: null, espacio: "cliente" },
+  { patron: "/requerimientos/:id", pantalla: PantallaRequerimiento, figma: null, espacio: "cliente" },
   { patron: "/entregables", pantalla: PantallaEntregables, figma: "04-entregables-por-revisar", espacio: "cliente" },
   { patron: "/entregables/:id", pantalla: PantallaDetallePieza, figma: "06-detalle-de-pieza", espacio: "cliente" },
   { patron: "/soporte", pantalla: PantallaSoporte, figma: "07-soporte", espacio: "cliente" },

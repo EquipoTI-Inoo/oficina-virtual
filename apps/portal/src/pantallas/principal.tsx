@@ -212,13 +212,13 @@ function Inicio() {
           <div className="kpi-valor">{d.indicadores.porAprobar}</div>
           <div className="kpi-pie">{d.indicadores.porAprobar === 1 ? "Entregable listo para ti" : "Entregables listos para ti"}</div>
         </Enlace>
-        <div className="tarjeta kpi">
+        <Enlace a="/requerimientos" className={`tarjeta kpi${req > 0 ? " kpi--destacado" : ""}`}>
           <div className="kpi-cab">
             Requerimientos <LuClipboardList size={16} />
           </div>
           <div className="kpi-valor">{req}</div>
           <div className="kpi-pie">{req === 0 ? "No te pedimos nada por ahora" : req === 1 ? "Pendiente de enviarnos" : "Pendientes de enviarnos"}</div>
-        </div>
+        </Enlace>
       </div>
 
       <div className="con-lateral seccion">
