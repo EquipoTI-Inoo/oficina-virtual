@@ -11,7 +11,7 @@
  */
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
-import { calcularAvance, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Json = Record<string, unknown> | unknown[];
@@ -71,6 +71,8 @@ interface Estado {
   servicios: D.ServicioContratadoDemo[];
   etapas: D.EtapaDemo[];
   pagos: D.PagoDemo[];
+  reuniones: D.ReunionDemo[];
+  comentariosProyecto: D.ComentarioProyectoDemo[];
   fichas: Record<string, typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null }>;
   calendarios: Record<string, { estado: S<"EstadoCalendario">; version: number; resumen: string | null; aprobadoPorId: string | null; aprobadoEn: string | null }>;
   eventosPieza: { piezaId: string; deEstado: D.Estado | null; aEstado: D.Estado; version: number | null; usuarioId: string | null; canal: S<"CanalDecision">; comentario: string | null; creadoEn: string }[];
@@ -123,6 +125,8 @@ function estadoInicial(): Estado {
     servicios: structuredClone(D.SERVICIOS_CONTRATADOS),
     etapas: D.etapasIniciales(),
     pagos: structuredClone(D.PAGOS_INICIALES),
+    reuniones: structuredClone(D.REUNIONES_INICIALES),
+    comentariosProyecto: structuredClone(D.COMENTARIOS_PROYECTO_INICIALES),
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
       [`${D.uid(2, 1)}:2026-10`]: { estado: "APROBADO_PLAN", version: 1, resumen: null, aprobadoPorId: D.uid(1, 3), aprobadoEn: "2026-09-28T15:00:00Z" },
@@ -1514,6 +1518,73 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   if (b.fechaEstimada !== undefined) e.fechaEstimada = b.fechaEstimada;
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
   return avanceServicio(s);
+});
+
+/** Servicio contratado visible para quien llama (404 si no existe o es de otro cliente). */
+function buscarServicio(ctx: Ctx, id: string) {
+  const s = E.servicios.find((x) => x.id === id);
+  if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  accesoCliente(ctx, s.clienteId);
+  return s;
+}
+
+const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: r.fecha, estado: r.estado, conAcuerdos: r.conAcuerdos, resumen: r.resumen });
+
+// Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
+ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => {
+  const s = buscarServicio(ctx, p.id);
+  const periodo = q.get("periodo") ?? D.PERIODO;
+  const cat = servicioDeCatalogo(s.codigo)!;
+  const av = avanceServicio(s);
+  const reuniones = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado !== "CANCELADA");
+  const proximas = reuniones.filter((r) => r.estado === "PROGRAMADA").sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const pasadas = reuniones.filter((r) => r.estado === "REALIZADA").sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const ticketsResueltos = E.tickets.filter((t) => ["RESUELTO", "CERRADO"].includes(t.estado) && t.actualizadoEn.startsWith(periodo)).length;
+  const r: S<"PerfilProyecto"> = {
+    ...av,
+    descripcion: cat.descripcion,
+    modalidad: cat.modalidad,
+    fechaInicio: s.fechaInicio,
+    fechaFin: s.fechaFin,
+    metricas: calcularMetricas(plantillaPara(s.codigo, s.variante)?.metricas ?? [], {
+      reuniones,
+      etapas: E.etapas.filter((e) => e.servicioContratadoId === s.id),
+      progreso: av.progreso ?? null,
+      ticketsResueltos,
+    }),
+    reuniones: [...proximas, ...pasadas].slice(0, 6).map(reunionVista),
+    porRevisar: piezasDe(s.clienteId).filter((x) => x.servicioId === s.id && x.estado === "LISTO_REVISION").sort((a, b) => a.fecha.localeCompare(b.fecha)).map((x) => resumenPieza(ctx, x)),
+  };
+  return r;
+});
+
+const comentarioProyectoVista = (ctx: Ctx, c: D.ComentarioProyectoDemo): S<"ComentarioProyecto"> => {
+  const autor = E.usuarios.find((u) => u.id === c.autorId)!;
+  const r: S<"ComentarioProyecto"> = { id: c.id, texto: c.texto, autor: persona(autor.id)!, deEquipo: autor.tipo === "EQUIPO", creadoEn: c.creadoEn };
+  if (ctx.esEquipo) r.interno = c.interno;
+  return r;
+};
+
+ruta("GET", "/servicios-contratados/:id/comentarios", (ctx, p) => {
+  const s = buscarServicio(ctx, p.id);
+  return {
+    datos: E.comentariosProyecto
+      .filter((c) => c.servicioContratadoId === s.id && (ctx.esEquipo || !c.interno))
+      .sort((a, b) => a.creadoEn.localeCompare(b.creadoEn))
+      .map((c) => comentarioProyectoVista(ctx, c)),
+  };
+});
+
+ruta("POST", "/servicios-contratados/:id/comentarios", async (ctx, p, _q, req) => {
+  const s = buscarServicio(ctx, p.id);
+  exigirRol(ctx, s.clienteId, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = await cuerpo<{ texto?: string; interno?: boolean }>(req);
+  const texto = (b.texto ?? "").trim();
+  if (texto.length < 2 || texto.length > 2000) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" }]);
+  const c: D.ComentarioProyectoDemo = { id: nuevoId(24), servicioContratadoId: s.id, clienteId: s.clienteId, autorId: ctx.usuario.id, texto, interno: ctx.esEquipo && b.interno === true, creadoEn: new Date().toISOString() };
+  E.comentariosProyecto.push(c);
+  emitir("comentario_proyecto.creado", s.clienteId, { servicioContratadoId: s.id, comentarioId: c.id, interno: c.interno, usuarioId: ctx.usuario.id });
+  return { __status: 201, ...comentarioProyectoVista(ctx, c) };
 });
 
 ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {

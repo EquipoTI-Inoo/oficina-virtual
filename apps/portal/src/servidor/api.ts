@@ -9,7 +9,7 @@
  * POST /tickets/{id}/mensajes · POST /piezas/{id}/versiones · POST /integraciones/piezas(/{id}/versiones) ·
  * POST /integraciones/ejecuciones (estas tres con X-Api-Key) · GET /servicios · GET|POST /clientes/{id}/servicios ·
  * GET /clientes/{id}/avance · GET /servicios-contratados/{id}/avance · PATCH /servicios-contratados/{id}/etapas/{id} ·
- * GET /plantillas · GET /clientes/{id}/pagos.
+ * GET /plantillas · GET /clientes/{id}/pagos · GET /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/comentarios.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -20,7 +20,7 @@ import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
-import { calcularAvance, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Estado = "BORRADOR" | "EN_REVISION_INTERNA" | "LISTO_REVISION" | "APROBADO_CLIENTE" | "CAMBIOS_SOLICITADOS" | "PUBLICADO";
@@ -1360,6 +1360,7 @@ interface FilaServicio {
   paso_cargo: string | null;
   paso_email: string | null;
   entregables: { tipoPieza: S<"TipoPieza">; cantidadMensual: number }[];
+  plantilla_id: string | null;
 }
 interface FilaEtapa {
   id: string;
@@ -1544,6 +1545,84 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, usuarioId: ctx.u.usuarioId });
   const { etapas: _e, ...v } = await servicioVista(ctx, await buscarServicio(ctx, id), PERIODO_ACTUAL());
   return { __status: 201, ...v };
+});
+
+// Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
+ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => {
+  const s = await buscarServicio(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const av = await avanceServicio(ctx, s, periodo);
+  const reuniones = (await ctx.c.query<{ id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null }>(
+    "SELECT * FROM reunion WHERE servicio_contratado_id = $1 AND estado <> 'CANCELADA' ORDER BY fecha", [s.id],
+  )).rows;
+  const etapas = (await ctx.c.query<{ estado: S<"EstadoHito">; fecha_fin: Date | null; fecha_estimada: Date | null }>(
+    "SELECT estado, fecha_fin, fecha_estimada FROM etapa_proyecto WHERE servicio_contratado_id = $1", [s.id],
+  )).rows;
+  const tickets = (await ctx.c.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM ticket WHERE cliente_id = $1 AND estado IN ('RESUELTO', 'CERRADO') AND to_char(actualizado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2",
+    [s.cliente_id, periodo],
+  )).rows[0].n;
+  const metricas = (await ctx.c.query<{ metricas: S<"MetricaProyecto">[] }>("SELECT metricas FROM plantilla_proyecto WHERE id = $1", [s.plantilla_id])).rows[0]?.metricas ?? [];
+  const piezas = (await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.servicio_contratado_id = $1 AND p.estado = 'LISTO_REVISION' ORDER BY p.fecha_programada`, [s.id])).rows;
+  const vista = (r: (typeof reuniones)[number]): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen });
+  const r: S<"PerfilProyecto"> = {
+    ...av,
+    descripcion: s.descripcion,
+    modalidad: s.modalidad,
+    fechaInicio: fechaIso(s.fecha_inicio),
+    fechaFin: fechaIso(s.fecha_fin),
+    metricas: calcularMetricas(metricas, {
+      reuniones: reuniones.map((x) => ({ estado: x.estado, conAcuerdos: x.con_acuerdos })),
+      etapas: etapas.map((e) => ({ estado: e.estado, fechaFin: fechaIso(e.fecha_fin), fechaEstimada: fechaIso(e.fecha_estimada) })),
+      progreso: av.progreso ?? null,
+      ticketsResueltos: tickets,
+    }),
+    reuniones: [...reuniones.filter((x) => x.estado === "PROGRAMADA"), ...reuniones.filter((x) => x.estado === "REALIZADA").reverse()].slice(0, 6).map(vista),
+    porRevisar: piezas.map((x) => resumenPieza(ctx, x)),
+  };
+  return r;
+});
+
+interface FilaComentarioProyecto {
+  id: string;
+  texto: string;
+  interno: boolean;
+  creado_en: Date;
+  autor_id: string;
+  autor_nombre: string;
+  autor_cargo: string | null;
+  autor_tipo: "EQUIPO" | "CLIENTE" | "SERVICIO";
+}
+const SELECT_COMENTARIO_PROYECTO = `
+  SELECT c.id, c.texto, c.interno, c.creado_en, u.id AS autor_id, u.nombre AS autor_nombre, u.cargo AS autor_cargo, u.tipo AS autor_tipo
+  FROM comentario_proyecto c JOIN usuario u ON u.id = c.autor_id`;
+const comentarioProyectoVista = (ctx: Ctx, c: FilaComentarioProyecto): S<"ComentarioProyecto"> => {
+  const r: S<"ComentarioProyecto"> = { id: c.id, texto: c.texto, autor: { id: c.autor_id, nombre: c.autor_nombre, cargo: c.autor_cargo }, deEquipo: c.autor_tipo === "EQUIPO", creadoEn: iso(c.creado_en)! };
+  if (ctx.esEquipo) r.interno = c.interno;
+  return r;
+};
+
+// RLS ya oculta las notas internas al cliente; el filtro explícito es para el equipo que mira como cliente.
+ruta("GET", "/servicios-contratados/:id/comentarios", async (ctx, p) => {
+  const s = await buscarServicio(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaComentarioProyecto>(`${SELECT_COMENTARIO_PROYECTO} WHERE c.servicio_contratado_id = $1 ORDER BY c.creado_en`, [s.id]);
+  return { datos: rows.filter((c) => ctx.esEquipo || !c.interno).map((c) => comentarioProyectoVista(ctx, c)) };
+});
+
+ruta("POST", "/servicios-contratados/:id/comentarios", async (ctx, p, _q, cuerpo) => {
+  const s = await buscarServicio(ctx, p.id);
+  exigirRol(ctx, s.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = (await cuerpo()) as { texto?: unknown; interno?: unknown };
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  if (texto.length < 2 || texto.length > 2000) validacion([{ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" }]);
+  const interno = ctx.esEquipo && b.interno === true;
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO comentario_proyecto (servicio_contratado_id, cliente_id, autor_id, texto, interno) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    [s.id, s.cliente_id, ctx.u.usuarioId, texto, interno],
+  )).rows[0].id;
+  await emitirOutbox(ctx, "comentario_proyecto.creado", s.cliente_id, { servicioContratadoId: s.id, comentarioId: id, interno, usuarioId: ctx.u.usuarioId });
+  const c = (await ctx.c.query<FilaComentarioProyecto>(`${SELECT_COMENTARIO_PROYECTO} WHERE c.id = $1`, [id])).rows[0];
+  return { __status: 201, ...comentarioProyectoVista(ctx, c) };
 });
 
 // «Mi cuenta → Pagos»: solo quien administra la cuenta y el equipo. VENCIDO se calcula al leer.

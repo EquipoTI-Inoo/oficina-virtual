@@ -49,7 +49,7 @@ aprobadas de las pruebas visuales.
 | `/equipo/plan` | 08-calendario-del-mes | «Plan del mes» (tablero por estado). Pasó al equipo (reunión 12 oct); `/plan` y `/calendario` redirigen a `/servicios` |
 | `/brief` | 11-brief-y-referencias | Retirado (reunión 12 oct): lo reemplaza Requerimientos (de la agencia al cliente). Redirige a `/servicios` |
 | `/resultados` | 12-resultados | Redirige a `/inicio`; los resultados irán dentro de cada servicio |
-| `/avance` | 13-avance-de-proyectos | Fuera del menú: etapas de cada servicio (de la plantilla) en lugar de hitos fijos. Se fusiona con «Mis servicios» en el perfil de proyecto |
+| `/servicios/{id}` | 13-avance-de-proyectos | Perfil del proyecto (reunión 12 oct): métricas de la plantilla del servicio, etapas, entregables por revisar del servicio, «Así va el mes» si entrega piezas, reuniones y comentarios y consultas. `/avance` redirige a `/servicios` |
 | `/soporte` | 07-soporte | Fuera del menú (reunión 12 oct); solo se llega desde «Contactar a mi equipo» |
 | `/soporte/nuevo` | 09-crear-ticket | |
 | `/equipo/panel` | 14-panel-general | |

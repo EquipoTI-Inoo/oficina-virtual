@@ -15,7 +15,7 @@ const PANTALLAS: [string, string, "cliente" | "equipo" | null][] = [
   ["07-soporte", "/soporte", "cliente"],
   ["09-crear-ticket", "/soporte/nuevo", "cliente"],
   ["10-muestras-de-estados", "/muestras", null],
-  ["13-avance-de-proyectos", "/avance", "cliente"],
+  ["13-avance-de-proyectos", "/servicios/00000000-0000-4000-8004-000000000003", "cliente"],
   ["05-blog", "/equipo/blog", "equipo"],
   ["08-plan-del-mes", "/equipo/plan", "equipo"],
   ["14-panel-general", "/equipo/panel", "equipo"],

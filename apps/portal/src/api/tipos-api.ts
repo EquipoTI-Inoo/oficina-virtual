@@ -442,6 +442,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Perfil del proyecto: métricas de su plantilla, etapas, reuniones y entregables por revisar del servicio */
+        get: operations["obtenerPerfilProyecto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/comentarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Comentarios y consultas del proyecto (el cliente no ve las notas internas del equipo) */
+        get: operations["listarComentariosProyecto"];
+        put?: never;
+        /** Dejar un comentario o consulta sobre el proyecto. Emite `comentario_proyecto.creado` (aviso al responsable). */
+        post: operations["comentarProyecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/etapas/{etapaId}": {
         parameters: {
             query?: never;
@@ -1921,6 +1960,60 @@ export interface components {
             /** Format: date-time */
             sincronizadoEn: string;
         };
+        MetricaValor: {
+            clave: components["schemas"]["MetricaProyecto"];
+            /** @example Reuniones con acuerdos */
+            etiqueta: string;
+            /**
+             * @description Ya formateado para mostrar
+             * @example 2 de 3
+             */
+            valor: string;
+            /** @example 1 programada */
+            detalle?: string | null;
+            /** @description true si el valor indica un problema (p. ej. entregas con retraso) */
+            alerta?: boolean;
+        };
+        Reunion: {
+            /** Format: uuid */
+            id: string;
+            /** @example Kickoff de implementación */
+            titulo: string;
+            /** Format: date-time */
+            fecha: string;
+            /** @enum {string} */
+            estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
+            /** @description REALIZADA: si terminó con acuerdos (cuenta como exitosa) */
+            conAcuerdos?: boolean | null;
+            /** @description Lo que se acordó; lo ve el cliente */
+            resumen?: string | null;
+        };
+        /** @description Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión */
+        PerfilProyecto: components["schemas"]["AvanceServicio"] & {
+            descripcion?: string | null;
+            modalidad: components["schemas"]["ModalidadServicio"];
+            /** Format: date */
+            fechaInicio?: string | null;
+            /** Format: date */
+            fechaFin?: string | null;
+            /** @description Las de la plantilla del servicio, en su orden */
+            metricas: components["schemas"]["MetricaValor"][];
+            /** @description Próximas primero, luego las realizadas más recientes (máximo 6) */
+            reuniones: components["schemas"]["Reunion"][];
+            /** @description Entregables de este servicio en LISTO_REVISION */
+            porRevisar: components["schemas"]["PiezaResumen"][];
+        };
+        ComentarioProyecto: {
+            /** Format: uuid */
+            id: string;
+            texto: string;
+            autor: components["schemas"]["PersonaMini"];
+            deEquipo: boolean;
+            /** @description Solo equipo */
+            interno?: boolean;
+            /** Format: date-time */
+            creadoEn: string;
+        };
         AvanceCliente: {
             periodo: components["schemas"]["Periodo"];
             resumenMes: components["schemas"]["ProgresoPiezas"];
@@ -2695,7 +2788,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.decidido" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.decidido" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -3779,6 +3872,93 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    obtenerPerfilProyecto: {
+        parameters: {
+            query?: {
+                /** @description Servicios mensuales: el mes (por defecto el actual) */
+                periodo?: components["schemas"]["Periodo"];
+            };
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PerfilProyecto"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    listarComentariosProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Del más antiguo al más reciente */
+                        datos: components["schemas"]["ComentarioProyecto"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    comentarProyecto: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description UUID generado por el cliente por cada intención (no por cada reintento). Vigencia 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                    /** @description Solo equipo: nota que el cliente no ve */
+                    interno?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentarioProyecto"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
         };
     };
     actualizarEtapa: {

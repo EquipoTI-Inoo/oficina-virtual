@@ -239,10 +239,10 @@ function Inicio() {
             <div style={{ display: "grid", gap: 18, marginTop: 20 }}>
               {d.servicios.map((x) => (
                 <div key={x.servicioContratadoId} style={{ display: "grid", gap: 8 }}>
-                  <div className="fila">
+                  <Enlace a={`/servicios/${x.servicioContratadoId}`} className="fila" style={{ color: "inherit", textDecoration: "none" }}>
                     <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
                     <span className="negrita" style={{ fontSize: 13 }}>{x.titulo}</span>
-                  </div>
+                  </Enlace>
                   <AvanceLineal avance={x.avance} compacto />
                 </div>
               ))}
@@ -404,8 +404,8 @@ export function AsiVaElMes({ progreso: a, proxima, nota, conEnlace = true }: { p
       )}
       {nota && <p className="texto-xs texto-muted" style={{ marginTop: 16 }}>{nota}</p>}
       {conEnlace && (
-        <Enlace a="/avance" className="enlace" style={{ marginTop: 18 }}>
-          Ver avance de proyectos →
+        <Enlace a="/servicios" className="enlace" style={{ marginTop: 18 }}>
+          Ver mis servicios →
         </Enlace>
       )}
     </div>
@@ -497,8 +497,8 @@ function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
           Este mes: {p.aprobadas} aprobados · {p.porRevisar} por revisar · {p.enProduccion} en producción
         </span>
       )}
-      <Enlace a="/avance" className="enlace">
-        Ver avance del servicio →
+      <Enlace a={`/servicios/${s.servicioContratadoId}`} className="enlace">
+        Ver proyecto →
       </Enlace>
     </div>
   );

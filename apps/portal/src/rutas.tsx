@@ -7,7 +7,8 @@
  * En Next.js cada ruta tiene además su archivo en app/ (mismo componente).
  */
 import type { ComponentType } from "react";
-import { PantallaAvance, PantallaBlog, PantallaPlanMes } from "./pantallas/planificacion";
+import { PantallaBlog, PantallaPlanMes } from "./pantallas/planificacion";
+import { PantallaProyecto } from "./pantallas/proyecto";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
 import { PantallaCalendarioEquipo, PantallaCostosIa } from "./pantallas/sin-diseno";
 import { PantallaCuenta } from "./pantallas/cuenta";
@@ -27,9 +28,9 @@ export const RUTAS: Ruta[] = [
   { patron: "/ingresar", pantalla: PantallaIngreso, figma: "02-ingreso", espacio: "publico" },
   { patron: "/inicio", pantalla: PantallaInicio, figma: "01-inicio", espacio: "cliente" },
   { patron: "/servicios", pantalla: PantallaServicios, figma: "03-servicios-contratados", espacio: "cliente" },
+  { patron: "/servicios/:id", pantalla: PantallaProyecto, figma: "13-avance-de-proyectos", espacio: "cliente" },
   { patron: "/entregables", pantalla: PantallaEntregables, figma: "04-entregables-por-revisar", espacio: "cliente" },
   { patron: "/entregables/:id", pantalla: PantallaDetallePieza, figma: "06-detalle-de-pieza", espacio: "cliente" },
-  { patron: "/avance", pantalla: PantallaAvance, figma: "13-avance-de-proyectos", espacio: "cliente" },
   { patron: "/soporte", pantalla: PantallaSoporte, figma: "07-soporte", espacio: "cliente" },
   { patron: "/soporte/nuevo", pantalla: PantallaCrearTicket, figma: "09-crear-ticket", espacio: "cliente" },
   { patron: "/equipo/panel", pantalla: PantallaPanel, figma: "14-panel-general", espacio: "equipo" },

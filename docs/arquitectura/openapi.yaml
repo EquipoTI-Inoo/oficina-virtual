@@ -15,7 +15,9 @@ info:
     de proyecto con etapas y % de avance acumulado, y etapas por proyecto que mueve el equipo. El cliente solo
     ve los servicios que tiene contratados. El Inicio del cliente resume su cuenta (lo que antes era la ficha
     del equipo): servicios con avance, responsable, carpeta de Drive, su marca (si aplica), actividad y, sin montos,
-    un aviso si un pago vence pronto. Los pagos, usuarios, correos y ayuda están en "Mi cuenta".
+    un aviso si un pago vence pronto. Los pagos, usuarios, correos y ayuda están en "Mi cuenta". Cada servicio
+    tiene su perfil de proyecto: métricas de su plantilla, etapas, reuniones, entregables por revisar y
+    comentarios del cliente.
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -677,6 +679,68 @@ paths:
                 required: [datos]
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/PlantillaProyecto' } }
+
+  /servicios-contratados/{servicioContratadoId}:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: obtenerPerfilProyecto
+      summary: 'Perfil del proyecto: métricas de su plantilla, etapas, reuniones y entregables por revisar del servicio'
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, description: 'Servicios mensuales: el mes (por defecto el actual)', schema: { $ref: '#/components/schemas/Periodo' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PerfilProyecto' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /servicios-contratados/{servicioContratadoId}/comentarios:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarComentariosProyecto
+      summary: Comentarios y consultas del proyecto (el cliente no ve las notas internas del equipo)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, description: Del más antiguo al más reciente, items: { $ref: '#/components/schemas/ComentarioProyecto' } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: comentarProyecto
+      summary: Dejar un comentario o consulta sobre el proyecto. Emite `comentario_proyecto.creado` (aviso al responsable).
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, minLength: 2, maxLength: 2000 }
+                interno: { type: boolean, description: 'Solo equipo: nota que el cliente no ve' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComentarioProyecto' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /servicios-contratados/{servicioContratadoId}/etapas/{etapaId}:
     parameters:
@@ -2488,6 +2552,49 @@ components:
             texto: { type: string, examples: ['Revisar «5 hábitos para una piel saludable» y confirmar la idea pendiente.'] }
             responsable: { $ref: '#/components/schemas/PersonaMini' }
         sincronizadoEn: { type: string, format: date-time }
+    MetricaValor:
+      type: object
+      required: [clave, etiqueta, valor]
+      properties:
+        clave: { $ref: '#/components/schemas/MetricaProyecto' }
+        etiqueta: { type: string, examples: [Reuniones con acuerdos] }
+        valor: { type: string, description: 'Ya formateado para mostrar', examples: ['2 de 3'] }
+        detalle: { type: [string, 'null'], examples: ['1 programada'] }
+        alerta: { type: boolean, description: 'true si el valor indica un problema (p. ej. entregas con retraso)' }
+    Reunion:
+      type: object
+      required: [id, titulo, fecha, estado]
+      properties:
+        id: { type: string, format: uuid }
+        titulo: { type: string, examples: [Kickoff de implementación] }
+        fecha: { type: string, format: date-time }
+        estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
+        conAcuerdos: { type: [boolean, 'null'], description: 'REALIZADA: si terminó con acuerdos (cuenta como exitosa)' }
+        resumen: { type: [string, 'null'], description: 'Lo que se acordó; lo ve el cliente' }
+    PerfilProyecto:
+      description: 'Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión'
+      allOf:
+        - $ref: '#/components/schemas/AvanceServicio'
+        - type: object
+          required: [modalidad, metricas, reuniones, porRevisar]
+          properties:
+            descripcion: { type: [string, 'null'] }
+            modalidad: { $ref: '#/components/schemas/ModalidadServicio' }
+            fechaInicio: { type: [string, 'null'], format: date }
+            fechaFin: { type: [string, 'null'], format: date }
+            metricas: { type: array, description: 'Las de la plantilla del servicio, en su orden', items: { $ref: '#/components/schemas/MetricaValor' } }
+            reuniones: { type: array, description: 'Próximas primero, luego las realizadas más recientes (máximo 6)', items: { $ref: '#/components/schemas/Reunion' } }
+            porRevisar: { type: array, description: 'Entregables de este servicio en LISTO_REVISION', items: { $ref: '#/components/schemas/PiezaResumen' } }
+    ComentarioProyecto:
+      type: object
+      required: [id, texto, autor, deEquipo, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        texto: { type: string }
+        autor: { $ref: '#/components/schemas/PersonaMini' }
+        deEquipo: { type: boolean }
+        interno: { type: boolean, description: Solo equipo }
+        creadoEn: { type: string, format: date-time }
     AvanceCliente:
       type: object
       required: [periodo, resumenMes, servicios]
@@ -3271,6 +3378,7 @@ components:
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
+            - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable
         ocurridoEn: { type: string, format: date-time }
         clienteId: { type: [string, 'null'], format: uuid }
         datos: { type: object }

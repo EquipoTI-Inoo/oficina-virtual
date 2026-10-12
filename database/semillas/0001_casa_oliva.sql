@@ -52,6 +52,23 @@ VALUES
   ('00000000-0000-4000-8022-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8004-000000000004', 'Web e-commerce · 2.º hito', 6500, 'PEN', '2026-10-30', 'PENDIENTE', NULL),
   ('00000000-0000-4000-8022-000000000005', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de noviembre', 4800, 'PEN', '2026-11-15', 'PENDIENTE', NULL);
 
+INSERT INTO reunion (id, servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen)
+VALUES
+  ('00000000-0000-4000-8023-000000000001', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'Kickoff de implementación', '2026-09-02T15:00:00Z', 'REALIZADA', true, 'Definimos el equipo de ventas que usará HubSpot y el calendario de trabajo.'),
+  ('00000000-0000-4000-8023-000000000002', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'Levantamiento del proceso de ventas', '2026-09-09T15:00:00Z', 'REALIZADA', true, 'Mapeamos las etapas del embudo y los campos que necesita cada vendedor.'),
+  ('00000000-0000-4000-8023-000000000003', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'Revisión de procesos', '2026-09-30T15:00:00Z', 'REALIZADA', false, 'Quedó pendiente validar el mapa de procesos con gerencia.'),
+  ('00000000-0000-4000-8023-000000000004', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'Validación del mapa de procesos', '2026-10-08T15:00:00Z', 'PROGRAMADA', NULL, NULL),
+  ('00000000-0000-4000-8023-000000000005', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'Brief de la tienda', '2026-09-22T16:00:00Z', 'REALIZADA', true, 'Catálogo inicial de 40 productos y pago con tarjeta y Yape.'),
+  ('00000000-0000-4000-8023-000000000006', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'Presentación del diseño', '2026-10-09T16:00:00Z', 'PROGRAMADA', NULL, NULL),
+  ('00000000-0000-4000-8023-000000000007', '00000000-0000-4000-8004-000000000002', '00000000-0000-4000-8002-000000000001', 'Sesión de contenido de octubre', '2026-10-02T14:00:00Z', 'REALIZADA', true, 'Fotografiamos la línea de sérums y grabamos dos reels.'),
+  ('00000000-0000-4000-8023-000000000008', '00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', 'Seguimiento mensual de la web', '2026-10-26T15:00:00Z', 'PROGRAMADA', NULL, NULL);
+
+INSERT INTO comentario_proyecto (id, servicio_contratado_id, cliente_id, autor_id, texto, interno, creado_en)
+VALUES
+  ('00000000-0000-4000-8024-000000000001', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', '¿Las capacitaciones pueden ser presenciales en nuestra oficina?', false, '2026-10-05T16:20:00Z'),
+  ('00000000-0000-4000-8024-000000000002', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000003', '¡Claro! Coordinamos la fecha cuando cerremos la implementación.', false, '2026-10-05T18:05:00Z'),
+  ('00000000-0000-4000-8024-000000000003', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000003', 'Confirmar movilidad para la capacitación presencial.', true, '2026-10-05T18:06:00Z');
+
 INSERT INTO etapa_proyecto (id, servicio_contratado_id, cliente_id, periodo, orden, nombre, avance_pct, estado, espera_cliente, fecha_inicio, fecha_estimada, fecha_fin)
 VALUES
   ('00000000-0000-4000-8020-000000000001', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', NULL, 1, 'Levantamiento de información', 20, 'COMPLETADO', true, '2026-09-01', '2026-09-14', '2026-09-14'),

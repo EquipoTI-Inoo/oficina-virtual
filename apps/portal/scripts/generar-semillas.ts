@@ -62,6 +62,16 @@ LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coale
     D.PAGOS_INICIALES.map((x) => [x.id, x.clienteId, x.servicioContratadoId, x.concepto, x.monto, x.moneda, x.fechaVencimiento, x.estado, x.pagadoEn]),
   ),
   insert(
+    "reunion",
+    ["id", "servicio_contratado_id", "cliente_id", "titulo", "fecha", "estado", "con_acuerdos", "resumen"],
+    D.REUNIONES_INICIALES.map((r) => [r.id, r.servicioContratadoId, r.clienteId, r.titulo, r.fecha, r.estado, r.conAcuerdos, r.resumen]),
+  ),
+  insert(
+    "comentario_proyecto",
+    ["id", "servicio_contratado_id", "cliente_id", "autor_id", "texto", "interno", "creado_en"],
+    D.COMENTARIOS_PROYECTO_INICIALES.map((c) => [c.id, c.servicioContratadoId, c.clienteId, c.autorId, c.texto, c.interno, c.creadoEn]),
+  ),
+  insert(
     "etapa_proyecto",
     ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "fecha_inicio", "fecha_estimada", "fecha_fin"],
     D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.fechaInicio, e.fechaEstimada, e.fechaFin]),

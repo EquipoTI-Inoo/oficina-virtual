@@ -4,9 +4,8 @@ import {
   LuArrowRight, LuCalendarDays, LuChartNoAxesColumnIncreasing, LuChevronDown, LuChevronLeft, LuChevronRight,
   LuCircleCheck, LuCloudUpload, LuDownload, LuFileText, LuLink, LuPlus, LuShieldCheck, LuSparkles, LuVideo, LuX,
 } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fBytes, fDiaMes, fHoyLargo, fNumero, HOY_DEMO, nombreMes, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
-import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, useAviso } from "../componentes";
-import { AsiVaElMes } from "./principal";
+import { api, clienteActivo, Enlace, fBytes, fDiaMes, fHoyLargo, fNumero, HOY_DEMO, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
+import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, Miniatura, useAviso } from "../componentes";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
 
@@ -794,80 +793,6 @@ function Resultados() {
           </Aviso>
         </div>
       )}
-    </>
-  );
-}
-
-// ═════════════════════════════════════════════ Avance de proyectos
-
-const ESTADO_AVANCE: Record<string, string> = { SIN_INICIAR: "Por iniciar", EN_CURSO: "En curso", COMPLETADO: "Completado", PAUSADO: "En pausa" };
-
-export function PantallaAvance() {
-  return (
-    <Estructura espacio="cliente" migas="Avance de proyectos">
-      <Avance />
-    </Estructura>
-  );
-}
-
-function Avance() {
-  const { datos: d, error, recargar } = useConsulta<S<"AvanceCliente">>(`/clientes/${clienteActivo()}/avance?periodo=${PERIODO_DEMO}`);
-  if (error) return <ErrorCarga error={error} reintentar={recargar} />;
-  if (!d) return <Cargando />;
-  return (
-    <>
-      <Cabecera antetitulo="Casa Oliva · Octubre 2026" titulo="Avance de proyectos" bajada="Las etapas de cada servicio, con un siguiente paso claro para avanzar juntos." />
-      {d.resumenMes.totales > 0 && <AsiVaElMes progreso={d.resumenMes} conEnlace={false} nota={`Las aprobadas incluyen ${d.resumenMes.publicadas} ya publicadas.`} />}
-      {d.piezasPorRevisar && d.piezasPorRevisar.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <Aviso icono={<LuCircleCheck size={18} />} titulo="Tu revisión mantiene el ritmo">
-            {d.piezasPorRevisar.map((p) => `${p.titulo} · ${fDiaMes(p.fechaProgramada!)}`).join("; ")}.
-          </Aviso>
-        </div>
-      )}
-      <div className="pila" style={{ marginTop: 20 }}>
-        {d.servicios.map((s) => (
-          <div className="tarjeta" key={s.servicioContratadoId} style={{ padding: "22px 16px 16px" }}>
-            <div className="fila entre">
-              <div className="fila" style={{ gap: 10, color: "var(--c-primario)" }}>
-                {ICONO_SERVICIO[s.codigo]}
-                <h3 style={{ fontSize: 17, fontWeight: 600, color: "var(--c-tinta)" }}>{s.titulo}</h3>
-              </div>
-              <Etiqueta tono={s.estado === "COMPLETADO" ? "verde" : s.estado === "EN_CURSO" ? "azul" : "gris"}>{ESTADO_AVANCE[s.estado ?? "EN_CURSO"]}</Etiqueta>
-            </div>
-            <p className="texto-xs texto-muted" style={{ margin: "10px 0 14px" }}>
-              {detalleServicio({ ...s, cantidadMensual: s.progreso?.totales ?? 0, unidad: "piezas" })}
-              {s.avance.periodo ? ` · Etapas de ${nombreMes(s.avance.periodo)}` : ""}
-            </p>
-            <AvanceLineal avance={s.avance} />
-            <div className="hitos" style={{ gridTemplateColumns: `repeat(${Math.min(s.etapas.length, 6)}, 1fr)` }}>
-              {s.etapas.map((e) => {
-                const actual = e.orden === s.avance.etapaActual?.orden;
-                return (
-                  <div className="hito" key={e.id}>
-                    <span className={`hito-punto${e.estado === "COMPLETADO" ? " hito-punto--hecho" : actual ? " hito-punto--actual" : ""}`} />
-                    <strong>{e.nombre}</strong>
-                    <span style={{ display: "block", marginTop: 2 }}>
-                      {e.estado === "COMPLETADO" && e.fechaFin ? `Lista el ${fDiaMes(e.fechaFin)}` : e.fechaEstimada ? `Prevista: ${fDiaMes(e.fechaEstimada)}` : ""}
-                    </span>
-                    {actual && (
-                      <span style={{ display: "block", marginTop: 2, color: e.atrasada ? "var(--c-alerta)" : "var(--c-primario)" }}>
-                        {e.atrasada ? "Con retraso" : e.esperaCliente ? "Necesita algo de ti" : "En curso"}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {s.siguientePaso && (
-              <div className="fila-suave" style={{ marginTop: 18, fontSize: 11 }}>
-                <span className="texto-muted">{s.siguientePaso.texto}</span>
-                <span className="texto-primario" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>{s.siguientePaso.responsable?.nombre} · Inoo</span>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
     </>
   );
 }

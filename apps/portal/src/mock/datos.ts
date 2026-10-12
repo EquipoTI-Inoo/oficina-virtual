@@ -521,3 +521,41 @@ export const PAGOS_INICIALES: PagoDemo[] = [
   { id: uid(22, 4), clienteId: uid(2, 1), servicioContratadoId: uid(4, 4), concepto: "Web e-commerce · 2.º hito", monto: 6500, moneda: "PEN", fechaVencimiento: "2026-10-30", estado: "PENDIENTE", pagadoEn: null },
   { id: uid(22, 5), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de noviembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-11-15", estado: "PENDIENTE", pagadoEn: null },
 ];
+
+/** Reuniones de los proyectos de Casa Oliva (para las métricas del perfil). Datos de relleno. */
+export interface ReunionDemo {
+  id: string;
+  servicioContratadoId: string;
+  clienteId: string;
+  titulo: string;
+  fecha: string;
+  estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
+  conAcuerdos: boolean | null;
+  resumen: string | null;
+}
+export const REUNIONES_INICIALES: ReunionDemo[] = [
+  { id: uid(23, 1), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), titulo: "Kickoff de implementación", fecha: "2026-09-02T15:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Definimos el equipo de ventas que usará HubSpot y el calendario de trabajo." },
+  { id: uid(23, 2), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), titulo: "Levantamiento del proceso de ventas", fecha: "2026-09-09T15:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Mapeamos las etapas del embudo y los campos que necesita cada vendedor." },
+  { id: uid(23, 3), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), titulo: "Revisión de procesos", fecha: "2026-09-30T15:00:00Z", estado: "REALIZADA", conAcuerdos: false, resumen: "Quedó pendiente validar el mapa de procesos con gerencia." },
+  { id: uid(23, 4), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), titulo: "Validación del mapa de procesos", fecha: "2026-10-08T15:00:00Z", estado: "PROGRAMADA", conAcuerdos: null, resumen: null },
+  { id: uid(23, 5), servicioContratadoId: uid(4, 4), clienteId: uid(2, 1), titulo: "Brief de la tienda", fecha: "2026-09-22T16:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Catálogo inicial de 40 productos y pago con tarjeta y Yape." },
+  { id: uid(23, 6), servicioContratadoId: uid(4, 4), clienteId: uid(2, 1), titulo: "Presentación del diseño", fecha: "2026-10-09T16:00:00Z", estado: "PROGRAMADA", conAcuerdos: null, resumen: null },
+  { id: uid(23, 7), servicioContratadoId: uid(4, 2), clienteId: uid(2, 1), titulo: "Sesión de contenido de octubre", fecha: "2026-10-02T14:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Fotografiamos la línea de sérums y grabamos dos reels." },
+  { id: uid(23, 8), servicioContratadoId: uid(4, 1), clienteId: uid(2, 1), titulo: "Seguimiento mensual de la web", fecha: "2026-10-26T15:00:00Z", estado: "PROGRAMADA", conAcuerdos: null, resumen: null },
+];
+
+/** Comentarios y consultas en el perfil del proyecto. */
+export interface ComentarioProyectoDemo {
+  id: string;
+  servicioContratadoId: string;
+  clienteId: string;
+  autorId: string;
+  texto: string;
+  interno: boolean;
+  creadoEn: string;
+}
+export const COMENTARIOS_PROYECTO_INICIALES: ComentarioProyectoDemo[] = [
+  { id: uid(24, 1), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 1), texto: "¿Las capacitaciones pueden ser presenciales en nuestra oficina?", interno: false, creadoEn: "2026-10-05T16:20:00Z" },
+  { id: uid(24, 2), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 3), texto: "¡Claro! Coordinamos la fecha cuando cerremos la implementación.", interno: false, creadoEn: "2026-10-05T18:05:00Z" },
+  { id: uid(24, 3), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 3), texto: "Confirmar movilidad para la capacitación presencial.", interno: true, creadoEn: "2026-10-05T18:06:00Z" },
+];

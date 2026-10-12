@@ -84,6 +84,22 @@ test("el cliente ya no ve Blog, Plan del mes ni Brief en su menú", async ({ pag
   await expect(page).toHaveURL(/\/servicios$/);
 });
 
+test("perfil del proyecto: desde Mis servicios, métricas, etapas y una consulta", async ({ page }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/servicios");
+  await page.locator(".tarjeta", { hasText: "Implementación de CRM - Casa Oliva" }).getByText("Ver proyecto").click();
+  await expect(page.getByRole("heading", { name: "Implementación de CRM - Casa Oliva" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".kpi", { hasText: "Reuniones con acuerdos" })).toContainText("2 de 3");
+  await expect(page.getByText("Capacitación 2")).toBeVisible();
+  await expect(page.getByText("Confirmar movilidad")).toHaveCount(0);
+  await page.fill("#comentario-proyecto", "¿Podemos mover la capacitación al jueves?");
+  await page.getByRole("button", { name: "Enviar" }).click();
+  await expect(page.getByText("Comentario enviado")).toBeVisible();
+  await expect(page.getByText("¿Podemos mover la capacitación al jueves?").last()).toBeVisible();
+  await page.goto("/avance");
+  await expect(page).toHaveURL(/\/servicios$/);
+});
+
 test("blog (equipo): elegir otra idea", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/blog");

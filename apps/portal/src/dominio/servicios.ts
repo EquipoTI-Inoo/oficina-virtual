@@ -217,3 +217,42 @@ export function errorAlMoverEtapa(etapas: { orden: number; estado: EstadoEtapa }
   const previa = etapas.find((e) => e.orden === orden - 1);
   return previa && previa.estado !== "COMPLETADO" ? "ETAPA_ANTERIOR_PENDIENTE" : null;
 }
+
+// ───────────────────────────── métricas del perfil del proyecto
+
+export interface InsumosMetricas {
+  reuniones: { estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; conAcuerdos: boolean | null }[];
+  /** Todas las etapas del proyecto (en servicios mensuales, las de todos los meses). */
+  etapas: { estado: EstadoEtapa; fechaFin: string | null; fechaEstimada: string | null }[];
+  progreso: S<"ProgresoPiezas"> | null;
+  ticketsResueltos: number;
+}
+
+/** Valores de las métricas que pide la plantilla, ya formateados (reunión 12 oct: reuniones, éxito y entregas a tiempo). */
+export function calcularMetricas(claves: Metrica[], x: InsumosMetricas): S<"MetricaValor">[] {
+  const realizadas = x.reuniones.filter((r) => r.estado === "REALIZADA");
+  const programadas = x.reuniones.filter((r) => r.estado === "PROGRAMADA").length;
+  const cerradas = x.etapas.filter((e) => e.estado === "COMPLETADO" && e.fechaFin);
+  const aTiempo = cerradas.filter((e) => !e.fechaEstimada || e.fechaFin! <= e.fechaEstimada).length;
+  const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+  return claves.map((clave): S<"MetricaValor"> => {
+    switch (clave) {
+      case "REUNIONES_REALIZADAS":
+        return { clave, etiqueta: "Reuniones realizadas", valor: String(realizadas.length), detalle: programadas ? plural(programadas, "programada", "programadas") : "Ninguna programada", alerta: false };
+      case "REUNIONES_EXITOSAS":
+        return { clave, etiqueta: "Reuniones con acuerdos", valor: realizadas.length ? `${realizadas.filter((r) => r.conAcuerdos).length} de ${realizadas.length}` : "—", detalle: "Terminaron con acuerdos claros", alerta: false };
+      case "DOCUMENTOS_A_TIEMPO":
+        return {
+          clave, etiqueta: "Entregas a tiempo", valor: cerradas.length ? `${aTiempo} de ${cerradas.length}` : "—",
+          detalle: cerradas.length === 0 ? "Aún no cerramos etapas" : aTiempo === cerradas.length ? "Sin retrasos" : plural(cerradas.length - aTiempo, "entrega con retraso", "entregas con retraso"),
+          alerta: aTiempo < cerradas.length,
+        };
+      case "PIEZAS_APROBADAS":
+        return { clave, etiqueta: "Piezas aprobadas", valor: x.progreso ? `${x.progreso.aprobadas} de ${x.progreso.totales}` : "—", detalle: x.progreso ? `${x.progreso.porRevisar} por revisar` : null, alerta: false };
+      case "TICKETS_RESUELTOS":
+        return { clave, etiqueta: "Tickets resueltos", valor: String(x.ticketsResueltos), detalle: "Este mes", alerta: false };
+      case "RESULTADOS_CAMPANA":
+        return { clave, etiqueta: "Resultados", valor: "—", detalle: "En el informe del mes", alerta: false };
+    }
+  });
+}

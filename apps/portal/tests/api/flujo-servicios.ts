@@ -79,6 +79,40 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("PATCH", ruta(1), DIEGO, { estado: "EN_PROGRESO" })).json.avance.porcentaje, 20);
     });
 
+    test("perfil del proyecto: métricas de la plantilla, reuniones y entregables del servicio", async () => {
+      await reiniciar();
+      const crm = (await llamar("GET", `/servicios-contratados/${CRM}?periodo=2026-10`, VALERIA)).json;
+      assert.equal(crm.titulo, "Implementación de CRM - Casa Oliva");
+      assert.deepEqual(crm.metricas.map((m: any) => [m.clave, m.valor]), [
+        ["REUNIONES_REALIZADAS", "3"],
+        ["REUNIONES_EXITOSAS", "2 de 3"],
+        ["DOCUMENTOS_A_TIEMPO", "1 de 1"],
+      ]);
+      assert.deepEqual(crm.reuniones.map((r: any) => r.estado), ["PROGRAMADA", "REALIZADA", "REALIZADA", "REALIZADA"], "próximas primero");
+      assert.equal(crm.etapas.length, 4);
+      assert.deepEqual(crm.porRevisar, []);
+      const smp = (await llamar("GET", `/servicios-contratados/${uid(4, 2)}?periodo=2026-10`, VALERIA)).json;
+      assert.equal(smp.metricas[0].clave, "PIEZAS_APROBADAS");
+      assert.deepEqual(smp.porRevisar.map((x: any) => x.titulo), ["Tu ritual, tu momento", "Un minuto para cuidarte", "Cuidado que se siente"]);
+      assert.equal((await llamar("GET", `/servicios-contratados/${uid(4, 999)}`, VALERIA)).status, 404);
+    });
+
+    test("comentarios del proyecto: el cliente consulta y nunca ve las notas internas", async () => {
+      await reiniciar();
+      const ruta = `/servicios-contratados/${CRM}/comentarios`;
+      const cliente = (await llamar("GET", ruta, VALERIA)).json.datos;
+      assert.deepEqual(cliente.map((c: any) => c.deEquipo), [false, true]);
+      assert.ok(cliente.every((c: any) => c.interno === undefined));
+      assert.equal((await llamar("GET", ruta, DIEGO)).json.datos.length, 3, "el equipo sí ve su nota interna");
+      assert.equal((await llamar("POST", ruta, MARTIN_LECTOR, { texto: "Hola" })).status, 403);
+      assert.equal((await llamar("POST", ruta, VALERIA, { texto: " " })).status, 422);
+      const ok = await llamar("POST", ruta, VALERIA, { texto: "¿Podemos mover la capacitación al jueves?", interno: true });
+      assert.equal(ok.status, 201);
+      assert.equal(ok.json.interno, undefined, "el cliente no puede escribir notas internas");
+      assert.equal((await llamar("GET", ruta, VALERIA)).json.datos.length, 3);
+      assert.ok((await eventos()).some((e) => e.tipo === "comentario_proyecto.creado" && e.datos.comentarioId === ok.json.id));
+    });
+
     test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
       await reiniciar();
       const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);
