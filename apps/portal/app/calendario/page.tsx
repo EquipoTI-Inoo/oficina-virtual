@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** El calendario del cliente pasó a ser el «Plan del mes» (tablero). */
+/** Salió del portal del cliente (reunión del 12 oct 2026): lo que queda del cliente está en sus servicios. */
 export default function Pagina() {
-  redirect("/plan");
+  redirect("/servicios");
 }

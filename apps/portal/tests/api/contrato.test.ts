@@ -145,9 +145,10 @@ describe("brief, blog y soporte", () => {
     assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/archivos`, VALERIA, { nombre: "a.pdf", mime: "application/pdf", bytes: 11 * mb, uso: "ADJUNTO_TICKET" })).status, 413);
     assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/archivos`, VALERIA, { nombre: "a.exe", mime: "application/x-msdownload", bytes: 10, uso: "BRIEF" })).status, 415);
   });
-  test("ideas de blog: se elige exactamente el cupo", async () => {
-    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, VALERIA, { ideaIds: [] })).json.codigo, "CUPO_EXCEDIDO");
-    const r = await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, VALERIA, { ideaIds: [uid(7, 2)] });
+  test("ideas de blog: las elige el equipo, exactamente el cupo", async () => {
+    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, VALERIA, { ideaIds: [uid(7, 2)] })).status, 403, "el cliente no elige blogs");
+    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, DIEGO, { ideaIds: [] })).json.codigo, "CUPO_EXCEDIDO");
+    const r = await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, DIEGO, { ideaIds: [uid(7, 2)] });
     assert.equal(r.json.cupo.elegidas, 1);
   });
   test("tickets: numeración continua (#1043), validación y conteos", async () => {

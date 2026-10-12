@@ -61,46 +61,32 @@ test("CU-07: crear un ticket", async ({ page }) => {
   await expect(page.getByText("#1043")).toBeVisible();
 });
 
-test("CU-05: brief con requerimiento, archivo, enlace y derechos de uso", async ({ page }) => {
-  await entrarComo(page, "cliente");
-  await page.goto("/brief");
-  await page.getByRole("button", { name: "Enviar brief y requerimientos" }).click({ force: true });
-  await expect(page.getByRole("alert").filter({ hasText: "Obligatorio" })).toBeVisible();
-  await page.fill("#req-descripcion", "Post por el aniversario de la marca");
-  await page.fill("#req-fecha", "2026-10-28");
-  await page.selectOption("#req-prioridad", "ALTA");
-  await page.getByRole("button", { name: "Agregar requerimiento" }).click();
-  await expect(page.getByText("Post por el aniversario de la marca")).toBeVisible();
-  await page.fill("#ref-titulo", "Aesop");
-  await page.fill("#ref-url", "aesop.com");
-  await page.getByRole("button", { name: "Agregar enlace" }).click();
-  await expect(page.getByText("El enlace debe empezar con https://")).toBeVisible();
-  await page.setInputFiles("input[type=file]", { name: "logo.png", mimeType: "image/png", buffer: Buffer.from("x") });
-  await expect(page.getByText("4 archivos listos para enviar")).toBeVisible();
-  await page.getByText("Declaro que tengo").click();
-  await page.getByRole("button", { name: "Enviar brief y requerimientos" }).click();
-  await expect(page.getByText("Brief enviado").first()).toBeVisible();
-  // Después de enviar, lo nuevo queda para que el AM lo evalúe.
-  await page.fill("#req-descripcion", "Historia por el Día de la Canción Criolla");
-  await page.getByRole("button", { name: "Agregar requerimiento" }).click();
-  await expect(page.getByText("Requerimiento enviado")).toBeVisible();
-  await expect(page.getByText("En revisión del equipo").last()).toBeVisible();
-});
-
-test("plan del mes: tablero por estado con lo que espera revisión", async ({ page }) => {
-  await entrarComo(page, "cliente");
-  await page.goto("/plan");
+test("plan del mes (equipo): tablero por estado con lo que espera al cliente", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/plan");
   await expect(page.getByRole("heading", { name: "Plan del mes" })).toBeVisible();
   const porRevisar = page.locator(".tablero-col--accion");
   await expect(porRevisar.getByText("Por revisar")).toBeVisible();
-  await expect(page.getByText("Ajustando tus comentarios").first()).toBeVisible();
+  await expect(page.getByText("Ajustando comentarios").first()).toBeVisible();
   await porRevisar.locator(".tablero-tarjeta--enlace").first().click();
-  await expect(page).toHaveURL(/\/entregables\//);
+  await expect(page).toHaveURL(/\/equipo\/piezas\//);
 });
 
-test("blog: elegir otra idea", async ({ page }) => {
+test("el cliente ya no ve Blog, Plan del mes ni Brief en su menú", async ({ page }) => {
   await entrarComo(page, "cliente");
-  await page.goto("/blog");
+  await page.goto("/inicio");
+  const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
+  await expect(menu.getByText("Mis servicios")).toBeVisible();
+  for (const fuera of ["Blog", "Plan del mes", "Brief y requerimientos", "Soporte", "Biblioteca", "Avance de proyectos"]) {
+    await expect(menu.getByText(fuera, { exact: true })).toHaveCount(0);
+  }
+  await page.goto("/plan");
+  await expect(page).toHaveURL(/\/servicios$/);
+});
+
+test("blog (equipo): elegir otra idea", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/blog");
   await page.getByRole("button", { name: /Cómo leer la etiqueta/ }).click();
   await page.getByRole("button", { name: "Confirmar selección" }).click();
   await expect(page.getByText("Selección confirmada")).toBeVisible();
@@ -127,13 +113,12 @@ test("un cliente no entra al panel interno", async ({ page }) => {
   await expect(page).toHaveURL(/\/inicio$/);
 });
 
-test("usuarios: la administradora invita a una persona con permiso de aprobar", async ({ page }) => {
+test("usuarios: la administradora ve su equipo pero no puede invitar", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/usuarios");
-  await page.fill("#inv-nombre", "Rosa Paz");
-  await page.fill("#inv-email", "rosa@casaoliva.pe");
-  await page.getByRole("button", { name: "Invitar" }).click();
-  await expect(page.getByText("Invitación pendiente")).toBeVisible();
+  await expect(page.getByText("Martín Salas")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Invitar" })).toHaveCount(0);
+  await expect(page.getByText(/envíale los datos a tu equipo Inoo/)).toBeVisible();
 });
 
 test("calendarios: el AM aprueba la propuesta del Jefe de Marketing", async ({ page, request }) => {

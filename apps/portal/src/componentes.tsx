@@ -2,9 +2,9 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
-  LuFolder, LuHeadphones, LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
+  LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuImage, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuImages, LuUserCog, LuCoins, LuCalendarCheck,
+  LuUserCog, LuCoins, LuCalendarCheck,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
@@ -212,24 +212,22 @@ export function Modal({ abierto, alCerrar, children, etiqueta }: { abierto: bool
 
 // ───────────────────────────── estructura (barra lateral + superior)
 
+// Reunión del 12 oct 2026: el cliente solo ve sus servicios, lo que tiene por revisar y su cuenta.
+// Blog y Plan del mes pasan al equipo; Brief se reemplaza por Requerimientos; Biblioteca entra en
+// Paid Media; Soporte sale del menú (queda escondido detrás de «Contactar a mi equipo»).
 const NAV_CLIENTE = [
   { a: "/inicio", texto: "Inicio", icono: <LuHouse /> },
-  { a: "/servicios", texto: "Servicios contratados", icono: <LuLayers /> },
+  { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
   { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: true },
-  { a: "/blog", texto: "Blog", icono: <LuFileText /> },
-  { a: "/plan", texto: "Plan del mes", icono: <LuColumns3 /> },
-  { a: "/brief", texto: "Brief y requerimientos", icono: <LuFolder /> },
-  { a: "/avance", texto: "Avance de proyectos", icono: <LuListChecks /> },
-  { a: "/soporte", texto: "Soporte", icono: <LuHeadphones /> },
-  // Sin frame en Figma (docs/diseno.md): biblioteca de paid media y usuarios del cliente.
-  { a: "/biblioteca", texto: "Biblioteca", icono: <LuImages /> },
   { a: "/usuarios", texto: "Usuarios y avisos", icono: <LuUserCog /> },
 ];
 const NAV_EQUIPO = [
   { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
   { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 /> },
+  { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks /> },
   { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
+  { a: "/equipo/blog", texto: "Blog", icono: <LuFileText /> },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 

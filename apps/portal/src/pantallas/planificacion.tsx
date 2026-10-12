@@ -10,11 +10,12 @@ import { AsiVaElMes } from "./principal";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
 
-// ═════════════════════════════════════════════ Blog
+// ═════════════════════════════════════════════ Equipo · Blog
+// El cliente no aprueba blogs (reunión 12 oct): el equipo elige la idea del mes y sigue los artículos.
 
 export function PantallaBlog() {
   return (
-    <Estructura espacio="cliente" migas="Blog">
+    <Estructura espacio="equipo" migas="Blog">
       <Blog />
     </Estructura>
   );
@@ -39,7 +40,7 @@ function Blog() {
     setError(null);
     try {
       await api(`/clientes/${clienteActivo()}/ideas-blog/seleccion`, { metodo: "POST", cuerpo: { periodo: PERIODO_DEMO, ideaIds: elegida ? [elegida] : [] }, idempotente: true });
-      avisar({ titulo: "Selección confirmada", texto: "Enviamos tu idea al equipo para desarrollar el artículo." });
+      avisar({ titulo: "Selección confirmada", texto: "La idea pasa a producción como artículo del mes." });
       setSeleccion(null);
       void ideas.recargar();
       void articulos.recargar();
@@ -53,7 +54,7 @@ function Blog() {
       <Cabecera
         antetitulo="Casa Oliva · Octubre 2026"
         titulo="Blog"
-        bajada="Elige las ideas que conectan con tu marca y revisa los artículos de octubre."
+        bajada="Elige la idea del mes y sigue los artículos de octubre de Casa Oliva."
         accion={
           <span className="boton">
             <LuCalendarDays size={18} /> Octubre 2026
@@ -61,7 +62,7 @@ function Blog() {
         }
       />
       <Aviso icono={<LuFileText size={18} />} titulo="4 artículos al mes, una voz de marca">
-        {aprob} aprobados · {porAprobar.length} por aprobar · {enProd} en producción. Elige una idea para el artículo que queda por desarrollar.
+        {aprob} aprobados · {porAprobar.length} por aprobar · {enProd} en producción. Falta elegir la idea del artículo que queda por desarrollar.
       </Aviso>
 
       <section className="seccion">
@@ -71,7 +72,7 @@ function Blog() {
             {elegida ? 1 : 0} de {cupo.total} seleccionada
           </Etiqueta>
         </div>
-        <p className="seccion-desc">Puedes cambiar tu selección antes de confirmarla. Las ideas no elegidas no consumen tu alcance mensual.</p>
+        <p className="seccion-desc">Se puede cambiar la selección antes de confirmarla. Las ideas no elegidas no consumen el alcance mensual.</p>
         <div className="grid-3">
           {ideas.datos.datos.map((i) => {
             const sel = elegida === i.id;
@@ -105,7 +106,7 @@ function Blog() {
         </div>
         <div className="fila entre" style={{ marginTop: 14 }}>
           <span className="texto-xs texto-muted" style={{ color: error ? "var(--c-alerta)" : undefined }}>
-            {error ?? "La selección se enviará al equipo para desarrollar el artículo."}
+            {error ?? "La idea elegida pasa a producción."}
           </span>
           <button className="boton boton--primario" style={{ height: 40 }} onClick={confirmar}>
             Confirmar selección
@@ -114,7 +115,7 @@ function Blog() {
       </section>
 
       <section className="seccion">
-        <h2 className="seccion-titulo" style={{ marginBottom: 16 }}>Artículos por aprobar</h2>
+        <h2 className="seccion-titulo" style={{ marginBottom: 16 }}>Artículos listos para revisión</h2>
         {porAprobar.map((a) => (
           <div key={a.id} className="tarjeta rejilla" style={{ padding: 0, overflow: "hidden", ["--columnas" as string]: "270px 1fr", marginBottom: 12 }}>
             <Miniatura diseno={{ ...a.diseno, foto: false }} alto={166} />
@@ -128,14 +129,14 @@ function Blog() {
               </p>
               <p className="texto-xs texto-muted">{a.resumen}</p>
               <div>
-                <Enlace a={`/entregables/${a.id}`} className="boton">
-                  <LuArrowRight size={16} /> Revisar artículo
+                <Enlace a={`/equipo/piezas/${a.id}`} className="boton">
+                  <LuArrowRight size={16} /> Abrir artículo
                 </Enlace>
               </div>
             </div>
           </div>
         ))}
-        {porAprobar.length === 0 && <p className="texto-sm texto-muted">No tienes artículos por aprobar.</p>}
+        {porAprobar.length === 0 && <p className="texto-sm texto-muted">No hay artículos listos para revisión.</p>}
       </section>
 
       <div className="tarjeta seccion" style={{ padding: "22px 18px 8px" }}>
@@ -166,20 +167,21 @@ function Blog() {
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-/** Qué significa cada columna para el cliente (solo «Por revisar» le pide algo). */
+/** Qué significa cada columna (solo «Por revisar» depende del cliente). */
 const AYUDA_COLUMNA: Record<string, string> = {
   PLANIFICADO: "Ideas aprobadas que todavía no empezamos.",
   EN_PRODUCCION: "Las estamos creando o ajustando.",
-  POR_REVISAR: "Necesitan tu aprobación.",
+  POR_REVISAR: "Esperan la aprobación del cliente.",
   APROBADO: "Listas para publicar en su fecha.",
   PUBLICADO: "Ya están en tus canales.",
 };
 
 type TarjetaTablero = PiezaUI & { ajustando: boolean };
 
+// Plan del mes: salió del portal del cliente (reunión 12 oct) y queda como vista del equipo.
 export function PantallaPlanMes() {
   return (
-    <Estructura espacio="cliente" migas="Plan del mes">
+    <Estructura espacio="equipo" migas="Plan del mes">
       <PlanMes />
     </Estructura>
   );
@@ -203,7 +205,7 @@ function PlanMes() {
       <Cabecera
         antetitulo={`Casa Oliva · ${MESES[mes - 1]} ${anio}`.toUpperCase()}
         titulo="Plan del mes"
-        bajada="Así va tu contenido. Solo te pedimos revisar lo que está en «Por revisar»; publicamos únicamente lo que apruebas."
+        bajada="Las piezas del mes por estado. Solo se publica lo que el cliente aprueba."
         accion={
           <label className="boton" style={{ position: "relative", gap: 10 }}>
             <LuChevronDown size={16} />
@@ -244,17 +246,14 @@ function PlanMes() {
       ) : !t ? (
         <Cargando />
       ) : !t.planAprobado ? (
-        <div className="tarjeta vacio">Estamos preparando el plan de {MESES[mes - 1]}. Lo verás aquí apenas tu equipo de cuenta lo apruebe.</div>
+        <div className="tarjeta vacio">El plan de {MESES[mes - 1]} todavía no está aprobado.</div>
       ) : total === 0 ? (
         <div className="tarjeta vacio">No hay piezas planificadas para {MESES[mes - 1]}.</div>
       ) : (
         <>
           {t.porRevisar > 0 && (
-            <Aviso icono={<LuCircleCheck size={18} />} titulo={t.porRevisar === 1 ? "Tienes 1 pieza por revisar" : `Tienes ${t.porRevisar} piezas por revisar`}>
-              Revísalas para que podamos publicarlas a tiempo.{" "}
-              <Enlace a="/entregables" className="enlace">
-                Ir a revisar →
-              </Enlace>
+            <Aviso icono={<LuCircleCheck size={18} />} titulo={t.porRevisar === 1 ? "1 pieza espera al cliente" : `${t.porRevisar} piezas esperan al cliente`}>
+              Si se acerca la fecha de publicación, recuérdale al cliente que las revise.
             </Aviso>
           )}
           <div className="tablero" aria-busy={tablero.cargando}>
@@ -277,17 +276,17 @@ function PlanMes() {
                       </span>
                       {p.ajustando && (
                         <Etiqueta tono="ambar" sinPunto>
-                          Ajustando tus comentarios
+                          Ajustando comentarios
                         </Etiqueta>
                       )}
                       <span className="tablero-pie">
                         {fecha && <span>{c.clave === "PUBLICADO" ? `Publicada el ${fecha}` : `Se publica el ${fecha}`}</span>}
-                        {c.clave === "POR_REVISAR" && <span className="texto-primario negrita">Revisar →</span>}
+                        {c.clave === "POR_REVISAR" && <span className="texto-primario negrita">Abrir →</span>}
                       </span>
                     </>
                   );
                   return abre ? (
-                    <Enlace key={p.id} a={`/entregables/${p.id}`} className="tablero-tarjeta tablero-tarjeta--enlace">
+                    <Enlace key={p.id} a={`/equipo/piezas/${p.id}`} className="tablero-tarjeta tablero-tarjeta--enlace">
                       {cuerpo}
                     </Enlace>
                   ) : (

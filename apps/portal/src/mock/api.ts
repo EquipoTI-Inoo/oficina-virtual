@@ -801,7 +801,7 @@ ruta("GET", "/clientes/:id/ideas-blog", (ctx, p) => {
 });
 ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, req) => {
   accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["APROBADOR", "ADMIN_CLIENTE", "ACCOUNT_MANAGER"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<{ ideaIds?: string[] }>(req);
   const ids = b.ideaIds ?? [];
   if (ids.length !== 1) throw new ErrorApi(422, "CUPO_EXCEDIDO", "Elige 1 idea", "Tu plan incluye 1 idea por desarrollar este mes.");
@@ -1309,7 +1309,7 @@ ruta("GET", "/clientes/:id/miembros", (ctx, p) => {
 });
 ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
   accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN", "ADMIN_CLIENTE"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<{ email?: string; nombre?: string; rol?: D.RolCliente }>(req);
   const errores: { campo: string; mensaje: string }[] = [];
   const email = (b.email ?? "").trim().toLowerCase();
@@ -1333,7 +1333,7 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
 });
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, req) => {
   accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN", "ADMIN_CLIENTE"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<{ rol?: D.RolCliente }>(req);
   if (!b.rol || !["ADMIN_CLIENTE", "APROBADOR", "LECTOR"].includes(b.rol)) throw new ErrorApi(422, "VALIDACION", "Elige un rol", undefined, [{ campo: "rol", mensaje: "Elige un rol" }]);
   const m = buscarMiembro(p.id, p.usuario);
@@ -1343,7 +1343,7 @@ ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, req) => {
 });
 ruta("DELETE", "/clientes/:id/miembros/:usuario", (ctx, p) => {
   accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN", "ADMIN_CLIENTE"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   buscarMiembro(p.id, p.usuario);
   protegerUltimoAdmin(p.id, p.usuario);
   E.miembros = E.miembros.filter((x) => !(x.clienteId === p.id && x.usuarioId === p.usuario));

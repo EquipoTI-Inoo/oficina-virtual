@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  LuArrowRight, LuCalendarDays, LuChartNoAxesColumnIncreasing, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight,
-  LuCircleCheck, LuDownload, LuEyeOff, LuEye, LuFileText, LuHeadphones, LuInfo, LuLayers, LuMail, LuMessageSquare,
+  LuArrowRight, LuChartNoAxesColumnIncreasing, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight,
+  LuCircleCheck, LuDownload, LuEyeOff, LuEye, LuFileText, LuInfo, LuLayers, LuMail, LuMessageSquare,
   LuSearch, LuShieldCheck, LuSparkles,
 } from "react-icons/lu";
 import {
@@ -179,13 +179,8 @@ function Inicio() {
         titulo={`Hola, ${nombre} 👋`}
         ligero
         bajada={`Todo lo que estamos creando para ${sesion?.clientes[0]?.nombre ?? "Casa Oliva"}, en un solo lugar.`}
-        accion={
-          <Enlace a="/plan" className="boton solo-escritorio">
-            <LuCalendarDays size={18} /> Plan del mes
-          </Enlace>
-        }
       />
-      <div className="grid-4">
+      <div className="grid-3 kpis">
         <div className="tarjeta kpi">
           <div className="kpi-cab">
             Servicios activos <LuLayers size={16} />
@@ -200,13 +195,6 @@ function Inicio() {
           <div className="kpi-valor">{d.indicadores.porAprobar}</div>
           <div className="kpi-pie">Piezas listas para ti</div>
         </Enlace>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">
-            Tickets abiertos <LuHeadphones size={16} />
-          </div>
-          <div className="kpi-valor">{d.indicadores.ticketsAbiertos}</div>
-          <div className="kpi-pie">Estamos trabajando en ello</div>
-        </div>
         <div className="tarjeta kpi">
           <div className="kpi-cab">
             Avance del mes <LuChartNoAxesColumnIncreasing size={16} />
@@ -240,8 +228,6 @@ function Inicio() {
         )}
       </section>
 
-      <ResultadosDelMes />
-
       <div className="grid-2 seccion">
         <div className="tarjeta" style={{ padding: "22px 20px" }}>
           <h3 className="tarjeta-titulo">Servicios activos</h3>
@@ -261,36 +247,18 @@ function Inicio() {
             ))}
           </div>
           <Enlace a="/servicios" className="enlace" style={{ marginTop: 20 }}>
-            Ver contrato y servicios →
+            Ver mis servicios →
           </Enlace>
         </div>
         <AsiVaElMes progreso={a} proxima={d.proximaPublicacion ?? null} />
       </div>
 
-      {d.ticketsAbiertos.length > 0 && (
-        <div className="tarjeta seccion fila" style={{ padding: "18px 16px 18px 20px", alignItems: "center" }}>
-          <LuHeadphones size={18} color="var(--c-primario)" />
-          <div style={{ flex: 1 }}>
-            <p className="negrita" style={{ fontSize: 13.5, marginBottom: 4 }}>
-              {d.ticketsAbiertos.length} tickets abiertos
-            </p>
-            {d.ticketsAbiertos.map((t) => (
-              <p key={t.id} className="texto-xs texto-muted">
-                {t.codigo} · {t.asunto} — {t.estado === "EN_PROCESO" ? "En curso" : "Abierto"}
-              </p>
-            ))}
-          </div>
-          <Enlace a="/soporte" className="boton">
-            Ir a soporte
-          </Enlace>
-        </div>
-      )}
     </>
   );
 }
 
-/** Resultados del mes dentro de Inicio (la pantalla Resultados salió del menú; el detalle va en el informe). */
-function ResultadosDelMes() {
+/** Resultados del mes. Salió de Inicio (reunión 12 oct): va dentro de los servicios que miden resultados. */
+export function ResultadosDelMes() {
   const avisar = useAviso();
   const { datos: r } = useConsulta<S<"ReporteResultados">>(`/clientes/${clienteActivo()}/reportes/resultados`);
   if (!r) return null;
@@ -383,8 +351,8 @@ export function TodoAlDia() {
       </span>
       <h3 style={{ fontSize: 20, fontWeight: 600 }}>¡Todo al día!</h3>
       <p className="texto-sm texto-muted">No tienes piezas pendientes de revisión. Te avisaremos cuando haya algo nuevo para ti.</p>
-      <Enlace a="/plan" className="boton boton--bloque">
-        Ver plan del mes
+      <Enlace a="/servicios" className="boton boton--bloque">
+        Ver mis servicios
       </Enlace>
     </div>
   );
@@ -408,14 +376,14 @@ function Servicios() {
   };
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
+  // Solo se muestran los servicios contratados (reunión 12 oct): lo no contratado no ocupa espacio.
   const contratados = d.servicios.filter((s) => s.contratado);
-  const otros = d.servicios.filter((s) => !s.contratado);
   const r = d.resumenMes;
   return (
     <>
       <Cabecera
         antetitulo="Casa Oliva · Octubre 2026"
-        titulo="Servicios contratados"
+        titulo="Mis servicios"
         bajada="Tu plan, su alcance y todo lo que vamos entregando este mes."
         accion={
           <button className="boton" onClick={verContrato}>
@@ -444,16 +412,6 @@ function Servicios() {
         {contratados.map((s) => (
           <TarjetaServicio key={s.categoria} s={s} />
         ))}
-      </div>
-      <div className="grid-2" style={{ marginTop: 16 }}>
-        {otros.map((s) => (
-          <TarjetaServicio key={s.categoria} s={s} />
-        ))}
-      </div>
-      <div className="seccion">
-        <Aviso icono={<LuShieldCheck size={18} />} titulo="Un plan claro, sin sorpresas">
-          Los servicios no contratados no tienen alcance ni consumo mensual. Para ampliar tu plan, conversa con tu equipo Inoo.
-        </Aviso>
       </div>
     </>
   );

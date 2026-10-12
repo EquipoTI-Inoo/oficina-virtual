@@ -42,23 +42,23 @@ aprobadas de las pruebas visuales.
 |---|---|---|
 | `/ingresar` | 02-ingreso | |
 | `/inicio` | 01-inicio | |
-| `/servicios` | 03-servicios-contratados | |
+| `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados (reunión 12 oct) |
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |
-| `/blog` | 05-blog | |
-| `/calendario` | 08-calendario-del-mes | Debajo del calendario, lista «Piezas de octubre» con todas las piezas (del frame móvil); tocar un día filtra la lista |
-| `/brief` | 11-brief-y-referencias | |
-| `/resultados` | 12-resultados | Gráficos dibujados con CSS, sin librería |
-| `/avance` | 13-avance-de-proyectos | |
-| `/soporte` | 07-soporte | Variante «flotante» del marco, como en el frame |
+| `/equipo/blog` | 05-blog | Pasó al equipo (reunión 12 oct): el cliente no elige ni aprueba blogs. `/blog` redirige a `/servicios` |
+| `/equipo/plan` | 08-calendario-del-mes | «Plan del mes» (tablero por estado). Pasó al equipo (reunión 12 oct); `/plan` y `/calendario` redirigen a `/servicios` |
+| `/brief` | 11-brief-y-referencias | Retirado (reunión 12 oct): lo reemplaza Requerimientos (de la agencia al cliente). Redirige a `/servicios` |
+| `/resultados` | 12-resultados | Redirige a `/inicio`; los resultados irán dentro de cada servicio |
+| `/avance` | 13-avance-de-proyectos | Fuera del menú: se fusiona con «Mis servicios» (perfil de proyecto) |
+| `/soporte` | 07-soporte | Fuera del menú (reunión 12 oct); solo se llega desde «Contactar a mi equipo» |
 | `/soporte/nuevo` | 09-crear-ticket | |
 | `/equipo/panel` | 14-panel-general | |
 | `/equipo/clientes/{id}` | 15-ficha-de-cliente | |
 | `/equipo/produccion` | 16-bandeja-de-produccion | |
 | `/muestras` | 10-muestras-de-estados | Hoja de estados para QA de diseño |
 | `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel; botón «Nuevo cliente» (modal) |
-| `/biblioteca` | — | Sin diseño: biblioteca de paid media y subida con declaración de derechos |
-| `/usuarios` | — | Sin diseño: usuarios del cliente (solo ADMIN_CLIENTE gestiona) y correos automáticos |
+| `/biblioteca` | — | Retirada del menú: irá dentro del servicio Paid Media. Redirige a `/servicios` |
+| `/usuarios` | — | Sin diseño: usuarios del cliente en solo lectura (solo el equipo los gestiona) y correos automáticos |
 | `/equipo/calendarios` | — | Sin diseño: revisión y aprobación de la propuesta mensual del Jefe de Marketing |
 | `/equipo/costos` | — | Sin diseño: costos de IA por cliente y modelo, ejecuciones (solo ADMIN; el menú la oculta al resto) |
 | «Editar ficha» | — | Sin diseño: modal sobre la ficha de cliente |

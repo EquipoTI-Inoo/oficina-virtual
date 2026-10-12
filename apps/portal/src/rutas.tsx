@@ -7,9 +7,9 @@
  * En Next.js cada ruta tiene además su archivo en app/ (mismo componente).
  */
 import type { ComponentType } from "react";
-import { PantallaAvance, PantallaBlog, PantallaBrief, PantallaPlanMes } from "./pantallas/planificacion";
+import { PantallaAvance, PantallaBlog, PantallaPlanMes } from "./pantallas/planificacion";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
-import { PantallaBiblioteca, PantallaCalendarioEquipo, PantallaCostosIa, PantallaUsuarios } from "./pantallas/sin-diseno";
+import { PantallaCalendarioEquipo, PantallaCostosIa, PantallaUsuarios } from "./pantallas/sin-diseno";
 import {
   PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
 } from "./pantallas/soporte-equipo";
@@ -28,9 +28,6 @@ export const RUTAS: Ruta[] = [
   { patron: "/servicios", pantalla: PantallaServicios, figma: "03-servicios-contratados", espacio: "cliente" },
   { patron: "/entregables", pantalla: PantallaEntregables, figma: "04-entregables-por-revisar", espacio: "cliente" },
   { patron: "/entregables/:id", pantalla: PantallaDetallePieza, figma: "06-detalle-de-pieza", espacio: "cliente" },
-  { patron: "/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "cliente" },
-  { patron: "/plan", pantalla: PantallaPlanMes, figma: null, espacio: "cliente" },
-  { patron: "/brief", pantalla: PantallaBrief, figma: null, espacio: "cliente" },
   { patron: "/avance", pantalla: PantallaAvance, figma: "13-avance-de-proyectos", espacio: "cliente" },
   { patron: "/soporte", pantalla: PantallaSoporte, figma: "07-soporte", espacio: "cliente" },
   { patron: "/soporte/nuevo", pantalla: PantallaCrearTicket, figma: "09-crear-ticket", espacio: "cliente" },
@@ -40,8 +37,9 @@ export const RUTAS: Ruta[] = [
   { patron: "/equipo/produccion", pantalla: PantallaBandeja, figma: "16-bandeja-de-produccion", espacio: "equipo" },
   { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
   { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
-  { patron: "/biblioteca", pantalla: PantallaBiblioteca, figma: null, espacio: "cliente" },
   { patron: "/usuarios", pantalla: PantallaUsuarios, figma: null, espacio: "cliente" },
+  { patron: "/equipo/plan", pantalla: PantallaPlanMes, figma: null, espacio: "equipo" },
+  { patron: "/equipo/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "equipo" },
   { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/costos", pantalla: PantallaCostosIa, figma: null, espacio: "equipo" },
 ];

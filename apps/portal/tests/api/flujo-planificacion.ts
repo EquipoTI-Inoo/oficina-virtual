@@ -154,15 +154,15 @@ export function pruebasPlanificacion(nombre: string, manejar: Manejador, reinici
   });
 
   describe(`ideas de blog · ${nombre}`, () => {
-    test("el cliente cambia la idea elegida dentro de su cupo y la pieza del artículo toma el nuevo título", async () => {
+    test("el equipo cambia la idea elegida dentro del cupo y la pieza del artículo toma el nuevo título", async () => {
       await reiniciar();
       const ideas = (await llamar("GET", `/clientes/${CASA_OLIVA}/ideas-blog?periodo=2026-10`, VALERIA)).json;
       assert.deepEqual({ total: ideas.cupo.total, elegidas: ideas.cupo.elegidas }, { total: 1, elegidas: 1 });
       const [, segunda, tercera] = ideas.datos;
-      const exceso = await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, VALERIA, { periodo: "2026-10", ideaIds: [segunda.id, tercera.id] });
+      const exceso = await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, DIEGO, { periodo: "2026-10", ideaIds: [segunda.id, tercera.id] });
       assert.equal(exceso.json.codigo, "CUPO_EXCEDIDO");
-      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, MARTIN_LECTOR, { periodo: "2026-10", ideaIds: [segunda.id] })).status, 403);
-      const r = await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, VALERIA, { periodo: "2026-10", ideaIds: [segunda.id] });
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, VALERIA, { periodo: "2026-10", ideaIds: [segunda.id] })).status, 403, "el cliente no elige blogs");
+      const r = await llamar("POST", `/clientes/${CASA_OLIVA}/ideas-blog/seleccion`, DIEGO, { periodo: "2026-10", ideaIds: [segunda.id] });
       assert.equal(r.status, 200);
       assert.deepEqual(r.json.datos.map((i: any) => i.estado), ["PROPUESTA", "ELEGIDA", "PROPUESTA"]);
       assert.equal((await llamar("GET", `/piezas/${uid(5, 19)}`, DIEGO)).json.titulo, segunda.titulo);

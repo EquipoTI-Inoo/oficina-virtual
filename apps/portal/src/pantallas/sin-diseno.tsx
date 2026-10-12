@@ -5,7 +5,7 @@
  * tomarlas como diseño final.
  */
 import { useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronLeft, LuChevronRight, LuMail, LuPencil, LuPlus, LuTriangleAlert, LuUpload, LuUserPlus, LuX } from "react-icons/lu";
+import { LuCheck, LuChevronLeft, LuChevronRight, LuMail, LuPencil, LuPlus, LuTriangleAlert, LuUpload } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, Modal, useAviso, usePortal } from "../componentes";
 
@@ -169,57 +169,18 @@ const ROL_CLIENTE: Record<string, string> = { ADMIN_CLIENTE: "Administra la cuen
 const DESTINATARIOS: Record<string, string> = { MIEMBROS_CLIENTE: "Tu equipo", ACCOUNT_MANAGER: "Inoo", AMBOS: "Tu equipo e Inoo" };
 
 function Usuarios() {
-  const avisar = useAviso();
   const { sesion } = usePortal();
   const id = clienteActivo();
   const esAdmin = sesion?.clientes[0]?.rol === "ADMIN_CLIENTE";
   const miembros = useConsulta<{ datos: S<"Miembro">[] }>(sesion ? (esAdmin ? `/clientes/${id}/miembros` : null) : null);
   const correos = useConsulta<{ reglas: S<"ReglaCorreo">[]; recientes: S<"CorreoEnviado">[] }>(`/clientes/${id}/correos-automaticos`);
-  const [nombre, setNombre] = useState("");
-  const [email, setEmail] = useState("");
-  const [rol, setRol] = useState("APROBADOR");
-  const [err, setErr] = useState<Record<string, string>>({});
-
-  const invitar = async (e: FormEvent) => {
-    e.preventDefault();
-    setErr({});
-    try {
-      await api(`/clientes/${id}/miembros`, { metodo: "POST", cuerpo: { nombre, email, rol }, idempotente: true });
-      avisar({ titulo: "Invitación enviada", texto: `${nombre} recibirá un correo para crear su acceso.` });
-      setNombre("");
-      setEmail("");
-      void miembros.recargar();
-      void correos.recargar();
-    } catch (x) {
-      const p = x as ProblemaApi;
-      setErr(p.errores.length ? errores(x) : { general: p.titulo });
-    }
-  };
-  const cambiarRol = async (usuarioId: string, nuevo: string) => {
-    try {
-      await api(`/clientes/${id}/miembros/${usuarioId}`, { metodo: "PATCH", cuerpo: { rol: nuevo } });
-      void miembros.recargar();
-    } catch (x) {
-      avisar({ titulo: "No pudimos cambiar el rol", texto: (x as ProblemaApi).titulo });
-    }
-  };
-  const quitar = async (m: S<"Miembro">) => {
-    if (!window.confirm(`¿Quitar el acceso de ${m.nombre}?`)) return;
-    try {
-      await api(`/clientes/${id}/miembros/${m.usuarioId}`, { metodo: "DELETE" });
-      void miembros.recargar();
-    } catch (x) {
-      avisar({ titulo: "No pudimos quitar el acceso", texto: (x as ProblemaApi).titulo });
-    }
-  };
-
   return (
     <>
-      <Cabecera antetitulo="Tu cuenta" titulo="Usuarios y avisos" bajada="Quién entra al portal, qué puede hacer y qué correos enviamos." />
+      <Cabecera antetitulo="Tu cuenta" titulo="Usuarios y avisos" bajada="Quién entra al portal y qué correos enviamos. Los accesos los gestiona tu equipo Inoo." />
       <section className="tarjeta" style={{ padding: "24px 18px" }}>
         <h2 className="tarjeta-titulo" style={{ marginBottom: 16 }}>Usuarios del portal</h2>
         {!esAdmin ? (
-          <p className="texto-sm texto-muted">Solo la persona que administra la cuenta puede invitar usuarios o cambiar permisos.</p>
+          <p className="texto-sm texto-muted">La lista de usuarios la ve la persona que administra la cuenta. Para dar acceso a alguien más, escríbele a tu equipo Inoo.</p>
         ) : miembros.error ? (
           <ErrorCarga error={miembros.error} reintentar={miembros.recargar} />
         ) : !miembros.datos ? (
@@ -232,7 +193,6 @@ function Usuarios() {
                   <tr>
                     <th>Persona</th>
                     <th>Permiso</th>
-                    <th style={{ width: 60 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -246,51 +206,15 @@ function Usuarios() {
                           {m.email} {m.invitacionPendiente && <Etiqueta tono="ambar">Invitación pendiente</Etiqueta>}
                         </p>
                       </td>
-                      <td>
-                        <select className="input" aria-label={`Permiso de ${m.nombre}`} value={m.rol} onChange={(e) => void cambiarRol(m.usuarioId, e.target.value)} style={{ maxWidth: 220 }}>
-                          {Object.entries(ROL_CLIENTE).map(([v, t]) => (
-                            <option key={v} value={v}>{t}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <button className="enlace" aria-label={`Quitar a ${m.nombre}`} onClick={() => void quitar(m)} style={{ color: "var(--c-texto)" }}>
-                          <LuX size={16} />
-                        </button>
-                      </td>
+                      <td>{ROL_CLIENTE[m.rol] ?? m.rol}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <form onSubmit={invitar} noValidate className="rejilla" style={{ ["--columnas" as string]: "1fr 1fr 200px auto", gap: 10, alignItems: "end", marginTop: 20 }}>
-              <div className="campo">
-                <label htmlFor="inv-nombre">Nombre</label>
-                <div className="entrada">
-                  <input id="inv-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} aria-invalid={!!err.nombre} />
-                </div>
-                <Ayuda error={err.nombre} />
-              </div>
-              <div className="campo">
-                <label htmlFor="inv-email">Correo</label>
-                <div className="entrada">
-                  <input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!err.email} />
-                </div>
-                <Ayuda error={err.email} />
-              </div>
-              <div className="campo">
-                <label htmlFor="inv-rol">Permiso</label>
-                <select id="inv-rol" className="input" value={rol} onChange={(e) => setRol(e.target.value)}>
-                  {Object.entries(ROL_CLIENTE).map(([v, t]) => (
-                    <option key={v} value={v}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <button className="boton boton--primario">
-                <LuUserPlus size={16} /> Invitar
-              </button>
-            </form>
-            <Ayuda error={err.general} />
+            <p className="texto-xs texto-muted" style={{ marginTop: 16 }}>
+              Para dar acceso a alguien más de tu equipo o cambiar permisos, envíale los datos a tu equipo Inoo y lo hacemos por ti.
+            </p>
           </>
         )}
       </section>

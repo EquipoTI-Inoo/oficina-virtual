@@ -1232,7 +1232,7 @@ ruta("GET", "/clientes/:id/ideas-blog", async (ctx, p, q) => {
 
 ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["APROBADOR", "ADMIN_CLIENTE", "ACCOUNT_MANAGER"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as { periodo?: string; ideaIds?: string[] };
   const periodo = exigirPeriodo(b.periodo);
   const ids = Array.isArray(b.ideaIds) ? b.ideaIds.filter(esUuid) : [];
@@ -1257,7 +1257,7 @@ ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, cuerpo) =>
       )).rows[0]?.id ?? null;
       piezaId = (await ctx.c.query<{ id: string }>(
         "INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, canal, periodo, fecha_programada, nota_estado) VALUES ($1, $2, $3, 'BLOG', $4, 'Blog web', $5, $6, $7) RETURNING id",
-        [p.id, servicio, cal?.id ?? null, idea.titulo, periodo, `${periodo}-25T15:00:00Z`, "Idea elegida por el cliente"],
+        [p.id, servicio, cal?.id ?? null, idea.titulo, periodo, `${periodo}-25T15:00:00Z`, "Idea elegida por el equipo"],
       )).rows[0].id;
     }
     await ctx.c.query("UPDATE idea_blog SET estado = 'ELEGIDA', pieza_id = $2, decidido_por = $3, decidido_en = now() WHERE id = $1", [idea.id, piezaId, ctx.u.usuarioId]);

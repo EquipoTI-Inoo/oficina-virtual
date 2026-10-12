@@ -89,24 +89,29 @@ describe("clientes y servicios", () => {
 });
 
 describe("usuarios del cliente (POR-01)", () => {
-  test("solo ADMIN_CLIENTE o el equipo ven y gestionan usuarios", async () => {
+  test("ADMIN_CLIENTE y el equipo ven los usuarios; solo el equipo los gestiona", async () => {
     assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/miembros`, MARTIN_LECTOR)).status, 403);
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/miembros`, VALERIA);
     assert.deepEqual(r.json.datos.map((m: any) => m.rol), ["ADMIN_CLIENTE", "LECTOR"]);
   });
-  test("invitar, cambiar rol y quitar; nunca dejar la cuenta sin administradora", async () => {
-    const inv = await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, VALERIA, { email: "rosa@casaoliva.pe", nombre: "Rosa Paz", rol: "APROBADOR" });
+  test("el cliente no crea, cambia ni quita usuarios", async () => {
+    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, VALERIA, { email: "rosa@casaoliva.pe", nombre: "Rosa Paz", rol: "APROBADOR" })).status, 403);
+    assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}/miembros/${uid(1, 2)}`, VALERIA, { rol: "APROBADOR" })).status, 403);
+    assert.equal((await llamar("DELETE", `/clientes/${CASA_OLIVA}/miembros/${uid(1, 2)}`, VALERIA)).status, 403);
+  });
+  test("el equipo invita, cambia rol y quita; nunca deja la cuenta sin administradora", async () => {
+    const inv = await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa Paz", rol: "APROBADOR" });
     assert.equal(inv.status, 201);
     assert.equal(inv.json.invitacionPendiente, true);
-    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, VALERIA, { email: "rosa@casaoliva.pe", nombre: "Rosa", rol: "LECTOR" })).json.codigo, "YA_ES_MIEMBRO");
-    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, VALERIA, { email: "diego.castro@inoo.pe", nombre: "D", rol: "LECTOR" })).json.codigo, "USUARIO_DE_EQUIPO");
+    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa", rol: "LECTOR" })).json.codigo, "YA_ES_MIEMBRO");
+    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "diego.castro@inoo.pe", nombre: "D", rol: "LECTOR" })).json.codigo, "USUARIO_DE_EQUIPO");
     const correos = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json.recientes;
     assert.ok(correos.some((c: any) => c.para === "rosa@casaoliva.pe" && c.evento === "miembro.invitado"));
     const martin = uid(1, 2);
-    assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}/miembros/${martin}`, VALERIA, { rol: "APROBADOR" })).json.rol, "APROBADOR");
+    assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}/miembros/${martin}`, DIEGO, { rol: "APROBADOR" })).json.rol, "APROBADOR");
     assert.equal((await llamar("GET", `/piezas/${TU_RITUAL}`, MARTIN_LECTOR)).json.acciones[0], "APROBAR", "el nuevo rol aplica de inmediato");
-    assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}/miembros/${uid(1, 1)}`, VALERIA, { rol: "LECTOR" })).json.codigo, "ULTIMO_ADMINISTRADOR");
-    assert.equal((await llamar("DELETE", `/clientes/${CASA_OLIVA}/miembros/${martin}`, VALERIA)).status, 204);
+    assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}/miembros/${uid(1, 1)}`, DIEGO, { rol: "LECTOR" })).json.codigo, "ULTIMO_ADMINISTRADOR");
+    assert.equal((await llamar("DELETE", `/clientes/${CASA_OLIVA}/miembros/${martin}`, DIEGO)).status, 204);
     assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, MARTIN_LECTOR)).status, 404, "sin acceso tras quitarlo");
   });
 });

@@ -274,7 +274,8 @@ paths:
       tags: [Clientes]
       operationId: invitarMiembro
       summary: Invitar a un usuario (crea la cuenta en el pool de clientes y envía el correo)
-      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      description: Solo el equipo. El cliente no crea usuarios; pide el alta a su equipo Inoo o usa el cambio de responsable.
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
@@ -303,7 +304,7 @@ paths:
       tags: [Clientes]
       operationId: cambiarRolMiembro
       summary: Cambiar el rol de un usuario del cliente
-      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
       requestBody:
         required: true
         content:
@@ -322,7 +323,7 @@ paths:
       tags: [Clientes]
       operationId: quitarMiembro
       summary: Quitar acceso a un usuario del cliente
-      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
       responses:
         '204': { description: Quitado }
 
@@ -1101,8 +1102,8 @@ paths:
       tags: [Planificación]
       operationId: confirmarSeleccionIdeas
       summary: '"Confirmar selección". Las elegidas pasan a ELEGIDA y crean su pieza BLOG; el resto queda DESCARTADA.'
-      description: La selección previa (marcar y desmarcar) es estado del navegador; solo se envía al confirmar.
-      x-roles: [APROBADOR, ADMIN_CLIENTE, ACCOUNT_MANAGER]
+      description: La selección previa (marcar y desmarcar) es estado del navegador; solo se envía al confirmar. Solo el equipo; el cliente no elige ni aprueba blogs.
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
