@@ -1,0 +1,99 @@
+/**
+ * Catálogo real de servicios, plantillas y etapas de proyecto (reunión del 12 oct 2026), escrito una
+ * vez y ejecutado contra la API simulada (mock.flujo.test.ts) y el backend real (db.test.ts).
+ */
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { uid } from "../../src/mock/datos";
+import { CASA_OLIVA, crearLlamar, DIEGO, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
+
+const ADMIN = `demo.${uid(1, 4)}`;
+const CRM = uid(4, 3);
+
+export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: () => Promise<void> | void, eventos: () => Promise<{ tipo: string; datos: any }[]>) {
+  const llamar = crearLlamar(manejar);
+
+  describe(`servicios y etapas · ${nombre}`, () => {
+    test("el catálogo son los 8 servicios que vende Inoo, con sus variantes", async () => {
+      await reiniciar();
+      const r = (await llamar("GET", "/servicios", VALERIA)).json.datos;
+      assert.deepEqual(r.map((s: any) => s.codigo), ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA", "WEB", "CRM_IMPLEMENTACION", "CRM_INTEGRACION", "AUDIOVISUAL", "SOPORTE_CONTINUO"]);
+      assert.deepEqual(r.find((s: any) => s.codigo === "WEB").variantes.map((v: any) => v.codigo), ["LANDING", "INFORMATIVA", "ECOMMERCE", "CATALOGO", "APLICATIVO"]);
+      assert.equal(r.find((s: any) => s.codigo === "SOPORTE_CONTINUO").modalidad, "MENSUAL");
+    });
+
+    test("Mis servicios: solo lo contratado, con título «Servicio - Marca» y avance por etapas", async () => {
+      await reiniciar();
+      const r = (await llamar("GET", `/clientes/${CASA_OLIVA}/servicios?periodo=2026-10`, VALERIA)).json;
+      assert.deepEqual(r.servicios.map((s: any) => s.codigo), ["SOCIAL_MEDIA_PRO", "WEB", "CRM_IMPLEMENTACION", "SOPORTE_CONTINUO"]);
+      const crm = r.servicios.find((s: any) => s.codigo === "CRM_IMPLEMENTACION");
+      assert.equal(crm.titulo, "Implementación de CRM - Casa Oliva");
+      assert.deepEqual([crm.detalle.crm, crm.detalle.licencias], ["HubSpot", 3]);
+      assert.deepEqual([crm.avance.porcentaje, crm.avance.etapaActual.nombre, crm.avance.totalEtapas], [20, "Procesos e implementación", 4]);
+      assert.equal(crm.progreso, null, "un proyecto de CRM no entrega piezas mensuales");
+      const web = r.servicios.find((s: any) => s.codigo === "WEB");
+      assert.deepEqual([web.variante.nombre, web.avance.porcentaje], ["E-commerce", 10]);
+      const smp = r.servicios.find((s: any) => s.codigo === "SOCIAL_MEDIA_PRO");
+      assert.deepEqual([smp.cantidadMensual, smp.avance.porcentaje, smp.avance.periodo], [16, 50, "2026-10"]);
+      assert.equal((await llamar("GET", `/clientes/${NATIVA}/servicios`, VALERIA)).status, 404);
+    });
+
+    test("avance de un proyecto: etapas de la plantilla con sus fechas en días hábiles", async () => {
+      await reiniciar();
+      const a = (await llamar("GET", `/servicios-contratados/${CRM}/avance`, VALERIA)).json;
+      assert.deepEqual(a.etapas.map((e: any) => [e.nombre, e.avancePct, e.estado]), [
+        ["Levantamiento de información", 20, "COMPLETADO"],
+        ["Procesos e implementación", 60, "EN_PROGRESO"],
+        ["Capacitación 1", 80, "SIN_INICIAR"],
+        ["Capacitación 2", 100, "SIN_INICIAR"],
+      ]);
+      assert.deepEqual([a.etapas[0].fechaInicio, a.etapas[0].fechaEstimada, a.etapas[1].fechaInicio], ["2026-09-01", "2026-09-14", "2026-09-15"]);
+      assert.equal(a.estado, "EN_CURSO");
+    });
+
+    test("plantillas: solo el equipo las ve", async () => {
+      await reiniciar();
+      assert.equal((await llamar("GET", "/plantillas", VALERIA)).status, 403);
+      const crm = (await llamar("GET", "/plantillas?servicio=CRM_IMPLEMENTACION", DIEGO)).json.datos;
+      assert.equal(crm.length, 1);
+      assert.deepEqual(crm[0].etapas.map((e: any) => e.avancePct), [20, 60, 80, 100]);
+      const web = (await llamar("GET", "/plantillas?servicio=WEB", DIEGO)).json.datos;
+      assert.deepEqual(web.map((p: any) => p.variante).sort(), ["APLICATIVO", "CATALOGO", "ECOMMERCE", "INFORMATIVA", "LANDING"]);
+    });
+
+    test("el equipo mueve etapas en orden y el % del cliente cambia", async () => {
+      await reiniciar();
+      const etapas = (await llamar("GET", `/servicios-contratados/${CRM}/avance`, DIEGO)).json.etapas;
+      const ruta = (n: number) => `/servicios-contratados/${CRM}/etapas/${etapas[n].id}`;
+      assert.equal((await llamar("PATCH", ruta(1), VALERIA, { estado: "COMPLETADO" })).status, 403, "el cliente solo mira");
+      assert.equal((await llamar("PATCH", ruta(2), DIEGO, { estado: "COMPLETADO" })).json.codigo, "ETAPA_ANTERIOR_PENDIENTE");
+      assert.equal((await llamar("PATCH", ruta(1), DIEGO, { estado: "NADA" })).status, 422);
+      const r = await llamar("PATCH", ruta(1), DIEGO, { estado: "COMPLETADO", fechaFin: "2026-10-09" });
+      assert.equal(r.status, 200);
+      assert.deepEqual([r.json.avance.porcentaje, r.json.avance.etapaActual.nombre], [60, "Capacitación 1"]);
+      assert.equal(r.json.etapas[1].fechaFin, "2026-10-09");
+      const visto = (await llamar("GET", `/clientes/${CASA_OLIVA}/servicios?periodo=2026-10`, VALERIA)).json.servicios.find((s: any) => s.servicioContratadoId === CRM);
+      assert.equal(visto.avance.porcentaje, 60);
+      assert.ok((await eventos()).some((e) => e.tipo === "etapa.actualizada" && e.datos.etapaId === etapas[1].id));
+      // Reabrir la etapa la saca del %.
+      assert.equal((await llamar("PATCH", ruta(1), DIEGO, { estado: "EN_PROGRESO" })).json.avance.porcentaje, 20);
+    });
+
+    test("contratar: variante obligatoria donde aplica y etapas desde la plantilla", async () => {
+      await reiniciar();
+      const sinVariante = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", fechaInicio: "2026-10-12" });
+      assert.deepEqual(sinVariante.json.errores.map((e: any) => e.campo), ["variante"]);
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "BLOG", fechaInicio: "2026-10-12" })).status, 422, "blog ya no es un servicio");
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-12" })).status, 403);
+      const ok = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", marca: "Línea Bebé", fechaInicio: "2026-10-16" });
+      assert.equal(ok.status, 201);
+      assert.equal(ok.json.titulo, "Producción audiovisual - Línea Bebé");
+      assert.deepEqual([ok.json.avance.porcentaje, ok.json.avance.totalEtapas], [0, 3]);
+      const a = (await llamar("GET", `/servicios-contratados/${ok.json.servicioContratadoId}/avance`, VALERIA)).json;
+      // 3 días hábiles desde el viernes 16: 16, 19 y 20 de octubre; la sesión, el 21.
+      assert.deepEqual(a.etapas.map((e: any) => [e.fechaInicio, e.fechaEstimada]), [["2026-10-16", "2026-10-20"], ["2026-10-21", "2026-10-21"], ["2026-10-22", "2026-10-28"]]);
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-16" })).json.codigo, "SERVICIO_YA_CONTRATADO");
+      assert.ok((await eventos()).some((e) => e.tipo === "servicio.contratado" && e.datos.variante === "FOTOGRAFIA"));
+    });
+  });
+}

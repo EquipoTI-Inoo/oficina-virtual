@@ -11,6 +11,7 @@
  */
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
+import { calcularAvance, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Json = Record<string, unknown> | unknown[];
@@ -67,7 +68,8 @@ interface Estado {
   clientes: D.ClienteDemo[];
   usuarios: D.UsuarioDemo[];
   miembros: { clienteId: string; usuarioId: string; rol: D.RolCliente; invitacionPendiente?: boolean }[];
-  servicios: (typeof D.SERVICIOS_CONTRATADOS)[number][];
+  servicios: D.ServicioContratadoDemo[];
+  etapas: D.EtapaDemo[];
   fichas: Record<string, typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null }>;
   calendarios: Record<string, { estado: S<"EstadoCalendario">; version: number; resumen: string | null; aprobadoPorId: string | null; aprobadoEn: string | null }>;
   eventosPieza: { piezaId: string; deEstado: D.Estado | null; aEstado: D.Estado; version: number | null; usuarioId: string | null; canal: S<"CanalDecision">; comentario: string | null; creadoEn: string }[];
@@ -97,9 +99,9 @@ function eventosIniciales(): Estado["eventosPieza"] {
 
 /** Proyecto de InooWork enlazado a cada servicio contratado de prueba. */
 const PROYECTO_INOOWORK: Record<string, string> = {
-  [D.uid(4, 1)]: "iw-casa-oliva-blog",
-  [D.uid(4, 2)]: "iw-casa-oliva-redes",
-  [D.uid(4, 3)]: "iw-casa-oliva-estaticos",
+  [D.uid(4, 1)]: "iw-casa-oliva-soporte-web",
+  [D.uid(4, 2)]: "iw-casa-oliva-social-media",
+  [D.uid(4, 3)]: "iw-casa-oliva-crm",
 };
 
 function estadoInicial(): Estado {
@@ -118,6 +120,7 @@ function estadoInicial(): Estado {
     usuarios: structuredClone(D.USUARIOS),
     miembros: structuredClone(D.MIEMBROS),
     servicios: structuredClone(D.SERVICIOS_CONTRATADOS),
+    etapas: D.etapasIniciales(),
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
       [`${D.uid(2, 1)}:2026-10`]: { estado: "APROBADO_PLAN", version: 1, resumen: null, aprobadoPorId: D.uid(1, 3), aprobadoEn: "2026-09-28T15:00:00Z" },
@@ -401,7 +404,38 @@ function progreso(piezas: D.PiezaDemo[], totales: number): S<"ProgresoPiezas"> {
 const piezasDe = (clienteId: string) => E.piezas.filter((p) => p.clienteId === clienteId);
 const piezasDelMes = (clienteId: string, periodo = D.PERIODO) => piezasDe(clienteId).filter((p) => p.fecha.startsWith(periodo));
 const serviciosDe = (clienteId: string) => E.servicios.filter((s) => s.clienteId === clienteId);
-const cuotaMensual = (clienteId: string) => serviciosDe(clienteId).reduce((t, s) => t + s.cantidadMensual, 0);
+const cantidadDe = (s: D.ServicioContratadoDemo) => s.entregables.reduce((t, e) => t + e.cantidadMensual, 0);
+const cuotaMensual = (clienteId: string) => serviciosDe(clienteId).reduce((t, s) => t + cantidadDe(s), 0);
+const ordenCatalogo = (codigo: string) => D.CATALOGO.findIndex((k) => k.codigo === codigo);
+const ordenados = (xs: D.ServicioContratadoDemo[]) => [...xs].sort((a, b) => ordenCatalogo(a.codigo) - ordenCatalogo(b.codigo));
+
+/** Etapas visibles de un servicio: las del proyecto o, si es mensual, las del mes pedido. */
+function etapasDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
+  const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
+  return E.etapas.filter((e) => e.servicioContratadoId === s.id && (mensual ? e.periodo === periodo : e.periodo === null)).sort((a, b) => a.orden - b.orden);
+}
+const etapaVista = (e: D.EtapaDemo): S<"EtapaProyecto"> => ({
+  id: e.id, orden: e.orden, nombre: e.nombre, descripcion: null, periodo: e.periodo, avancePct: e.avancePct, estado: e.estado, esperaCliente: e.esperaCliente,
+  fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: e.fechaFin, atrasada: etapaAtrasada(e, D.HOY),
+});
+function avanceDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
+  const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
+  return calcularAvance(etapasDe(s, periodo), D.HOY, mensual ? periodo : null);
+}
+const varianteDe = (s: D.ServicioContratadoDemo) => servicioDeCatalogo(s.codigo)!.variantes.find((v) => v.codigo === s.variante) ?? null;
+const tituloDe = (s: D.ServicioContratadoDemo) => tituloServicio(servicioDeCatalogo(s.codigo)!.nombre, s.marca ?? E.clientes.find((c) => c.id === s.clienteId)!.nombre);
+
+function servicioVista(s: D.ServicioContratadoDemo, periodo = D.PERIODO): S<"ServicioCliente"> {
+  const cat = servicioDeCatalogo(s.codigo)!;
+  const cantidad = cantidadDe(s);
+  return {
+    codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), descripcion: cat.descripcion, modalidad: cat.modalidad, variante: varianteDe(s), detalle: s.detalle,
+    servicioContratadoId: s.id, estado: s.estado, alcance: null, fechaInicio: s.fechaInicio, fechaFin: s.fechaFin, unidad: cat.unidad, cantidadMensual: cantidad,
+    progreso: cantidad ? progreso(piezasDelMes(s.clienteId, periodo).filter((x) => x.servicioId === s.id), cantidad) : null,
+    avance: avanceDe(s, periodo),
+    entregables: s.entregables.map((e) => ({ tipoPieza: e.tipoPieza as S<"TipoPieza">, cantidadMensual: e.cantidadMensual })),
+  };
+}
 /** Los clientes de prueba sin ficha propia muestran la de Casa Oliva (como en el panel de Figma). */
 const fichaDe = (clienteId: string): Ficha => E.fichas[clienteId] ?? D.FICHA_CASA_OLIVA;
 type Ficha = typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null };
@@ -568,10 +602,10 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
     plan: fichaDe(c.id).plan,
     avanceMes: progreso(ps, cuotaMensual(c.id)),
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
-    servicios: serviciosDe(c.id).map((s) => {
-      const cat = D.CATALOGO.find((k) => k.codigo === s.categoria)!;
-      return { categoria: s.categoria, nombre: cat.nombre, cantidadMensual: s.cantidadMensual, unidad: cat.unidad, estado: "ACTIVO" as const };
-    }).sort((a, b) => (a.categoria === "REDES_SOCIALES" ? -1 : b.categoria === "REDES_SOCIALES" ? 1 : 0)),
+    servicios: ordenados(serviciosDe(c.id)).map((s) => {
+      const cat = servicioDeCatalogo(s.codigo)!;
+      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s) };
+    }),
     proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha) } : null,
     ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado as S<"EstadoTicket"> })),
   };
@@ -581,29 +615,8 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
 // Servicios
 ruta("GET", "/clientes/:id/servicios", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
-  const servicios: S<"ServicioCliente">[] = D.CATALOGO.map((cat) => {
-    const sc = E.servicios.find((s) => s.clienteId === c.id && s.categoria === cat.codigo);
-    if (!sc) {
-      return { categoria: cat.codigo, nombre: cat.nombre, descripcion: cat.descripcion, unidad: cat.unidad, contratado: false, estado: "NO_CONTRATADO", cantidadMensual: 0, progreso: null, entregables: [] };
-    }
-    const ps = piezasDelMes(c.id).filter((x) => x.servicioId === sc.id);
-    return {
-      categoria: cat.codigo,
-      nombre: cat.nombre,
-      descripcion: cat.descripcion,
-      unidad: cat.unidad,
-      contratado: true,
-      servicioContratadoId: sc.id,
-      estado: "ACTIVO",
-      alcance: null,
-      fechaInicio: "2026-01-01",
-      fechaFin: "2026-12-31",
-      cantidadMensual: sc.cantidadMensual,
-      progreso: progreso(ps, sc.cantidadMensual),
-      entregables: [{ tipoPieza: sc.tipoPieza as S<"TipoPieza">, cantidadMensual: sc.cantidadMensual }],
-    };
-  });
-  const r: S<"ServiciosCliente"> = { periodo: D.PERIODO, plan: fichaDe(c.id).plan, resumenMes: progreso(piezasDelMes(c.id), cuotaMensual(c.id)), servicios };
+  // Solo lo contratado (reunión 12 oct): lo que no se contrató no aparece.
+  const r: S<"ServiciosCliente"> = { periodo: D.PERIODO, plan: fichaDe(c.id).plan, resumenMes: progreso(piezasDelMes(c.id), cuotaMensual(c.id)), servicios: ordenados(serviciosDe(c.id)).map((s) => servicioVista(s)) };
   return r;
 });
 ruta("GET", "/clientes/:id/plan/contrato", (ctx, p) => {
@@ -1011,25 +1024,22 @@ ruta("GET", "/clientes/:id/reportes/informe", (ctx, p) => {
   accesoCliente(ctx, p.id);
   return { url: "/muestras/informe-demo.pdf", metodo: "GET", expiraEn: new Date(Date.now() + 900_000).toISOString() };
 });
-/** Avance de un servicio: hitos sincronizados de InooWork o, sin sincronización, los de ejemplo de Figma. */
-function avanceServicio(s: Estado["servicios"][number]): S<"AvanceServicio"> & { categoria: S<"CategoriaServicio">; nombre: string; progreso: S<"ProgresoPiezas"> } {
-  const cat = D.CATALOGO.find((k) => k.codigo === s.categoria)!;
-  const mias = piezasDelMes(s.clienteId).filter((x) => x.servicioId === s.id);
-  const h = (n: number, titulo: string, estado: S<"EstadoHito">, ini: string | null, fin: string | null, nota: string, espera = false): S<"Hito"> => ({
-    id: D.uid(15, Number(s.id.slice(-2)) * 10 + n), grupo: null, titulo, estado, fechaInicio: ini, fechaFin: fin, esperaCliente: espera, nota, responsableNombre: "Diego Castro",
-  });
+/** Avance de un servicio: etapas de su plantilla (o del mes) e ítems sincronizados de InooWork si los hay. */
+function avanceServicio(s: D.ServicioContratadoDemo): S<"AvanceServicio"> {
+  const v = servicioVista(s);
+  const a = v.avance;
   return {
     servicioContratadoId: s.id,
-    categoria: s.categoria,
-    nombre: cat.nombre,
-    estado: "EN_CURSO",
-    progreso: progreso(mias, s.cantidadMensual),
-    hitos: E.hitosInooWork[s.id] ?? [
-      h(1, "Planificación", "COMPLETADO", null, "2026-09-30", "Completada"),
-      h(2, "Producción", "EN_PROGRESO", "2026-10-01", "2026-10-06", "En curso"),
-      h(3, "Revisión", "EN_REVISION", "2026-10-06", "2026-10-29", "Tu siguiente paso", true),
-      h(4, "Publicación", "SIN_INICIAR", "2026-10-01", "2026-10-31", "Por pieza aprobada"),
-    ],
+    codigo: s.codigo,
+    nombre: v.nombre,
+    titulo: v.titulo,
+    variante: v.variante,
+    detalle: s.detalle,
+    estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
+    progreso: v.progreso,
+    avance: a,
+    etapas: etapasDe(s).map(etapaVista),
+    hitos: E.hitosInooWork[s.id] ?? [],
     siguientePaso: s.siguientePaso ? { texto: `Siguiente paso: ${s.siguientePaso}`, responsable: persona(E.usuarios[2].id)! } : null,
     sincronizadoEn: E.sincronizadoEn[s.id] ?? "2026-10-06T14:55:00Z",
   };
@@ -1042,8 +1052,7 @@ ruta("GET", "/clientes/:id/avance", (ctx, p) => {
     periodo: D.PERIODO,
     resumenMes: progreso(ps, cuotaMensual(c.id)),
     piezasPorRevisar: ps.filter((x) => x.estado === "LISTO_REVISION").map((x) => ({ id: x.id, titulo: x.titulo, fechaProgramada: iso(x.fecha) })),
-    servicios: serviciosDe(c.id).map(avanceServicio),
-    noContratados: D.CATALOGO.filter((k) => !serviciosDe(c.id).some((s) => s.categoria === k.codigo)).map((k) => ({ codigo: k.codigo, nombre: k.nombre, categoria: k.codigo, descripcion: k.descripcion, unidad: k.unidad })),
+    servicios: ordenados(serviciosDe(c.id)).map(avanceServicio),
   };
   return r;
 });
@@ -1205,7 +1214,7 @@ ruta("POST", "/clientes/:id/piezas", async (ctx, p, _q, req) => {
 // ───────────────────────────────────────────── catálogo, alta y edición de clientes
 
 ruta("GET", "/servicios", () => ({
-  datos: D.CATALOGO.map((k): S<"ServicioCatalogo"> => ({ codigo: k.codigo, nombre: k.nombre, categoria: k.codigo, descripcion: k.descripcion, unidad: k.unidad })),
+  datos: D.CATALOGO.map((k): S<"ServicioCatalogo"> => ({ codigo: k.codigo, nombre: k.nombre, descripcion: k.descripcion, modalidad: k.modalidad, variantes: k.variantes, unidad: k.unidad })),
 }));
 
 function validarClienteEntrada(b: S<"ClienteEntrada">, alta: boolean) {
@@ -1380,22 +1389,65 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   const c = accesoCliente(ctx, p.id);
   exigirRol(ctx, c.id, ["ADMIN"]);
   const b = await cuerpo<S<"ServicioContratadoEntrada">>(req);
-  const cat = D.CATALOGO.find((k) => k.codigo === b.servicioCodigo);
-  const errores: { campo: string; mensaje: string }[] = [];
-  if (!cat) errores.push({ campo: "servicioCodigo", mensaje: "Ese servicio no está en el catálogo" });
-  if (!b.fechaInicio || !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaInicio)) errores.push({ campo: "fechaInicio", mensaje: "Indica la fecha de inicio (AAAA-MM-DD)" });
-  if (b.fechaFin && b.fechaInicio && b.fechaFin < b.fechaInicio) errores.push({ campo: "fechaFin", mensaje: "La fecha de fin es anterior al inicio" });
+  const { cat, errores } = validarContratacion(b);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  if (serviciosDe(c.id).some((s) => s.categoria === cat!.codigo)) throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
-  const entregables = b.entregables?.length ? b.entregables : [{ tipoPieza: (cat!.codigo === "BLOG" ? "BLOG" : cat!.codigo === "ESTATICOS" ? "ESTATICO" : "COPY") as S<"TipoPieza">, cantidadMensual: 0 }];
-  const sc = { id: nuevoId(4), clienteId: c.id, categoria: cat!.codigo, tipoPieza: entregables[0].tipoPieza, cantidadMensual: entregables.reduce((t, e) => t + e.cantidadMensual, 0), siguientePaso: "" };
-  E.servicios.push(sc);
-  if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;
-  const r: S<"ServicioCliente"> = {
-    categoria: cat!.codigo, nombre: cat!.nombre, descripcion: cat!.descripcion, unidad: cat!.unidad, contratado: true, servicioContratadoId: sc.id, estado: "ACTIVO",
-    alcance: b.alcance ?? null, fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, cantidadMensual: sc.cantidadMensual, progreso: progreso([], sc.cantidadMensual), entregables,
+  const variante = b.variante ?? null;
+  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && s.estado === "ACTIVO")) {
+    throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
+  }
+  const sc: D.ServicioContratadoDemo = {
+    id: nuevoId(4), clienteId: c.id, codigo: cat!.codigo, variante, detalle: (b.detalle ?? {}) as Record<string, unknown>, marca: b.marca?.trim() || null,
+    entregables: (b.entregables ?? []).map((e) => ({ tipoPieza: e.tipoPieza, cantidadMensual: e.cantidadMensual })), siguientePaso: "",
+    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO",
   };
-  return { __status: 201, ...r };
+  E.servicios.push(sc);
+  // Etapas desde la plantilla: el proyecto entero, o el mes en curso si el servicio es mensual.
+  const periodo = cat!.modalidad === "MENSUAL" ? (b.fechaInicio.slice(0, 7) > D.PERIODO ? b.fechaInicio.slice(0, 7) : D.PERIODO) : null;
+  const inicio = periodo && periodo !== b.fechaInicio.slice(0, 7) ? `${periodo}-01` : b.fechaInicio;
+  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio)) {
+    E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
+  }
+  if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;
+  emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, usuarioId: ctx.usuario.id });
+  return { __status: 201, ...servicioVista(sc) };
+});
+
+ruta("GET", "/plantillas", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const servicio = q.get("servicio");
+  return {
+    datos: PLANTILLAS.map((pl, i) => ({ pl, i }))
+      .filter(({ pl }) => !servicio || pl.servicio === servicio)
+      .map(({ pl, i }): S<"PlantillaProyecto"> => ({
+        id: D.uid(21, i + 1), servicioCodigo: pl.servicio, variante: pl.variante, nombre: pl.nombre, metricas: pl.metricas,
+        etapas: pl.etapas.map(([nombre, avancePct, diasHabiles, esperaCliente], j) => ({ orden: j + 1, nombre, descripcion: null, avancePct, diasHabiles, esperaCliente })),
+      })),
+  };
+});
+
+ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = E.servicios.find((x) => x.id === p.id);
+  const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
+  if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null }>(req);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
+  for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
+    if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
+  }
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.estado) {
+    const hermanas = E.etapas.filter((x) => x.servicioContratadoId === s.id && x.periodo === e.periodo);
+    const codigo = errorAlMoverEtapa(hermanas, e.orden, b.estado);
+    if (codigo) throw new ErrorApi(409, codigo, "Primero completa la etapa anterior");
+    e.estado = b.estado;
+    e.fechaFin = b.estado === "COMPLETADO" ? b.fechaFin ?? D.HOY.slice(0, 10) : null;
+  } else if (b.fechaFin !== undefined) e.fechaFin = b.fechaFin;
+  if (b.fechaInicio !== undefined) e.fechaInicio = b.fechaInicio;
+  if (b.fechaEstimada !== undefined) e.fechaEstimada = b.fechaEstimada;
+  emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
+  return avanceServicio(s);
 });
 
 ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {
@@ -1749,8 +1801,10 @@ function servicioPara(clienteId: string, tipo: string, servicioId?: string) {
     if (!s) throw new ErrorApi(422, "VALIDACION", "Servicio contratado inexistente", undefined, [{ campo: "servicioContratadoId", mensaje: "No pertenece al cliente" }]);
     return s.id;
   }
-  const cat = tipo === "BLOG" ? "BLOG" : tipo === "ESTATICO" || tipo === "CARRUSEL" || tipo === "PORTADA" ? "ESTATICOS" : "REDES_SOCIALES";
-  return serviciosDe(clienteId).find((s) => s.categoria === cat)?.id ?? serviciosDe(clienteId)[0]?.id ?? "";
+  // El servicio que incluye ese tipo de pieza; si ninguno lo incluye, el blog va al soporte web y el resto a Social Media Pro.
+  const xs = serviciosDe(clienteId);
+  const codigo = tipo === "BLOG" ? "SOPORTE_CONTINUO" : "SOCIAL_MEDIA_PRO";
+  return (xs.find((s) => s.entregables.some((e) => e.tipoPieza === tipo)) ?? xs.find((s) => s.codigo === codigo) ?? xs[0])?.id ?? "";
 }
 
 ruta("POST", "/integraciones/piezas", async (ctx, _p, _q, req) => {

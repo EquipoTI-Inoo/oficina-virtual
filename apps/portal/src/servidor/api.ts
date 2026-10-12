@@ -7,7 +7,9 @@
  * POST /piezas/{id}/solicitar-cambios · POST /piezas/{id}/transiciones · GET|POST /me/notificaciones(/leer) ·
  * GET /clientes · GET /clientes/{id} · GET|POST /clientes/{id}/tickets · GET|PATCH /tickets/{id} ·
  * POST /tickets/{id}/mensajes · POST /piezas/{id}/versiones · POST /integraciones/piezas(/{id}/versiones) ·
- * POST /integraciones/ejecuciones (estas tres con X-Api-Key).
+ * POST /integraciones/ejecuciones (estas tres con X-Api-Key) · GET /servicios · GET|POST /clientes/{id}/servicios ·
+ * GET /clientes/{id}/avance · GET /servicios-contratados/{id}/avance · PATCH /servicios-contratados/{id}/etapas/{id} ·
+ * GET /plantillas.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -18,6 +20,7 @@ import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
+import { calcularAvance, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Estado = "BORRADOR" | "EN_REVISION_INTERNA" | "LISTO_REVISION" | "APROBADO_CLIENTE" | "CAMBIOS_SOLICITADOS" | "PUBLICADO";
@@ -657,7 +660,18 @@ ruta("POST", "/integraciones/piezas/:id/versiones", async (ctx, p, _q, cuerpo) =
   return versionCreada(ctx, pieza.id, await nuevaVersion(ctx, pieza, await cuerpo(), "AGENTE"));
 });
 
-const categoriaDeTipo = (tipo: string) => (tipo === "BLOG" ? "BLOG" : ["ESTATICO", "CARRUSEL", "PORTADA"].includes(tipo) ? "ESTATICOS" : "REDES_SOCIALES");
+/** Servicio contratado al que va una pieza nueva: el que incluye ese tipo de pieza; si ninguno, el blog va al
+ * soporte continuo (web) y lo demás a Social Media Pro. */
+async function servicioParaTipo(ctx: Ctx, clienteId: string, tipo: string): Promise<string | null> {
+  const { rows } = await ctx.c.query<{ id: string }>(
+    `SELECT sc.id FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id
+     WHERE sc.cliente_id = $1 AND sc.estado = 'ACTIVO'
+     ORDER BY EXISTS (SELECT 1 FROM entregable_incluido ei WHERE ei.servicio_contratado_id = sc.id AND ei.tipo_pieza::text = $2) DESC,
+              (s.codigo = $3) DESC, sc.fecha_inicio LIMIT 1`,
+    [clienteId, tipo, tipo === "BLOG" ? "SOPORTE_CONTINUO" : "SOCIAL_MEDIA_PRO"],
+  );
+  return rows[0]?.id ?? null;
+}
 
 ruta("POST", "/integraciones/piezas", async (ctx, _p, _q, cuerpo) => {
   soloServicio(ctx, "piezas:write");
@@ -682,12 +696,7 @@ ruta("POST", "/integraciones/piezas", async (ctx, _p, _q, cuerpo) => {
     const ok = esUuid(servicioId) && (await ctx.c.query("SELECT 1 FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [servicioId, b.clienteId])).rows.length > 0;
     if (!ok) validacion([{ campo: "servicioContratadoId", mensaje: "No pertenece al cliente" }]);
   } else {
-    const { rows } = await ctx.c.query<{ id: string }>(
-      `SELECT sc.id FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id
-       WHERE sc.cliente_id = $1 AND sc.estado = 'ACTIVO' ORDER BY (s.categoria::text = $2) DESC, sc.fecha_inicio LIMIT 1`,
-      [b.clienteId, categoriaDeTipo(b.tipo!)],
-    );
-    servicioId = rows[0]?.id ?? null;
+    servicioId = await servicioParaTipo(ctx, b.clienteId!, b.tipo!);
   }
   const { rows } = await ctx.c.query<{ id: string }>(
     `INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, canal, periodo, fecha_programada, nota_estado)
@@ -1251,10 +1260,7 @@ ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, cuerpo) =>
     if (piezaId) {
       await ctx.c.query("UPDATE pieza SET titulo = $2, actualizado_en = now() WHERE id = $1", [piezaId, idea.titulo]);
     } else {
-      const servicio = (await ctx.c.query<{ id: string }>(
-        "SELECT sc.id FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.categoria = 'BLOG' AND sc.estado = 'ACTIVO' LIMIT 1",
-        [p.id],
-      )).rows[0]?.id ?? null;
+      const servicio = await servicioParaTipo(ctx, p.id, "BLOG");
       piezaId = (await ctx.c.query<{ id: string }>(
         "INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, canal, periodo, fecha_programada, nota_estado) VALUES ($1, $2, $3, 'BLOG', $4, 'Blog web', $5, $6, $7) RETURNING id",
         [p.id, servicio, cal?.id ?? null, idea.titulo, periodo, `${periodo}-25T15:00:00Z`, "Idea elegida por el equipo"],
@@ -1301,14 +1307,11 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, cuerpo) => {
       [cliente!.id, periodo, brief?.id ?? null, b.resumen ?? null],
     )).rows[0].id;
   }
-  const servicios = (await ctx.c.query<{ id: string; categoria: string }>(
-    "SELECT sc.id, s.categoria::text AS categoria FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND sc.estado = 'ACTIVO' ORDER BY sc.fecha_inicio",
-    [cliente!.id],
-  )).rows;
+  const servicios = (await ctx.c.query<{ id: string }>("SELECT id FROM servicio_contratado WHERE cliente_id = $1 AND estado = 'ACTIVO'", [cliente!.id])).rows;
   for (const [i, x] of b.entradas!.entries()) {
     let servicioId = x.servicioContratadoId ?? null;
     if (servicioId && !servicios.some((s) => s.id === servicioId)) validacion([{ campo: `entradas[${i}].servicioContratadoId`, mensaje: "No pertenece al cliente" }]);
-    servicioId ??= servicios.find((s) => s.categoria === categoriaDeTipo(x.tipo))?.id ?? servicios[0]?.id ?? null;
+    servicioId ??= await servicioParaTipo(ctx, cliente!.id, x.tipo);
     const piezaId = (await ctx.c.query<{ id: string }>(
       `INSERT INTO pieza (cliente_id, servicio_contratado_id, calendario_id, tipo, titulo, resumen, canal, periodo, fecha_programada, nota_estado, etiquetas)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Propuesta del Jefe de Marketing', $10) RETURNING id`,
@@ -1326,6 +1329,269 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, cuerpo) => {
     }
   }
   return { __status: 201, ...(await calendarioVista(ctx, cliente!.id, periodo)) };
+});
+
+// ───────────────────────────────────────────── servicios, plantillas y etapas (reunión 12 oct)
+
+/** Hoy en Lima (UTC-5), AAAA-MM-DD. */
+const HOY_LIMA = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
+const fechaIso = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d as string | null) ?? null);
+
+interface FilaServicio {
+  id: string;
+  cliente_id: string;
+  cliente_nombre: string;
+  codigo: S<"CodigoServicio">;
+  nombre: string;
+  descripcion: string | null;
+  modalidad: "MENSUAL" | "PROYECTO";
+  unidad: string;
+  variantes: { codigo: string; nombre: string }[];
+  variante: string | null;
+  detalle: Record<string, unknown>;
+  marca: string | null;
+  estado: S<"EstadoServicio">;
+  alcance: string | null;
+  fecha_inicio: Date | string;
+  fecha_fin: Date | string | null;
+  siguiente_paso: string | null;
+  paso_id: string | null;
+  paso_nombre: string | null;
+  paso_cargo: string | null;
+  paso_email: string | null;
+  entregables: { tipoPieza: S<"TipoPieza">; cantidadMensual: number }[];
+}
+interface FilaEtapa {
+  id: string;
+  servicio_contratado_id: string;
+  periodo: string | null;
+  orden: number;
+  nombre: string;
+  descripcion: string | null;
+  avance_pct: number;
+  estado: S<"EstadoHito">;
+  espera_cliente: boolean;
+  fecha_inicio: Date | null;
+  fecha_estimada: Date | null;
+  fecha_fin: Date | null;
+}
+
+const SELECT_SERVICIO = `
+  SELECT sc.*, c.nombre AS cliente_nombre, s.codigo, s.nombre, s.descripcion, s.modalidad::text AS modalidad, s.unidad, s.variantes,
+         u.id AS paso_id, u.nombre AS paso_nombre, u.cargo AS paso_cargo, u.email::text AS paso_email,
+         coalesce((SELECT json_agg(json_build_object('tipoPieza', ei.tipo_pieza, 'cantidadMensual', ei.cantidad_mensual) ORDER BY ei.tipo_pieza)
+                   FROM entregable_incluido ei WHERE ei.servicio_contratado_id = sc.id), '[]') AS entregables
+  FROM servicio_contratado sc
+  JOIN servicio s ON s.id = sc.servicio_id
+  JOIN cliente c ON c.id = sc.cliente_id
+  LEFT JOIN usuario u ON u.id = sc.siguiente_paso_responsable_id`;
+
+async function serviciosDelCliente(ctx: Ctx, clienteId: string): Promise<FilaServicio[]> {
+  return (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.cliente_id = $1 ORDER BY s.orden, sc.fecha_inicio`, [clienteId])).rows;
+}
+
+async function buscarServicio(ctx: Ctx, id: string): Promise<FilaServicio> {
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  const { rows } = await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.id = $1`, [id]);
+  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  await accesoCliente(ctx, rows[0].cliente_id);
+  return rows[0];
+}
+
+/** Etapas del proyecto o, en servicios mensuales, las del mes pedido. */
+async function etapasDelServicio(ctx: Ctx, s: FilaServicio, periodo: string): Promise<FilaEtapa[]> {
+  const { rows } = await ctx.c.query<FilaEtapa>(
+    "SELECT * FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 ORDER BY orden",
+    [s.id, s.modalidad === "MENSUAL" ? periodo : null],
+  );
+  return rows;
+}
+
+const etapaVista = (e: FilaEtapa, hoy: string): S<"EtapaProyecto"> => ({
+  id: e.id, orden: e.orden, nombre: e.nombre, descripcion: e.descripcion, periodo: e.periodo, avancePct: e.avance_pct, estado: e.estado, esperaCliente: e.espera_cliente,
+  fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin),
+  atrasada: etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy),
+});
+
+async function progresoPiezas(ctx: Ctx, servicioId: string | null, clienteId: string, periodo: string, totales: number): Promise<S<"ProgresoPiezas">> {
+  const { rows } = await ctx.c.query<{ estado: Estado; n: number }>(
+    `SELECT estado, count(*)::int AS n FROM pieza WHERE cliente_id = $1 AND periodo = $2 AND ($3::uuid IS NULL OR servicio_contratado_id = $3) GROUP BY estado`,
+    [clienteId, periodo, servicioId],
+  );
+  const n = (...es: Estado[]) => rows.filter((r) => es.includes(r.estado)).reduce((t, r) => t + r.n, 0);
+  const aprobadas = n("APROBADO_CLIENTE", "PUBLICADO");
+  const porRevisar = n("LISTO_REVISION");
+  const todas = rows.reduce((t, r) => t + r.n, 0);
+  return { totales, entregadas: aprobadas + porRevisar, aprobadas, publicadas: n("PUBLICADO"), porRevisar, enProduccion: todas - aprobadas - porRevisar, porcentaje: totales ? Math.round((aprobadas / totales) * 100) : 0 };
+}
+
+async function servicioVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<S<"ServicioCliente"> & { etapas: FilaEtapa[] }> {
+  const etapas = await etapasDelServicio(ctx, s, periodo);
+  const hoy = HOY_LIMA();
+  const cantidad = s.entregables.reduce((t, e) => t + e.cantidadMensual, 0);
+  return {
+    codigo: s.codigo, nombre: s.nombre, titulo: tituloServicio(s.nombre, s.marca ?? s.cliente_nombre), descripcion: s.descripcion, modalidad: s.modalidad,
+    variante: s.variantes.find((v) => v.codigo === s.variante) ?? null, detalle: s.detalle, servicioContratadoId: s.id, estado: s.estado, alcance: s.alcance,
+    fechaInicio: fechaIso(s.fecha_inicio), fechaFin: fechaIso(s.fecha_fin), unidad: s.unidad, cantidadMensual: cantidad,
+    progreso: cantidad ? await progresoPiezas(ctx, s.id, s.cliente_id, periodo, cantidad) : null,
+    avance: calcularAvance(etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) })), hoy, s.modalidad === "MENSUAL" ? periodo : null),
+    entregables: s.entregables,
+    etapas,
+  };
+}
+
+async function avanceServicio(ctx: Ctx, s: FilaServicio, periodo: string): Promise<S<"AvanceServicio">> {
+  const { etapas, ...v } = await servicioVista(ctx, s, periodo);
+  const a = v.avance;
+  const hitos = (await ctx.c.query<{ id: string; grupo: string | null; titulo: string; estado: S<"EstadoHito">; fecha_inicio: Date | null; fecha_estimada: Date | null; espera_cliente: boolean; nota_cliente: string | null; responsable_nombre: string | null; sincronizado_en: Date }>(
+    "SELECT * FROM hito_proyecto WHERE servicio_contratado_id = $1 AND visible_cliente ORDER BY orden", [s.id],
+  )).rows;
+  return {
+    servicioContratadoId: s.id, codigo: s.codigo, nombre: v.nombre, titulo: v.titulo, variante: v.variante, detalle: s.detalle,
+    estado: a.totalEtapas > 0 && a.etapasCompletadas === a.totalEtapas ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
+    progreso: v.progreso, avance: a, etapas: etapas.map((e) => etapaVista(e, HOY_LIMA())),
+    hitos: hitos.map((h) => ({ id: h.id, grupo: h.grupo, titulo: h.titulo, estado: h.estado, fechaInicio: fechaIso(h.fecha_inicio), fechaFin: fechaIso(h.fecha_estimada), esperaCliente: h.espera_cliente, nota: h.nota_cliente, responsableNombre: h.responsable_nombre })),
+    siguientePaso: s.siguiente_paso ? { texto: `Siguiente paso: ${s.siguiente_paso}`, responsable: s.paso_id ? { id: s.paso_id, nombre: s.paso_nombre ?? "", cargo: s.paso_cargo, email: s.paso_email ?? undefined } : (undefined as never) } : null,
+    sincronizadoEn: iso(hitos[0]?.sincronizado_en ?? null) ?? new Date().toISOString(),
+  };
+}
+
+ruta("GET", "/servicios", async (ctx) => {
+  const { rows } = await ctx.c.query<{ codigo: S<"CodigoServicio">; nombre: string; descripcion: string | null; modalidad: "MENSUAL" | "PROYECTO"; variantes: S<"VarianteServicio">[]; unidad: string }>(
+    "SELECT codigo, nombre, descripcion, modalidad::text AS modalidad, variantes, unidad FROM servicio WHERE activo ORDER BY orden",
+  );
+  return { datos: rows };
+});
+
+ruta("GET", "/clientes/:id/servicios", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const servicios = await Promise.all((await serviciosDelCliente(ctx, p.id)).map(async (s) => {
+    const { etapas: _e, ...v } = await servicioVista(ctx, s, periodo);
+    return v;
+  }));
+  const plan = (await ctx.c.query<{ id: string; nombre: string; fecha_inicio: Date; fecha_fin: Date | null; contrato_archivo_id: string | null }>(
+    "SELECT id, nombre, fecha_inicio, fecha_fin, contrato_archivo_id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id],
+  )).rows[0];
+  const cuota = servicios.reduce((t, s) => t + s.cantidadMensual, 0);
+  const r: S<"ServiciosCliente"> = {
+    periodo,
+    plan: plan ? { id: plan.id, nombre: plan.nombre, fechaInicio: fechaIso(plan.fecha_inicio)!, fechaFin: fechaIso(plan.fecha_fin), tieneContrato: !!plan.contrato_archivo_id } : null,
+    resumenMes: await progresoPiezas(ctx, null, p.id, periodo, cuota),
+    servicios,
+  };
+  return r;
+});
+
+ruta("GET", "/clientes/:id/avance", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const servicios = await serviciosDelCliente(ctx, p.id);
+  const cuota = servicios.reduce((t, s) => t + s.entregables.reduce((x, e) => x + e.cantidadMensual, 0), 0);
+  const porRevisar = (await ctx.c.query<{ id: string; titulo: string; fecha_programada: Date | null }>(
+    "SELECT id, titulo, fecha_programada FROM pieza WHERE cliente_id = $1 AND periodo = $2 AND estado = 'LISTO_REVISION' ORDER BY fecha_programada", [p.id, periodo],
+  )).rows;
+  const r: S<"AvanceCliente"> = {
+    periodo,
+    resumenMes: await progresoPiezas(ctx, null, p.id, periodo, cuota),
+    piezasPorRevisar: porRevisar.map((x) => ({ id: x.id, titulo: x.titulo, fechaProgramada: iso(x.fecha_programada) ?? undefined })),
+    servicios: await Promise.all(servicios.map((s) => avanceServicio(ctx, s, periodo))),
+  };
+  return r;
+});
+
+ruta("GET", "/servicios-contratados/:id/avance", async (ctx, p) => avanceServicio(ctx, await buscarServicio(ctx, p.id), PERIODO_ACTUAL()));
+
+ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ADMIN"]);
+  const b = (await cuerpo()) as Partial<S<"ServicioContratadoEntrada">>;
+  const { cat, errores } = validarContratacion(b);
+  if (errores.length) validacion(errores);
+  const variante = b.variante ?? null;
+  const ya = await ctx.c.query(
+    "SELECT 1 FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.codigo = $2 AND sc.variante IS NOT DISTINCT FROM $3 AND sc.estado = 'ACTIVO'",
+    [p.id, cat!.codigo, variante],
+  );
+  if (ya.rows.length) throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
+  const plantilla = (await ctx.c.query<{ id: string; servicio_id: string }>(
+    `SELECT pp.id, s.id AS servicio_id FROM servicio s
+     LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND (pp.variante = $2 OR pp.variante IS NULL)
+     WHERE s.codigo = $1 ORDER BY pp.variante NULLS LAST LIMIT 1`,
+    [cat!.codigo, variante],
+  )).rows[0];
+  const plan = (await ctx.c.query<{ id: string }>("SELECT id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id])).rows[0];
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO servicio_contratado (cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, alcance, fecha_inicio, fecha_fin, inoowork_proyecto_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+    [p.id, plantilla.servicio_id, b.planId ?? plan?.id ?? null, variante, JSON.stringify(b.detalle ?? {}), b.marca?.trim() || null, plantilla.id, b.alcance ?? null, b.fechaInicio, b.fechaFin ?? null, b.inooworkProyectoId ?? null],
+  )).rows[0].id;
+  for (const e of b.entregables ?? []) {
+    await ctx.c.query("INSERT INTO entregable_incluido (servicio_contratado_id, tipo_pieza, cantidad_mensual) VALUES ($1, $2, $3)", [id, e.tipoPieza, e.cantidadMensual]);
+  }
+  // Etapas desde la plantilla: el proyecto entero, o el mes en curso si el servicio es mensual.
+  const mesInicio = b.fechaInicio!.slice(0, 7);
+  const periodo = cat!.modalidad === "MENSUAL" ? (mesInicio > PERIODO_ACTUAL() ? mesInicio : PERIODO_ACTUAL()) : null;
+  const inicio = periodo && periodo !== mesInicio ? `${periodo}-01` : b.fechaInicio!;
+  const etapasPlantilla = (await ctx.c.query<{ id: string; orden: number }>("SELECT id, orden FROM etapa_plantilla WHERE plantilla_id = $1", [plantilla.id])).rows;
+  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio)) {
+    await ctx.c.query(
+      `INSERT INTO etapa_proyecto (servicio_contratado_id, cliente_id, etapa_plantilla_id, periodo, orden, nombre, avance_pct, espera_cliente, fecha_inicio, fecha_estimada, actualizado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [id, p.id, etapasPlantilla.find((x) => x.orden === e.orden)?.id ?? null, periodo, e.orden, e.nombre, e.avancePct, e.esperaCliente, e.fechaInicio, e.fechaEstimada, ctx.u.usuarioId],
+    );
+  }
+  await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, usuarioId: ctx.u.usuarioId });
+  const { etapas: _e, ...v } = await servicioVista(ctx, await buscarServicio(ctx, id), PERIODO_ACTUAL());
+  return { __status: 201, ...v };
+});
+
+ruta("GET", "/plantillas", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const { rows } = await ctx.c.query<S<"PlantillaProyecto">>(
+    `SELECT pp.id, s.codigo AS "servicioCodigo", pp.variante, pp.nombre, pp.metricas,
+            (SELECT json_agg(json_build_object('orden', e.orden, 'nombre', e.nombre, 'descripcion', e.descripcion, 'avancePct', e.avance_pct,
+                                               'diasHabiles', e.dias_habiles, 'esperaCliente', e.espera_cliente) ORDER BY e.orden)
+             FROM etapa_plantilla e WHERE e.plantilla_id = pp.id) AS etapas
+     FROM plantilla_proyecto pp JOIN servicio s ON s.id = pp.servicio_id
+     WHERE pp.activa AND ($1::text IS NULL OR s.codigo = $1)
+     ORDER BY s.orden, pp.variante NULLS FIRST`,
+    [q.get("servicio")],
+  );
+  return { datos: rows };
+});
+
+ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  if (!esUuid(p.etapa)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  const e = (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2 FOR UPDATE", [p.etapa, s.id])).rows[0];
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
+  for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
+    if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
+  }
+  if (errores.length) validacion(errores);
+  let estado = e.estado;
+  let fin = fechaIso(e.fecha_fin);
+  if (b.estado) {
+    const hermanas = (await ctx.c.query<{ orden: number; estado: S<"EstadoHito"> }>(
+      "SELECT orden, estado FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2", [s.id, e.periodo],
+    )).rows;
+    const codigo = errorAlMoverEtapa(hermanas, e.orden, b.estado);
+    if (codigo) throw new ErrorApi(409, codigo, "Primero completa la etapa anterior");
+    estado = b.estado;
+    fin = b.estado === "COMPLETADO" ? b.fechaFin ?? HOY_LIMA() : null;
+  } else if (b.fechaFin !== undefined) fin = b.fechaFin;
+  await ctx.c.query(
+    `UPDATE etapa_proyecto SET estado = $2, fecha_fin = $3, fecha_inicio = coalesce($4, fecha_inicio), fecha_estimada = coalesce($5, fecha_estimada),
+            actualizado_por = $6, actualizado_en = now() WHERE id = $1`,
+    [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId],
+  );
+  await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
+  return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
 });
 
 // ───────────────────────────────────────────── despachador

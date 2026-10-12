@@ -68,7 +68,7 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 | n8n (perfil `fase1`) | http://localhost:5678 | se crea al primer ingreso | n8n en VPS/ECS |
 | NocoDB (perfil `fase1`) | http://localhost:8080 | se crea al primer ingreso | Panel interno Fase 1 |
 
-Postgres ejecuta `database/migraciones/0001_esquema.sql` y luego `database/semillas/0001_casa_oliva.sql`
+Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0005) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
 
 Para que el portal hable con Prism en vez de la API simulada: `API_MODO=proxy` en `infra/local/.env`.
@@ -100,14 +100,16 @@ Postgres del esquema. Las reglas no se duplican en TypeScript: los cambios de es
 **Estado del primer corte.** Implementado contra la base: `GET /me`, `GET /clientes/{id}/piezas`,
 `GET /piezas/{id}`, `GET /piezas/{id}/versiones`, `GET /piezas/{id}/historial`,
 `GET|POST /piezas/{id}/comentarios`, `POST /piezas/{id}/aprobar`, `POST /piezas/{id}/solicitar-cambios`,
-`POST /piezas/{id}/transiciones`, con `Idempotency-Key` guardada en la tabla `idempotencia`. El resto del
+`POST /piezas/{id}/transiciones`, servicios y etapas (`GET /servicios`, `GET|POST /clientes/{id}/servicios`,
+`GET /clientes/{id}/avance`, `GET /servicios-contratados/{id}/avance`, `PATCH /servicios-contratados/{id}/etapas/{id}`,
+`GET /plantillas`), con `Idempotency-Key` guardada en la tabla `idempotencia`. El resto del
 contrato responde `501 RUTA_NO_IMPLEMENTADA`; mientras tanto el portal completo sigue funcionando con
 `API_MODO=mock`. Para migrar una ruta: copiarla de `src/mock/api.ts` a `src/servidor/api.ts` con SQL y
 moverla a `tests/api/flujo-piezas.ts` (o a una suite compartida nueva) para que corra contra las dos.
 
 | Variable | Valores | Efecto |
 |---|---|---|
-| `DATABASE_URL` | URL de Postgres | Base con `database/migraciones/0001` y `0002` aplicadas |
+| `DATABASE_URL` | URL de Postgres | Base con todas las migraciones de `database/migraciones/` aplicadas, en orden |
 | `AUTH_MODO` | `demo`, `cognito` | `demo`: token `demo.<usuario_id>` (bloqueado en producción salvo `PERMITIR_AUTH_DEMO=true`). `cognito`: JWT de los dos pools, verificado con su JWKS |
 | `COGNITO_REGION`, `COGNITO_POOL_EQUIPO`, `COGNITO_POOL_CLIENTES`, `COGNITO_CLIENT_IDS` | | Pools y apps de Cognito; el `sub` se busca en `usuario.cognito_sub` |
 | `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRETO` | | Destino y secreto del despachador del outbox (`npm run outbox`) |

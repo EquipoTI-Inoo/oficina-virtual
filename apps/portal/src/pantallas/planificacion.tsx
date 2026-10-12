@@ -4,8 +4,8 @@ import {
   LuArrowRight, LuCalendarDays, LuChartNoAxesColumnIncreasing, LuChevronDown, LuChevronLeft, LuChevronRight,
   LuCircleCheck, LuCloudUpload, LuDownload, LuFileText, LuLink, LuPlus, LuShieldCheck, LuSparkles, LuVideo, LuX,
 } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fBytes, fDiaMes, fHoyLargo, fNumero, HOY_DEMO, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
-import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, useAviso } from "../componentes";
+import { api, clienteActivo, Enlace, fBytes, fDiaMes, fHoyLargo, fNumero, HOY_DEMO, nombreMes, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
+import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, useAviso } from "../componentes";
 import { AsiVaElMes } from "./principal";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
@@ -212,9 +212,9 @@ function PlanMes() {
             <select aria-label="Filtrar por servicio" value={servicio} onChange={(e) => setServicio(e.target.value)} style={{ appearance: "none", border: 0, background: "none", fontWeight: 600, fontSize: 13.5, outline: "none", cursor: "pointer" }}>
               <option value="">Todos los servicios</option>
               {servicios.datos?.servicios
-                .filter((s) => s.contratado)
+                .filter((s) => s.cantidadMensual > 0)
                 .map((s) => (
-                  <option key={s.servicioContratadoId!} value={s.servicioContratadoId!}>
+                  <option key={s.servicioContratadoId} value={s.servicioContratadoId}>
                     {s.nombre}
                   </option>
                 ))}
@@ -800,6 +800,8 @@ function Resultados() {
 
 // ═════════════════════════════════════════════ Avance de proyectos
 
+const ESTADO_AVANCE: Record<string, string> = { SIN_INICIAR: "Por iniciar", EN_CURSO: "En curso", COMPLETADO: "Completado", PAUSADO: "En pausa" };
+
 export function PantallaAvance() {
   return (
     <Estructura espacio="cliente" migas="Avance de proyectos">
@@ -814,8 +816,8 @@ function Avance() {
   if (!d) return <Cargando />;
   return (
     <>
-      <Cabecera antetitulo="Casa Oliva · Octubre 2026" titulo="Avance de proyectos" bajada="Los hitos de cada servicio, con un siguiente paso claro para avanzar juntos." />
-      <AsiVaElMes progreso={d.resumenMes} conEnlace={false} nota={`Las aprobadas incluyen ${d.resumenMes.publicadas} ya publicadas. Los hitos se completan por pieza, no todos al mismo tiempo.`} />
+      <Cabecera antetitulo="Casa Oliva · Octubre 2026" titulo="Avance de proyectos" bajada="Las etapas de cada servicio, con un siguiente paso claro para avanzar juntos." />
+      {d.resumenMes.totales > 0 && <AsiVaElMes progreso={d.resumenMes} conEnlace={false} nota={`Las aprobadas incluyen ${d.resumenMes.publicadas} ya publicadas.`} />}
       {d.piezasPorRevisar && d.piezasPorRevisar.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <Aviso icono={<LuCircleCheck size={18} />} titulo="Tu revisión mantiene el ritmo">
@@ -828,27 +830,34 @@ function Avance() {
           <div className="tarjeta" key={s.servicioContratadoId} style={{ padding: "22px 16px 16px" }}>
             <div className="fila entre">
               <div className="fila" style={{ gap: 10, color: "var(--c-primario)" }}>
-                {s.categoria && ICONO_SERVICIO[s.categoria]}
-                <h3 style={{ fontSize: 17, fontWeight: 600, color: "var(--c-tinta)" }}>{s.nombre}</h3>
+                {ICONO_SERVICIO[s.codigo]}
+                <h3 style={{ fontSize: 17, fontWeight: 600, color: "var(--c-tinta)" }}>{s.titulo}</h3>
               </div>
-              <div className="fila">
-                <Etiqueta tono="azul">En curso</Etiqueta>
-                <span style={{ fontSize: 17, color: "var(--c-primario)" }}>{s.progreso?.porcentaje} % aprobado</span>
-              </div>
+              <Etiqueta tono={s.estado === "COMPLETADO" ? "verde" : s.estado === "EN_CURSO" ? "azul" : "gris"}>{ESTADO_AVANCE[s.estado ?? "EN_CURSO"]}</Etiqueta>
             </div>
-            <p className="texto-xs texto-muted" style={{ margin: "14px 0" }}>
-              {s.progreso?.totales} {s.categoria === "BLOG" ? "artículos" : s.categoria === "ESTATICOS" ? "diseños" : "piezas"} / mes · {s.progreso?.aprobadas} aprobados · {s.progreso?.porRevisar} por revisar · {s.progreso?.enProduccion} en producción
+            <p className="texto-xs texto-muted" style={{ margin: "10px 0 14px" }}>
+              {detalleServicio({ ...s, cantidadMensual: s.progreso?.totales ?? 0, unidad: "piezas" })}
+              {s.avance.periodo ? ` · Etapas de ${nombreMes(s.avance.periodo)}` : ""}
             </p>
-            <Barra pct={s.progreso?.porcentaje ?? 0} />
-            <div className="hitos">
-              {s.hitos.map((h) => (
-                <div className="hito" key={h.id}>
-                  <span className={`hito-punto${h.estado === "COMPLETADO" ? " hito-punto--hecho" : h.esperaCliente ? " hito-punto--actual" : ""}`} />
-                  <strong>{h.titulo}</strong>
-                  <span style={{ display: "block", marginTop: 2 }}>{h.fechaInicio && h.fechaFin ? `${h.fechaInicio.slice(8)}-${h.fechaFin.slice(8)} oct` : h.fechaFin ? fDiaMes(h.fechaFin).replace("sep", "sep") : ""}</span>
-                  <span style={{ display: "block", marginTop: 2, color: h.esperaCliente ? "var(--c-primario)" : undefined }}>{h.nota}</span>
-                </div>
-              ))}
+            <AvanceLineal avance={s.avance} />
+            <div className="hitos" style={{ gridTemplateColumns: `repeat(${Math.min(s.etapas.length, 6)}, 1fr)` }}>
+              {s.etapas.map((e) => {
+                const actual = e.orden === s.avance.etapaActual?.orden;
+                return (
+                  <div className="hito" key={e.id}>
+                    <span className={`hito-punto${e.estado === "COMPLETADO" ? " hito-punto--hecho" : actual ? " hito-punto--actual" : ""}`} />
+                    <strong>{e.nombre}</strong>
+                    <span style={{ display: "block", marginTop: 2 }}>
+                      {e.estado === "COMPLETADO" && e.fechaFin ? `Lista el ${fDiaMes(e.fechaFin)}` : e.fechaEstimada ? `Prevista: ${fDiaMes(e.fechaEstimada)}` : ""}
+                    </span>
+                    {actual && (
+                      <span style={{ display: "block", marginTop: 2, color: e.atrasada ? "var(--c-alerta)" : "var(--c-primario)" }}>
+                        {e.atrasada ? "Con retraso" : e.esperaCliente ? "Necesita algo de ti" : "En curso"}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             {s.siguientePaso && (
               <div className="fila-suave" style={{ marginTop: 18, fontSize: 11 }}>
@@ -859,20 +868,6 @@ function Avance() {
           </div>
         ))}
       </div>
-      <section className="seccion">
-        <h2 className="seccion-titulo" style={{ marginBottom: 18 }}>Servicios no contratados</h2>
-        <div style={{ display: "grid", gap: 12 }}>
-          {d.noContratados.map((s) => (
-            <div key={s.codigo} className="tarjeta fila entre" style={{ padding: "16px 12px 16px 14px", borderRadius: 14, boxShadow: "none" }}>
-              <div>
-                <p className="negrita" style={{ fontSize: 12 }}>{s.nombre}</p>
-                <p className="texto-xs texto-muted" style={{ marginTop: 4 }}>Sin proyecto activo ni hitos programados.</p>
-              </div>
-              <Etiqueta tono="gris">No contratado</Etiqueta>
-            </div>
-          ))}
-        </div>
-      </section>
     </>
   );
 }

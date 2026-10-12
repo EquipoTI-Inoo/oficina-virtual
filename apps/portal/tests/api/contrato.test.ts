@@ -88,7 +88,7 @@ describe("aislamiento por cliente y permisos", () => {
 describe("aprobaciones (CU-06)", () => {
   test("los números de Inicio coinciden con Figma", async () => {
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
-    assert.deepEqual(r.json.indicadores, { serviciosActivos: 3, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0 });
+    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0 });
     assert.equal(r.json.avanceMes.porcentaje, 60);
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");

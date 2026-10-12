@@ -41,10 +41,6 @@ const eventos = async () => (await llamar("GET", "/__pruebas/eventos")).json.dat
 beforeEach(() => reiniciarMock());
 
 describe("clientes y servicios", () => {
-  test("catálogo de servicios con las 7 categorías", async () => {
-    const r = await llamar("GET", "/servicios", VALERIA);
-    assert.deepEqual(r.json.datos.map((s: any) => s.codigo), ["BLOG", "REDES_SOCIALES", "ESTATICOS", "AUDIOVISUAL", "PAID_MEDIA", "WEB", "CRM"]);
-  });
   test("alta de cliente (CU-01): solo AM/ADMIN, valida y emite cliente.creado", async () => {
     assert.equal((await llamar("POST", "/clientes", VALERIA, { nombre: "Nueva" })).status, 403);
     const mal = await llamar("POST", "/clientes", DIEGO, { nombre: " ", limiteGastoIaUsd: 0 });
@@ -70,20 +66,21 @@ describe("clientes y servicios", () => {
     await llamar("PATCH", `/clientes/${nuevo.id}`, undefined, { driveUrl: "https://drive.google.com/drive/folders/abc" }, N8N);
     assert.equal((await llamar("GET", `/clientes/${nuevo.id}`, DIEGO)).json.driveUrl, "https://drive.google.com/drive/folders/abc");
   });
-  test("contratar servicio: solo ADMIN, sin duplicados, y aparece en Servicios", async () => {
+  test("contratar servicio: solo ADMIN, sin duplicados, y aparece en Mis servicios", async () => {
     const cuerpo = { servicioCodigo: "PAID_MEDIA", fechaInicio: "2026-11-01", entregables: [{ tipoPieza: "ANUNCIO", cantidadMensual: 6 }] };
     assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, cuerpo)).status, 403);
     const ok = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, cuerpo);
     assert.equal(ok.status, 201);
     assert.equal(ok.json.cantidadMensual, 6);
     assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, cuerpo)).json.codigo, "SERVICIO_YA_CONTRATADO");
-    const s = (await llamar("GET", `/clientes/${CASA_OLIVA}/servicios`, VALERIA)).json.servicios.find((x: any) => x.categoria === "PAID_MEDIA");
-    assert.equal(s.contratado, true);
+    const s = (await llamar("GET", `/clientes/${CASA_OLIVA}/servicios`, VALERIA)).json.servicios.find((x: any) => x.codigo === "PAID_MEDIA");
+    assert.equal(s.titulo, "Paid Media - Casa Oliva");
   });
   test("avance de un servicio y 404 para otro cliente", async () => {
     const r = await llamar("GET", `/servicios-contratados/${SERVICIO_REDES}/avance`, VALERIA);
-    assert.equal(r.json.hitos.length, 4);
-    assert.equal(r.json.categoria, "REDES_SOCIALES");
+    assert.equal(r.json.etapas.length, 4);
+    assert.deepEqual(r.json.hitos, [], "sin sincronizar InooWork no hay ítems");
+    assert.equal(r.json.codigo, "SOCIAL_MEDIA_PRO");
     assert.equal((await llamar("GET", `/servicios-contratados/${uid(4, 999)}/avance`, VALERIA)).status, 404);
   });
 });
@@ -298,7 +295,7 @@ describe("biblioteca, archivos, tickets y correos", () => {
 
 describe("InooWork", () => {
   const sync = {
-    proyectos: [{ inooworkProyectoId: "iw-casa-oliva-redes", items: [
+    proyectos: [{ inooworkProyectoId: "iw-casa-oliva-social-media", items: [
       { id: "1", name: "Planificación de noviembre", status: "Completado", assigneeName: "Diego Castro" },
       { id: "2", name: "Aprobar guiones", status: "En Revisión", grupo: "Cliente", dueDate: "2026-11-05" },
     ] }],

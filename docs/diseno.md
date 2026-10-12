@@ -42,14 +42,14 @@ aprobadas de las pruebas visuales.
 |---|---|---|
 | `/ingresar` | 02-ingreso | |
 | `/inicio` | 01-inicio | |
-| `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados (reunión 12 oct) |
+| `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados, con título «Servicio - Marca», variante o detalle (CRM, licencias) y avance por etapas (reunión 12 oct) |
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |
 | `/equipo/blog` | 05-blog | Pasó al equipo (reunión 12 oct): el cliente no elige ni aprueba blogs. `/blog` redirige a `/servicios` |
 | `/equipo/plan` | 08-calendario-del-mes | «Plan del mes» (tablero por estado). Pasó al equipo (reunión 12 oct); `/plan` y `/calendario` redirigen a `/servicios` |
 | `/brief` | 11-brief-y-referencias | Retirado (reunión 12 oct): lo reemplaza Requerimientos (de la agencia al cliente). Redirige a `/servicios` |
 | `/resultados` | 12-resultados | Redirige a `/inicio`; los resultados irán dentro de cada servicio |
-| `/avance` | 13-avance-de-proyectos | Fuera del menú: se fusiona con «Mis servicios» (perfil de proyecto) |
+| `/avance` | 13-avance-de-proyectos | Fuera del menú: etapas de cada servicio (de la plantilla) en lugar de hitos fijos. Se fusiona con «Mis servicios» en el perfil de proyecto |
 | `/soporte` | 07-soporte | Fuera del menú (reunión 12 oct); solo se llega desde «Contactar a mi equipo» |
 | `/soporte/nuevo` | 09-crear-ticket | |
 | `/equipo/panel` | 14-panel-general | |

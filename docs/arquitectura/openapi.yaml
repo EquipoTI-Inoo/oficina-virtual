@@ -11,6 +11,10 @@ info:
     detalle de pieza, blog, calendario, brief, resultados, avance, soporte, notificaciones, panel general,
     bandeja de producción y ficha de cliente).
 
+    **v1.2 (12 oct 2026)**: catálogo real de servicios (`CodigoServicio`) con variantes y detalle, plantillas
+    de proyecto con etapas y % de avance acumulado, y etapas por proyecto que mueve el equipo. El cliente solo
+    ve los servicios que tiene contratados.
+
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
     - **IDs** son UUID, salvo `numero` de ticket (se muestra como `TCK-000123`).
@@ -119,7 +123,7 @@ paths:
     get:
       tags: [Servicios]
       operationId: listarCatalogoServicios
-      summary: Catálogo de servicios de la agencia (para mostrar también los no contratados)
+      summary: Catálogo de servicios que vende la agencia, con sus variantes
       x-roles: [EQUIPO, CLIENTE]
       responses:
         '200':
@@ -575,7 +579,7 @@ paths:
     get:
       tags: [Servicios]
       operationId: listarServiciosCliente
-      summary: Plan, resumen del mes y todos los servicios del catálogo (contratados y no contratados) (POR-02)
+      summary: '"Mis servicios": plan, resumen del mes y solo los servicios contratados, cada uno con su avance (POR-02)'
       x-roles: [EQUIPO, CLIENTE]
       parameters:
         - { name: periodo, in: query, description: Por defecto el mes actual (America/Lima), schema: { $ref: '#/components/schemas/Periodo' } }
@@ -590,16 +594,19 @@ paths:
                 plan: { id: 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e, nombre: Plan Crecimiento, fechaInicio: '2026-01-01', fechaFin: '2026-12-31', tieneContrato: true }
                 resumenMes: { totales: 20, entregadas: 16, aprobadas: 12, publicadas: 3, porRevisar: 4, enProduccion: 4, porcentaje: 60 }
                 servicios:
-                  - categoria: BLOG
-                    nombre: Blog
-                    descripcion: Artículos optimizados y propuestas editoriales.
-                    unidad: artículos
-                    contratado: true
+                  - codigo: CRM_IMPLEMENTACION
+                    nombre: Implementación de CRM
+                    titulo: Implementación de CRM - Casa Oliva
+                    modalidad: PROYECTO
+                    variante: null
+                    detalle: { crm: HubSpot, licencias: 3, usuarios: 5 }
                     servicioContratadoId: 3c9d8e7f-6a5b-4c3d-9e2f-1a0b9c8d7e6f
                     estado: ACTIVO
-                    cantidadMensual: 4
-                    progreso: { totales: 4, entregadas: 3, aprobadas: 2, porRevisar: 1, enProduccion: 1, porcentaje: 75 }
-                  - { categoria: AUDIOVISUAL, nombre: Audiovisual, descripcion: Producción y edición de video., unidad: videos, contratado: false, estado: NO_CONTRATADO, cantidadMensual: 0 }
+                    fechaInicio: '2026-09-01'
+                    cantidadMensual: 0
+                    unidad: entregas
+                    progreso: null
+                    avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO }, totalEtapas: 4, etapasCompletadas: 1 }
     post:
       tags: [Servicios]
       operationId: contratarServicio
@@ -616,6 +623,60 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ServicioCliente' }
+
+  /plantillas:
+    get:
+      tags: [Servicios]
+      operationId: listarPlantillas
+      summary: Plantillas de proyecto activas (etapas y % de avance acumulado por servicio y variante)
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: servicio, in: query, schema: { $ref: '#/components/schemas/CodigoServicio' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/PlantillaProyecto' } }
+
+  /servicios-contratados/{servicioContratadoId}/etapas/{etapaId}:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: etapaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Servicios]
+      operationId: actualizarEtapa
+      summary: El equipo mueve una etapa del proyecto (estado y fechas). Devuelve el avance recalculado.
+      description: |
+        Al pasar a COMPLETADO se registra `fechaFin` (hoy si no se envía). El % del proyecto es el `avancePct`
+        de la última etapa completada en orden; no se puede completar una etapa si la anterior no lo está
+        (409 ETAPA_ANTERIOR_PENDIENTE). Emite `etapa.actualizada`.
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                estado: { $ref: '#/components/schemas/EstadoHito' }
+                fechaInicio: { type: [string, 'null'], format: date }
+                fechaEstimada: { type: [string, 'null'], format: date }
+                fechaFin: { type: [string, 'null'], format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvanceServicio' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /clientes/{clienteId}/plan/contrato:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
@@ -637,7 +698,7 @@ paths:
     get:
       tags: [Servicios]
       operationId: obtenerAvanceCliente
-      summary: Pantalla "Avance de proyectos". Resumen del mes, hitos y siguiente paso por servicio (INO-07)
+      summary: Avance de cada servicio contratado (etapas, hitos y siguiente paso) (INO-07)
       x-roles: [EQUIPO, CLIENTE]
       parameters:
         - { name: periodo, in: query, schema: { $ref: '#/components/schemas/Periodo' } }
@@ -654,7 +715,7 @@ paths:
     get:
       tags: [Servicios]
       operationId: obtenerAvanceServicio
-      summary: Hitos del proyecto de InooWork enlazado, sin notas internas (INO-07; INO-02 para servicios CRM)
+      summary: Etapas del proyecto (o del mes, en servicios mensuales) e hitos de InooWork sin notas internas (INO-07)
       x-roles: [EQUIPO, CLIENTE]
       responses:
         '200':
@@ -1877,8 +1938,13 @@ components:
     TipoReferencia: { type: string, enum: [MARCA_ADMIRADA, COMPETIDOR, PIEZA_EJEMPLO, MANUAL_MARCA, LOGO, OTRO] }
     PrioridadRequerimiento: { type: string, enum: [BAJA, MEDIA, ALTA] }
     EstadoRequerimiento: { type: string, enum: [PENDIENTE, ACEPTADO, RECHAZADO] }
-    CategoriaServicio: { type: string, enum: [BLOG, REDES_SOCIALES, ESTATICOS, AUDIOVISUAL, PAID_MEDIA, WEB, CRM] }
-    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, FINALIZADO, NO_CONTRATADO] }
+    CodigoServicio:
+      type: string
+      description: Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
+      enum: [SOCIAL_MEDIA_PRO, BRANDFORMANCE, PAID_MEDIA, WEB, CRM_IMPLEMENTACION, CRM_INTEGRACION, AUDIOVISUAL, SOPORTE_CONTINUO]
+    ModalidadServicio: { type: string, enum: [MENSUAL, PROYECTO], description: 'MENSUAL repite sus etapas cada mes; PROYECTO las recorre una vez' }
+    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, FINALIZADO] }
+    MetricaProyecto: { type: string, enum: [REUNIONES_REALIZADAS, REUNIONES_EXITOSAS, DOCUMENTOS_A_TIEMPO, PIEZAS_APROBADAS, TICKETS_RESUELTOS, RESULTADOS_CAMPANA] }
     EstadoOperativo:
       type: string
       enum: [AL_DIA, EN_CURSO, ATENCION]
@@ -2044,13 +2110,16 @@ components:
           description: Solo los contratados
           items:
             type: object
-            required: [categoria, nombre, cantidadMensual, unidad, estado]
+            required: [codigo, nombre, titulo, servicioContratadoId, cantidadMensual, unidad, estado, avance]
             properties:
-              categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+              codigo: { $ref: '#/components/schemas/CodigoServicio' }
               nombre: { type: string }
+              titulo: { type: string, examples: [Implementación de CRM - Casa Oliva] }
+              servicioContratadoId: { type: string, format: uuid }
               cantidadMensual: { type: integer }
               unidad: { type: string }
               estado: { $ref: '#/components/schemas/EstadoServicio' }
+              avance: { $ref: '#/components/schemas/AvanceProyecto' }
         proximaPublicacion:
           type: [object, 'null']
           properties:
@@ -2140,9 +2209,13 @@ components:
         creadoEn: { type: string, format: date-time }
     ServicioContratadoEntrada:
       type: object
+      description: Crea el proyecto con las etapas de la plantilla del servicio (y variante). Las fechas previstas se calculan en días hábiles desde `fechaInicio`.
       required: [servicioCodigo, fechaInicio]
       properties:
-        servicioCodigo: { type: string }
+        servicioCodigo: { $ref: '#/components/schemas/CodigoServicio' }
+        variante: { type: [string, 'null'], description: 'Obligatoria si el servicio tiene variantes (p. ej. WEB → LANDING)' }
+        detalle: { $ref: '#/components/schemas/DetalleServicio' }
+        marca: { type: [string, 'null'], description: 'Lo que va después del guion en el título; por defecto el nombre del cliente' }
         planId: { type: string, format: uuid }
         alcance: { type: string }
         fechaInicio: { type: string, format: date }
@@ -2158,13 +2231,85 @@ components:
               cantidadMensual: { type: integer, minimum: 1 }
     ServicioCatalogo:
       type: object
-      required: [codigo, nombre, categoria, unidad]
+      required: [codigo, nombre, modalidad, variantes, unidad]
       properties:
-        codigo: { type: string }
-        nombre: { type: string }
-        categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+        codigo: { $ref: '#/components/schemas/CodigoServicio' }
+        nombre: { type: string, examples: [Brandformance] }
         descripcion: { type: [string, 'null'] }
-        unidad: { type: string, examples: [artículos, piezas, diseños] }
+        modalidad: { $ref: '#/components/schemas/ModalidadServicio' }
+        variantes: { type: array, description: 'Vacío = el servicio no tiene variantes', items: { $ref: '#/components/schemas/VarianteServicio' } }
+        unidad: { type: string, examples: [piezas, campañas, entregas] }
+    VarianteServicio:
+      type: object
+      required: [codigo, nombre]
+      properties:
+        codigo: { type: string, examples: [LANDING, ECOMMERCE, FOTOGRAFIA, REBRANDING] }
+        nombre: { type: string, examples: [Landing page] }
+    DetalleServicio:
+      type: object
+      description: 'Datos propios del servicio. CRM: qué CRM, tipo y número de licencias, usuarios y plataformas que se integran.'
+      properties:
+        crm: { type: string, examples: [HubSpot] }
+        tipoLicencia: { type: string, examples: [Sales Hub Professional] }
+        licencias: { type: integer, minimum: 0 }
+        usuarios: { type: integer, minimum: 0 }
+        plataformas: { type: array, items: { type: string } }
+      additionalProperties: true
+    EtapaPlantilla:
+      type: object
+      required: [orden, nombre, avancePct, diasHabiles, esperaCliente]
+      properties:
+        orden: { type: integer }
+        nombre: { type: string, examples: [Levantamiento de información] }
+        descripcion: { type: [string, 'null'] }
+        avancePct: { type: integer, minimum: 1, maximum: 100, description: '% acumulado del proyecto al terminar la etapa' }
+        diasHabiles: { type: integer }
+        esperaCliente: { type: boolean }
+    PlantillaProyecto:
+      type: object
+      required: [id, servicioCodigo, nombre, etapas, metricas]
+      properties:
+        id: { type: string, format: uuid }
+        servicioCodigo: { $ref: '#/components/schemas/CodigoServicio' }
+        variante: { type: [string, 'null'] }
+        nombre: { type: string }
+        metricas: { type: array, items: { $ref: '#/components/schemas/MetricaProyecto' } }
+        etapas: { type: array, items: { $ref: '#/components/schemas/EtapaPlantilla' } }
+    EtapaProyecto:
+      type: object
+      required: [id, orden, nombre, avancePct, estado, esperaCliente, atrasada]
+      properties:
+        id: { type: string, format: uuid }
+        orden: { type: integer }
+        nombre: { type: string }
+        descripcion: { type: [string, 'null'] }
+        periodo: { oneOf: [ { $ref: '#/components/schemas/Periodo' }, { type: 'null' } ] }
+        avancePct: { type: integer }
+        estado: { $ref: '#/components/schemas/EstadoHito' }
+        esperaCliente: { type: boolean }
+        fechaInicio: { type: [string, 'null'], format: date }
+        fechaEstimada: { type: [string, 'null'], format: date }
+        fechaFin: { type: [string, 'null'], format: date }
+        atrasada: { type: boolean, description: 'Sin completar y con fechaEstimada anterior a hoy' }
+    AvanceProyecto:
+      type: object
+      description: '% = avancePct de la última etapa completada en orden. En servicios mensuales, el del mes en curso.'
+      required: [porcentaje, totalEtapas, etapasCompletadas]
+      properties:
+        porcentaje: { type: integer, minimum: 0, maximum: 100 }
+        etapaActual:
+          type: [object, 'null']
+          description: La primera etapa sin completar (null si todas están completas)
+          required: [orden, nombre, estado, atrasada]
+          properties:
+            orden: { type: integer }
+            nombre: { type: string }
+            estado: { $ref: '#/components/schemas/EstadoHito' }
+            fechaEstimada: { type: [string, 'null'], format: date }
+            atrasada: { type: boolean }
+        totalEtapas: { type: integer }
+        etapasCompletadas: { type: integer }
+        periodo: { oneOf: [ { $ref: '#/components/schemas/Periodo' }, { type: 'null' } ] }
     PlanCliente:
       type: object
       required: [nombre]
@@ -2188,21 +2333,25 @@ components:
         porcentaje: { type: integer, minimum: 0, maximum: 100 }
     ServicioCliente:
       type: object
-      description: Un servicio del catálogo visto desde un cliente; `contratado` false para los no contratados.
-      required: [categoria, nombre, unidad, contratado, estado, cantidadMensual]
+      description: Un servicio contratado visto desde el cliente.
+      required: [codigo, nombre, titulo, modalidad, servicioContratadoId, estado, cantidadMensual, unidad, detalle, avance]
       properties:
-        categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+        codigo: { $ref: '#/components/schemas/CodigoServicio' }
         nombre: { type: string }
+        titulo: { type: string, description: '«Servicio - Marca»', examples: [Implementación de CRM - Casa Oliva] }
         descripcion: { type: [string, 'null'] }
-        unidad: { type: string }
-        contratado: { type: boolean }
-        servicioContratadoId: { type: [string, 'null'], format: uuid }
+        modalidad: { $ref: '#/components/schemas/ModalidadServicio' }
+        variante: { oneOf: [ { $ref: '#/components/schemas/VarianteServicio' }, { type: 'null' } ] }
+        detalle: { $ref: '#/components/schemas/DetalleServicio' }
+        servicioContratadoId: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoServicio' }
         alcance: { type: [string, 'null'] }
         fechaInicio: { type: [string, 'null'], format: date }
         fechaFin: { type: [string, 'null'], format: date }
-        cantidadMensual: { type: integer, description: Suma de los entregables incluidos }
-        progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ] }
+        unidad: { type: string }
+        cantidadMensual: { type: integer, description: 'Suma de los entregables incluidos (0 si el servicio no entrega piezas mensuales)' }
+        progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ], description: 'Piezas del mes; null si no entrega piezas' }
+        avance: { $ref: '#/components/schemas/AvanceProyecto' }
         entregables:
           type: array
           description: Detalle por tipo de pieza
@@ -2219,7 +2368,7 @@ components:
         periodo: { $ref: '#/components/schemas/Periodo' }
         plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
         resumenMes: { $ref: '#/components/schemas/ProgresoPiezas' }
-        servicios: { type: array, description: 'Todo el catálogo, contratados primero', items: { $ref: '#/components/schemas/ServicioCliente' } }
+        servicios: { type: array, description: 'Solo los contratados, en el orden del catálogo', items: { $ref: '#/components/schemas/ServicioCliente' } }
     Hito:
       type: object
       required: [id, titulo, estado]
@@ -2235,14 +2384,19 @@ components:
         responsableNombre: { type: [string, 'null'] }
     AvanceServicio:
       type: object
-      required: [servicioContratadoId, hitos, sincronizadoEn]
+      required: [servicioContratadoId, codigo, nombre, titulo, avance, etapas, hitos, sincronizadoEn]
       properties:
         servicioContratadoId: { type: string, format: uuid }
-        categoria: { $ref: '#/components/schemas/CategoriaServicio' }
+        codigo: { $ref: '#/components/schemas/CodigoServicio' }
         nombre: { type: string }
+        titulo: { type: string }
+        variante: { oneOf: [ { $ref: '#/components/schemas/VarianteServicio' }, { type: 'null' } ] }
+        detalle: { $ref: '#/components/schemas/DetalleServicio' }
         estado: { type: string, enum: [SIN_INICIAR, EN_CURSO, COMPLETADO, PAUSADO] }
-        progreso: { $ref: '#/components/schemas/ProgresoPiezas' }
-        hitos: { type: array, items: { $ref: '#/components/schemas/Hito' } }
+        progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ] }
+        avance: { $ref: '#/components/schemas/AvanceProyecto' }
+        etapas: { type: array, description: 'Etapas del proyecto, o del mes en curso en servicios mensuales', items: { $ref: '#/components/schemas/EtapaProyecto' } }
+        hitos: { type: array, description: 'Ítems sincronizados de InooWork (opcional)', items: { $ref: '#/components/schemas/Hito' } }
         siguientePaso:
           type: [object, 'null']
           properties:
@@ -2251,7 +2405,7 @@ components:
         sincronizadoEn: { type: string, format: date-time }
     AvanceCliente:
       type: object
-      required: [periodo, resumenMes, servicios, noContratados]
+      required: [periodo, resumenMes, servicios]
       properties:
         periodo: { $ref: '#/components/schemas/Periodo' }
         resumenMes: { $ref: '#/components/schemas/ProgresoPiezas' }
@@ -2265,7 +2419,6 @@ components:
               titulo: { type: string }
               fechaProgramada: { type: string, format: date-time }
         servicios: { type: array, items: { $ref: '#/components/schemas/AvanceServicio' } }
-        noContratados: { type: array, items: { $ref: '#/components/schemas/ServicioCatalogo' } }
     PiezaResumen:
       type: object
       required: [id, tipo, titulo, periodo, estado]
@@ -3031,6 +3184,8 @@ components:
             - ticket.mensaje_cliente
             - ticket.estado_cambiado     # correo al cliente
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
+            - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
+            - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
         ocurridoEn: { type: string, format: date-time }
         clienteId: { type: [string, 'null'], format: uuid }
         datos: { type: object }

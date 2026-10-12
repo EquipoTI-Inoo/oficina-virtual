@@ -14,6 +14,8 @@ import { comoUsuario, desdePglite, usarBaseDatos } from "../../src/servidor/db";
 import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
+import { pruebasServicios } from "./flujo-servicios";
+import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
 import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
 
 const sql = (ruta: string) => readFileSync(new URL(`../../../../database/${ruta}`, import.meta.url), "utf8");
@@ -30,9 +32,10 @@ before(async () => {
   await db.exec(sql("migraciones/0002_rol_app.sql"));
   await db.exec(sql("migraciones/0003_api_key_usuario.sql"));
   await db.exec(sql("migraciones/0004_requerimientos.sql"));
+  await db.exec(sql("migraciones/0005_catalogo_servicios.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
-    "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo')",
+    "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla')",
   );
   tablas = rows[0].t;
   await reiniciar();
@@ -40,9 +43,27 @@ before(async () => {
 });
 
 pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
-pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, async () =>
-  (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows,
-);
+const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows;
+pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+
+describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
+  test("servicios activos y sus variantes", async () => {
+    const { rows } = await db.query<{ codigo: string; nombre: string; modalidad: string; variantes: unknown }>(
+      "SELECT codigo, nombre, modalidad::text AS modalidad, variantes FROM servicio WHERE activo ORDER BY orden",
+    );
+    assert.deepEqual(rows, CATALOGO_SERVICIOS.map((s) => ({ codigo: s.codigo, nombre: s.nombre, modalidad: s.modalidad, variantes: s.variantes })));
+  });
+  test("plantillas y etapas", async () => {
+    const { rows } = await db.query<{ servicio: string; variante: string | null; nombre: string; metricas: string[]; etapas: unknown }>(
+      `SELECT s.codigo AS servicio, pp.variante, pp.nombre, pp.metricas,
+              (SELECT json_agg(json_build_array(e.nombre, e.avance_pct, e.dias_habiles, e.espera_cliente) ORDER BY e.orden) FROM etapa_plantilla e WHERE e.plantilla_id = pp.id) AS etapas
+       FROM plantilla_proyecto pp JOIN servicio s ON s.id = pp.servicio_id WHERE pp.activa ORDER BY pp.nombre`,
+    );
+    const ts = [...PLANTILLAS].sort((a, b) => (a.nombre < b.nombre ? -1 : 1));
+    assert.deepEqual(rows, ts.map((p) => ({ servicio: p.servicio, variante: p.variante, nombre: p.nombre, metricas: p.metricas, etapas: p.etapas })));
+  });
+});
 
 describe("solo en Postgres", () => {
   const llamar = crearLlamar((req) => manejarSolicitudDb(req));
@@ -163,7 +184,7 @@ describe("clientes, tickets y notificaciones · Postgres", () => {
     const ficha = await llamar("GET", `/clientes/${CASA_OLIVA}`, VALERIA);
     assert.equal(ficha.status, 200);
     assert.equal(ficha.json.plan.nombre, "Plan Crecimiento");
-    assert.equal(ficha.json.conteos.serviciosActivos, 3);
+    assert.equal(ficha.json.conteos.serviciosActivos, 4);
     assert.equal(ficha.json.accountManager.nombre, "Diego Castro");
     assert.equal(ficha.json.driveUrl, undefined);
     assert.equal((await llamar("GET", `/clientes/${NATIVA}`, VALERIA)).status, 404);

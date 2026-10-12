@@ -7,6 +7,8 @@
  * src/mock/api.ts los transforma en las respuestas del contrato openapi.yaml.
  */
 
+import { etapasDesdePlantilla, plantillaPara, type CodigoServicio, type EstadoEtapa } from "../dominio/servicios";
+
 export const HOY = "2026-10-06T15:00:00Z";
 export const PERIODO = "2026-10";
 
@@ -41,17 +43,9 @@ export const MIEMBROS: { clienteId: string; usuarioId: string; rol: RolCliente }
   { clienteId: uid(2, 1), usuarioId: uid(1, 2), rol: "LECTOR" },
 ];
 
-export type Categoria = "BLOG" | "REDES_SOCIALES" | "ESTATICOS" | "AUDIOVISUAL" | "PAID_MEDIA" | "WEB" | "CRM";
-
-export const CATALOGO: { codigo: Categoria; nombre: string; descripcion: string; unidad: string }[] = [
-  { codigo: "BLOG", nombre: "Blog", descripcion: "Artículos optimizados y propuestas editoriales.", unidad: "artículos" },
-  { codigo: "REDES_SOCIALES", nombre: "Redes sociales", descripcion: "Contenido para Instagram y Facebook. Incluye guiones de reel.", unidad: "piezas" },
-  { codigo: "ESTATICOS", nombre: "Estáticos", descripcion: "Diseños de marca para tus canales digitales.", unidad: "diseños" },
-  { codigo: "AUDIOVISUAL", nombre: "Audiovisual", descripcion: "Producción y edición de video.", unidad: "videos" },
-  { codigo: "PAID_MEDIA", nombre: "Paid media", descripcion: "Gestión de campañas y pauta digital.", unidad: "campañas" },
-  { codigo: "WEB", nombre: "Web", descripcion: "Diseño y desarrollo de sitios web.", unidad: "entregas" },
-  { codigo: "CRM", nombre: "CRM", descripcion: "Automatización y gestión de contactos.", unidad: "entregas" },
-];
+/** Catálogo real de servicios (reunión 12 oct 2026); vive en src/dominio/servicios.ts. */
+export { CATALOGO_SERVICIOS as CATALOGO } from "../dominio/servicios";
+export type { CodigoServicio } from "../dominio/servicios";
 
 export interface ClienteDemo {
   id: string;
@@ -99,18 +93,70 @@ export const FICHA_CASA_OLIVA = {
   plan: { id: uid(3, 1), nombre: "Plan Crecimiento", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", tieneContrato: true },
 };
 
-export const SERVICIOS_CONTRATADOS: {
+export interface ServicioContratadoDemo {
   id: string;
   clienteId: string;
-  categoria: Categoria;
-  tipoPieza: string;
-  cantidadMensual: number;
+  codigo: CodigoServicio;
+  variante: string | null;
+  detalle: Record<string, unknown>;
+  /** Lo que va después del guion en el título; null = nombre del cliente. */
+  marca: string | null;
+  entregables: { tipoPieza: string; cantidadMensual: number }[];
   siguientePaso: string;
-}[] = [
-  { id: uid(4, 1), clienteId: uid(2, 1), categoria: "BLOG", tipoPieza: "BLOG", cantidadMensual: 4, siguientePaso: "revisar «5 hábitos para una piel saludable» y confirmar la idea pendiente." },
-  { id: uid(4, 2), clienteId: uid(2, 1), categoria: "REDES_SOCIALES", tipoPieza: "COPY", cantidadMensual: 12, siguientePaso: "revisar «Tu ritual, tu momento» y «Un minuto para cuidarte»." },
-  { id: uid(4, 3), clienteId: uid(2, 1), categoria: "ESTATICOS", tipoPieza: "ESTATICO", cantidadMensual: 4, siguientePaso: "revisar «Cuidado que se siente»." },
+  fechaInicio: string;
+  fechaFin: string | null;
+  estado: "ACTIVO" | "PAUSADO" | "FINALIZADO";
+}
+
+// Blog (antes un servicio) es parte del soporte continuo web; los estáticos, de Social Media Pro.
+export const SERVICIOS_CONTRATADOS: ServicioContratadoDemo[] = [
+  { id: uid(4, 1), clienteId: uid(2, 1), codigo: "SOPORTE_CONTINUO", variante: "WEB", detalle: {}, marca: null, entregables: [{ tipoPieza: "BLOG", cantidadMensual: 4 }], siguientePaso: "revisar «5 hábitos para una piel saludable».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO" },
+  { id: uid(4, 2), clienteId: uid(2, 1), codigo: "SOCIAL_MEDIA_PRO", variante: null, detalle: {}, marca: null, entregables: [{ tipoPieza: "COPY", cantidadMensual: 12 }, { tipoPieza: "ESTATICO", cantidadMensual: 4 }], siguientePaso: "revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO" },
+  { id: uid(4, 3), clienteId: uid(2, 1), codigo: "CRM_IMPLEMENTACION", variante: null, detalle: { crm: "HubSpot", tipoLicencia: "Sales Hub Starter", licencias: 3, usuarios: 5 }, marca: null, entregables: [], siguientePaso: "validar el mapa de procesos de venta que enviamos el viernes.", fechaInicio: "2026-09-01", fechaFin: null, estado: "ACTIVO" },
+  { id: uid(4, 4), clienteId: uid(2, 1), codigo: "WEB", variante: "ECOMMERCE", detalle: {}, marca: null, entregables: [], siguientePaso: "aprobar el diseño de la página de producto.", fechaInicio: "2026-09-21", fechaFin: null, estado: "ACTIVO" },
 ];
+
+export interface EtapaDemo {
+  id: string;
+  servicioContratadoId: string;
+  clienteId: string;
+  periodo: string | null;
+  orden: number;
+  nombre: string;
+  avancePct: number;
+  esperaCliente: boolean;
+  estado: EstadoEtapa;
+  fechaInicio: string | null;
+  fechaEstimada: string | null;
+  fechaFin: string | null;
+}
+
+/**
+ * Etapas de los proyectos de Casa Oliva al «hoy» del entorno (6 oct): se copian de la plantilla y se
+ * marcan completas las primeras `completas`; la siguiente queda en curso.
+ */
+export function etapasIniciales(): EtapaDemo[] {
+  const hoy = HOY.slice(0, 10);
+  const plan: [string, string | null, number][] = [
+    [uid(4, 3), null, 1], // CRM: levantamiento listo → 20 %
+    [uid(4, 4), null, 1], // web e-commerce: brief listo, diseño en curso → 10 %
+    [uid(4, 2), PERIODO, 2], // Social Media Pro de octubre: plan y sesión listos → 50 %
+    [uid(4, 1), PERIODO, 1], // soporte web de octubre: plan listo → 20 %
+  ];
+  let n = 0;
+  return plan.flatMap(([scId, periodo, completas]) => {
+    const sc = SERVICIOS_CONTRATADOS.find((s) => s.id === scId)!;
+    const inicio = periodo ? `${periodo}-01` : sc.fechaInicio;
+    return etapasDesdePlantilla(plantillaPara(sc.codigo, sc.variante)!, inicio).map((e): EtapaDemo => {
+      const estado: EstadoEtapa = e.orden <= completas ? "COMPLETADO" : e.orden === completas + 1 ? "EN_PROGRESO" : "SIN_INICIAR";
+      return {
+        id: uid(20, ++n), servicioContratadoId: sc.id, clienteId: sc.clienteId, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct,
+        esperaCliente: e.esperaCliente, estado, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada,
+        fechaFin: estado === "COMPLETADO" ? (e.fechaEstimada < hoy ? e.fechaEstimada : hoy) : null,
+      };
+    });
+  });
+}
 
 export type Estado =
   | "BORRADOR"
@@ -165,7 +211,8 @@ export interface PiezaDemo {
 
 const DIEGO = uid(1, 3);
 const VALERIA = uid(1, 1);
-const SC = { blog: uid(4, 1), redes: uid(4, 2), est: uid(4, 3) };
+// Los estáticos ahora son parte de Social Media Pro (uid(4, 2)).
+const SC = { blog: uid(4, 1), redes: uid(4, 2), est: uid(4, 2) };
 
 interface Semilla {
   n: number;

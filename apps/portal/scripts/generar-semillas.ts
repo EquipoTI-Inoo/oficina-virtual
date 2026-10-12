@@ -47,8 +47,20 @@ salida.push(
   insert("plan_cliente", ["id", "cliente_id", "nombre", "fecha_inicio", "fecha_fin"], [[f.plan.id, D.CLIENTES[0].id, f.plan.nombre, f.plan.fechaInicio, f.plan.fechaFin]]),
 );
 salida.push(
-  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin)\nSELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.paso, ${q(DIEGO)}::uuid, DATE '2026-01-01', DATE '2026-12-31'\nFROM (VALUES\n${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.categoria, s.siguientePaso])).join(",\n")}\n) AS v(id, cliente_id, categoria, paso)\nJOIN servicio s ON s.categoria = v.categoria::categoria_servicio;\n`,
-  insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.map((s) => [s.id, s.tipoPieza, s.cantidadMensual])),
+  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin)
+SELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, ${q(DIEGO)}::uuid, v.inicio::date, v.fin::date
+FROM (VALUES
+${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.codigo, s.variante, JSON.stringify(s.detalle), s.marca, s.estado, s.siguientePaso, s.fechaInicio, s.fechaFin])).join(",\n")}
+) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin)
+JOIN servicio s ON s.codigo = v.codigo
+LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coalesce(pp.variante, '') = coalesce(v.variante, '');
+`,
+  insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.flatMap((s) => s.entregables.map((e) => [s.id, e.tipoPieza, e.cantidadMensual]))),
+  insert(
+    "etapa_proyecto",
+    ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "fecha_inicio", "fecha_estimada", "fecha_fin"],
+    D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.fechaInicio, e.fechaEstimada, e.fechaFin]),
+  ),
   insert("calendario", ["id", "cliente_id", "periodo", "estado", "version", "cupo_ideas_blog", "aprobado_por", "aprobado_en"], [[D.uid(12, 1), D.CLIENTES[0].id, D.PERIODO, "APROBADO_PLAN", 1, 1, DIEGO, "2026-09-28T15:00:00Z"]]),
   insert(
     "pieza",

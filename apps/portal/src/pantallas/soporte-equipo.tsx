@@ -7,7 +7,7 @@ import {
 } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_DEMO, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import {
-  Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
+  Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
@@ -701,13 +701,15 @@ function Ficha() {
             <h3 className="tarjeta-titulo" style={{ marginBottom: 18 }}>Servicios y alcance</h3>
             <div style={{ display: "grid", gap: 16 }}>
               {s.datos.servicios.map((x) => (
-                <div key={x.categoria} className="fila">
-                  <span style={{ color: x.contratado ? "var(--c-primario)" : "var(--c-texto)", display: "inline-flex" }}>{ICONO_SERVICIO[x.categoria]}</span>
+                <div key={x.servicioContratadoId} className="fila">
+                  <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
                   <span style={{ flex: 1 }}>
-                    <span className="negrita" style={{ display: "block", fontSize: 11.5 }}>{x.nombre}</span>
-                    <span className="texto-xs texto-muted" style={{ fontSize: 9.5 }}>{x.contratado ? `${x.cantidadMensual} ${x.unidad} / mes` : "Sin alcance mensual contratado"}</span>
+                    <span className="negrita" style={{ display: "block", fontSize: 11.5 }}>{x.titulo}</span>
+                    <span className="texto-xs texto-muted" style={{ fontSize: 9.5 }}>
+                      {[detalleServicio(x), x.avance.etapaActual ? `${x.avance.porcentaje} % · ${x.avance.etapaActual.nombre}` : `${x.avance.porcentaje} %`].filter(Boolean).join(" · ")}
+                    </span>
                   </span>
-                  {x.contratado ? <Etiqueta tono="verde">Activo</Etiqueta> : <Etiqueta tono="gris">No contratado</Etiqueta>}
+                  <Etiqueta tono={x.estado === "ACTIVO" ? "verde" : "gris"}>{x.estado === "ACTIVO" ? "Activo" : x.estado === "PAUSADO" ? "En pausa" : "Finalizado"}</Etiqueta>
                 </div>
               ))}
             </div>

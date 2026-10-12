@@ -10,7 +10,7 @@ import {
   useConsulta, useNavegacion, type S,
 } from "../base";
 import {
-  Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, Modal,
+  AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
 
@@ -234,15 +234,15 @@ function Inicio() {
           <p className="texto-sm texto-muted" style={{ marginTop: 14 }}>
             {d.plan?.nombre} · Contrato hasta el {d.plan?.fechaFin ? fCorta(d.plan.fechaFin) : "—"}
           </p>
-          <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
+          <div style={{ display: "grid", gap: 18, marginTop: 16 }}>
             {d.servicios.map((s) => (
-              <div className="fila" key={s.categoria}>
-                <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[s.categoria]}</span>
-                <span className="negrita" style={{ fontSize: 13 }}>{s.nombre}</span>
-                <span className="texto-xs texto-muted" style={{ marginLeft: "auto" }}>
-                  {s.cantidadMensual} {s.unidad} / mes
-                </span>
-                <Etiqueta tono="verde">Activo</Etiqueta>
+              <div key={s.servicioContratadoId} style={{ display: "grid", gap: 8 }}>
+                <div className="fila">
+                  <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[s.codigo]}</span>
+                  <span className="negrita" style={{ fontSize: 13 }}>{s.titulo}</span>
+                  <Etiqueta tono={s.estado === "ACTIVO" ? "verde" : "gris"}>{s.estado === "ACTIVO" ? "Activo" : s.estado === "PAUSADO" ? "En pausa" : "Finalizado"}</Etiqueta>
+                </div>
+                <AvanceLineal avance={s.avance} compacto />
               </div>
             ))}
           </div>
@@ -362,7 +362,7 @@ export function TodoAlDia() {
 
 export function PantallaServicios() {
   return (
-    <Estructura espacio="cliente" migas="Servicios contratados">
+    <Estructura espacio="cliente" migas="Mis servicios">
       <Servicios />
     </Estructura>
   );
@@ -376,15 +376,15 @@ function Servicios() {
   };
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
-  // Solo se muestran los servicios contratados (reunión 12 oct): lo no contratado no ocupa espacio.
-  const contratados = d.servicios.filter((s) => s.contratado);
+  // La API solo devuelve lo contratado (reunión 12 oct): lo no contratado no ocupa espacio.
+  const contratados = d.servicios;
   const r = d.resumenMes;
   return (
     <>
       <Cabecera
         antetitulo="Casa Oliva · Octubre 2026"
         titulo="Mis servicios"
-        bajada="Tu plan, su alcance y todo lo que vamos entregando este mes."
+        bajada="Lo que tienes contratado y en qué etapa está cada servicio."
         accion={
           <button className="boton" onClick={verContrato}>
             <LuFileText size={18} /> Ver contrato
@@ -401,16 +401,17 @@ function Servicios() {
           </div>
           <div className="fila" style={{ gap: 8 }}>
             <Etiqueta tono="verde">{contratados.length} servicios activos</Etiqueta>
-            <Etiqueta tono="violeta">{r.totales} piezas / mes</Etiqueta>
+            {r.totales > 0 && <Etiqueta tono="violeta">{r.totales} piezas / mes</Etiqueta>}
           </div>
         </div>
         <p className="texto-xs texto-muted" style={{ marginTop: 22 }}>
-          Entregado = disponible para revisión o aprobado. Este mes: {r.entregadas} entregadas, {r.aprobadas} aprobadas y {r.enProduccion} en producción.
+          El avance de cada servicio se mide por etapas: el porcentaje sube al cerrar cada una.
+          {r.totales > 0 && ` Piezas de este mes: ${r.entregadas} entregadas, ${r.aprobadas} aprobadas y ${r.enProduccion} en producción.`}
         </p>
       </div>
       <div className="grid-3" style={{ marginTop: 16 }}>
         {contratados.map((s) => (
-          <TarjetaServicio key={s.categoria} s={s} />
+          <TarjetaServicio key={s.servicioContratadoId} s={s} />
         ))}
       </div>
     </>
@@ -419,31 +420,25 @@ function Servicios() {
 
 function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
   const p = s.progreso;
+  const linea = detalleServicio(s);
   return (
     <div className="tarjeta" style={{ padding: "18px 18px 20px", display: "grid", gap: 14, alignContent: "start" }}>
       <div className="fila entre">
-        <span className="icono-caja" style={{ width: 32, height: 32, borderRadius: 9, color: s.contratado ? "var(--c-primario)" : "var(--c-muted)", background: s.contratado ? "var(--c-primario-suave)" : "var(--c-fondo)" }}>
-          {ICONO_SERVICIO[s.categoria]}
+        <span className="icono-caja" style={{ width: 32, height: 32, borderRadius: 9, color: "var(--c-primario)", background: "var(--c-primario-suave)" }}>
+          {ICONO_SERVICIO[s.codigo]}
         </span>
-        {s.contratado ? <Etiqueta tono="verde">Activo</Etiqueta> : <Etiqueta tono="gris">No contratado</Etiqueta>}
+        <Etiqueta tono={s.estado === "ACTIVO" ? "verde" : "gris"}>{s.estado === "ACTIVO" ? "Activo" : s.estado === "PAUSADO" ? "En pausa" : "Finalizado"}</Etiqueta>
       </div>
-      <h3 style={{ fontSize: 17, fontWeight: 600 }}>{s.nombre}</h3>
-      <p className="texto-xs texto-muted" style={{ marginTop: -4 }}>{s.descripcion}</p>
-      <p className="negrita" style={{ fontSize: 12.5 }}>
-        {s.contratado ? `${s.cantidadMensual} ${s.unidad} / mes` : "Sin alcance mensual contratado"}
-      </p>
-      <div style={{ display: "grid", gap: 8 }}>
-        <div className="fila entre texto-xs texto-muted">
-          <span>{p ? `${p.entregadas} de ${p.totales} entregados` : "0 entregados · Sin contrato"}</span>
-          <span className={p ? "texto-primario negrita" : ""}>{p ? `${Math.round(((p.entregadas ?? 0) / p.totales) * 100)} %` : "—"}</span>
-        </div>
-        <Barra pct={p ? ((p.entregadas ?? 0) / p.totales) * 100 : 0} />
+      <h3 style={{ fontSize: 17, fontWeight: 600 }}>{s.titulo}</h3>
+      {linea && <p className="negrita" style={{ fontSize: 12.5, marginTop: -4 }}>{linea}</p>}
+      <AvanceLineal avance={s.avance} />
+      {p && (
         <span className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>
-          {p ? `${p.aprobadas} aprobados · ${p.porRevisar} por revisar · ${p.enProduccion} en producción` : "Sin entregas ni hitos programados."}
+          Este mes: {p.aprobadas} aprobados · {p.porRevisar} por revisar · {p.enProduccion} en producción
         </span>
-      </div>
-      <Enlace a={s.contratado ? "/avance" : "/soporte/nuevo"} className="enlace">
-        {s.contratado ? "Ver avance del servicio →" : "Consultar con mi equipo →"}
+      )}
+      <Enlace a="/avance" className="enlace">
+        Ver avance del servicio →
       </Enlace>
     </div>
   );

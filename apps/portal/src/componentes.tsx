@@ -3,8 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
   LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
-  LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuImage, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuCoins, LuCalendarCheck,
+  LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
+  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
@@ -40,14 +40,49 @@ export function EtiquetaEstado({ estado, mapa = ESTADO_PIEZA }: { estado: string
 }
 
 export const ICONO_SERVICIO: Record<string, ReactNode> = {
-  BLOG: <LuFileText size={18} />,
-  REDES_SOCIALES: <LuInstagram size={18} />,
-  ESTATICOS: <LuImage size={18} />,
-  AUDIOVISUAL: <LuVideo size={18} />,
+  SOCIAL_MEDIA_PRO: <LuInstagram size={18} />,
+  BRANDFORMANCE: <LuPalette size={18} />,
   PAID_MEDIA: <LuMegaphone size={18} />,
   WEB: <LuGlobe size={18} />,
-  CRM: <LuSquareUser size={18} />,
+  CRM_IMPLEMENTACION: <LuSquareUser size={18} />,
+  CRM_INTEGRACION: <LuPlug size={18} />,
+  AUDIOVISUAL: <LuVideo size={18} />,
+  SOPORTE_CONTINUO: <LuLifeBuoy size={18} />,
 };
+
+/** Una línea con lo esencial del servicio: variante, CRM y licencias, o la cuota mensual de piezas. */
+export function detalleServicio(s: { variante?: S<"VarianteServicio"> | null; detalle?: S<"DetalleServicio">; cantidadMensual: number; unidad: string }): string {
+  const d = s.detalle ?? {};
+  const partes: string[] = [];
+  if (s.variante) partes.push(s.variante.nombre);
+  if (d.crm) partes.push(d.tipoLicencia ? `${d.crm} ${d.tipoLicencia}` : d.crm);
+  if (typeof d.licencias === "number") partes.push(`${d.licencias} ${d.licencias === 1 ? "licencia" : "licencias"}`);
+  if (typeof d.usuarios === "number") partes.push(`${d.usuarios} ${d.usuarios === 1 ? "usuario" : "usuarios"}`);
+  if (d.plataformas?.length) partes.push(`con ${d.plataformas.join(", ")}`);
+  if (s.cantidadMensual > 0) partes.push(`${s.cantidadMensual} ${s.unidad} / mes`);
+  return partes.join(" · ");
+}
+
+/** Avance lineal de un servicio: % por etapas y en qué etapa está (reunión 12 oct). */
+export function AvanceLineal({ avance: a, compacto }: { avance: S<"AvanceProyecto">; compacto?: boolean }) {
+  const etapa = a.etapaActual;
+  return (
+    <div style={{ display: "grid", gap: compacto ? 6 : 8 }}>
+      <div className="fila entre texto-xs texto-muted">
+        <span>
+          {etapa ? `Etapa ${etapa.orden} de ${a.totalEtapas} · ${etapa.nombre}` : a.totalEtapas ? "Todas las etapas completas" : "Sin etapas programadas"}
+        </span>
+        <span className="texto-primario negrita">{a.porcentaje} %</span>
+      </div>
+      <Barra pct={a.porcentaje} tono={etapa?.atrasada ? "ambar" : undefined} />
+      {etapa?.atrasada && (
+        <span className="texto-xs" style={{ color: "var(--c-alerta)", fontSize: 10.5 }}>
+          Esta etapa va con retraso{etapa.fechaEstimada ? ` (prevista para el ${etapa.fechaEstimada.slice(8)}/${etapa.fechaEstimada.slice(5, 7)})` : ""}.
+        </span>
+      )}
+    </div>
+  );
+}
 
 // ───────────────────────────── piezas básicas
 
