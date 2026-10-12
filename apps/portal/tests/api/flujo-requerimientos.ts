@@ -6,8 +6,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { diasAtraso, fechaLimite } from "../../src/dominio/requerimientos";
-import { correrFecha } from "../../src/dominio/requerimientos";
+import { diasNoLaborables, FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
+import { correrFecha as correrSinFeriados, diasAtraso as atrasoSinFeriados, fechaLimite as limiteSinFeriados } from "../../src/dominio/requerimientos";
 import { uid } from "../../src/mock/datos";
 import { CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
 
@@ -15,6 +15,11 @@ const N8N = { "x-api-key": "demo-n8n" };
 const USUARIOS_CRM = uid(19, 1);
 const CATALOGO = uid(19, 2);
 const CRM = uid(4, 3);
+// Los feriados (8 de octubre: Combate de Angamos) no cuentan como días hábiles.
+const FERIADOS = diasNoLaborables(FERIADOS_PERU_2026.map((f) => ({ tipo: "FERIADO", fechaInicio: f.fecha, fechaFin: f.fecha })));
+const diasAtraso = (limite: string, hasta: string) => atrasoSinFeriados(limite, hasta, FERIADOS);
+const fechaLimite = (desde: string, dias: number) => limiteSinFeriados(desde, dias, FERIADOS);
+const correrFecha = (fecha: string, n: number) => correrSinFeriados(fecha, n, FERIADOS);
 
 export function pruebasRequerimientos(nombre: string, manejar: Manejador, reiniciar: () => Promise<void> | void, eventos: () => Promise<{ tipo: string; datos: any }[]>, hoy: string) {
   const llamar = crearLlamar(manejar);
@@ -37,7 +42,8 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.deepEqual(crm.campos.map((c: any) => c.clave), ["usuarios", "administrador"]);
       assert.deepEqual(crm.respuestas, { administrador: "Valeria Mendoza" }, "borrador guardado");
       assert.equal(r.pendientes, 3);
-      assert.equal(r.atrasados, [ "2026-10-05", "2026-10-08", "2026-10-13"].filter((f) => diasAtraso(f, hoy) > 0).length);
+      assert.deepEqual(r.datos.slice(1, 3).map((x: any) => x.fechaLimite), ["2026-10-09", "2026-10-14"], "el feriado del 8 no cuenta");
+      assert.equal(r.atrasados, ["2026-10-05", "2026-10-09", "2026-10-14"].filter((f) => diasAtraso(f, hoy) > 0).length);
       const soloWeb = (await llamar("GET", `/clientes/${CASA_OLIVA}/requerimientos?servicioContratadoId=${uid(4, 4)}`, VALERIA)).json.datos;
       assert.deepEqual(soloWeb.map((x: any) => x.plantillaCodigo), ["CATALOGO_PRODUCTOS", "BRIEF_WEB"]);
       assert.equal((await llamar("GET", `/clientes/${NATIVA}/requerimientos`, VALERIA)).status, 404);

@@ -22,6 +22,8 @@ info:
     le avisa. Reemplazan a los requerimientos del brief (cliente → agencia) del 10 oct. Los tickets del soporte
     continuo se generan dentro de ese servicio (`servicioContratadoId`); sin servicio son consultas generales.
     Cambio de responsable: el cliente deja los datos de su sucesor y el equipo lo aprueba antes de dar el acceso.
+    Avisos: feriados, días no laborables, aniversario del cliente y avisos generales; los feriados y días no
+    laborables no cuentan como días hábiles en plazos ni etapas.
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -277,6 +279,64 @@ paths:
                   pendientes: { type: array, description: Por fecha de vencimiento, items: { $ref: '#/components/schemas/PagoProgramado' } }
                   pagados: { type: array, description: Los más recientes primero, items: { $ref: '#/components/schemas/PagoProgramado' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /avisos:
+    get:
+      tags: [Clientes]
+      operationId: listarAvisos
+      summary: 'Equipo: avisos vigentes y próximos (globales y por cliente). El cliente los recibe en su Inicio.'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: clienteId, in: query, description: Solo los de ese cliente y los globales, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Aviso' } }
+    post:
+      tags: [Clientes]
+      operationId: crearAviso
+      summary: 'Publicar un aviso. FERIADO y NO_LABORABLE son para todos y dejan de contar como días hábiles.'
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipo, titulo, fechaInicio]
+              properties:
+                tipo: { type: string, enum: [FERIADO, NO_LABORABLE, GENERAL] }
+                titulo: { type: string, minLength: 3 }
+                mensaje: { type: string }
+                clienteId: { type: [string, 'null'], format: uuid, description: 'Solo GENERAL; null = todos los clientes' }
+                fechaInicio: { type: string, format: date }
+                fechaFin: { type: string, format: date, description: 'Por defecto, la misma que fechaInicio' }
+                visibleDesde: { type: string, format: date, description: 'Por defecto, 7 días antes de fechaInicio' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Aviso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /avisos/{avisoId}:
+    parameters:
+      - { name: avisoId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Clientes]
+      operationId: eliminarAviso
+      summary: Quitar un aviso (vuelve a contar el día como hábil si era feriado o no laborable)
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      responses:
+        '204': { description: Eliminado }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /clientes/{clienteId}/actividad:
@@ -2329,6 +2389,7 @@ components:
         pilaresContenido: { type: array, items: { type: string } }
         canales: { type: array, items: { type: string, enum: [INSTAGRAM, FACEBOOK, LINKEDIN, TIKTOK, YOUTUBE, BLOG, WEB] } }
         wordpressUrl: { type: [string, 'null'], format: uri }
+        fechaAniversario: { type: [string, 'null'], format: date, description: 'Desde cuándo trabajamos juntos (día del aniversario)' }
         accountManagerId: { type: string, format: uuid }
         limiteGastoIaUsd: { type: number, minimum: 0, description: Solo ADMIN }
         estado: { $ref: '#/components/schemas/EstadoCliente' }
@@ -2408,6 +2469,10 @@ components:
             descripcion: { type: [string, 'null'] }
             tono: { type: array, items: { type: string } }
             publico: { type: [string, 'null'] }
+        avisos:
+          type: array
+          description: 'Avisos visibles hoy (feriados próximos, días no laborables, aniversario, generales)'
+          items: { $ref: '#/components/schemas/Aviso' }
         actividad:
           type: array
           description: 'Actividad reciente, breve (máximo 4): aprobaciones, etapas terminadas y requerimientos'
@@ -2452,6 +2517,18 @@ components:
               codigo: { type: string }
               asunto: { type: string }
               estado: { $ref: '#/components/schemas/EstadoTicket' }
+    Aviso:
+      type: object
+      required: [id, tipo, titulo, fechaInicio, fechaFin]
+      properties:
+        id: { type: string, description: 'uuid; el aniversario calculado usa «aniversario-<clienteId>»' }
+        clienteId: { type: [string, 'null'], format: uuid }
+        tipo: { type: string, enum: [FERIADO, NO_LABORABLE, ANIVERSARIO, GENERAL] }
+        titulo: { type: string, examples: [Combate de Angamos] }
+        mensaje: { type: [string, 'null'] }
+        fechaInicio: { type: string, format: date }
+        fechaFin: { type: string, format: date }
+        visibleDesde: { type: string, format: date }
     PagoProgramado:
       type: object
       required: [id, concepto, monto, moneda, fechaVencimiento, estado]

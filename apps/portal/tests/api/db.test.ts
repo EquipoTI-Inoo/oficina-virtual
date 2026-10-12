@@ -17,6 +17,7 @@ import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
+import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
 import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
 
@@ -25,8 +26,12 @@ const db = new PGlite({ extensions: { pgcrypto, citext } });
 const SEMILLAS = `${sql("semillas/0001_casa_oliva.sql")}\n${sql("semillas/0002_integraciones_demo.sql")}`;
 let tablas = "";
 
+// Los feriados vienen de la migración 0011; el TRUNCATE en cascada de cliente vacía aviso, así que se
+// guardan al cargar el esquema y se vuelven a insertar en cada reinicio.
+let feriadosMigracion: { fecha: string; nombre: string }[] = [];
 async function reiniciar() {
-  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\n${SEMILLAS}`);
+  const feriados = feriadosMigracion.map((f) => `('FERIADO', '${f.nombre.replace(/'/g, "''")}', DATE '${f.fecha}', DATE '${f.fecha}', DATE '${f.fecha}' - 7)`).join(",\n");
+  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${SEMILLAS}`);
 }
 
 before(async () => {
@@ -40,11 +45,15 @@ before(async () => {
   await db.exec(sql("migraciones/0008_requerimientos_agencia.sql"));
   await db.exec(sql("migraciones/0009_tickets_servicio.sql"));
   await db.exec(sql("migraciones/0010_cambio_responsable.sql"));
+  await db.exec(sql("migraciones/0011_avisos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
   );
   tablas = rows[0].t;
+  feriadosMigracion = (await db.query<{ fecha: string; nombre: string }>(
+    "SELECT to_char(fecha_inicio, 'YYYY-MM-DD') AS fecha, titulo AS nombre FROM aviso WHERE tipo = 'FERIADO' ORDER BY fecha_inicio",
+  )).rows;
   await reiniciar();
   usarBaseDatos(desdePglite(db as never));
 });
@@ -62,6 +71,9 @@ describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mism
       "SELECT codigo, nombre, modalidad::text AS modalidad, variantes FROM servicio WHERE activo ORDER BY orden",
     );
     assert.deepEqual(rows, CATALOGO_SERVICIOS.map((s) => ({ codigo: s.codigo, nombre: s.nombre, modalidad: s.modalidad, variantes: s.variantes })));
+  });
+  test("feriados de Perú 2026 (0011 y src/dominio/calendario.ts)", async () => {
+    assert.deepEqual(feriadosMigracion, FERIADOS_PERU_2026);
   });
   test("plantillas de requerimiento (0008 y src/dominio/requerimientos.ts)", async () => {
     const { rows } = await db.query<{ codigo: string; nombre: string; descripcion: string; servicios: string[]; diasHabiles: number; campos: unknown }>(

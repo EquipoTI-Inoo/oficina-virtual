@@ -13,6 +13,7 @@ import {
   AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
+import { AvisosInicio } from "./avisos";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
 
@@ -187,6 +188,7 @@ function Inicio() {
         ligero
         bajada={`Así va todo lo que hacemos para ${cuenta?.nombre ?? sesion?.clientes[0]?.nombre ?? "tu marca"}.`}
       />
+      <AvisosInicio avisos={d.avisos ?? []} />
       {pago && (
         <Aviso icono={<LuWallet size={18} />} tono={pago.estado === "VENCIDO" ? "alerta" : undefined}>
           {pago.estado === "VENCIDO"

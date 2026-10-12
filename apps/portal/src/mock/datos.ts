@@ -9,6 +9,7 @@
 
 import { etapasDesdePlantilla, plantillaPara, type CodigoServicio, type EstadoEtapa } from "../dominio/servicios";
 import { fechaLimite, plantillaRequerimiento } from "../dominio/requerimientos";
+import { diasNoLaborables, FERIADOS_PERU_2026 } from "../dominio/calendario";
 
 export const HOY = "2026-10-06T15:00:00Z";
 export const PERIODO = "2026-10";
@@ -61,11 +62,13 @@ export interface ClienteDemo {
   resumenFijo?: { atrasadas: number; porAprobar: number };
   estado?: "ACTIVO" | "PAUSADO" | "BAJA";
   creadoEn?: string;
+  /** Desde cuándo trabajamos juntos: ese día y mes el portal le saluda por el aniversario. */
+  fechaAniversario?: string | null;
   accountManagerId?: string | null;
 }
 
 export const CLIENTES: ClienteDemo[] = [
-  { id: uid(2, 1), nombre: "Casa Oliva", slug: "casa-oliva", iniciales: "CO", contactoPrincipalId: uid(1, 1), contactoNombre: "Valeria Mendoza", limiteGastoIaUsd: 60, gastoIaUsd: 48 },
+  { id: uid(2, 1), nombre: "Casa Oliva", slug: "casa-oliva", iniciales: "CO", contactoPrincipalId: uid(1, 1), contactoNombre: "Valeria Mendoza", limiteGastoIaUsd: 60, gastoIaUsd: 48, fechaAniversario: "2024-10-06" },
   { id: uid(2, 2), nombre: "Nativa Café", slug: "nativa-cafe", iniciales: "NC", contactoPrincipalId: null, contactoNombre: "Lucía Torres", limiteGastoIaUsd: 80, gastoIaUsd: 36, resumenFijo: { atrasadas: 1, porAprobar: 3 } },
   { id: uid(2, 3), nombre: "Luma Studio", slug: "luma-studio", iniciales: "LS", contactoPrincipalId: null, contactoNombre: "Andrea Ríos", limiteGastoIaUsd: 100, gastoIaUsd: 84, resumenFijo: { atrasadas: 2, porAprobar: 6 } },
   { id: uid(2, 4), nombre: "Andes Salud", slug: "andes-salud", iniciales: "AS", contactoPrincipalId: null, contactoNombre: "Carlos Vega", limiteGastoIaUsd: 50, gastoIaUsd: 22, resumenFijo: { atrasadas: 0, porAprobar: 2 } },
@@ -93,6 +96,24 @@ export const FICHA_CASA_OLIVA = {
   driveUrl: "https://drive.google.com/drive/folders/demo-casa-oliva",
   plan: { id: uid(3, 1), nombre: "Plan Crecimiento", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", tieneContrato: true },
 };
+
+/** Avisos (migración 0011): los feriados de Perú 2026 son globales y no cuentan como días hábiles. */
+export interface AvisoDemo {
+  id: string;
+  clienteId: string | null;
+  tipo: "FERIADO" | "NO_LABORABLE" | "GENERAL";
+  titulo: string;
+  mensaje: string | null;
+  fechaInicio: string;
+  fechaFin: string;
+  visibleDesde: string;
+}
+const semanaAntes = (f: string) => new Date(Date.parse(`${f}T12:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+export const AVISOS_INICIALES: AvisoDemo[] = FERIADOS_PERU_2026.map((f, i) => ({
+  id: uid(26, i + 1), clienteId: null, tipo: "FERIADO", titulo: f.nombre, mensaje: null, fechaInicio: f.fecha, fechaFin: f.fecha, visibleDesde: semanaAntes(f.fecha),
+}));
+/** Días que no cuentan como hábiles con los avisos iniciales (los usan las fechas de los datos de prueba). */
+export const DIAS_NO_HABILES = diasNoLaborables(AVISOS_INICIALES);
 
 export interface ServicioContratadoDemo {
   id: string;
@@ -148,7 +169,7 @@ export function etapasIniciales(): EtapaDemo[] {
   return plan.flatMap(([scId, periodo, completas]) => {
     const sc = SERVICIOS_CONTRATADOS.find((s) => s.id === scId)!;
     const inicio = periodo ? `${periodo}-01` : sc.fechaInicio;
-    return etapasDesdePlantilla(plantillaPara(sc.codigo, sc.variante)!, inicio).map((e): EtapaDemo => {
+    return etapasDesdePlantilla(plantillaPara(sc.codigo, sc.variante)!, inicio, DIAS_NO_HABILES).map((e): EtapaDemo => {
       const estado: EstadoEtapa = e.orden <= completas ? "COMPLETADO" : e.orden === completas + 1 ? "EN_PROGRESO" : "SIN_INICIAR";
       return {
         id: uid(20, ++n), servicioContratadoId: sc.id, clienteId: sc.clienteId, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct,
@@ -416,8 +437,8 @@ export const REFERENCIAS_INICIALES = [
 
 /**
  * Requerimientos de la agencia a Casa Oliva (reunión 12 oct). «Hoy» es el martes 6 de octubre: los
- * usuarios del CRM vencieron el lunes 5 (1 día hábil de atraso), el catálogo vence el 8 y el brief de
- * noviembre el 13. Los dos últimos ya se enviaron y aprobaron.
+ * usuarios del CRM vencieron el lunes 5 (1 día hábil de atraso), el catálogo vence el 9 (el 8 es
+ * feriado) y el brief de noviembre el 14. Los dos últimos ya se enviaron y aprobaron.
  */
 export interface RequerimientoDemo {
   id: string;
@@ -440,7 +461,7 @@ export interface RequerimientoDemo {
 
 const req = (n: number, sc: string, plantilla: string, titulo: string, emitidoEn: string, x: Partial<RequerimientoDemo> = {}): RequerimientoDemo => ({
   id: uid(19, n), servicioContratadoId: sc, clienteId: uid(2, 1), plantillaCodigo: plantilla, titulo, mensaje: null, respuestas: {}, estado: "PENDIENTE",
-  emitidoEn, fechaLimite: fechaLimite(emitidoEn, plantillaRequerimiento(plantilla)!.diasHabiles), diasCorridos: 0, notaEquipo: null,
+  emitidoEn, fechaLimite: fechaLimite(emitidoEn, plantillaRequerimiento(plantilla)!.diasHabiles, DIAS_NO_HABILES), diasCorridos: 0, notaEquipo: null,
   enviadoEn: null, enviadoPorId: null, revisadoEn: null, creadoPorId: DIEGO, ...x,
 });
 

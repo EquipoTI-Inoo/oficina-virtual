@@ -153,6 +153,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/avisos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Equipo: avisos vigentes y próximos (globales y por cliente). El cliente los recibe en su Inicio. */
+        get: operations["listarAvisos"];
+        put?: never;
+        /** Publicar un aviso. FERIADO y NO_LABORABLE son para todos y dejan de contar como días hábiles. */
+        post: operations["crearAviso"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/avisos/{avisoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                avisoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quitar un aviso (vuelve a contar el día como hábil si era feriado o no laborable) */
+        delete: operations["eliminarAviso"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/actividad": {
         parameters: {
             query?: never;
@@ -1635,6 +1672,11 @@ export interface components {
             canales?: ("INSTAGRAM" | "FACEBOOK" | "LINKEDIN" | "TIKTOK" | "YOUTUBE" | "BLOG" | "WEB")[];
             /** Format: uri */
             wordpressUrl?: string | null;
+            /**
+             * Format: date
+             * @description Desde cuándo trabajamos juntos (día del aniversario)
+             */
+            fechaAniversario?: string | null;
             /** Format: uuid */
             accountManagerId?: string;
             /** @description Solo ADMIN */
@@ -1716,6 +1758,8 @@ export interface components {
                 tono?: string[];
                 publico?: string | null;
             } | null;
+            /** @description Avisos visibles hoy (feriados próximos, días no laborables, aniversario, generales) */
+            avisos?: components["schemas"]["Aviso"][];
             /** @description Actividad reciente, breve (máximo 4): aprobaciones, etapas terminadas y requerimientos */
             actividad?: {
                 /** Format: date-time */
@@ -1756,6 +1800,23 @@ export interface components {
                 asunto: string;
                 estado: components["schemas"]["EstadoTicket"];
             }[];
+        };
+        Aviso: {
+            /** @description uuid; el aniversario calculado usa «aniversario-<clienteId>» */
+            id: string;
+            /** Format: uuid */
+            clienteId?: string | null;
+            /** @enum {string} */
+            tipo: "FERIADO" | "NO_LABORABLE" | "ANIVERSARIO" | "GENERAL";
+            /** @example Combate de Angamos */
+            titulo: string;
+            mensaje?: string | null;
+            /** Format: date */
+            fechaInicio: string;
+            /** Format: date */
+            fechaFin: string;
+            /** Format: date */
+            visibleDesde?: string;
         };
         PagoProgramado: {
             /** Format: uuid */
@@ -3455,6 +3516,99 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    listarAvisos: {
+        parameters: {
+            query?: {
+                /** @description Solo los de ese cliente y los globales */
+                clienteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Aviso"][];
+                    };
+                };
+            };
+        };
+    };
+    crearAviso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    tipo: "FERIADO" | "NO_LABORABLE" | "GENERAL";
+                    titulo: string;
+                    mensaje?: string;
+                    /**
+                     * Format: uuid
+                     * @description Solo GENERAL; null = todos los clientes
+                     */
+                    clienteId?: string | null;
+                    /** Format: date */
+                    fechaInicio: string;
+                    /**
+                     * Format: date
+                     * @description Por defecto, la misma que fechaInicio
+                     */
+                    fechaFin?: string;
+                    /**
+                     * Format: date
+                     * @description Por defecto, 7 días antes de fechaInicio
+                     */
+                    visibleDesde?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Aviso"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarAviso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                avisoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             404: components["responses"]["NoEncontrado"];
         };
     };

@@ -4,9 +4,9 @@ import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
   LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList,
+  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
-import { api, cerrarSesion, clienteActivo, Enlace, leerSesion, useConsulta, useNavegacion, type S } from "./base";
+import { api, cerrarSesion, clienteActivo, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -83,6 +83,21 @@ export function AvanceLineal({ avance: a, compacto }: { avance: S<"AvanceProyect
     </div>
   );
 }
+
+// ───────────────────────────── avisos (feriados, días no laborables, aniversario y generales)
+
+export const TIPO_AVISO: Record<string, string> = { FERIADO: "Feriado", NO_LABORABLE: "Día no laborable", ANIVERSARIO: "Aniversario", GENERAL: "Aviso" };
+
+/** Texto corto de un aviso para el cliente. */
+export function textoAviso(a: S<"Aviso">): string {
+  const cuando = a.fechaInicio === a.fechaFin ? fHoyLargo(a.fechaInicio) : `del ${fCorta(a.fechaInicio)} al ${fCorta(a.fechaFin)}`;
+  if (a.tipo === "FERIADO") return `El ${cuando} es feriado (${a.titulo}). No lo contamos en tus plazos.`;
+  if (a.tipo === "NO_LABORABLE") return `${a.titulo}: no trabajaremos ${a.fechaInicio === a.fechaFin ? `el ${cuando}` : cuando}. Tus plazos no cuentan esos días.`;
+  return a.mensaje ? `${a.titulo}. ${a.mensaje}` : a.titulo;
+}
+
+export const iconoAviso = (tipo: string, size = 18) =>
+  tipo === "ANIVERSARIO" ? <LuPartyPopper size={size} /> : tipo === "GENERAL" ? <LuMegaphone size={size} /> : <LuCalendarOff size={size} />;
 
 // ───────────────────────────── piezas básicas
 
@@ -263,10 +278,11 @@ const NAV_EQUIPO = [
   { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks /> },
   { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
   { a: "/equipo/blog", texto: "Blog", icono: <LuFileText /> },
+  { a: "/equipo/avisos", texto: "Avisos", icono: <LuMegaphone /> },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
-function Lateral({ espacio, contadores, sesion, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; alNavegar?: () => void }) {
+function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
   const u = sesion?.usuario;
@@ -303,9 +319,10 @@ function Lateral({ espacio, contadores, sesion, alNavegar }: { espacio: "cliente
       </nav>
       {espacio === "cliente" ? (
         <div className="ayuda">
-          <LuSparkles size={18} />
-          <strong>Estamos contigo.</strong>
-          <span>Tu equipo Inoo, a un mensaje de distancia.</span>
+          {aviso ? iconoAviso(aviso.tipo) : <LuSparkles size={18} />}
+          <strong>{aviso?.tipo === "ANIVERSARIO" ? aviso.titulo : aviso ? TIPO_AVISO[aviso.tipo] : "Estamos contigo."}</strong>
+          {/* El recuadro sirve para comunicar feriados, días no laborables y fechas especiales del cliente. */}
+          <span>{aviso ? (aviso.tipo === "ANIVERSARIO" ? aviso.mensaje : textoAviso(aviso)) : "Tu equipo Inoo, a un mensaje de distancia."}</span>
           <Enlace a="/cuenta/ayuda" className="enlace">
             Contactar a mi equipo →
           </Enlace>
@@ -416,6 +433,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
 
   const porAprobar = inicio.datos?.indicadores.porAprobar ?? 0;
   const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
+  const aviso = inicio.datos?.avisos?.[0];
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
   const nombreCuenta = espacio === "cliente" ? me.datos?.clientes[0]?.nombre ?? "Casa Oliva" : "Equipo Inoo";
   const marcarLeidas = async () => {
@@ -426,7 +444,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   return (
     <ContextoPortal.Provider value={{ sesion: me.datos, porAprobar, refrescar: () => void inicio.recargar() }}>
       <div className={`app${flotante ? " app--flotante" : ""}`}>
-        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} />
+        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} />
         <div className="principal">
           <div className="superior">
             <div className="fila">
@@ -456,7 +474,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
       {menu && (
         <div className="cajon" onClick={() => setMenu(false)}>
           <div onClick={(e) => e.stopPropagation()}>
-            <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} alNavegar={() => setMenu(false)} />
+            <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} alNavegar={() => setMenu(false)} />
             <button className="modal-cerrar" style={{ position: "fixed", left: "min(280px, 78vw)", top: 24, zIndex: 51 }} aria-label="Cerrar menú" onClick={() => setMenu(false)}>
               <LuX size={18} />
             </button>

@@ -12,6 +12,7 @@
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
+import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -72,6 +73,7 @@ interface Estado {
   servicios: D.ServicioContratadoDemo[];
   etapas: D.EtapaDemo[];
   pagos: D.PagoDemo[];
+  avisos: D.AvisoDemo[];
   reuniones: D.ReunionDemo[];
   comentariosProyecto: D.ComentarioProyectoDemo[];
   solicitudesResponsable: {
@@ -130,6 +132,7 @@ function estadoInicial(): Estado {
     servicios: structuredClone(D.SERVICIOS_CONTRATADOS),
     etapas: D.etapasIniciales(),
     pagos: structuredClone(D.PAGOS_INICIALES),
+    avisos: structuredClone(D.AVISOS_INICIALES),
     reuniones: structuredClone(D.REUNIONES_INICIALES),
     comentariosProyecto: structuredClone(D.COMENTARIOS_PROYECTO_INICIALES),
     solicitudesResponsable: [],
@@ -416,6 +419,8 @@ function progreso(piezas: D.PiezaDemo[], totales: number): S<"ProgresoPiezas"> {
 const piezasDe = (clienteId: string) => E.piezas.filter((p) => p.clienteId === clienteId);
 const piezasDelMes = (clienteId: string, periodo = D.PERIODO) => piezasDe(clienteId).filter((p) => p.fecha.startsWith(periodo));
 const serviciosDe = (clienteId: string) => E.servicios.filter((s) => s.clienteId === clienteId);
+/** Feriados y días no laborables vigentes: no cuentan como días hábiles. */
+const noHabiles = () => diasNoLaborables(E.avisos);
 const cantidadDe = (s: D.ServicioContratadoDemo) => s.entregables.reduce((t, e) => t + e.cantidadMensual, 0);
 const cuotaMensual = (clienteId: string) => serviciosDe(clienteId).reduce((t, s) => t + cantidadDe(s), 0);
 const ordenCatalogo = (codigo: string) => D.CATALOGO.findIndex((k) => k.codigo === codigo);
@@ -656,6 +661,61 @@ function actividadReciente(clienteId: string, limite = 4): S<"InicioCliente">["a
   return xs.filter((x) => x.fecha <= D.HOY).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, limite);
 }
 
+const avisoVista = (a: D.AvisoDemo): S<"Aviso"> => ({ ...a });
+
+/** Lo que el cliente ve hoy: avisos globales y suyos dentro de su ventana, y su aniversario. */
+function avisosVisibles(c: D.ClienteDemo): S<"Aviso">[] {
+  const hoy = D.HOY.slice(0, 10);
+  const xs = E.avisos
+    .filter((a) => (!a.clienteId || a.clienteId === c.id) && a.visibleDesde <= hoy && hoy <= a.fechaFin)
+    .sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio))
+    .map(avisoVista);
+  const anios = aniversarioHoy(c.fechaAniversario, hoy);
+  if (anios) {
+    xs.unshift({ id: `aniversario-${c.id}`, clienteId: c.id, tipo: "ANIVERSARIO", titulo: `¡Hoy cumplimos ${anios === 1 ? "un año" : `${anios} años`} trabajando juntos!`, mensaje: "Gracias por confiar en Inoo.", fechaInicio: hoy, fechaFin: hoy, visibleDesde: hoy });
+  }
+  return xs;
+}
+
+ruta("GET", "/avisos", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const cliente = q.get("clienteId");
+  const hoy = D.HOY.slice(0, 10);
+  return {
+    datos: E.avisos.filter((a) => a.fechaFin >= hoy && (!cliente || !a.clienteId || a.clienteId === cliente)).sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio)).map(avisoVista),
+  };
+});
+
+ruta("POST", "/avisos", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = await cuerpo<{ tipo?: string; titulo?: string; mensaje?: string; clienteId?: string | null; fechaInicio?: string; fechaFin?: string; visibleDesde?: string }>(req);
+  const fecha = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!["FERIADO", "NO_LABORABLE", "GENERAL"].includes(b.tipo ?? "")) errores.push({ campo: "tipo", mensaje: "Elige feriado, día no laborable o aviso general" });
+  if (!b.titulo || b.titulo.trim().length < 3) errores.push({ campo: "titulo", mensaje: "Escribe un título" });
+  if (!fecha(b.fechaInicio)) errores.push({ campo: "fechaInicio", mensaje: "Indica la fecha (AAAA-MM-DD)" });
+  if (b.fechaFin !== undefined && (!fecha(b.fechaFin) || b.fechaFin < (b.fechaInicio ?? ""))) errores.push({ campo: "fechaFin", mensaje: "Debe ser igual o posterior al inicio" });
+  if (b.clienteId && b.tipo !== "GENERAL") errores.push({ campo: "clienteId", mensaje: "Los feriados y días no laborables son para todos los clientes" });
+  if (b.clienteId && !E.clientes.some((c) => c.id === b.clienteId)) errores.push({ campo: "clienteId", mensaje: "Ese cliente no existe" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const fin = b.fechaFin ?? b.fechaInicio!;
+  const a: D.AvisoDemo = {
+    id: nuevoId(26), clienteId: b.clienteId ?? null, tipo: b.tipo as D.AvisoDemo["tipo"], titulo: b.titulo!.trim(), mensaje: b.mensaje?.trim() || null,
+    fechaInicio: b.fechaInicio!, fechaFin: fin, visibleDesde: b.visibleDesde ?? new Date(Date.parse(`${b.fechaInicio}T12:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10),
+  };
+  E.avisos.push(a);
+  return { __status: 201, ...avisoVista(a) };
+});
+
+ruta("DELETE", "/avisos/:id", (ctx, p) => {
+  soloEquipo(ctx);
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  if (!E.avisos.some((a) => a.id === p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese aviso");
+  E.avisos = E.avisos.filter((a) => a.id !== p.id);
+  return null;
+});
+
 ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
   const ps = piezasDelMes(c.id);
@@ -683,6 +743,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
           return { mensajeCentral: f.marca.mensajeCentral ?? null, campanaActual: f.marca.campanaActual ?? null, descripcion: f.marca.descripcion ?? null, tono: f.tono.etiquetas ?? [], publico: f.publico.descripcion ?? null };
         })()
       : null,
+    avisos: avisosVisibles(c),
     actividad: actividadReciente(c.id),
     avanceMes: progreso(ps, cuotaMensual(c.id)),
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
@@ -1017,7 +1078,7 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
   return {
     id: r.id, servicioContratadoId: r.servicioContratadoId, servicioTitulo: tituloDe(sc), plantillaCodigo: r.plantillaCodigo, titulo: r.titulo,
     descripcion: pl?.descripcion ?? null, mensaje: r.mensaje, estado: r.estado, emitidoEn: r.emitidoEn, fechaLimite: r.fechaLimite,
-    diasAtraso: diasAtraso(r.fechaLimite, hasta), diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
+    diasAtraso: diasAtraso(r.fechaLimite, hasta, noHabiles()), diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
     notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: persona(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
   };
 }
@@ -1034,11 +1095,12 @@ function buscarRequerimiento(ctx: Ctx, id: string) {
  * límite hasta `hasta`). Solo mueve etapas sin completar. Devuelve cuántos días corrió.
  */
 function aplicarAtraso(r: D.RequerimientoDemo, hasta: string) {
-  const delta = diasAtraso(r.fechaLimite, hasta) - r.diasCorridos;
+  const dias = noHabiles();
+  const delta = diasAtraso(r.fechaLimite, hasta, dias) - r.diasCorridos;
   if (delta <= 0) return 0;
   for (const e of E.etapas.filter((x) => x.servicioContratadoId === r.servicioContratadoId && x.estado !== "COMPLETADO")) {
-    e.fechaInicio = correrFecha(e.fechaInicio, delta);
-    e.fechaEstimada = correrFecha(e.fechaEstimada, delta);
+    e.fechaInicio = correrFecha(e.fechaInicio, delta, dias);
+    e.fechaEstimada = correrFecha(e.fechaEstimada, delta, dias);
   }
   r.diasCorridos += delta;
   return delta;
@@ -1073,7 +1135,7 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, req) => {
   const emitidoEn = D.HOY;
   const r: D.RequerimientoDemo = {
     id: nuevoId(19), servicioContratadoId: sc!.id, clienteId: c.id, plantillaCodigo: pl!.codigo, titulo: b.titulo?.trim() || pl!.nombre, mensaje: b.mensaje?.trim() || null,
-    respuestas: {}, estado: "PENDIENTE", emitidoEn, fechaLimite: fechaLimite(emitidoEn, b.diasHabiles ?? pl!.diasHabiles), diasCorridos: 0, notaEquipo: null,
+    respuestas: {}, estado: "PENDIENTE", emitidoEn, fechaLimite: fechaLimite(emitidoEn, b.diasHabiles ?? pl!.diasHabiles, noHabiles()), diasCorridos: 0, notaEquipo: null,
     enviadoEn: null, enviadoPorId: null, revisadoEn: null, creadoPorId: ctx.usuario.id,
   };
   E.requerimientos.push(r);
@@ -1099,7 +1161,7 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
     r.enviadoEn = D.HOY;
     r.enviadoPorId = ctx.usuario.id;
     const corridos = aplicarAtraso(r, D.HOY);
-    emitir("requerimiento.enviado", r.clienteId, { requerimientoId: r.id, diasAtraso: diasAtraso(r.fechaLimite, D.HOY), diasCorridos: corridos, usuarioId: ctx.usuario.id });
+    emitir("requerimiento.enviado", r.clienteId, { requerimientoId: r.id, diasAtraso: diasAtraso(r.fechaLimite, D.HOY, noHabiles()), diasCorridos: corridos, usuarioId: ctx.usuario.id });
     registrarCorreo(E.usuarios[2].email, `${ctx.usuario.nombre} envió «${r.titulo}»`, "requerimiento.enviado");
   }
   return requerimientoVista(r);
@@ -1618,7 +1680,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   // Etapas desde la plantilla: el proyecto entero, o el mes en curso si el servicio es mensual.
   const periodo = cat!.modalidad === "MENSUAL" ? (b.fechaInicio.slice(0, 7) > D.PERIODO ? b.fechaInicio.slice(0, 7) : D.PERIODO) : null;
   const inicio = periodo && periodo !== b.fechaInicio.slice(0, 7) ? `${periodo}-01` : b.fechaInicio;
-  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio)) {
+  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio, noHabiles())) {
     E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
   }
   if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;

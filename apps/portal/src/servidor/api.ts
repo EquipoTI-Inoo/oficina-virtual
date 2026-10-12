@@ -13,7 +13,7 @@
  * requerimientos de la agencia al cliente
  * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
- * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros.
+ * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id}.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -24,6 +24,7 @@ import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
+import { diasNoLaborables } from "../dominio/calendario";
 import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
@@ -1218,6 +1219,15 @@ ruta("POST", "/integraciones/calendarios", async (ctx, _p, _q, cuerpo) => {
 
 // ───────────────────────────────────────────── servicios, plantillas y etapas (reunión 12 oct)
 
+/** Feriados y días no laborables (avisos globales): no cuentan como días hábiles. */
+async function noHabilesDb(ctx: Ctx): Promise<Set<string>> {
+  const { rows } = await ctx.c.query<{ tipo: string; fecha_inicio: Date | string; fecha_fin: Date | string }>(
+    "SELECT tipo::text, fecha_inicio, fecha_fin FROM aviso WHERE cliente_id IS NULL AND tipo IN ('FERIADO', 'NO_LABORABLE')",
+  );
+  const f = (d: Date | string) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
+  return diasNoLaborables(rows.map((r) => ({ tipo: r.tipo, fechaInicio: f(r.fecha_inicio), fechaFin: f(r.fecha_fin) })));
+}
+
 /** Hoy en Lima (UTC-5), AAAA-MM-DD. */
 const HOY_LIMA = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
 const fechaIso = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d as string | null) ?? null);
@@ -1420,7 +1430,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   const periodo = cat!.modalidad === "MENSUAL" ? (mesInicio > PERIODO_ACTUAL() ? mesInicio : PERIODO_ACTUAL()) : null;
   const inicio = periodo && periodo !== mesInicio ? `${periodo}-01` : b.fechaInicio!;
   const etapasPlantilla = (await ctx.c.query<{ id: string; orden: number }>("SELECT id, orden FROM etapa_plantilla WHERE plantilla_id = $1", [plantilla.id])).rows;
-  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio)) {
+  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio, await noHabilesDb(ctx))) {
     await ctx.c.query(
       `INSERT INTO etapa_proyecto (servicio_contratado_id, cliente_id, etapa_plantilla_id, periodo, orden, nombre, avance_pct, espera_cliente, fecha_inicio, fecha_estimada, actualizado_por)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -1614,13 +1624,13 @@ const SELECT_REQ = `
   LEFT JOIN usuario ue ON ue.id = r.enviado_por
   LEFT JOIN usuario uc ON uc.id = r.creado_por`;
 
-function reqVista(r: FilaReq): S<"Requerimiento"> {
+function reqVista(r: FilaReq, dias: ReadonlySet<string>): S<"Requerimiento"> {
   const limite = fechaIso(r.fecha_limite)!;
   const hasta = pendienteParaCliente(r.estado) ? HOY_LIMA() : (iso(r.enviado_en) ?? HOY_LIMA());
   return {
     id: r.id, servicioContratadoId: r.servicio_contratado_id, servicioTitulo: tituloServicio(r.servicio_nombre, r.servicio_marca ?? r.cliente_nombre),
     plantillaCodigo: r.plantilla_codigo, titulo: r.titulo, descripcion: r.plantilla_descripcion, mensaje: r.mensaje, estado: r.estado,
-    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
+    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta, dias), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
     notaEquipo: r.nota_equipo, enviadoEn: iso(r.enviado_en), enviadoPor: persona(r.enviado_por, r.enviado_por_nombre), revisadoEn: iso(r.revisado_en),
     creadoPor: persona(r.creado_por, r.creado_por_nombre),
   };
@@ -1635,15 +1645,15 @@ async function buscarReq(ctx: Ctx, id: string, bloquear = false): Promise<FilaRe
 }
 
 /** Corre las etapas sin completar del servicio por el atraso aún no aplicado. Devuelve los días que corrió. */
-async function aplicarAtrasoDb(ctx: Ctx, r: FilaReq, hasta: string): Promise<number> {
-  const delta = diasAtraso(fechaIso(r.fecha_limite)!, hasta) - r.dias_corridos;
+async function aplicarAtrasoDb(ctx: Ctx, r: FilaReq, hasta: string, dias: ReadonlySet<string>): Promise<number> {
+  const delta = diasAtraso(fechaIso(r.fecha_limite)!, hasta, dias) - r.dias_corridos;
   if (delta <= 0) return 0;
   const etapas = (await ctx.c.query<{ id: string; fecha_inicio: Date | null; fecha_estimada: Date | null }>(
     "SELECT id, fecha_inicio, fecha_estimada FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND estado <> 'COMPLETADO' FOR UPDATE", [r.servicio_contratado_id],
   )).rows;
   for (const e of etapas) {
     await ctx.c.query("UPDATE etapa_proyecto SET fecha_inicio = $2, fecha_estimada = $3, actualizado_en = now() WHERE id = $1", [
-      e.id, correrFecha(fechaIso(e.fecha_inicio), delta), correrFecha(fechaIso(e.fecha_estimada), delta),
+      e.id, correrFecha(fechaIso(e.fecha_inicio), delta, dias), correrFecha(fechaIso(e.fecha_estimada), delta, dias),
     ]);
   }
   await ctx.c.query("UPDATE requerimiento SET dias_corridos = dias_corridos + $2 WHERE id = $1", [r.id, delta]);
@@ -1664,7 +1674,8 @@ ruta("GET", "/clientes/:id/requerimientos", async (ctx, p, q) => {
   const { rows } = await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.cliente_id = $1 AND ($2::uuid IS NULL OR r.servicio_contratado_id = $2) ORDER BY r.fecha_limite, r.emitido_en DESC`, [
     p.id, sc && esUuid(sc) ? sc : null,
   ]);
-  const xs = rows.map(reqVista);
+  const dias = await noHabilesDb(ctx);
+  const xs = rows.map((r) => reqVista(r, dias));
   const abiertos = xs.filter((r) => pendienteParaCliente(r.estado));
   const resto = xs.filter((r) => !pendienteParaCliente(r.estado)).sort((a, b) => b.emitidoEn.localeCompare(a.emitidoEn));
   return { datos: [...abiertos, ...resto], pendientes: abiertos.length, atrasados: abiertos.filter((r) => r.diasAtraso > 0).length };
@@ -1687,17 +1698,18 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, cuerpo) => {
   if (b.titulo !== undefined && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
   if (errores.length) validacion(errores);
   const hoy = HOY_LIMA();
+  const dias = await noHabilesDb(ctx);
   const id = (await ctx.c.query<{ id: string }>(
     `INSERT INTO requerimiento (servicio_contratado_id, cliente_id, plantilla_codigo, titulo, mensaje, campos, fecha_limite, creado_por)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [sc!.id, p.id, pl!.codigo, b.titulo?.trim() || pl!.nombre, b.mensaje?.trim() || null, JSON.stringify(pl!.campos), fechaLimite(hoy, b.diasHabiles ?? pl!.dias_habiles), ctx.u.usuarioId],
+    [sc!.id, p.id, pl!.codigo, b.titulo?.trim() || pl!.nombre, b.mensaje?.trim() || null, JSON.stringify(pl!.campos), fechaLimite(hoy, b.diasHabiles ?? pl!.dias_habiles, dias), ctx.u.usuarioId],
   )).rows[0].id;
   const r = await buscarReq(ctx, id);
   await emitirOutbox(ctx, "requerimiento.creado", p.id, { requerimientoId: id, servicioContratadoId: sc!.id, fechaLimite: fechaIso(r.fecha_limite), usuarioId: ctx.u.usuarioId });
-  return { __status: 201, ...reqVista(r) };
+  return { __status: 201, ...reqVista(r, dias) };
 });
 
-ruta("GET", "/requerimientos/:id", async (ctx, p) => reqVista(await buscarReq(ctx, p.id)));
+ruta("GET", "/requerimientos/:id", async (ctx, p) => reqVista(await buscarReq(ctx, p.id), await noHabilesDb(ctx)));
 
 ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
   const r = await buscarReq(ctx, p.id, true);
@@ -1709,14 +1721,15 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
   const enviar = b.enviar === true;
   const errores = validarRespuestas(r.campos, respuestas, enviar);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
+  const dias = await noHabilesDb(ctx);
   if (!enviar) {
     await ctx.c.query("UPDATE requerimiento SET respuestas = $2 WHERE id = $1", [r.id, JSON.stringify(respuestas)]);
-    return reqVista(await buscarReq(ctx, r.id));
+    return reqVista(await buscarReq(ctx, r.id), dias);
   }
   await ctx.c.query("UPDATE requerimiento SET respuestas = $2, estado = 'ENVIADO', enviado_en = now(), enviado_por = $3 WHERE id = $1", [r.id, JSON.stringify(respuestas), ctx.u.usuarioId]);
-  const corridos = await aplicarAtrasoDb(ctx, r, HOY_LIMA());
-  await emitirOutbox(ctx, "requerimiento.enviado", r.cliente_id, { requerimientoId: r.id, diasAtraso: diasAtraso(fechaIso(r.fecha_limite)!, HOY_LIMA()), diasCorridos: corridos, usuarioId: ctx.u.usuarioId });
-  return reqVista(await buscarReq(ctx, r.id));
+  const corridos = await aplicarAtrasoDb(ctx, r, HOY_LIMA(), dias);
+  await emitirOutbox(ctx, "requerimiento.enviado", r.cliente_id, { requerimientoId: r.id, diasAtraso: diasAtraso(fechaIso(r.fecha_limite)!, HOY_LIMA(), dias), diasCorridos: corridos, usuarioId: ctx.u.usuarioId });
+  return reqVista(await buscarReq(ctx, r.id), dias);
 });
 
 ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
@@ -1735,7 +1748,7 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
     [r.id, b.decision, ctx.u.usuarioId, observar ? nota : null, observar && typeof b.nuevaFechaLimite === "string" ? b.nuevaFechaLimite : null],
   );
   await emitirOutbox(ctx, "requerimiento.revisado", r.cliente_id, { requerimientoId: r.id, decision: b.decision, nota: observar ? nota : null, usuarioId: ctx.u.usuarioId });
-  return reqVista(await buscarReq(ctx, r.id));
+  return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
 });
 
 // n8n, una vez al día: corre el cronograma por los requerimientos vencidos y pide el correo de aviso.
@@ -1744,8 +1757,9 @@ ruta("POST", "/integraciones/requerimientos/atrasos", async (ctx) => {
   const hoy = HOY_LIMA();
   const { rows } = await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.estado IN ('PENDIENTE', 'OBSERVADO') AND r.fecha_limite < $1::date FOR UPDATE OF r`, [hoy]);
   let corridos = 0;
+  const dias = await noHabilesDb(ctx);
   for (const r of rows) {
-    const delta = await aplicarAtrasoDb(ctx, r, hoy);
+    const delta = await aplicarAtrasoDb(ctx, r, hoy, dias);
     if (!delta) continue;
     corridos++;
     await emitirOutbox(ctx, "requerimiento.atrasado", r.cliente_id, { requerimientoId: r.id, servicioContratadoId: r.servicio_contratado_id, diasAtraso: r.dias_corridos + delta, diasCorridosHoy: delta });
@@ -1846,6 +1860,54 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, cuerpo)
     [x.id, b.decision, b.decision === "RECHAZADA" ? nota : null, nuevo, ctx.u.usuarioId],
   );
   return solicitudVista((await ctx.c.query<FilaSolicitud>(`${SELECT_SOLICITUD} WHERE x.id = $1`, [x.id])).rows[0]);
+});
+
+// ───────────────────────────────────────────── avisos (feriados, días no laborables y generales)
+
+interface FilaAviso { id: string; cliente_id: string | null; tipo: "FERIADO" | "NO_LABORABLE" | "GENERAL"; titulo: string; mensaje: string | null; fecha_inicio: Date; fecha_fin: Date; visible_desde: Date }
+const avisoVista = (a: FilaAviso): S<"Aviso"> => ({
+  id: a.id, clienteId: a.cliente_id, tipo: a.tipo, titulo: a.titulo, mensaje: a.mensaje,
+  fechaInicio: fechaIso(a.fecha_inicio)!, fechaFin: fechaIso(a.fecha_fin)!, visibleDesde: fechaIso(a.visible_desde)!,
+});
+
+ruta("GET", "/avisos", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const cliente = q.get("clienteId");
+  const { rows } = await ctx.c.query<FilaAviso>(
+    "SELECT * FROM aviso WHERE fecha_fin >= $1::date AND ($2::uuid IS NULL OR cliente_id IS NULL OR cliente_id = $2) ORDER BY fecha_inicio, titulo",
+    [HOY_LIMA(), cliente && esUuid(cliente) ? cliente : null],
+  );
+  return { datos: rows.map(avisoVista) };
+});
+
+ruta("POST", "/avisos", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { tipo?: string; titulo?: string; mensaje?: string; clienteId?: string | null; fechaInicio?: string; fechaFin?: string; visibleDesde?: string };
+  const fecha = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!["FERIADO", "NO_LABORABLE", "GENERAL"].includes(b.tipo ?? "")) errores.push({ campo: "tipo", mensaje: "Elige feriado, día no laborable o aviso general" });
+  if (!b.titulo || b.titulo.trim().length < 3) errores.push({ campo: "titulo", mensaje: "Escribe un título" });
+  if (!fecha(b.fechaInicio)) errores.push({ campo: "fechaInicio", mensaje: "Indica la fecha (AAAA-MM-DD)" });
+  if (b.fechaFin !== undefined && (!fecha(b.fechaFin) || b.fechaFin < (b.fechaInicio ?? ""))) errores.push({ campo: "fechaFin", mensaje: "Debe ser igual o posterior al inicio" });
+  if (b.clienteId && b.tipo !== "GENERAL") errores.push({ campo: "clienteId", mensaje: "Los feriados y días no laborables son para todos los clientes" });
+  if (b.clienteId && !(esUuid(b.clienteId) && (await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1", [b.clienteId])).rows.length)) errores.push({ campo: "clienteId", mensaje: "Ese cliente no existe" });
+  validacion(errores);
+  const { rows } = await ctx.c.query<FilaAviso>(
+    `INSERT INTO aviso (cliente_id, tipo, titulo, mensaje, fecha_inicio, fecha_fin, visible_desde, creado_por)
+     VALUES ($1, $2::tipo_aviso, $3, $4, $5::date, coalesce($6::date, $5::date), coalesce($7::date, $5::date - 7), $8) RETURNING *`,
+    [b.clienteId ?? null, b.tipo, b.titulo!.trim(), b.mensaje?.trim() || null, b.fechaInicio, b.fechaFin ?? null, b.visibleDesde ?? null, ctx.u.usuarioId],
+  );
+  return { __status: 201, ...avisoVista(rows[0]) };
+});
+
+ruta("DELETE", "/avisos/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese aviso");
+  const { rows } = await ctx.c.query("DELETE FROM aviso WHERE id = $1 RETURNING id", [p.id]);
+  if (!rows.length) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese aviso");
+  return null;
 });
 
 // ───────────────────────────────────────────── despachador

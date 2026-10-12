@@ -154,6 +154,24 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.ok((await eventos()).some((e) => e.tipo === "responsable.cambiado"));
     });
 
+    test("avisos: el equipo publica feriados y días no laborables, y dejan de contar como hábiles", async () => {
+      await reiniciar();
+      assert.equal((await llamar("GET", "/avisos", VALERIA)).status, 403);
+      const lista = (await llamar("GET", "/avisos", DIEGO)).json.datos;
+      assert.ok(lista.some((a: any) => a.tipo === "FERIADO" && a.fechaInicio === "2026-12-25"));
+      assert.equal((await llamar("POST", "/avisos", DIEGO, { tipo: "FERIADO", titulo: "x", clienteId: CASA_OLIVA })).status, 422);
+      const cierre = await llamar("POST", "/avisos", DIEGO, { tipo: "NO_LABORABLE", titulo: "Cierre por aniversario de Inoo", fechaInicio: "2026-10-19", fechaFin: "2026-10-20" });
+      assert.deepEqual([cierre.status, cierre.json.visibleDesde], [201, "2026-10-12"]);
+      // Un proyecto que empieza ese día salta el cierre: 3 días hábiles desde el lunes 19 → 21, 22, 23.
+      const ok = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-19" });
+      const etapas = (await llamar("GET", `/servicios-contratados/${ok.json.servicioContratadoId}/avance`, DIEGO)).json.etapas;
+      assert.deepEqual([etapas[0].fechaInicio, etapas[0].fechaEstimada], ["2026-10-21", "2026-10-23"]);
+      const general = await llamar("POST", "/avisos", DIEGO, { tipo: "GENERAL", titulo: "Mantenimiento del portal", clienteId: CASA_OLIVA, fechaInicio: "2026-10-30" });
+      assert.equal(general.status, 201);
+      assert.equal((await llamar("DELETE", `/avisos/${general.json.id}`, VALERIA)).status, 403);
+      assert.equal((await llamar("DELETE", `/avisos/${general.json.id}`, DIEGO)).status, 204);
+    });
+
     test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
       await reiniciar();
       const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);

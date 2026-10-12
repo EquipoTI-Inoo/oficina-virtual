@@ -36,12 +36,12 @@ const f = D.FICHA_CASA_OLIVA;
 salida.push(
   insert(
     "cliente",
-    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd"],
+    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd", "fecha_aniversario"],
     D.CLIENTES.map((c) => [
       c.id, c.nombre, c.slug,
       c.slug === "casa-oliva" ? f.marca : {}, c.slug === "casa-oliva" ? f.tono : {}, c.slug === "casa-oliva" ? f.publico : {},
       c.slug === "casa-oliva" ? f.publico.intereses : [], c.slug === "casa-oliva" ? f.canales : [],
-      DIEGO, c.contactoPrincipalId, c.slug === "casa-oliva" ? "demo-casa-oliva" : null, c.slug === "casa-oliva" ? f.driveUrl : null, c.limiteGastoIaUsd,
+      DIEGO, c.contactoPrincipalId, c.slug === "casa-oliva" ? "demo-casa-oliva" : null, c.slug === "casa-oliva" ? f.driveUrl : null, c.limiteGastoIaUsd, c.fechaAniversario ?? null,
     ]),
   ),
   insert("miembro_cliente", ["cliente_id", "usuario_id", "rol"], D.MIEMBROS.map((m) => [m.clienteId, m.usuarioId, m.rol])),

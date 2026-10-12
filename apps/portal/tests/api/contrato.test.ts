@@ -103,6 +103,8 @@ describe("aprobaciones (CU-06)", () => {
     assert.equal(r.marca.mensajeCentral, "Cuida tu piel. Vuelve a ti.");
     assert.ok(r.actividad.length <= 4 && r.actividad.every((x: any) => x.fecha <= "2026-10-06T15:00:00Z"), "breve y sin fechas futuras");
     assert.equal(r.indicadores.requerimientosPendientes, 3);
+    // 6 de octubre: aniversario de Casa Oliva (desde 2024) y el feriado del 8 ya se anuncia.
+    assert.deepEqual(r.avisos.map((a: any) => [a.tipo, a.titulo]), [["ANIVERSARIO", "¡Hoy cumplimos 2 años trabajando juntos!"], ["FERIADO", "Combate de Angamos"]]);
     // Sin servicios de marca o contenido no hay sección «Tu marca».
     assert.equal((await llamar("GET", `/clientes/${NATIVA}/inicio`, DIEGO)).json.marca, null);
   });
