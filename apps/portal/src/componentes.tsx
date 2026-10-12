@@ -28,7 +28,7 @@ export const ESTADO_TICKET: Record<string, [string, Tono]> = {
   CERRADO: ["Cerrado", "gris"],
 };
 export const CATEGORIA_TICKET: Record<string, string> = {
-  MARKETING: "Marketing", DISENO: "Diseño", WEB: "Web", FACTURACION: "Facturación", OTRO: "Otro",
+  MARKETING: "Marketing", DISENO: "Diseño", WEB: "Web", CRM: "CRM", FACTURACION: "Facturación", OTRO: "Otro",
 };
 
 export function Etiqueta({ tono = "gris", children, sinPunto }: { tono?: Tono; children: ReactNode; sinPunto?: boolean }) {

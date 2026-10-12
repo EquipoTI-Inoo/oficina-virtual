@@ -88,7 +88,7 @@ describe("aislamiento por cliente y permisos", () => {
 describe("aprobaciones (CU-06)", () => {
   test("los números de Inicio coinciden con Figma", async () => {
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
-    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0, requerimientosPendientes: 3 });
+    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 3, ideasPorElegir: 0, requerimientosPendientes: 3 });
     assert.equal(r.json.avanceMes.porcentaje, 60);
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");
@@ -172,7 +172,7 @@ describe("brief, blog y soporte", () => {
     assert.equal(ok.status, 201);
     assert.equal(ok.json.codigo, "#1043");
     const lista = await llamar("GET", `/clientes/${CASA_OLIVA}/tickets?grupo=ABIERTOS`, VALERIA);
-    assert.deepEqual(lista.json.conteos, { todos: 4, abiertos: 3, resueltos: 1 });
+    assert.deepEqual(lista.json.conteos, { todos: 6, abiertos: 4, resueltos: 2 });
   });
 });
 

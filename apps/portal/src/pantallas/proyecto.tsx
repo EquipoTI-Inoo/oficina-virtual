@@ -6,9 +6,9 @@
  * Reemplaza a «Avance de proyectos» (que era la misma información que «Servicios contratados»).
  */
 import { useState } from "react";
-import { LuCalendarClock, LuCircleCheck, LuMessageSquare } from "react-icons/lu";
+import { LuCalendarClock, LuCircleCheck, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, ICONO_SERVICIO, TarjetaPieza, useAviso, usePortal } from "../componentes";
+import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 
@@ -102,6 +102,8 @@ function Proyecto() {
 
           <RequerimientosDelServicio servicioId={d.servicioContratadoId} />
 
+          {d.codigo === "SOPORTE_CONTINUO" && <TicketsDelServicio servicioId={d.servicioContratadoId} />}
+
           {d.progreso && <AsiVaElMes progreso={d.progreso} conEnlace={false} />}
 
           <Comentarios servicioId={d.servicioContratadoId} />
@@ -121,6 +123,83 @@ function Proyecto() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** Soporte continuo: los tickets se generan dentro del servicio (reunión 12 oct). */
+function TicketsDelServicio({ servicioId }: { servicioId: string }) {
+  const avisar = useAviso();
+  const lista = useConsulta<{ datos: S<"Ticket">[] }>(`/clientes/${clienteActivo()}/tickets?servicioContratadoId=${servicioId}`);
+  const [abierto, setAbierto] = useState(false);
+  const [asunto, setAsunto] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [errores, setErrores] = useState<Record<string, string>>({});
+  const generar = async () => {
+    setErrores({});
+    try {
+      const t = await api<S<"Ticket">>(`/clientes/${clienteActivo()}/tickets`, { metodo: "POST", cuerpo: { asunto, descripcion, servicioContratadoId: servicioId }, idempotente: true });
+      avisar({ titulo: `Ticket ${t.codigo} enviado`, texto: "Te avisaremos por correo cuando avancemos." });
+      setAsunto("");
+      setDescripcion("");
+      setAbierto(false);
+      void lista.recargar();
+    } catch (e) {
+      setErrores(Object.fromEntries((e as ProblemaApi).errores.map((x) => [x.campo, x.mensaje])));
+    }
+  };
+  const error = (k: string) =>
+    errores[k] ? (
+      <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
+        {errores[k]}
+      </span>
+    ) : null;
+  return (
+    <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
+      <div className="fila entre">
+        <div className="fila" style={{ gap: 10 }}>
+          <LuTicket size={18} color="var(--c-primario)" />
+          <h2 className="tarjeta-titulo">Tickets</h2>
+        </div>
+        <button className="boton boton--chico" onClick={() => setAbierto(true)}>
+          <LuPlus size={14} /> Generar ticket
+        </button>
+      </div>
+      {lista.datos?.datos.length === 0 && <p className="texto-xs texto-muted">¿Necesitas un cambio o algo no funciona? Genera un ticket y lo atendemos dentro de tu soporte.</p>}
+      <div className="lista-suave">
+        {lista.datos?.datos.map((t) => (
+          <div key={t.id} className="fila-suave" style={{ padding: "12px 14px", alignItems: "flex-start" }}>
+            <span style={{ display: "grid", gap: 4 }}>
+              <span className="negrita" style={{ fontSize: 13 }}>
+                {t.codigo} · {t.asunto}
+              </span>
+              {t.resumenEstado && <span className="texto-xs texto-muted">{t.resumenEstado}</span>}
+              <span className="texto-xs texto-muted">Creado el {fDiaMes(t.creadoEn)}</span>
+            </span>
+            <EtiquetaEstado estado={t.estado} mapa={ESTADO_TICKET} />
+          </div>
+        ))}
+      </div>
+      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Generar ticket">
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Generar ticket</h2>
+        <div className="campo">
+          <label htmlFor="ticket-asunto">¿Qué necesitas?</label>
+          <div className="entrada">
+            <input id="ticket-asunto" value={asunto} onChange={(e) => setAsunto(e.target.value)} placeholder="Ej.: Cambiar el banner de inicio" />
+          </div>
+          {error("asunto")}
+        </div>
+        <div className="campo">
+          <label htmlFor="ticket-descripcion">Cuéntanos el detalle</label>
+          <div className="entrada">
+            <textarea id="ticket-descripcion" rows={4} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+          </div>
+          {error("descripcion")}
+        </div>
+        <button className="boton boton--primario boton--bloque" onClick={() => void generar()}>
+          Enviar ticket
+        </button>
+      </Modal>
+    </section>
   );
 }
 

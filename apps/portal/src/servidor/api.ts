@@ -467,6 +467,8 @@ interface FilaTicket {
   area_asignada: string | null;
   asignado_nombre: string | null;
   pieza_id: string | null;
+  servicio_contratado_id: string | null;
+  servicio_titulo?: string | null;
   sla_primera_respuesta_en: Date;
   primera_respuesta_en: Date | null;
   resuelto_en: Date | null;
@@ -487,6 +489,8 @@ function ticketVista(t: FilaTicket): S<"Ticket"> {
     areaAsignada: t.area_asignada,
     asignadoNombre: t.asignado_nombre,
     piezaId: t.pieza_id,
+    servicioContratadoId: t.servicio_contratado_id,
+    servicioTitulo: t.servicio_titulo ?? null,
     slaPrimeraRespuestaEn: iso(t.sla_primera_respuesta_en)!,
     primeraRespuestaEn: iso(t.primera_respuesta_en),
     resueltoEn: iso(t.resuelto_en),
@@ -495,9 +499,17 @@ function ticketVista(t: FilaTicket): S<"Ticket"> {
   } as S<"Ticket">;
 }
 
+/** Ticket con el título de su servicio («Soporte continuo - Casa Oliva»), si lo tiene. */
+const SELECT_TICKET = `
+  SELECT t.*, CASE WHEN s.id IS NULL THEN NULL ELSE s.nombre || ' - ' || coalesce(sc.marca, c.nombre) END AS servicio_titulo
+  FROM ticket t
+  JOIN cliente c ON c.id = t.cliente_id
+  LEFT JOIN servicio_contratado sc ON sc.id = t.servicio_contratado_id
+  LEFT JOIN servicio s ON s.id = sc.servicio_id`;
+
 /** RLS de ticket: para un cliente, un ticket de otra cuenta simplemente no existe. */
 async function buscarTicket(ctx: Ctx, id: string): Promise<FilaTicket> {
-  const { rows } = await ctx.c.query<FilaTicket>("SELECT * FROM ticket WHERE id = $1", [id]);
+  const { rows } = await ctx.c.query<FilaTicket>(`${SELECT_TICKET} WHERE t.id = $1`, [id]);
   if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   return rows[0];
 }
@@ -507,9 +519,11 @@ const emitirOutbox = (ctx: Ctx, tipo: string, clienteId: string, datos: Record<s
 
 ruta("GET", "/clientes/:id/tickets", async (ctx, p, q) => {
   await accesoCliente(ctx, p.id);
-  const { rows } = await ctx.c.query<FilaTicket>("SELECT * FROM ticket WHERE cliente_id = $1 ORDER BY numero DESC", [p.id]);
+  const { rows } = await ctx.c.query<FilaTicket>(`${SELECT_TICKET} WHERE t.cliente_id = $1 ORDER BY t.numero DESC`, [p.id]);
   const abierto = (t: FilaTicket) => !["RESUELTO", "CERRADO"].includes(t.estado);
   let ts = rows;
+  const sc = q.get("servicioContratadoId");
+  if (sc) ts = ts.filter((t) => t.servicio_contratado_id === sc);
   if (q.get("grupo") === "ABIERTOS") ts = ts.filter(abierto);
   if (q.get("grupo") === "RESUELTOS") ts = ts.filter((t) => !abierto(t));
   const texto = q.get("q")?.toLowerCase().replace("#", "");
@@ -523,22 +537,32 @@ ruta("GET", "/clientes/:id/tickets", async (ctx, p, q) => {
 
 ruta("POST", "/clientes/:id/tickets", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id);
-  const b = (await cuerpo()) as { asunto?: string; categoria?: string; descripcion?: string; piezaId?: string };
+  const b = (await cuerpo()) as { asunto?: string; categoria?: string; descripcion?: string; piezaId?: string; servicioContratadoId?: string };
   const errores: { campo: string; mensaje: string }[] = [];
+  // Ticket de un servicio: solo el soporte continuo los recibe, y la categoría sale de su variante.
+  const sc = b.servicioContratadoId
+    ? (await ctx.c.query<{ id: string; codigo: string; variante: string | null }>(
+        "SELECT sc.id, s.codigo, sc.variante FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.id = $1 AND sc.cliente_id = $2",
+        [esUuid(b.servicioContratadoId) ? b.servicioContratadoId : null, p.id],
+      )).rows[0]
+    : undefined;
+  if (b.servicioContratadoId && !sc) errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
+  if (sc && sc.codigo !== "SOPORTE_CONTINUO") throw new ErrorApi(422, "SERVICIO_SIN_SOPORTE", "Este servicio no incluye soporte por tickets", "Para consultas sobre este proyecto, déjanos un comentario en su perfil.");
+  if (sc) b.categoria = sc.variante === "CRM" ? "CRM" : "WEB";
   if (!b.asunto || b.asunto.trim().length < 3) errores.push({ campo: "asunto", mensaje: "Escribe un asunto de al menos 3 caracteres" });
-  if (!b.categoria || !["MARKETING", "DISENO", "WEB", "FACTURACION", "OTRO"].includes(b.categoria)) errores.push({ campo: "categoria", mensaje: "Elige una categoría" });
+  if (!b.categoria || !["MARKETING", "DISENO", "WEB", "CRM", "FACTURACION", "OTRO"].includes(b.categoria)) errores.push({ campo: "categoria", mensaje: "Elige una categoría" });
   if (!b.descripcion?.trim()) errores.push({ campo: "descripcion", mensaje: "Describe tu solicitud" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   // SLA de primera respuesta: un día hábil (sábado y domingo no cuentan).
   const { rows } = await ctx.c.query<FilaTicket>(
-    `INSERT INTO ticket (cliente_id, creado_por, asunto, categoria, descripcion, resumen_estado, pieza_id, sla_primera_respuesta_en)
-     VALUES ($1, $2, $3, $4, $5, 'Recibimos tu consulta. Te responderemos pronto.', $6,
+    `INSERT INTO ticket (cliente_id, creado_por, asunto, categoria, descripcion, resumen_estado, pieza_id, servicio_contratado_id, sla_primera_respuesta_en)
+     VALUES ($1, $2, $3, $4::categoria_ticket, $5, 'Recibimos tu consulta. Te responderemos pronto.', $6, $7,
              now() + CASE extract(isodow FROM now()) WHEN 5 THEN interval '3 days' WHEN 6 THEN interval '2 days' ELSE interval '1 day' END)
      RETURNING *`,
-    [p.id, ctx.u.usuarioId, b.asunto!.trim(), b.categoria, b.descripcion!.trim(), b.piezaId ?? null],
+    [p.id, ctx.u.usuarioId, b.asunto!.trim(), b.categoria, b.descripcion!.trim(), b.piezaId ?? null, sc?.id ?? null],
   );
-  const t = rows[0];
-  await emitirOutbox(ctx, "ticket.creado", p.id, { ticketId: t.id, numero: Number(t.numero), categoria: t.categoria, asunto: t.asunto, descripcion: t.descripcion, usuarioId: ctx.u.usuarioId });
+  const t = (await ctx.c.query<FilaTicket>(`${SELECT_TICKET} WHERE t.id = $1`, [rows[0].id])).rows[0];
+  await emitirOutbox(ctx, "ticket.creado", p.id, { ticketId: t.id, numero: Number(t.numero), categoria: t.categoria, asunto: t.asunto, descripcion: t.descripcion, servicioContratadoId: t.servicio_contratado_id, usuarioId: ctx.u.usuarioId });
   return { __status: 201, ...ticketVista(t) };
 });
 
@@ -595,7 +619,7 @@ ruta("PATCH", "/tickets/:id", async (ctx, p, _q, cuerpo) => {
   const comentario = b.comentario?.trim() || null;
   if (comentario) await ctx.c.query("INSERT INTO ticket_mensaje (ticket_id, autor_id, autor_nombre, texto) VALUES ($1, $2, $3, $4)", [t.id, ctx.u.usuarioId, ctx.u.nombre, comentario]);
   await emitirOutbox(ctx, "ticket.estado_cambiado", t.cliente_id, { ticketId: t.id, numero: Number(t.numero), deEstado: t.estado, estado: b.estado, usuarioId: ctx.u.usuarioId, comentario });
-  return ticketVista(rows[0]);
+  return ticketVista({ ...rows[0], servicio_titulo: t.servicio_titulo });
 });
 
 // ───────────────────────────────────────────── versiones e integraciones (n8n, X-Api-Key)
@@ -1419,8 +1443,8 @@ ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => {
     "SELECT estado, fecha_fin, fecha_estimada FROM etapa_proyecto WHERE servicio_contratado_id = $1", [s.id],
   )).rows;
   const tickets = (await ctx.c.query<{ n: number }>(
-    "SELECT count(*)::int AS n FROM ticket WHERE cliente_id = $1 AND estado IN ('RESUELTO', 'CERRADO') AND to_char(actualizado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2",
-    [s.cliente_id, periodo],
+    "SELECT count(*)::int AS n FROM ticket WHERE servicio_contratado_id = $1 AND estado IN ('RESUELTO', 'CERRADO') AND to_char(actualizado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2",
+    [s.id, periodo],
   )).rows[0].n;
   const metricas = (await ctx.c.query<{ metricas: S<"MetricaProyecto">[] }>("SELECT metricas FROM plantilla_proyecto WHERE id = $1", [s.plantilla_id])).rows[0]?.metricas ?? [];
   const piezas = (await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.servicio_contratado_id = $1 AND p.estado = 'LISTO_REVISION' ORDER BY p.fecha_programada`, [s.id])).rows;

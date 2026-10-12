@@ -36,7 +36,10 @@ FROM (VALUES
   ('00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'WEB', 'ECOMMERCE', '{}', NULL, 'ACTIVO', 'aprobar el diseño de la página de producto.', '2026-09-21', NULL)
 ) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin)
 JOIN servicio s ON s.codigo = v.codigo
-LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coalesce(pp.variante, '') = coalesce(v.variante, '');
+LEFT JOIN LATERAL (
+  SELECT id FROM plantilla_proyecto x WHERE x.servicio_id = s.id AND x.activa AND (x.variante = v.variante OR x.variante IS NULL)
+  ORDER BY x.variante NULLS LAST LIMIT 1
+) pp ON true;
 
 INSERT INTO entregable_incluido (servicio_contratado_id, tipo_pieza, cantidad_mensual)
 VALUES
@@ -169,11 +172,13 @@ VALUES
   ('00000000-0000-4000-8007-000000000002', '00000000-0000-4000-8002-000000000001', '2026-10', 'Cómo leer la etiqueta de tu sérum', 'ingredientes de un sérum', 'Educación simple para elegir productos de forma consciente.', 'PROPUESTA', NULL),
   ('00000000-0000-4000-8007-000000000003', '00000000-0000-4000-8002-000000000001', '2026-10', 'Una pausa también es autocuidado', 'rutina de autocuidado', 'Conectar el bienestar cotidiano con pequeños hábitos sostenibles.', 'PROPUESTA', NULL);
 
-INSERT INTO ticket (id, numero, cliente_id, creado_por, asunto, categoria, descripcion, estado, resumen_estado, asignado_nombre, sla_primera_respuesta_en, resuelto_en, creado_en, actualizado_en) OVERRIDING SYSTEM VALUE
+INSERT INTO ticket (id, numero, cliente_id, creado_por, asunto, categoria, descripcion, estado, resumen_estado, asignado_nombre, sla_primera_respuesta_en, resuelto_en, creado_en, actualizado_en, servicio_contratado_id) OVERRIDING SYSTEM VALUE
 VALUES
-  ('00000000-0000-4000-8008-000000001042', 1042, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Ajuste de pauta en Meta', 'MARKETING', 'Queremos mover parte del presupuesto a la campaña de rituales.', 'EN_PROCESO', 'Diego Castro está revisando tu solicitud.', 'Diego Castro', '2026-10-06T16:00:00.000Z', NULL, '2026-10-05T16:00:00Z', '2026-10-06T14:00:00Z'),
-  ('00000000-0000-4000-8008-000000001041', 1041, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Consulta sobre factura de octubre', 'FACTURACION', 'La factura de octubre no incluye el número de orden de compra.', 'ABIERTO', 'Recibimos tu consulta. Te responderemos pronto.', NULL, '2026-10-06T18:00:00.000Z', NULL, '2026-10-05T18:00:00Z', '2026-10-05T18:00:00Z'),
-  ('00000000-0000-4000-8008-000000001038', 1038, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Actualización de portada de Facebook', 'DISENO', 'Necesitamos la portada de octubre.', 'RESUELTO', 'La nueva portada ya está disponible.', NULL, '2026-10-01T15:00:00.000Z', '2026-10-02T17:00:00Z', '2026-09-30T15:00:00Z', '2026-10-02T17:00:00Z');
+  ('00000000-0000-4000-8008-000000001042', 1042, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Ajuste de pauta en Meta', 'MARKETING', 'Queremos mover parte del presupuesto a la campaña de rituales.', 'EN_PROCESO', 'Diego Castro está revisando tu solicitud.', 'Diego Castro', '2026-10-06T16:00:00.000Z', NULL, '2026-10-05T16:00:00Z', '2026-10-06T14:00:00Z', NULL),
+  ('00000000-0000-4000-8008-000000001041', 1041, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Consulta sobre factura de octubre', 'FACTURACION', 'La factura de octubre no incluye el número de orden de compra.', 'ABIERTO', 'Recibimos tu consulta. Te responderemos pronto.', NULL, '2026-10-06T18:00:00.000Z', NULL, '2026-10-05T18:00:00Z', '2026-10-05T18:00:00Z', NULL),
+  ('00000000-0000-4000-8008-000000001038', 1038, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Actualización de portada de Facebook', 'DISENO', 'Necesitamos la portada de octubre.', 'RESUELTO', 'La nueva portada ya está disponible.', NULL, '2026-10-01T15:00:00.000Z', '2026-10-02T17:00:00Z', '2026-09-30T15:00:00Z', '2026-10-02T17:00:00Z', NULL),
+  ('00000000-0000-4000-8008-000000001040', 1040, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'El formulario de contacto no envía correos', 'WEB', 'Desde el viernes no nos llegan los mensajes del formulario de casaoliva.pe.', 'EN_PROCESO', 'Estamos revisando la configuración del correo del sitio.', 'Diego Castro', '2026-10-06T14:00:00.000Z', NULL, '2026-10-05T14:00:00Z', '2026-10-06T13:00:00Z', '00000000-0000-4000-8004-000000000001'),
+  ('00000000-0000-4000-8008-000000001039', 1039, '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000001', 'Publicar la página de la línea corporal', 'WEB', 'Necesitamos una página nueva para la línea corporal con sus 6 productos.', 'RESUELTO', 'La página ya está publicada.', NULL, '2026-10-02T15:00:00.000Z', '2026-10-02T18:00:00Z', '2026-10-01T15:00:00Z', '2026-10-02T18:00:00Z', '00000000-0000-4000-8004-000000000001');
 
 ALTER TABLE ticket ALTER COLUMN numero RESTART WITH 1043;
 

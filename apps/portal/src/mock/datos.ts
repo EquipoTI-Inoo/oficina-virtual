@@ -386,10 +386,13 @@ export const IDEAS_INICIALES = [
   { id: uid(7, 3), titulo: "Una pausa también es autocuidado", palabraClave: "rutina de autocuidado", angulo: "Conectar el bienestar cotidiano con pequeños hábitos sostenibles.", estado: "PROPUESTA" as const },
 ];
 
+// servicioContratadoId: tickets del soporte continuo (se generan dentro del servicio); null = consulta general.
 export const TICKETS_INICIALES = [
-  { id: uid(8, 1042), numero: 1042, asunto: "Ajuste de pauta en Meta", categoria: "MARKETING", estado: "EN_PROCESO", resumenEstado: "Diego Castro está revisando tu solicitud.", creadoEn: "2026-10-05T16:00:00Z", actualizadoEn: "2026-10-06T14:00:00Z", descripcion: "Queremos mover parte del presupuesto a la campaña de rituales." },
-  { id: uid(8, 1041), numero: 1041, asunto: "Consulta sobre factura de octubre", categoria: "FACTURACION", estado: "ABIERTO", resumenEstado: "Recibimos tu consulta. Te responderemos pronto.", creadoEn: "2026-10-05T18:00:00Z", actualizadoEn: "2026-10-05T18:00:00Z", descripcion: "La factura de octubre no incluye el número de orden de compra." },
-  { id: uid(8, 1038), numero: 1038, asunto: "Actualización de portada de Facebook", categoria: "DISENO", estado: "RESUELTO", resumenEstado: "La nueva portada ya está disponible.", creadoEn: "2026-09-30T15:00:00Z", actualizadoEn: "2026-10-02T17:00:00Z", descripcion: "Necesitamos la portada de octubre." },
+  { id: uid(8, 1042), numero: 1042, asunto: "Ajuste de pauta en Meta", categoria: "MARKETING", estado: "EN_PROCESO", resumenEstado: "Diego Castro está revisando tu solicitud.", creadoEn: "2026-10-05T16:00:00Z", actualizadoEn: "2026-10-06T14:00:00Z", descripcion: "Queremos mover parte del presupuesto a la campaña de rituales.", servicioContratadoId: null as string | null },
+  { id: uid(8, 1041), numero: 1041, asunto: "Consulta sobre factura de octubre", categoria: "FACTURACION", estado: "ABIERTO", resumenEstado: "Recibimos tu consulta. Te responderemos pronto.", creadoEn: "2026-10-05T18:00:00Z", actualizadoEn: "2026-10-05T18:00:00Z", descripcion: "La factura de octubre no incluye el número de orden de compra.", servicioContratadoId: null as string | null },
+  { id: uid(8, 1038), numero: 1038, asunto: "Actualización de portada de Facebook", categoria: "DISENO", estado: "RESUELTO", resumenEstado: "La nueva portada ya está disponible.", creadoEn: "2026-09-30T15:00:00Z", actualizadoEn: "2026-10-02T17:00:00Z", descripcion: "Necesitamos la portada de octubre.", servicioContratadoId: null as string | null },
+  { id: uid(8, 1040), numero: 1040, asunto: "El formulario de contacto no envía correos", categoria: "WEB", estado: "EN_PROCESO", resumenEstado: "Estamos revisando la configuración del correo del sitio.", creadoEn: "2026-10-05T14:00:00Z", actualizadoEn: "2026-10-06T13:00:00Z", descripcion: "Desde el viernes no nos llegan los mensajes del formulario de casaoliva.pe.", servicioContratadoId: uid(4, 1) as string | null },
+  { id: uid(8, 1039), numero: 1039, asunto: "Publicar la página de la línea corporal", categoria: "WEB", estado: "RESUELTO", resumenEstado: "La página ya está publicada.", creadoEn: "2026-10-01T15:00:00Z", actualizadoEn: "2026-10-02T18:00:00Z", descripcion: "Necesitamos una página nueva para la línea corporal con sus 6 productos.", servicioContratadoId: uid(4, 1) as string | null },
 ];
 
 export const BRIEF_INICIAL = {

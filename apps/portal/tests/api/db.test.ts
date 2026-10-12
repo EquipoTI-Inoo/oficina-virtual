@@ -38,6 +38,7 @@ before(async () => {
   await db.exec(sql("migraciones/0006_pagos.sql"));
   await db.exec(sql("migraciones/0007_perfil_proyecto.sql"));
   await db.exec(sql("migraciones/0008_requerimientos_agencia.sql"));
+  await db.exec(sql("migraciones/0009_tickets_servicio.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -209,8 +210,8 @@ describe("clientes, tickets y notificaciones · Postgres", () => {
     await reiniciar();
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/tickets?grupo=ABIERTOS`, VALERIA);
     assert.equal(r.status, 200);
-    assert.deepEqual(r.json.datos.map((t: any) => t.codigo), ["#1042", "#1041"]);
-    assert.deepEqual(r.json.conteos, { todos: 3, abiertos: 2, resueltos: 1 });
+    assert.deepEqual(r.json.datos.map((t: any) => t.codigo), ["#1042", "#1041", "#1040"]);
+    assert.deepEqual(r.json.conteos, { todos: 5, abiertos: 3, resueltos: 2 });
     const q = await llamar("GET", `/clientes/${CASA_OLIVA}/tickets?q=%231038`, VALERIA);
     assert.deepEqual(q.json.datos.map((t: any) => t.numero), [1038]);
   });

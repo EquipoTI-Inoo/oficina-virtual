@@ -1492,7 +1492,7 @@ export interface components {
         /** @enum {string} */
         CanalDecision: "PORTAL" | "PANEL" | "TELEGRAM" | "SLACK" | "SISTEMA";
         /** @enum {string} */
-        CategoriaTicket: "MARKETING" | "DISENO" | "WEB" | "FACTURACION" | "OTRO";
+        CategoriaTicket: "MARKETING" | "DISENO" | "WEB" | "CRM" | "FACTURACION" | "OTRO";
         /** @enum {string} */
         UrgenciaTicket: "BAJA" | "MEDIA" | "ALTA" | "CRITICA";
         /** @enum {string} */
@@ -2634,8 +2634,14 @@ export interface components {
         };
         TicketEntrada: {
             asunto: string;
+            /** @description Con servicioContratadoId se toma de la variante del soporte (CRM o WEB) */
             categoria: components["schemas"]["CategoriaTicket"];
             descripcion: string;
+            /**
+             * Format: uuid
+             * @description Solo servicios de Soporte continuo (si no, 422 SERVICIO_SIN_SOPORTE)
+             */
+            servicioContratadoId?: string;
             /** Format: uuid */
             piezaId?: string;
             archivoIds?: string[];
@@ -2656,6 +2662,10 @@ export interface components {
             asignadoNombre?: string | null;
             /** Format: uuid */
             piezaId?: string | null;
+            /** Format: uuid */
+            servicioContratadoId?: string | null;
+            /** @example Soporte continuo - Casa Oliva */
+            servicioTitulo?: string | null;
             /** Format: date-time */
             slaPrimeraRespuestaEn: string;
             /** Format: date-time */
@@ -5297,6 +5307,8 @@ export interface operations {
                 grupo?: "TODOS" | "ABIERTOS" | "RESUELTOS";
                 /** @description Asunto o número (#1042 o 1042) */
                 q?: string;
+                /** @description Solo los tickets de ese servicio */
+                servicioContratadoId?: string;
                 estado?: components["schemas"]["EstadoTicket"][];
                 limite?: components["parameters"]["Limite"];
                 /** @description Valor opaco de `paginacion.siguienteCursor` */

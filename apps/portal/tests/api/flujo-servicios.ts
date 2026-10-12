@@ -113,6 +113,22 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.ok((await eventos()).some((e) => e.tipo === "comentario_proyecto.creado" && e.datos.comentarioId === ok.json.id));
     });
 
+    test("tickets del soporte continuo: se generan dentro del servicio y cuentan en sus métricas", async () => {
+      await reiniciar();
+      const SOPORTE = uid(4, 1);
+      const lista = (await llamar("GET", `/clientes/${CASA_OLIVA}/tickets?servicioContratadoId=${SOPORTE}`, VALERIA)).json;
+      assert.deepEqual(lista.datos.map((t: any) => [t.codigo, t.servicioTitulo]), [["#1040", "Soporte continuo - Casa Oliva"], ["#1039", "Soporte continuo - Casa Oliva"]]);
+      const perfil = (await llamar("GET", `/servicios-contratados/${SOPORTE}?periodo=2026-10`, VALERIA)).json;
+      assert.equal(perfil.metricas.find((m: any) => m.clave === "TICKETS_RESUELTOS").valor, "1", "solo los del servicio");
+      const ok = await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Cambiar el banner de inicio", descripcion: "Para la campaña de noviembre.", servicioContratadoId: SOPORTE });
+      assert.equal(ok.status, 201);
+      assert.deepEqual([ok.json.categoria, ok.json.servicioContratadoId], ["WEB", SOPORTE], "la categoría sale de la variante del soporte");
+      const crm = await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Duda", descripcion: "x", servicioContratadoId: CRM });
+      assert.equal(crm.json.codigo, "SERVICIO_SIN_SOPORTE", "la implementación de CRM no recibe tickets");
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Duda", descripcion: "x", servicioContratadoId: uid(4, 999) })).status, 422);
+      assert.ok((await eventos()).some((e) => e.tipo === "ticket.creado" && e.datos.servicioContratadoId === SOPORTE));
+    });
+
     test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
       await reiniciar();
       const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);

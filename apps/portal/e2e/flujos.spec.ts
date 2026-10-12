@@ -129,6 +129,18 @@ test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", asy
   await expect(page.getByText("Información de tu empresa para la IA")).toBeVisible();
 });
 
+test("soporte continuo: generar un ticket dentro del servicio", async ({ page }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/servicios/00000000-0000-4000-8004-000000000001");
+  await expect(page.getByText("#1040 · El formulario de contacto no envía correos")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Generar ticket" }).click();
+  await page.fill("#ticket-asunto", "Cambiar el banner de inicio");
+  await page.fill("#ticket-descripcion", "Para la campaña de noviembre.");
+  await page.getByRole("button", { name: "Enviar ticket" }).click();
+  await expect(page.getByText("Ticket #1043 enviado")).toBeVisible();
+  await expect(page.getByText("#1043 · Cambiar el banner de inicio")).toBeVisible();
+});
+
 test("blog (equipo): elegir otra idea", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/blog");

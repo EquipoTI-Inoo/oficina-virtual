@@ -460,6 +460,8 @@ function ticketVista(t: Estado["tickets"][number]): S<"Ticket"> {
     areaAsignada: t.areaAsignada ?? null,
     asignadoNombre: t.asignadoNombre ?? (t.estado === "EN_PROCESO" ? "Diego Castro" : null),
     piezaId: null,
+    servicioContratadoId: t.servicioContratadoId ?? null,
+    servicioTitulo: t.servicioContratadoId ? tituloDe(E.servicios.find((x) => x.id === t.servicioContratadoId)!) : null,
     slaPrimeraRespuestaEn: new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(),
     primeraRespuestaEn: null,
     resueltoEn: t.estado === "RESUELTO" ? t.actualizadoEn : null,
@@ -1191,6 +1193,7 @@ ruta("GET", "/clientes/:id/tickets", (ctx, p, q) => {
   accesoCliente(ctx, p.id);
   const abierto = (t: { estado: string }) => !["RESUELTO", "CERRADO"].includes(t.estado);
   let ts = [...E.tickets].sort((a, b) => b.numero - a.numero);
+  if (q.get("servicioContratadoId")) ts = ts.filter((t) => t.servicioContratadoId === q.get("servicioContratadoId"));
   if (q.get("grupo") === "ABIERTOS") ts = ts.filter(abierto);
   if (q.get("grupo") === "RESUELTOS") ts = ts.filter((t) => !abierto(t));
   if (q.get("q")) {
@@ -1205,17 +1208,22 @@ ruta("GET", "/clientes/:id/tickets", (ctx, p, q) => {
 });
 ruta("POST", "/clientes/:id/tickets", async (ctx, p, _q, req) => {
   accesoCliente(ctx, p.id);
-  const b = await cuerpo<{ asunto?: string; categoria?: string; descripcion?: string }>(req);
+  const b = await cuerpo<{ asunto?: string; categoria?: string; descripcion?: string; servicioContratadoId?: string }>(req);
   const errores: { campo: string; mensaje: string }[] = [];
+  // Ticket de un servicio: solo el soporte continuo los recibe, y la categoría sale de su variante.
+  const sc = b.servicioContratadoId ? E.servicios.find((x) => x.id === b.servicioContratadoId && x.clienteId === p.id) : undefined;
+  if (b.servicioContratadoId && !sc) errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
+  if (sc && sc.codigo !== "SOPORTE_CONTINUO") throw new ErrorApi(422, "SERVICIO_SIN_SOPORTE", "Este servicio no incluye soporte por tickets", "Para consultas sobre este proyecto, déjanos un comentario en su perfil.");
+  if (sc) b.categoria = sc.variante === "CRM" ? "CRM" : "WEB";
   if (!b.asunto || b.asunto.trim().length < 3) errores.push({ campo: "asunto", mensaje: "Escribe un asunto de al menos 3 caracteres" });
-  if (!b.categoria || !["MARKETING", "DISENO", "WEB", "FACTURACION", "OTRO"].includes(b.categoria)) errores.push({ campo: "categoria", mensaje: "Elige una categoría" });
+  if (!b.categoria || !["MARKETING", "DISENO", "WEB", "CRM", "FACTURACION", "OTRO"].includes(b.categoria)) errores.push({ campo: "categoria", mensaje: "Elige una categoría" });
   if (!b.descripcion?.trim()) errores.push({ campo: "descripcion", mensaje: "Describe tu solicitud" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const numero = Math.max(...E.tickets.map((t) => t.numero)) + 1;
   const ahora = new Date().toISOString();
-  const t = { id: D.uid(8, numero), numero, asunto: b.asunto!.trim(), categoria: b.categoria!, estado: "ABIERTO", resumenEstado: "Recibimos tu consulta. Te responderemos pronto.", creadoEn: ahora, actualizadoEn: ahora, descripcion: b.descripcion!.trim() };
+  const t = { id: D.uid(8, numero), numero, asunto: b.asunto!.trim(), categoria: b.categoria!, estado: "ABIERTO", resumenEstado: "Recibimos tu consulta. Te responderemos pronto.", creadoEn: ahora, actualizadoEn: ahora, descripcion: b.descripcion!.trim(), servicioContratadoId: sc?.id ?? null };
   E.tickets.push(t);
-  emitir("ticket.creado", p.id, { ticketId: t.id, numero, categoria: t.categoria, asunto: t.asunto, descripcion: t.descripcion, usuarioId: ctx.usuario.id });
+  emitir("ticket.creado", p.id, { ticketId: t.id, numero, categoria: t.categoria, asunto: t.asunto, descripcion: t.descripcion, servicioContratadoId: t.servicioContratadoId, usuarioId: ctx.usuario.id });
   registrarCorreo(ctx.usuario.email, `Recibimos tu ticket #${numero}`, "ticket.creado");
   return { __status: 201, ...ticketVista(t) };
 });
@@ -1594,7 +1602,7 @@ ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => {
   const reuniones = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado !== "CANCELADA");
   const proximas = reuniones.filter((r) => r.estado === "PROGRAMADA").sort((a, b) => a.fecha.localeCompare(b.fecha));
   const pasadas = reuniones.filter((r) => r.estado === "REALIZADA").sort((a, b) => b.fecha.localeCompare(a.fecha));
-  const ticketsResueltos = E.tickets.filter((t) => ["RESUELTO", "CERRADO"].includes(t.estado) && t.actualizadoEn.startsWith(periodo)).length;
+  const ticketsResueltos = E.tickets.filter((t) => t.servicioContratadoId === s.id && ["RESUELTO", "CERRADO"].includes(t.estado) && t.actualizadoEn.startsWith(periodo)).length;
   const r: S<"PerfilProyecto"> = {
     ...av,
     descripcion: cat.descripcion,

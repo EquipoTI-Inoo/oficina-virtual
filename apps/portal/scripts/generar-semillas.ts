@@ -54,7 +54,10 @@ FROM (VALUES
 ${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.codigo, s.variante, JSON.stringify(s.detalle), s.marca, s.estado, s.siguientePaso, s.fechaInicio, s.fechaFin])).join(",\n")}
 ) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin)
 JOIN servicio s ON s.codigo = v.codigo
-LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coalesce(pp.variante, '') = coalesce(v.variante, '');
+LEFT JOIN LATERAL (
+  SELECT id FROM plantilla_proyecto x WHERE x.servicio_id = s.id AND x.activa AND (x.variante = v.variante OR x.variante IS NULL)
+  ORDER BY x.variante NULLS LAST LIMIT 1
+) pp ON true;
 `,
   insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.flatMap((s) => s.entregables.map((e) => [s.id, e.tipoPieza, e.cantidadMensual]))),
   insert(
@@ -105,10 +108,10 @@ LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coale
   ),
   insert(
     "ticket",
-    ["id", "numero", "cliente_id", "creado_por", "asunto", "categoria", "descripcion", "estado", "resumen_estado", "asignado_nombre", "sla_primera_respuesta_en", "resuelto_en", "creado_en", "actualizado_en"],
+    ["id", "numero", "cliente_id", "creado_por", "asunto", "categoria", "descripcion", "estado", "resumen_estado", "asignado_nombre", "sla_primera_respuesta_en", "resuelto_en", "creado_en", "actualizado_en", "servicio_contratado_id"],
     D.TICKETS_INICIALES.map((t) => [
       t.id, t.numero, D.CLIENTES[0].id, D.USUARIOS[0].id, t.asunto, t.categoria, t.descripcion, t.estado, t.resumenEstado,
-      t.estado === "EN_PROCESO" ? "Diego Castro" : null, new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(), t.estado === "RESUELTO" ? t.actualizadoEn : null, t.creadoEn, t.actualizadoEn,
+      t.estado === "EN_PROCESO" ? "Diego Castro" : null, new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(), t.estado === "RESUELTO" ? t.actualizadoEn : null, t.creadoEn, t.actualizadoEn, t.servicioContratadoId,
     ]),
     " OVERRIDING SYSTEM VALUE",
   ),

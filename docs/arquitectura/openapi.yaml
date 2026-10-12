@@ -19,7 +19,8 @@ info:
     tiene su perfil de proyecto: métricas de su plantilla, etapas, reuniones, entregables por revisar y
     comentarios del cliente. Requerimientos: la agencia le pide al cliente (brief, accesos, catálogo) desde una
     plantilla con formulario y fecha límite en días hábiles; si se atrasa, se corre el cronograma del servicio y se
-    le avisa. Reemplazan a los requerimientos del brief (cliente → agencia) del 10 oct.
+    le avisa. Reemplazan a los requerimientos del brief (cliente → agencia) del 10 oct. Los tickets del soporte
+    continuo se generan dentro de ese servicio (`servicioContratadoId`); sin servicio son consultas generales.
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -1603,6 +1604,7 @@ paths:
       parameters:
         - { name: grupo, in: query, description: 'ABIERTOS = ABIERTO, EN_PROCESO, ESPERANDO_CLIENTE; RESUELTOS = RESUELTO, CERRADO', schema: { type: string, enum: [TODOS, ABIERTOS, RESUELTOS], default: TODOS } }
         - { name: q, in: query, description: 'Asunto o número (#1042 o 1042)', schema: { type: string } }
+        - { name: servicioContratadoId, in: query, description: Solo los tickets de ese servicio, schema: { type: string, format: uuid } }
         - name: estado
           in: query
           style: form
@@ -2161,7 +2163,7 @@ components:
     EstadoCalendario: { type: string, enum: [PROPUESTO, CAMBIOS_SOLICITADOS, APROBADO_PLAN] }
     EstadoIdea: { type: string, enum: [PROPUESTA, ELEGIDA, DESCARTADA] }
     CanalDecision: { type: string, enum: [PORTAL, PANEL, TELEGRAM, SLACK, SISTEMA] }
-    CategoriaTicket: { type: string, enum: [MARKETING, DISENO, WEB, FACTURACION, OTRO] }
+    CategoriaTicket: { type: string, enum: [MARKETING, DISENO, WEB, CRM, FACTURACION, OTRO] }
     UrgenciaTicket: { type: string, enum: [BAJA, MEDIA, ALTA, CRITICA] }
     EstadoTicket: { type: string, enum: [ABIERTO, EN_PROCESO, ESPERANDO_CLIENTE, RESUELTO, CERRADO] }
     EstadoHito: { type: string, enum: [SIN_INICIAR, EN_PROGRESO, EN_REVISION, COMPLETADO, BLOQUEADO] }
@@ -3198,8 +3200,9 @@ components:
       required: [asunto, categoria, descripcion]
       properties:
         asunto: { type: string, minLength: 3, maxLength: 200 }
-        categoria: { $ref: '#/components/schemas/CategoriaTicket' }
+        categoria: { $ref: '#/components/schemas/CategoriaTicket', description: 'Con servicioContratadoId se toma de la variante del soporte (CRM o WEB)' }
         descripcion: { type: string, minLength: 1, maxLength: 10000 }
+        servicioContratadoId: { type: string, format: uuid, description: 'Solo servicios de Soporte continuo (si no, 422 SERVICIO_SIN_SOPORTE)' }
         piezaId: { type: string, format: uuid }
         archivoIds: { type: array, items: { type: string, format: uuid } }
     Ticket:
@@ -3217,6 +3220,8 @@ components:
         areaAsignada: { type: [string, 'null'] }
         asignadoNombre: { type: [string, 'null'] }
         piezaId: { type: [string, 'null'], format: uuid }
+        servicioContratadoId: { type: [string, 'null'], format: uuid }
+        servicioTitulo: { type: [string, 'null'], examples: [Soporte continuo - Casa Oliva] }
         slaPrimeraRespuestaEn: { type: string, format: date-time }
         primeraRespuestaEn: { type: [string, 'null'], format: date-time }
         resueltoEn: { type: [string, 'null'], format: date-time }
