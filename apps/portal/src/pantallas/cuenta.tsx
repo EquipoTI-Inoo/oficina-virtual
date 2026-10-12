@@ -5,9 +5,9 @@
  * soporte queda a mano para quien lo busca, sin estar en primera pantalla (como en la app de un banco).
  * Los números de WhatsApp de Ayuda son de relleno hasta que el equipo los defina.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { LuFileText, LuMail, LuMessageCircle, LuTicket } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, useConsulta, useNavegacion, type S } from "../base";
+import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso, usePortal } from "../componentes";
 
 export const PESTANAS_CUENTA = [
@@ -49,7 +49,12 @@ function Cuenta() {
       </nav>
       {actual === "/cuenta" && <MisDatos />}
       {actual === "/cuenta/pagos" && <Pagos />}
-      {actual === "/cuenta/usuarios" && <Usuarios esAdmin={esAdmin} />}
+      {actual === "/cuenta/usuarios" && (
+        <div className="pila">
+          <Usuarios esAdmin={esAdmin} />
+          {esAdmin && <CambioResponsable />}
+        </div>
+      )}
       {actual === "/cuenta/notificaciones" && <Notificaciones />}
       {actual === "/cuenta/ayuda" && <Ayuda />}
     </>
@@ -193,10 +198,95 @@ function Usuarios({ esAdmin }: { esAdmin: boolean }) {
               </tbody>
             </table>
           </div>
-          <p className="texto-xs texto-muted">
-            Para dar acceso a alguien más de tu equipo o cambiar permisos, envíale los datos a tu equipo Inoo y lo hacemos por ti. Si dejas la empresa,
-            avísanos quién te reemplaza para no perder el seguimiento de tus proyectos.
-          </p>
+          <p className="texto-xs texto-muted">Para dar acceso a alguien más de tu equipo o cambiar permisos, envíale los datos a tu equipo Inoo y lo hacemos por ti.</p>
+        </>
+      )}
+    </Tarjeta>
+  );
+}
+
+
+// ───────────────────────────── Cambio de responsable (reunión 12 oct)
+
+type Responsable = { responsable: S<"PersonaMini"> | null; solicitudes: S<"SolicitudResponsable">[] };
+
+/** Si quien sigue la cuenta deja la empresa, deja los datos de su sucesor; el equipo lo aprueba y le da acceso. */
+function CambioResponsable() {
+  const avisar = useAviso();
+  const { datos: d, recargar } = useConsulta<Responsable>(`/clientes/${clienteActivo()}/cambio-responsable`);
+  const [abierto, setAbierto] = useState(false);
+  const [f, setF] = useState({ nombre: "", email: "", telefono: "", cargo: "", motivo: "" });
+  const [quitar, setQuitar] = useState(true);
+  const [errores, setErrores] = useState<Record<string, string>>({});
+  if (!d) return <Cargando />;
+  const pendiente = d.solicitudes.find((x) => x.estado === "PENDIENTE");
+  const ultima = d.solicitudes[0];
+  const enviar = async () => {
+    setErrores({});
+    try {
+      await api(`/clientes/${clienteActivo()}/cambio-responsable`, { metodo: "POST", cuerpo: { ...f, quitarAccesoAnterior: quitar }, idempotente: true });
+      avisar({ titulo: "Solicitud enviada", texto: "Tu equipo Inoo contactará a tu sucesor y le dará acceso." });
+      setAbierto(false);
+      void recargar();
+    } catch (e) {
+      const p = e as ProblemaApi;
+      setErrores(Object.fromEntries(p.errores.map((x) => [x.campo, x.mensaje])));
+      if (!p.errores.length) avisar({ titulo: p.titulo, texto: p.detalle });
+    }
+  };
+  const campo = (k: keyof typeof f, etiqueta: string, tipo = "text") => (
+    <div className="campo">
+      <label htmlFor={`resp-${k}`}>{etiqueta}</label>
+      <div className="entrada">
+        <input id={`resp-${k}`} type={tipo} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} aria-invalid={!!errores[k]} />
+      </div>
+      {errores[k] && (
+        <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
+          {errores[k]}
+        </span>
+      )}
+    </div>
+  );
+  return (
+    <Tarjeta titulo="Responsable de la cuenta">
+      <Dato etiqueta="Hoy sigue la cuenta">{d.responsable?.nombre ?? "—"}</Dato>
+      {pendiente ? (
+        <p className="texto-sm">
+          <Etiqueta tono="azul">En revisión</Etiqueta> Pediste que <strong>{pendiente.nombre}</strong> ({pendiente.email}) sea el nuevo responsable. Te avisaremos cuando tenga acceso.
+        </p>
+      ) : (
+        <>
+          {ultima?.estado === "RECHAZADA" && (
+            <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>
+              No pudimos hacer el último cambio: {ultima.notaEquipo}
+            </p>
+          )}
+          <p className="texto-xs texto-muted">¿Dejas la empresa o cambia quién sigue los proyectos? Déjanos los datos de tu sucesor y le daremos acceso para que no se pierda el seguimiento.</p>
+          {!abierto ? (
+            <button className="boton" style={{ justifySelf: "start" }} onClick={() => setAbierto(true)}>
+              Cambiar responsable
+            </button>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {campo("nombre", "Nombre del nuevo responsable")}
+              {campo("email", "Correo", "email")}
+              {campo("telefono", "Teléfono", "tel")}
+              {campo("cargo", "Cargo (opcional)")}
+              {campo("motivo", "Motivo (opcional)")}
+              <label className="fila texto-sm" style={{ gap: 8 }}>
+                <input type="checkbox" checked={quitar} onChange={(e) => setQuitar(e.target.checked)} />
+                Quitar mi acceso cuando se apruebe el cambio
+              </label>
+              <div className="fila" style={{ gap: 10 }}>
+                <button className="boton boton--primario" onClick={() => void enviar()}>
+                  Enviar solicitud
+                </button>
+                <button className="boton" onClick={() => setAbierto(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </Tarjeta>

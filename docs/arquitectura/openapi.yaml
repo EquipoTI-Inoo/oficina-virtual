@@ -21,6 +21,7 @@ info:
     plantilla con formulario y fecha límite en días hábiles; si se atrasa, se corre el cronograma del servicio y se
     le avisa. Reemplazan a los requerimientos del brief (cliente → agencia) del 10 oct. Los tickets del soporte
     continuo se generan dentro de ese servicio (`servicioContratadoId`); sin servicio son consultas generales.
+    Cambio de responsable: el cliente deja los datos de su sucesor y el equipo lo aprueba antes de dar el acceso.
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -340,6 +341,84 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Miembro' }
         '409': { $ref: '#/components/responses/Conflicto' }
+
+  /clientes/{clienteId}/cambio-responsable:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Clientes]
+      operationId: listarSolicitudesResponsable
+      summary: 'Responsable actual de la cuenta y las solicitudes de cambio (la más reciente primero)'
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [responsable, solicitudes]
+                properties:
+                  responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+                  solicitudes: { type: array, items: { $ref: '#/components/schemas/SolicitudResponsable' } }
+    post:
+      tags: [Clientes]
+      operationId: solicitarCambioResponsable
+      summary: 'Quien administra la cuenta propone a su sucesor; el equipo lo aprueba. Emite `responsable.cambio_solicitado`.'
+      description: Una sola solicitud PENDIENTE por cliente (409 SOLICITUD_PENDIENTE). No crea ningún acceso hasta que el equipo la aprueba.
+      x-roles: [ADMIN_CLIENTE]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, email, telefono]
+              properties:
+                nombre: { type: string, minLength: 3 }
+                email: { type: string, format: email }
+                telefono: { type: string, minLength: 6 }
+                cargo: { type: string }
+                motivo: { type: string }
+                quitarAccesoAnterior: { type: boolean, default: true, description: 'Al aprobarse, quien la pidió deja de tener acceso' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SolicitudResponsable' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /solicitudes-responsable/{solicitudId}/decision:
+    parameters:
+      - { name: solicitudId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Clientes]
+      operationId: decidirCambioResponsable
+      summary: 'El equipo aprueba (crea el acceso del sucesor como ADMIN_CLIENTE y lo hace contacto principal) o rechaza con una nota'
+      description: Al aprobar se emite `responsable.cambiado` (n8n envía la invitación al sucesor y avisa al AM para contactarlo).
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APROBADA, RECHAZADA] }
+                nota: { type: string, description: Obligatoria al rechazar; la ve el cliente }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SolicitudResponsable' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /clientes/{clienteId}/miembros/{usuarioId}:
     parameters:
@@ -2385,6 +2464,22 @@ components:
         fechaVencimiento: { type: string, format: date }
         estado: { type: string, enum: [PENDIENTE, PAGADO, VENCIDO], description: 'VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)' }
         pagadoEn: { type: [string, 'null'], format: date }
+    SolicitudResponsable:
+      type: object
+      required: [id, nombre, email, telefono, quitarAccesoAnterior, estado, solicitadoPor, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string, examples: [Gabriel Villegas] }
+        email: { type: string, format: email }
+        telefono: { type: string }
+        cargo: { type: [string, 'null'] }
+        motivo: { type: [string, 'null'] }
+        quitarAccesoAnterior: { type: boolean }
+        estado: { type: string, enum: [PENDIENTE, APROBADA, RECHAZADA] }
+        notaEquipo: { type: [string, 'null'] }
+        solicitadoPor: { $ref: '#/components/schemas/PersonaMini' }
+        decididoEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
     Miembro:
       type: object
       required: [usuarioId, nombre, email, rol]
@@ -3511,6 +3606,8 @@ components:
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
             - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable
+            - responsable.cambio_solicitado # el cliente propuso un sucesor; el AM lo revisa
+            - responsable.cambiado       # aprobado: invitación al sucesor y aviso al AM para contactarlo
         ocurridoEn: { type: string, format: date-time }
         clienteId: { type: [string, 'null'], format: uuid }
         datos: { type: object }

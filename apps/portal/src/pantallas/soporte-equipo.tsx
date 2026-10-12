@@ -10,7 +10,7 @@ import {
   Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
-import { RequerimientosDelCliente } from "./requerimientos";
+import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
@@ -715,6 +715,7 @@ function Ficha() {
               ))}
             </div>
           </div>
+          <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
         </div>
         <aside className="pila">

@@ -28,6 +28,7 @@ services:
       - ../../database/migraciones/0007_perfil_proyecto.sql:/docker-entrypoint-initdb.d/01g_perfil_proyecto.sql:ro
       - ../../database/migraciones/0008_requerimientos_agencia.sql:/docker-entrypoint-initdb.d/01h_requerimientos_agencia.sql:ro
       - ../../database/migraciones/0009_tickets_servicio.sql:/docker-entrypoint-initdb.d/01i_tickets_servicio.sql:ro
+      - ../../database/migraciones/0010_cambio_responsable.sql:/docker-entrypoint-initdb.d/01j_cambio_responsable.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

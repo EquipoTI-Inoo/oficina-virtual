@@ -479,3 +479,57 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
     </Modal>
   );
 }
+
+// ═════════════════════════════════════════════ Equipo: aprobar el cambio de responsable
+
+export function CambioResponsableEquipo({ clienteId }: { clienteId: string }) {
+  const avisar = useAviso();
+  const { datos: d, recargar } = useConsulta<{ responsable: S<"PersonaMini"> | null; solicitudes: S<"SolicitudResponsable">[] }>(`/clientes/${clienteId}/cambio-responsable`);
+  const [nota, setNota] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const x = d?.solicitudes.find((y) => y.estado === "PENDIENTE");
+  if (!x) return null;
+  const decidir = async (decision: "APROBADA" | "RECHAZADA") => {
+    setError(null);
+    try {
+      await api(`/solicitudes-responsable/${x.id}/decision`, { metodo: "POST", cuerpo: decision === "RECHAZADA" ? { decision, nota } : { decision } });
+      avisar({ titulo: decision === "APROBADA" ? `${x.nombre} ya tiene acceso` : "Solicitud rechazada", texto: decision === "APROBADA" ? "Contáctalo para explicarle el portal y cómo van sus proyectos." : undefined });
+      void recargar();
+    } catch (e) {
+      setError((e as ProblemaApi).errores[0]?.mensaje ?? (e as ProblemaApi).titulo);
+    }
+  };
+  return (
+    <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 10, border: "1.5px solid var(--c-primario)" }}>
+      <h3 className="tarjeta-titulo">Cambio de responsable pendiente</h3>
+      <p className="texto-sm">
+        {x.solicitadoPor.nombre} pide que <strong>{x.nombre}</strong> siga la cuenta.
+      </p>
+      <p className="texto-xs texto-muted">
+        {x.email} · {x.telefono}
+        {x.cargo ? ` · ${x.cargo}` : ""}
+        {x.motivo ? ` · «${x.motivo}»` : ""}
+      </p>
+      <p className="texto-xs texto-muted">{x.quitarAccesoAnterior ? `Al aprobar, ${x.solicitadoPor.nombre} deja de tener acceso.` : `${x.solicitadoPor.nombre} conserva su acceso.`}</p>
+      <div className="campo">
+        <label htmlFor="nota-responsable">Nota para el cliente (obligatoria si rechazas)</label>
+        <div className="entrada">
+          <textarea id="nota-responsable" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} />
+        </div>
+        {error && (
+          <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
+            {error}
+          </span>
+        )}
+      </div>
+      <div className="fila" style={{ gap: 10 }}>
+        <button className="boton boton--primario" onClick={() => void decidir("APROBADA")}>
+          Aprobar y dar acceso
+        </button>
+        <button className="boton" onClick={() => void decidir("RECHAZADA")}>
+          Rechazar
+        </button>
+      </div>
+    </div>
+  );
+}

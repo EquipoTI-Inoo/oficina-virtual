@@ -74,6 +74,10 @@ interface Estado {
   pagos: D.PagoDemo[];
   reuniones: D.ReunionDemo[];
   comentariosProyecto: D.ComentarioProyectoDemo[];
+  solicitudesResponsable: {
+    id: string; clienteId: string; solicitadoPorId: string; nombre: string; email: string; telefono: string; cargo: string | null; motivo: string | null;
+    quitarAccesoAnterior: boolean; estado: "PENDIENTE" | "APROBADA" | "RECHAZADA"; notaEquipo: string | null; decididoEn: string | null; creadoEn: string;
+  }[];
   fichas: Record<string, typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null }>;
   calendarios: Record<string, { estado: S<"EstadoCalendario">; version: number; resumen: string | null; aprobadoPorId: string | null; aprobadoEn: string | null }>;
   eventosPieza: { piezaId: string; deEstado: D.Estado | null; aEstado: D.Estado; version: number | null; usuarioId: string | null; canal: S<"CanalDecision">; comentario: string | null; creadoEn: string }[];
@@ -128,6 +132,7 @@ function estadoInicial(): Estado {
     pagos: structuredClone(D.PAGOS_INICIALES),
     reuniones: structuredClone(D.REUNIONES_INICIALES),
     comentariosProyecto: structuredClone(D.COMENTARIOS_PROYECTO_INICIALES),
+    solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
       [`${D.uid(2, 1)}:2026-10`]: { estado: "APROBADO_PLAN", version: 1, resumen: null, aprobadoPorId: D.uid(1, 3), aprobadoEn: "2026-09-28T15:00:00Z" },
@@ -1447,6 +1452,82 @@ function protegerUltimoAdmin(clienteId: string, usuarioId: string) {
     throw new ErrorApi(409, "ULTIMO_ADMINISTRADOR", "La cuenta necesita al menos una persona administradora");
   }
 }
+
+
+/** Datos del sucesor: nombre, correo y teléfono obligatorios. */
+function validarSucesor(b: { nombre?: unknown; email?: unknown; telefono?: unknown }) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (typeof b.nombre !== "string" || b.nombre.trim().length < 3) errores.push({ campo: "nombre", mensaje: "Escribe el nombre completo" });
+  if (typeof b.email !== "string" || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email.trim())) errores.push({ campo: "email", mensaje: "Escribe un correo válido" });
+  if (typeof b.telefono !== "string" || b.telefono.replace(/\D/g, "").length < 6) errores.push({ campo: "telefono", mensaje: "Escribe un teléfono de contacto" });
+  return errores;
+}
+
+// ───────────────────────────────────────────── cambio de responsable (reunión 12 oct)
+
+const solicitudVista = (x: Estado["solicitudesResponsable"][number]): S<"SolicitudResponsable"> => ({
+  id: x.id, nombre: x.nombre, email: x.email, telefono: x.telefono, cargo: x.cargo, motivo: x.motivo, quitarAccesoAnterior: x.quitarAccesoAnterior,
+  estado: x.estado, notaEquipo: x.notaEquipo, solicitadoPor: persona(x.solicitadoPorId)!, decididoEn: x.decididoEn, creadoEn: x.creadoEn,
+});
+
+ruta("GET", "/clientes/:id/cambio-responsable", (ctx, p) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  return {
+    responsable: persona(c.contactoPrincipalId),
+    solicitudes: E.solicitudesResponsable.filter((x) => x.clienteId === c.id).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)).map(solicitudVista),
+  };
+});
+
+ruta("POST", "/clientes/:id/cambio-responsable", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Lo pide quien administra la cuenta del cliente");
+  exigirRol(ctx, c.id, ["ADMIN_CLIENTE"]);
+  const b = await cuerpo<{ nombre?: string; email?: string; telefono?: string; cargo?: string; motivo?: string; quitarAccesoAnterior?: boolean }>(req);
+  const errores = validarSucesor(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (E.solicitudesResponsable.some((x) => x.clienteId === c.id && x.estado === "PENDIENTE")) throw new ErrorApi(409, "SOLICITUD_PENDIENTE", "Ya hay un cambio de responsable en revisión", "Tu equipo Inoo te contactará pronto.");
+  const x: Estado["solicitudesResponsable"][number] = {
+    id: nuevoId(25), clienteId: c.id, solicitadoPorId: ctx.usuario.id, nombre: b.nombre!.trim(), email: b.email!.trim().toLowerCase(), telefono: b.telefono!.trim(),
+    cargo: b.cargo?.trim() || null, motivo: b.motivo?.trim() || null, quitarAccesoAnterior: b.quitarAccesoAnterior !== false, estado: "PENDIENTE", notaEquipo: null, decididoEn: null, creadoEn: new Date().toISOString(),
+  };
+  E.solicitudesResponsable.push(x);
+  emitir("responsable.cambio_solicitado", c.id, { solicitudId: x.id, nombre: x.nombre, email: x.email, usuarioId: ctx.usuario.id });
+  registrarCorreo(E.usuarios[2].email, `${c.nombre} pidió cambiar su responsable a ${x.nombre}`, "responsable.cambio_solicitado");
+  return { __status: 201, ...solicitudVista(x) };
+});
+
+ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, req) => {
+  const x = E.solicitudesResponsable.find((y) => y.id === p.id);
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa solicitud");
+  const c = accesoCliente(ctx, x.clienteId);
+  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = await cuerpo<{ decision?: string; nota?: string }>(req);
+  if (b.decision !== "APROBADA" && b.decision !== "RECHAZADA") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "decision", mensaje: "Usa APROBADA o RECHAZADA" }]);
+  if (x.estado !== "PENDIENTE") throw new ErrorApi(409, "SOLICITUD_DECIDIDA", "Esa solicitud ya se decidió");
+  if (b.decision === "RECHAZADA" && !b.nota?.trim()) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Explícale al cliente por qué", undefined, [{ campo: "nota", mensaje: "Obligatoria al rechazar" }]);
+  if (b.decision === "APROBADA") {
+    let u = E.usuarios.find((y) => y.email.toLowerCase() === x.email);
+    if (u?.tipo === "EQUIPO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
+    if (!u) {
+      // En producción se crea en el pool de clientes de Cognito, que envía la invitación.
+      u = { id: nuevoId(1), nombre: x.nombre, email: x.email, cargo: x.cargo, iniciales: x.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, claveDemo: "" };
+      E.usuarios.push(u);
+    }
+    const m = E.miembros.find((y) => y.clienteId === c.id && y.usuarioId === u!.id);
+    if (m) m.rol = "ADMIN_CLIENTE";
+    else E.miembros.push({ clienteId: c.id, usuarioId: u.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
+    c.contactoPrincipalId = u.id;
+    c.contactoNombre = u.nombre;
+    if (x.quitarAccesoAnterior && x.solicitadoPorId !== u.id) E.miembros = E.miembros.filter((y) => !(y.clienteId === c.id && y.usuarioId === x.solicitadoPorId));
+    emitir("responsable.cambiado", c.id, { solicitudId: x.id, nuevoUsuarioId: u.id, anteriorUsuarioId: x.solicitadoPorId, quitoAcceso: x.quitarAccesoAnterior, usuarioId: ctx.usuario.id });
+    registrarCorreo(x.email, `Te damos la bienvenida al portal de ${c.nombre}`, "miembro.invitado");
+  }
+  x.estado = b.decision;
+  x.notaEquipo = b.decision === "RECHAZADA" ? b.nota!.trim() : null;
+  x.decididoEn = new Date().toISOString();
+  return solicitudVista(x);
+});
 
 ruta("GET", "/clientes/:id/miembros", (ctx, p) => {
   accesoCliente(ctx, p.id);

@@ -195,6 +195,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/{clienteId}/cambio-responsable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Responsable actual de la cuenta y las solicitudes de cambio (la más reciente primero) */
+        get: operations["listarSolicitudesResponsable"];
+        put?: never;
+        /**
+         * Quien administra la cuenta propone a su sucesor; el equipo lo aprueba. Emite `responsable.cambio_solicitado`.
+         * @description Una sola solicitud PENDIENTE por cliente (409 SOLICITUD_PENDIENTE). No crea ningún acceso hasta que el equipo la aprueba.
+         */
+        post: operations["solicitarCambioResponsable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/solicitudes-responsable/{solicitudId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * El equipo aprueba (crea el acceso del sucesor como ADMIN_CLIENTE y lo hace contacto principal) o rechaza con una nota
+         * @description Al aprobar se emite `responsable.cambiado` (n8n envía la invitación al sucesor y avisa al AM para contactarlo).
+         */
+        post: operations["decidirCambioResponsable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/miembros/{usuarioId}": {
         parameters: {
             query?: never;
@@ -1732,6 +1777,26 @@ export interface components {
             /** Format: date */
             pagadoEn?: string | null;
         };
+        SolicitudResponsable: {
+            /** Format: uuid */
+            id: string;
+            /** @example Gabriel Villegas */
+            nombre: string;
+            /** Format: email */
+            email: string;
+            telefono: string;
+            cargo?: string | null;
+            motivo?: string | null;
+            quitarAccesoAnterior: boolean;
+            /** @enum {string} */
+            estado: "PENDIENTE" | "APROBADA" | "RECHAZADA";
+            notaEquipo?: string | null;
+            solicitadoPor: components["schemas"]["PersonaMini"];
+            /** Format: date-time */
+            decididoEn?: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+        };
         Miembro: {
             /** Format: uuid */
             usuarioId: string;
@@ -2914,7 +2979,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -3478,6 +3543,109 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflicto"];
+        };
+    };
+    listarSolicitudesResponsable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        responsable: components["schemas"]["PersonaMini"] | null;
+                        solicitudes: components["schemas"]["SolicitudResponsable"][];
+                    };
+                };
+            };
+        };
+    };
+    solicitarCambioResponsable: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description UUID generado por el cliente por cada intención (no por cada reintento). Vigencia 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    /** Format: email */
+                    email: string;
+                    telefono: string;
+                    cargo?: string;
+                    motivo?: string;
+                    /**
+                     * @description Al aprobarse, quien la pidió deja de tener acceso
+                     * @default true
+                     */
+                    quitarAccesoAnterior?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SolicitudResponsable"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    decidirCambioResponsable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "APROBADA" | "RECHAZADA";
+                    /** @description Obligatoria al rechazar; la ve el cliente */
+                    nota?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SolicitudResponsable"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
         };
     };
     quitarMiembro: {

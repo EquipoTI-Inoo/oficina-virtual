@@ -129,6 +129,31 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.ok((await eventos()).some((e) => e.tipo === "ticket.creado" && e.datos.servicioContratadoId === SOPORTE));
     });
 
+    test("cambio de responsable: el cliente propone a su sucesor y el equipo lo aprueba", async () => {
+      await reiniciar();
+      const ruta = `/clientes/${CASA_OLIVA}/cambio-responsable`;
+      const sucesor = { nombre: "Gabriel Villegas", email: "gabriel@casaoliva.pe", telefono: "+51 987 654 321", cargo: "Jefe de marketing" };
+      assert.equal((await llamar("POST", ruta, MARTIN_LECTOR, sucesor)).status, 403, "solo quien administra la cuenta");
+      assert.equal((await llamar("POST", ruta, DIEGO, sucesor)).status, 403, "lo pide el cliente, no el equipo");
+      assert.deepEqual((await llamar("POST", ruta, VALERIA, { nombre: "G", email: "x", telefono: "1" })).json.errores.map((e: any) => e.campo), ["nombre", "email", "telefono"]);
+      const s = await llamar("POST", ruta, VALERIA, sucesor);
+      assert.deepEqual([s.status, s.json.estado, s.json.quitarAccesoAnterior], [201, "PENDIENTE", true]);
+      assert.equal((await llamar("POST", ruta, VALERIA, sucesor)).json.codigo, "SOLICITUD_PENDIENTE");
+      assert.ok((await eventos()).some((e) => e.tipo === "responsable.cambio_solicitado"));
+      // Hasta que el equipo apruebe no hay acceso nuevo.
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/miembros`, DIEGO)).json.datos.length, 2);
+      const decision = `/solicitudes-responsable/${s.json.id}/decision`;
+      assert.equal((await llamar("POST", decision, VALERIA, { decision: "APROBADA" })).status, 403);
+      assert.equal((await llamar("POST", decision, DIEGO, { decision: "RECHAZADA" })).json.codigo, "COMENTARIO_REQUERIDO");
+      const ok = await llamar("POST", decision, DIEGO, { decision: "APROBADA" });
+      assert.equal(ok.json.estado, "APROBADA");
+      const miembros = (await llamar("GET", `/clientes/${CASA_OLIVA}/miembros`, DIEGO)).json.datos;
+      assert.deepEqual(miembros.map((m: any) => [m.email, m.rol]).sort(), [["gabriel@casaoliva.pe", "ADMIN_CLIENTE"], ["martin@casaoliva.pe", "LECTOR"]], "entra el sucesor y sale quien lo pidió");
+      assert.equal((await llamar("GET", ruta, DIEGO)).json.responsable.nombre, "Gabriel Villegas");
+      assert.equal((await llamar("POST", decision, DIEGO, { decision: "APROBADA" })).json.codigo, "SOLICITUD_DECIDIDA");
+      assert.ok((await eventos()).some((e) => e.tipo === "responsable.cambiado"));
+    });
+
     test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
       await reiniciar();
       const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);

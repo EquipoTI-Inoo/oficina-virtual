@@ -141,6 +141,23 @@ test("soporte continuo: generar un ticket dentro del servicio", async ({ page })
   await expect(page.getByText("#1043 · Cambiar el banner de inicio")).toBeVisible();
 });
 
+test("cambio de responsable: la administradora propone a su sucesor y el equipo lo aprueba", async ({ page, browser, baseURL }) => {
+  await entrarComo(page, "cliente");
+  await page.goto("/cuenta/usuarios");
+  await page.getByRole("button", { name: "Cambiar responsable" }).click({ timeout: 20_000 });
+  await page.fill("#resp-nombre", "Gabriel Villegas");
+  await page.fill("#resp-email", "gabriel@casaoliva.pe");
+  await page.fill("#resp-telefono", "+51 987 654 321");
+  await page.getByRole("button", { name: "Enviar solicitud" }).click();
+  await expect(page.getByText("En revisión")).toBeVisible();
+  const equipo = await (await browser.newContext({ baseURL })).newPage();
+  await entrarComo(equipo, "equipo");
+  await equipo.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await expect(equipo.getByText("Cambio de responsable pendiente")).toBeVisible({ timeout: 20_000 });
+  await equipo.getByRole("button", { name: "Aprobar y dar acceso" }).click();
+  await expect(equipo.getByText("Gabriel Villegas ya tiene acceso")).toBeVisible();
+});
+
 test("blog (equipo): elegir otra idea", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/blog");

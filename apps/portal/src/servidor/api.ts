@@ -12,7 +12,8 @@
  * GET /plantillas · GET /clientes/{id}/pagos · GET /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/comentarios ·
  * requerimientos de la agencia al cliente
  * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
- * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos).
+ * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
+ * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -1750,6 +1751,101 @@ ruta("POST", "/integraciones/requerimientos/atrasos", async (ctx) => {
     await emitirOutbox(ctx, "requerimiento.atrasado", r.cliente_id, { requerimientoId: r.id, servicioContratadoId: r.servicio_contratado_id, diasAtraso: r.dias_corridos + delta, diasCorridosHoy: delta });
   }
   return { revisados: rows.length, corridos };
+});
+
+
+/** Datos del sucesor: nombre, correo y teléfono obligatorios. */
+function validarSucesor(b: { nombre?: unknown; email?: unknown; telefono?: unknown }) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (typeof b.nombre !== "string" || b.nombre.trim().length < 3) errores.push({ campo: "nombre", mensaje: "Escribe el nombre completo" });
+  if (typeof b.email !== "string" || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email.trim())) errores.push({ campo: "email", mensaje: "Escribe un correo válido" });
+  if (typeof b.telefono !== "string" || b.telefono.replace(/\D/g, "").length < 6) errores.push({ campo: "telefono", mensaje: "Escribe un teléfono de contacto" });
+  return errores;
+}
+
+// ───────────────────────────────────────────── cambio de responsable (reunión 12 oct)
+
+interface FilaSolicitud {
+  id: string; cliente_id: string; solicitado_por: string; solicitante_nombre: string; nombre: string; email: string; telefono: string; cargo: string | null;
+  motivo: string | null; quitar_acceso_anterior: boolean; estado: "PENDIENTE" | "APROBADA" | "RECHAZADA"; nota_equipo: string | null; decidido_en: Date | null; creado_en: Date;
+}
+const SELECT_SOLICITUD = `SELECT x.*, x.email::text AS email, u.nombre AS solicitante_nombre FROM solicitud_responsable x JOIN usuario u ON u.id = x.solicitado_por`;
+const solicitudVista = (x: FilaSolicitud): S<"SolicitudResponsable"> => ({
+  id: x.id, nombre: x.nombre, email: x.email, telefono: x.telefono, cargo: x.cargo, motivo: x.motivo, quitarAccesoAnterior: x.quitar_acceso_anterior,
+  estado: x.estado, notaEquipo: x.nota_equipo, solicitadoPor: { id: x.solicitado_por, nombre: x.solicitante_nombre }, decididoEn: iso(x.decidido_en), creadoEn: iso(x.creado_en)!,
+});
+
+// Usuarios del cliente (solo lectura para el cliente; los gestiona el equipo).
+ruta("GET", "/clientes/:id/miembros", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  const { rows } = await ctx.c.query<S<"Miembro">>(
+    `SELECT u.id AS "usuarioId", u.nombre, u.email::text AS email, m.rol FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id
+     WHERE m.cliente_id = $1 ORDER BY m.creado_en, u.nombre`,
+    [p.id],
+  );
+  return { datos: rows };
+});
+
+ruta("GET", "/clientes/:id/cambio-responsable", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  const r = (await ctx.c.query<{ id: string | null; nombre: string | null; cargo: string | null; email: string | null }>(
+    "SELECT u.id, u.nombre, u.cargo, u.email::text AS email FROM cliente c LEFT JOIN usuario u ON u.id = c.contacto_principal_id WHERE c.id = $1", [p.id],
+  )).rows[0];
+  const { rows } = await ctx.c.query<FilaSolicitud>(`${SELECT_SOLICITUD} WHERE x.cliente_id = $1 ORDER BY x.creado_en DESC`, [p.id]);
+  return { responsable: r?.id ? { id: r.id, nombre: r.nombre!, cargo: r.cargo, email: r.email ?? undefined } : null, solicitudes: rows.map(solicitudVista) };
+});
+
+ruta("POST", "/clientes/:id/cambio-responsable", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Lo pide quien administra la cuenta del cliente");
+  exigirRol(ctx, p.id, ["ADMIN_CLIENTE"]);
+  const b = (await cuerpo()) as { nombre?: string; email?: string; telefono?: string; cargo?: string; motivo?: string; quitarAccesoAnterior?: boolean };
+  validacion(validarSucesor(b));
+  const ya = await ctx.c.query("SELECT 1 FROM solicitud_responsable WHERE cliente_id = $1 AND estado = 'PENDIENTE'", [p.id]);
+  if (ya.rows.length) throw new ErrorApi(409, "SOLICITUD_PENDIENTE", "Ya hay un cambio de responsable en revisión", "Tu equipo Inoo te contactará pronto.");
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO solicitud_responsable (cliente_id, solicitado_por, nombre, email, telefono, cargo, motivo, quitar_acceso_anterior)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [p.id, ctx.u.usuarioId, b.nombre!.trim(), b.email!.trim().toLowerCase(), b.telefono!.trim(), b.cargo?.trim() || null, b.motivo?.trim() || null, b.quitarAccesoAnterior !== false],
+  )).rows[0].id;
+  await emitirOutbox(ctx, "responsable.cambio_solicitado", p.id, { solicitudId: id, nombre: b.nombre!.trim(), email: b.email!.trim().toLowerCase(), usuarioId: ctx.u.usuarioId });
+  return { __status: 201, ...solicitudVista((await ctx.c.query<FilaSolicitud>(`${SELECT_SOLICITUD} WHERE x.id = $1`, [id])).rows[0]) };
+});
+
+ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, cuerpo) => {
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa solicitud");
+  const x = (await ctx.c.query<FilaSolicitud>(`${SELECT_SOLICITUD} WHERE x.id = $1 FOR UPDATE OF x`, [p.id])).rows[0];
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa solicitud");
+  await accesoCliente(ctx, x.cliente_id);
+  exigirRol(ctx, x.cliente_id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { decision?: unknown; nota?: unknown };
+  if (b.decision !== "APROBADA" && b.decision !== "RECHAZADA") validacion([{ campo: "decision", mensaje: "Usa APROBADA o RECHAZADA" }]);
+  if (x.estado !== "PENDIENTE") throw new ErrorApi(409, "SOLICITUD_DECIDIDA", "Esa solicitud ya se decidió");
+  const nota = typeof b.nota === "string" ? b.nota.trim() : "";
+  if (b.decision === "RECHAZADA" && !nota) throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Explícale al cliente por qué", undefined, [{ campo: "nota", mensaje: "Obligatoria al rechazar" }]);
+  let nuevo: string | null = null;
+  if (b.decision === "APROBADA") {
+    const u = (await ctx.c.query<{ id: string; tipo: string }>("SELECT id, tipo FROM usuario WHERE email = $1", [x.email])).rows[0];
+    if (u?.tipo === "EQUIPO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
+    // En producción el alta en el pool de clientes de Cognito la hace n8n al recibir responsable.cambiado.
+    nuevo = u?.id ?? (await ctx.c.query<{ id: string }>("INSERT INTO usuario (email, nombre, cargo, tipo) VALUES ($1, $2, $3, 'CLIENTE') RETURNING id", [x.email, x.nombre, x.cargo])).rows[0].id;
+    await ctx.c.query(
+      `INSERT INTO miembro_cliente (cliente_id, usuario_id, rol) VALUES ($1, $2, 'ADMIN_CLIENTE')
+       ON CONFLICT (cliente_id, usuario_id) DO UPDATE SET rol = 'ADMIN_CLIENTE'`, [x.cliente_id, nuevo],
+    );
+    await ctx.c.query("UPDATE cliente SET contacto_principal_id = $2, actualizado_en = now() WHERE id = $1", [x.cliente_id, nuevo]);
+    if (x.quitar_acceso_anterior && x.solicitado_por !== nuevo) {
+      await ctx.c.query("DELETE FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, x.solicitado_por]);
+    }
+    await emitirOutbox(ctx, "responsable.cambiado", x.cliente_id, { solicitudId: x.id, nuevoUsuarioId: nuevo, anteriorUsuarioId: x.solicitado_por, quitoAcceso: x.quitar_acceso_anterior, usuarioId: ctx.u.usuarioId });
+  }
+  await ctx.c.query(
+    "UPDATE solicitud_responsable SET estado = $2::estado_solicitud_responsable, nota_equipo = $3, nuevo_usuario_id = $4, decidido_por = $5, decidido_en = now() WHERE id = $1",
+    [x.id, b.decision, b.decision === "RECHAZADA" ? nota : null, nuevo, ctx.u.usuarioId],
+  );
+  return solicitudVista((await ctx.c.query<FilaSolicitud>(`${SELECT_SOLICITUD} WHERE x.id = $1`, [x.id])).rows[0]);
 });
 
 // ───────────────────────────────────────────── despachador
