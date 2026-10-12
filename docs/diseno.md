@@ -41,7 +41,7 @@ aprobadas de las pruebas visuales.
 | Ruta | Frame | Notas |
 |---|---|---|
 | `/ingresar` | 02-ingreso | |
-| `/inicio` | 01-inicio | |
+| `/inicio` | 01-inicio | «Tu cuenta» (reunión 12 oct): lo esencial de la ficha del cliente: servicios con avance lineal, equipo Inoo, Drive, próximos pagos, «Tu marca» plegable (solo con Social Media Pro, Brandformance o Paid Media) y actividad reciente breve |
 | `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados, con título «Servicio - Marca», variante o detalle (CRM, licencias) y avance por etapas (reunión 12 oct) |
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |

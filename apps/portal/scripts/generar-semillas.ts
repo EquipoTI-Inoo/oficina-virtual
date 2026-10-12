@@ -57,6 +57,11 @@ LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND coale
 `,
   insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.flatMap((s) => s.entregables.map((e) => [s.id, e.tipoPieza, e.cantidadMensual]))),
   insert(
+    "pago_programado",
+    ["id", "cliente_id", "servicio_contratado_id", "concepto", "monto", "moneda", "fecha_vencimiento", "estado", "pagado_en"],
+    D.PAGOS_INICIALES.map((x) => [x.id, x.clienteId, x.servicioContratadoId, x.concepto, x.monto, x.moneda, x.fechaVencimiento, x.estado, x.pagadoEn]),
+  ),
+  insert(
     "etapa_proyecto",
     ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "fecha_inicio", "fecha_estimada", "fecha_fin"],
     D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.fechaInicio, e.fechaEstimada, e.fechaFin]),

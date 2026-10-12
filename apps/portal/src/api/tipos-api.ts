@@ -121,7 +121,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Todo lo que pinta la pantalla de Inicio del portal en una sola llamada */
+        /** Inicio del cliente ("Tu cuenta"): todo lo que pinta la pantalla en una sola llamada */
         get: operations["obtenerInicioCliente"];
         put?: never;
         post?: never;
@@ -1501,7 +1501,37 @@ export interface components {
                 porAprobar: number;
                 ticketsAbiertos: number;
                 ideasPorElegir?: number;
+                /** @description Lo que la agencia le pidió al cliente y aún no entrega */
+                requerimientosPendientes: number;
             };
+            /** @description "Tu cuenta": lo esencial de la ficha que ve el cliente */
+            cuenta?: {
+                nombre: string;
+                contactoPrincipal?: components["schemas"]["PersonaMini"] | null;
+                /** @description Responsable de cuenta en Inoo ("Tu equipo Inoo") */
+                responsable?: components["schemas"]["PersonaMini"] | null;
+                /** Format: uri */
+                driveUrl?: string | null;
+            };
+            /** @description Próximos pagos y los vencidos sin pagar, por fecha (máximo 3) */
+            pagos?: components["schemas"]["PagoProgramado"][];
+            /** @description Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null */
+            marca?: {
+                mensajeCentral?: string | null;
+                campanaActual?: string | null;
+                descripcion?: string | null;
+                tono?: string[];
+                publico?: string | null;
+            } | null;
+            /** @description Actividad reciente, breve (máximo 4): aprobaciones, etapas terminadas y requerimientos */
+            actividad?: {
+                /** Format: date-time */
+                fecha: string;
+                /** @example Aprobaste «Cuida tu piel. Vuelve a ti.» */
+                texto: string;
+                /** @enum {string} */
+                tipo: "APROBACION" | "ETAPA" | "REQUERIMIENTO" | "PUBLICACION";
+            }[];
             plan?: components["schemas"]["PlanCliente"] | null;
             avanceMes: components["schemas"]["ProgresoPiezas"];
             /** @description Piezas en LISTO_REVISION, ordenadas por fecha */
@@ -1533,6 +1563,24 @@ export interface components {
                 asunto: string;
                 estado: components["schemas"]["EstadoTicket"];
             }[];
+        };
+        PagoProgramado: {
+            /** Format: uuid */
+            id: string;
+            /** @example Mensualidad de octubre */
+            concepto: string;
+            /** Format: uuid */
+            servicioContratadoId?: string | null;
+            monto: number;
+            /** @enum {string} */
+            moneda: "PEN" | "USD";
+            /** Format: date */
+            fechaVencimiento: string;
+            /**
+             * @description VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)
+             * @enum {string}
+             */
+            estado: "PENDIENTE" | "PAGADO" | "VENCIDO";
         };
         Miembro: {
             /** Format: uuid */
@@ -2987,9 +3035,10 @@ export interface operations {
                      * @example {
                      *       "periodo": "2026-10",
                      *       "indicadores": {
-                     *         "serviciosActivos": 3,
+                     *         "serviciosActivos": 4,
                      *         "porAprobar": 4,
-                     *         "ticketsAbiertos": 2
+                     *         "ticketsAbiertos": 2,
+                     *         "requerimientosPendientes": 1
                      *       },
                      *       "plan": {
                      *         "nombre": "Plan Crecimiento",
@@ -3003,48 +3052,64 @@ export interface operations {
                      *         "enProduccion": 4,
                      *         "porcentaje": 60
                      *       },
-                     *       "pendientes": [
-                     *         {
-                     *           "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
-                     *           "tipo": "CARRUSEL",
-                     *           "titulo": "Tu ritual, tu momento",
-                     *           "canal": "INSTAGRAM",
-                     *           "periodo": "2026-10",
-                     *           "fechaProgramada": "2026-10-08T14:00:00Z",
-                     *           "estado": "LISTO_REVISION",
-                     *           "miniaturaUrl": "https://archivos.inoo.pe/firmado/ritual.png",
-                     *           "actualizadoEn": "2026-10-05T15:30:00Z"
-                     *         }
-                     *       ],
+                     *       "pendientes": [],
+                     *       "cuenta": {
+                     *         "nombre": "Casa Oliva",
+                     *         "responsable": {
+                     *           "id": "7f8e9d0c-1b2a-4c3d-8e4f-5a6b7c8d9e0f",
+                     *           "nombre": "Diego Castro",
+                     *           "cargo": "Equipo de agencia"
+                     *         },
+                     *         "driveUrl": "https://drive.google.com/drive/folders/demo-casa-oliva"
+                     *       },
                      *       "servicios": [
                      *         {
-                     *           "categoria": "REDES_SOCIALES",
-                     *           "nombre": "Redes sociales",
-                     *           "cantidadMensual": 12,
-                     *           "unidad": "piezas",
-                     *           "estado": "ACTIVO"
-                     *         },
-                     *         {
-                     *           "categoria": "BLOG",
-                     *           "nombre": "Blog",
-                     *           "cantidadMensual": 4,
-                     *           "unidad": "artículos",
-                     *           "estado": "ACTIVO"
+                     *           "codigo": "CRM_IMPLEMENTACION",
+                     *           "nombre": "Implementación de CRM",
+                     *           "titulo": "Implementación de CRM - Casa Oliva",
+                     *           "servicioContratadoId": "3c9d8e7f-6a5b-4c3d-9e2f-1a0b9c8d7e6f",
+                     *           "cantidadMensual": 0,
+                     *           "unidad": "entregas",
+                     *           "estado": "ACTIVO",
+                     *           "avance": {
+                     *             "porcentaje": 20,
+                     *             "etapaActual": {
+                     *               "orden": 2,
+                     *               "nombre": "Procesos e implementación",
+                     *               "estado": "EN_PROGRESO",
+                     *               "atrasada": false
+                     *             },
+                     *             "totalEtapas": 4,
+                     *             "etapasCompletadas": 1
+                     *           }
                      *         }
                      *       ],
-                     *       "proximaPublicacion": {
-                     *         "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
-                     *         "titulo": "Tu ritual, tu momento",
-                     *         "fechaProgramada": "2026-10-08T14:00:00Z"
-                     *       },
-                     *       "ticketsAbiertos": [
+                     *       "pagos": [
                      *         {
-                     *           "id": "6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a",
-                     *           "codigo": "#1042",
-                     *           "asunto": "Ajuste de pauta en Meta",
-                     *           "estado": "EN_PROCESO"
+                     *           "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+                     *           "concepto": "Mensualidad de octubre",
+                     *           "monto": 4800,
+                     *           "moneda": "PEN",
+                     *           "fechaVencimiento": "2026-10-15",
+                     *           "estado": "PENDIENTE"
                      *         }
-                     *       ]
+                     *       ],
+                     *       "marca": {
+                     *         "mensajeCentral": "Cuida tu piel. Vuelve a ti.",
+                     *         "tono": [
+                     *           "Cercano",
+                     *           "Consciente",
+                     *           "Sereno"
+                     *         ]
+                     *       },
+                     *       "actividad": [
+                     *         {
+                     *           "fecha": "2026-10-06T15:00:00Z",
+                     *           "texto": "Terminamos la etapa «Sesión de contenido» de Social Media Pro",
+                     *           "tipo": "ETAPA"
+                     *         }
+                     *       ],
+                     *       "ticketsAbiertos": []
                      *     }
                      */
                     "application/json": components["schemas"]["InicioCliente"];
@@ -3594,7 +3659,8 @@ export interface operations {
                      *             "etapaActual": {
                      *               "orden": 2,
                      *               "nombre": "Procesos e implementación",
-                     *               "estado": "EN_PROGRESO"
+                     *               "estado": "EN_PROGRESO",
+                     *               "atrasada": false
                      *             },
                      *             "totalEtapas": 4,
                      *             "etapasCompletadas": 1

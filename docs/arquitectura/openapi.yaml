@@ -13,7 +13,8 @@ info:
 
     **v1.2 (12 oct 2026)**: catálogo real de servicios (`CodigoServicio`) con variantes y detalle, plantillas
     de proyecto con etapas y % de avance acumulado, y etapas por proyecto que mueve el equipo. El cliente solo
-    ve los servicios que tiene contratados.
+    ve los servicios que tiene contratados. El Inicio del cliente resume su cuenta (lo que antes era la ficha
+    del equipo): servicios con avance, responsable, carpeta de Drive, pagos, su marca (si aplica) y actividad.
 
     ## Convenciones
     - **JSON en camelCase**, fechas ISO 8601 en UTC (`2026-11-03T15:00:00Z`), periodos mensuales `AAAA-MM`.
@@ -213,7 +214,7 @@ paths:
     get:
       tags: [Clientes]
       operationId: obtenerInicioCliente
-      summary: Todo lo que pinta la pantalla de Inicio del portal en una sola llamada
+      summary: 'Inicio del cliente ("Tu cuenta"): todo lo que pinta la pantalla en una sola llamada'
       x-roles: [EQUIPO, CLIENTE]
       parameters:
         - { name: periodo, in: query, description: Por defecto el mes actual (America/Lima), schema: { $ref: '#/components/schemas/Periodo' } }
@@ -225,17 +226,29 @@ paths:
               schema: { $ref: '#/components/schemas/InicioCliente' }
               example:
                 periodo: '2026-10'
-                indicadores: { serviciosActivos: 3, porAprobar: 4, ticketsAbiertos: 2 }
+                indicadores: { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, requerimientosPendientes: 1 }
                 plan: { nombre: Plan Crecimiento, fechaFin: '2026-12-31' }
                 avanceMes: { totales: 20, aprobadas: 12, publicadas: 3, porRevisar: 4, enProduccion: 4, porcentaje: 60 }
-                pendientes:
-                  - { id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d, tipo: CARRUSEL, titulo: 'Tu ritual, tu momento', canal: INSTAGRAM, periodo: '2026-10', fechaProgramada: '2026-10-08T14:00:00Z', estado: LISTO_REVISION, miniaturaUrl: 'https://archivos.inoo.pe/firmado/ritual.png', actualizadoEn: '2026-10-05T15:30:00Z' }
+                pendientes: []
+                cuenta:
+                  nombre: Casa Oliva
+                  responsable: { id: 7f8e9d0c-1b2a-4c3d-8e4f-5a6b7c8d9e0f, nombre: Diego Castro, cargo: Equipo de agencia }
+                  driveUrl: 'https://drive.google.com/drive/folders/demo-casa-oliva'
                 servicios:
-                  - { categoria: REDES_SOCIALES, nombre: Redes sociales, cantidadMensual: 12, unidad: piezas, estado: ACTIVO }
-                  - { categoria: BLOG, nombre: Blog, cantidadMensual: 4, unidad: artículos, estado: ACTIVO }
-                proximaPublicacion: { id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d, titulo: 'Tu ritual, tu momento', fechaProgramada: '2026-10-08T14:00:00Z' }
-                ticketsAbiertos:
-                  - { id: 6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a, codigo: '#1042', asunto: Ajuste de pauta en Meta, estado: EN_PROCESO }
+                  - codigo: CRM_IMPLEMENTACION
+                    nombre: Implementación de CRM
+                    titulo: Implementación de CRM - Casa Oliva
+                    servicioContratadoId: 3c9d8e7f-6a5b-4c3d-9e2f-1a0b9c8d7e6f
+                    cantidadMensual: 0
+                    unidad: entregas
+                    estado: ACTIVO
+                    avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO, atrasada: false }, totalEtapas: 4, etapasCompletadas: 1 }
+                pagos:
+                  - { id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d, concepto: Mensualidad de octubre, monto: 4800, moneda: PEN, fechaVencimiento: '2026-10-15', estado: PENDIENTE }
+                marca: { mensajeCentral: Cuida tu piel. Vuelve a ti., tono: [Cercano, Consciente, Sereno] }
+                actividad:
+                  - { fecha: '2026-10-06T15:00:00Z', texto: 'Terminamos la etapa «Sesión de contenido» de Social Media Pro', tipo: ETAPA }
+                ticketsAbiertos: []
 
   /clientes/{clienteId}/actividad:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
@@ -606,7 +619,7 @@ paths:
                     cantidadMensual: 0
                     unidad: entregas
                     progreso: null
-                    avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO }, totalEtapas: 4, etapasCompletadas: 1 }
+                    avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO, atrasada: false }, totalEtapas: 4, etapasCompletadas: 1 }
     post:
       tags: [Servicios]
       operationId: contratarServicio
@@ -2096,12 +2109,45 @@ components:
         periodo: { $ref: '#/components/schemas/Periodo' }
         indicadores:
           type: object
-          required: [serviciosActivos, porAprobar, ticketsAbiertos]
+          required: [serviciosActivos, porAprobar, ticketsAbiertos, requerimientosPendientes]
           properties:
             serviciosActivos: { type: integer }
             porAprobar: { type: integer, description: También es el contador del menú "Entregables por revisar" }
             ticketsAbiertos: { type: integer }
             ideasPorElegir: { type: integer }
+            requerimientosPendientes: { type: integer, description: 'Lo que la agencia le pidió al cliente y aún no entrega' }
+        cuenta:
+          type: object
+          description: '"Tu cuenta": lo esencial de la ficha que ve el cliente'
+          required: [nombre]
+          properties:
+            nombre: { type: string }
+            contactoPrincipal: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+            responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable de cuenta en Inoo ("Tu equipo Inoo")' }
+            driveUrl: { type: [string, 'null'], format: uri }
+        pagos:
+          type: array
+          description: Próximos pagos y los vencidos sin pagar, por fecha (máximo 3)
+          items: { $ref: '#/components/schemas/PagoProgramado' }
+        marca:
+          description: 'Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null'
+          type: [object, 'null']
+          properties:
+            mensajeCentral: { type: [string, 'null'] }
+            campanaActual: { type: [string, 'null'] }
+            descripcion: { type: [string, 'null'] }
+            tono: { type: array, items: { type: string } }
+            publico: { type: [string, 'null'] }
+        actividad:
+          type: array
+          description: 'Actividad reciente, breve (máximo 4): aprobaciones, etapas terminadas y requerimientos'
+          items:
+            type: object
+            required: [fecha, texto, tipo]
+            properties:
+              fecha: { type: string, format: date-time }
+              texto: { type: string, examples: ['Aprobaste «Cuida tu piel. Vuelve a ti.»'] }
+              tipo: { type: string, enum: [APROBACION, ETAPA, REQUERIMIENTO, PUBLICACION] }
         plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
         avanceMes: { $ref: '#/components/schemas/ProgresoPiezas' }
         pendientes: { type: array, description: 'Piezas en LISTO_REVISION, ordenadas por fecha', items: { $ref: '#/components/schemas/PiezaResumen' } }
@@ -2136,6 +2182,17 @@ components:
               codigo: { type: string }
               asunto: { type: string }
               estado: { $ref: '#/components/schemas/EstadoTicket' }
+    PagoProgramado:
+      type: object
+      required: [id, concepto, monto, moneda, fechaVencimiento, estado]
+      properties:
+        id: { type: string, format: uuid }
+        concepto: { type: string, examples: [Mensualidad de octubre] }
+        servicioContratadoId: { type: [string, 'null'], format: uuid }
+        monto: { type: number }
+        moneda: { type: string, enum: [PEN, USD] }
+        fechaVencimiento: { type: string, format: date }
+        estado: { type: string, enum: [PENDIENTE, PAGADO, VENCIDO], description: 'VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)' }
     Miembro:
       type: object
       required: [usuarioId, nombre, email, rol]

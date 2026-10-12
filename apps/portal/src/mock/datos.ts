@@ -500,3 +500,24 @@ export const EJECUCIONES_INICIALES = [
     consumos: [{ modelo: "gpt-6.1-sol", tokensEntrada: 150_000, tokensSalida: 10_000, imagenes: 0, costoUsd: 0.4 }],
   },
 ];
+
+/** Pagos programados de Casa Oliva. Montos y fechas de relleno hasta conectar la facturación real. */
+export interface PagoDemo {
+  id: string;
+  clienteId: string;
+  servicioContratadoId: string | null;
+  concepto: string;
+  monto: number;
+  moneda: "PEN" | "USD";
+  fechaVencimiento: string;
+  estado: "PENDIENTE" | "PAGADO";
+  pagadoEn: string | null;
+}
+
+export const PAGOS_INICIALES: PagoDemo[] = [
+  { id: uid(22, 1), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de septiembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-09-15", estado: "PAGADO", pagadoEn: "2026-09-14" },
+  { id: uid(22, 2), clienteId: uid(2, 1), servicioContratadoId: uid(4, 3), concepto: "Implementación de CRM · cuota 2 de 3", monto: 3200, moneda: "PEN", fechaVencimiento: "2026-10-02", estado: "PENDIENTE", pagadoEn: null },
+  { id: uid(22, 3), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de octubre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-10-15", estado: "PENDIENTE", pagadoEn: null },
+  { id: uid(22, 4), clienteId: uid(2, 1), servicioContratadoId: uid(4, 4), concepto: "Web e-commerce · 2.º hito", monto: 6500, moneda: "PEN", fechaVencimiento: "2026-10-30", estado: "PENDIENTE", pagadoEn: null },
+  { id: uid(22, 5), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de noviembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-11-15", estado: "PENDIENTE", pagadoEn: null },
+];

@@ -24,6 +24,7 @@ services:
       - ../../database/migraciones/0003_api_key_usuario.sql:/docker-entrypoint-initdb.d/01c_api_key_usuario.sql:ro
       - ../../database/migraciones/0004_requerimientos.sql:/docker-entrypoint-initdb.d/01d_requerimientos.sql:ro
       - ../../database/migraciones/0005_catalogo_servicios.sql:/docker-entrypoint-initdb.d/01e_catalogo_servicios.sql:ro
+      - ../../database/migraciones/0006_pagos.sql:/docker-entrypoint-initdb.d/01f_pagos.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

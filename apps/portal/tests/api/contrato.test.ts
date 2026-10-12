@@ -88,10 +88,25 @@ describe("aislamiento por cliente y permisos", () => {
 describe("aprobaciones (CU-06)", () => {
   test("los números de Inicio coinciden con Figma", async () => {
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
-    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0 });
+    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 2, ideasPorElegir: 0, requerimientosPendientes: 0 });
     assert.equal(r.json.avanceMes.porcentaje, 60);
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");
+  });
+  test("Inicio = «Tu cuenta»: equipo, Drive, pagos, marca solo si aplica y actividad breve", async () => {
+    const r = (await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json;
+    assert.equal(r.cuenta.responsable.nombre, "Diego Castro");
+    assert.match(r.cuenta.driveUrl, /^https:\/\/drive\.google\.com/);
+    assert.deepEqual(r.pagos.map((x: any) => [x.concepto, x.estado]), [
+      ["Implementación de CRM · cuota 2 de 3", "VENCIDO"],
+      ["Mensualidad de octubre", "PENDIENTE"],
+      ["Web e-commerce · 2.º hito", "PENDIENTE"],
+    ]);
+    assert.equal(r.marca.mensajeCentral, "Cuida tu piel. Vuelve a ti.");
+    assert.ok(r.actividad.length <= 4 && r.actividad.every((x: any) => x.fecha <= "2026-10-06T15:00:00Z"), "breve y sin fechas futuras");
+    assert.equal(r.indicadores.requerimientosPendientes, 0);
+    // Sin servicios de marca o contenido no hay sección «Tu marca».
+    assert.equal((await llamar("GET", `/clientes/${NATIVA}/inicio`, DIEGO)).json.marca, null);
   });
   test("aprobar exige la versión que el cliente vio (409 VERSION_DESACTUALIZADA)", async () => {
     const r = await llamar("POST", `/piezas/${TU_RITUAL}/aprobar`, VALERIA, { version: 1 });

@@ -70,6 +70,7 @@ interface Estado {
   miembros: { clienteId: string; usuarioId: string; rol: D.RolCliente; invitacionPendiente?: boolean }[];
   servicios: D.ServicioContratadoDemo[];
   etapas: D.EtapaDemo[];
+  pagos: D.PagoDemo[];
   fichas: Record<string, typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null }>;
   calendarios: Record<string, { estado: S<"EstadoCalendario">; version: number; resumen: string | null; aprobadoPorId: string | null; aprobadoEn: string | null }>;
   eventosPieza: { piezaId: string; deEstado: D.Estado | null; aEstado: D.Estado; version: number | null; usuarioId: string | null; canal: S<"CanalDecision">; comentario: string | null; creadoEn: string }[];
@@ -121,6 +122,7 @@ function estadoInicial(): Estado {
     miembros: structuredClone(D.MIEMBROS),
     servicios: structuredClone(D.SERVICIOS_CONTRATADOS),
     etapas: D.etapasIniciales(),
+    pagos: structuredClone(D.PAGOS_INICIALES),
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
       [`${D.uid(2, 1)}:2026-10`]: { estado: "APROBADO_PLAN", version: 1, resumen: null, aprobadoPorId: D.uid(1, 3), aprobadoEn: "2026-09-28T15:00:00Z" },
@@ -588,7 +590,32 @@ ruta("DELETE", "/clientes/:id/referencias/:ref", (ctx, p) => {
   return null;
 });
 
-// Inicio
+// Inicio («Tu cuenta»)
+/** El perfil de marca solo tiene sentido con servicios de marca o contenido (reunión 12 oct). */
+const SERVICIOS_DE_MARCA = ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA"];
+
+const pagoVista = (x: D.PagoDemo): S<"PagoProgramado"> => ({
+  id: x.id, concepto: x.concepto, servicioContratadoId: x.servicioContratadoId, monto: x.monto, moneda: x.moneda, fechaVencimiento: x.fechaVencimiento,
+  estado: x.estado === "PENDIENTE" && x.fechaVencimiento < D.HOY.slice(0, 10) ? "VENCIDO" : x.estado,
+});
+
+/** Actividad reciente, breve: aprobaciones del cliente, publicaciones y etapas terminadas. */
+function actividadReciente(clienteId: string, limite = 4): S<"InicioCliente">["actividad"] {
+  const piezas = new Map(piezasDe(clienteId).map((x) => [x.id, x]));
+  const xs: NonNullable<S<"InicioCliente">["actividad"]> = [];
+  for (const e of E.eventosPieza) {
+    const pz = piezas.get(e.piezaId);
+    if (!pz) continue;
+    if (e.aEstado === "APROBADO_CLIENTE" && e.canal === "PORTAL") xs.push({ fecha: e.creadoEn, texto: `Aprobaste «${pz.titulo}»`, tipo: "APROBACION" });
+    if (e.aEstado === "PUBLICADO") xs.push({ fecha: e.creadoEn, texto: `Publicamos «${pz.titulo}»`, tipo: "PUBLICACION" });
+  }
+  for (const e of E.etapas.filter((x) => x.clienteId === clienteId && x.estado === "COMPLETADO" && x.fechaFin)) {
+    const sc = E.servicios.find((x) => x.id === e.servicioContratadoId)!;
+    xs.push({ fecha: `${e.fechaFin}T22:00:00Z`, texto: `Terminamos «${e.nombre}» de ${servicioDeCatalogo(sc.codigo)!.nombre}`, tipo: "ETAPA" });
+  }
+  return xs.filter((x) => x.fecha <= D.HOY).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, limite);
+}
+
 ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
   const ps = piezasDelMes(c.id);
@@ -598,8 +625,27 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
   const abiertos = E.tickets.filter((t) => !["RESUELTO", "CERRADO"].includes(t.estado));
   const r: S<"InicioCliente"> = {
     periodo: D.PERIODO,
-    indicadores: { serviciosActivos: serviciosDe(c.id).length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0 },
+    // Los requerimientos de la agencia al cliente llegan en la fase 3; hasta entonces no hay pendientes.
+    indicadores: { serviciosActivos: serviciosDe(c.id).length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0, requerimientosPendientes: 0 },
     plan: fichaDe(c.id).plan,
+    cuenta: {
+      nombre: c.nombre,
+      contactoPrincipal: persona(c.contactoPrincipalId),
+      responsable: persona(c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId),
+      driveUrl: fichaDe(c.id).driveUrl ?? null,
+    },
+    pagos: E.pagos
+      .filter((x) => x.clienteId === c.id && x.estado === "PENDIENTE")
+      .sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento))
+      .slice(0, 3)
+      .map(pagoVista),
+    marca: serviciosDe(c.id).some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
+      ? (() => {
+          const f = fichaDe(c.id);
+          return { mensajeCentral: f.marca.mensajeCentral ?? null, campanaActual: f.marca.campanaActual ?? null, descripcion: f.marca.descripcion ?? null, tono: f.tono.etiquetas ?? [], publico: f.publico.descripcion ?? null };
+        })()
+      : null,
+    actividad: actividadReciente(c.id),
     avanceMes: progreso(ps, cuotaMensual(c.id)),
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
     servicios: ordenados(serviciosDe(c.id)).map((s) => {

@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  LuArrowRight, LuChartNoAxesColumnIncreasing, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight,
+  LuArrowRight, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight,
   LuCircleCheck, LuDownload, LuEyeOff, LuEye, LuFileText, LuInfo, LuLayers, LuMail, LuMessageSquare,
-  LuSearch, LuShieldCheck, LuSparkles,
+  LuClipboardList, LuExternalLink, LuSearch, LuShieldCheck, LuSparkles, LuWallet,
 } from "react-icons/lu";
 import {
   api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarSesion, HOY_DEMO, leerSesion, ProblemaApi,
@@ -165,95 +165,183 @@ export function PantallaInicio() {
   );
 }
 
+const MONEDA: Record<string, string> = { PEN: "S/", USD: "US$" };
+const fMonto = (monto: number, moneda: string) => `${MONEDA[moneda] ?? moneda} ${monto.toLocaleString("es-PE", { minimumFractionDigits: 0 })}`;
+
+/**
+ * Inicio = «Tu cuenta» (reunión 12 oct): lo esencial de la ficha que antes solo veía el equipo.
+ * Conciso: servicios con su avance lineal, equipo Inoo, Drive, pagos, la marca (solo si aplica)
+ * y una actividad reciente breve. El detalle de cada servicio vive en su perfil de proyecto.
+ */
 function Inicio() {
   const { sesion } = usePortal();
   const { datos: d, error, recargar } = useConsulta<S<"InicioCliente">>(`/clientes/${clienteActivo()}/inicio`);
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
   const nombre = sesion?.usuario.nombre.split(" ")[0] ?? "";
-  const a = d.avanceMes;
+  const cuenta = d.cuenta;
+  const pagos = d.pagos ?? [];
+  const proximo = pagos[0];
+  const vencidos = pagos.filter((x) => x.estado === "VENCIDO").length;
+  const req = d.indicadores.requerimientosPendientes;
   return (
     <>
       <Cabecera
         antetitulo={fHoyLargo(HOY_DEMO).toUpperCase()}
         titulo={`Hola, ${nombre} 👋`}
         ligero
-        bajada={`Todo lo que estamos creando para ${sesion?.clientes[0]?.nombre ?? "Casa Oliva"}, en un solo lugar.`}
+        bajada={`Así va todo lo que hacemos para ${cuenta?.nombre ?? sesion?.clientes[0]?.nombre ?? "tu marca"}.`}
       />
-      <div className="grid-3 kpis">
-        <div className="tarjeta kpi">
+      <div className="grid-4 kpis">
+        <Enlace a="/servicios" className="tarjeta kpi">
           <div className="kpi-cab">
             Servicios activos <LuLayers size={16} />
           </div>
           <div className="kpi-valor">{d.indicadores.serviciosActivos}</div>
-          <div className="kpi-pie">Tu plan de crecimiento</div>
-        </div>
-        <Enlace a="/entregables" className="tarjeta kpi kpi--destacado">
+          <div className="kpi-pie">{d.plan?.nombre ?? "Tu plan"}</div>
+        </Enlace>
+        <Enlace a="/entregables" className={`tarjeta kpi${d.indicadores.porAprobar > 0 ? " kpi--destacado" : ""}`}>
           <div className="kpi-cab">
             Por aprobar <LuCircleCheck size={16} />
           </div>
           <div className="kpi-valor">{d.indicadores.porAprobar}</div>
-          <div className="kpi-pie">Piezas listas para ti</div>
+          <div className="kpi-pie">{d.indicadores.porAprobar === 1 ? "Entregable listo para ti" : "Entregables listos para ti"}</div>
         </Enlace>
         <div className="tarjeta kpi">
           <div className="kpi-cab">
-            Avance del mes <LuChartNoAxesColumnIncreasing size={16} />
+            Requerimientos <LuClipboardList size={16} />
           </div>
-          <div className="kpi-valor">{a.porcentaje}%</div>
-          <div className="kpi-pie">
-            {a.aprobadas} de {a.totales} piezas aprobadas
+          <div className="kpi-valor">{req}</div>
+          <div className="kpi-pie">{req === 0 ? "No te pedimos nada por ahora" : req === 1 ? "Pendiente de enviarnos" : "Pendientes de enviarnos"}</div>
+        </div>
+        <div className="tarjeta kpi">
+          <div className="kpi-cab">
+            Próximo pago <LuWallet size={16} />
+          </div>
+          <div className="kpi-valor" style={{ fontSize: proximo ? 26 : undefined }}>{proximo ? fDiaMes(proximo.fechaVencimiento) : "—"}</div>
+          <div className="kpi-pie" style={vencidos ? { color: "var(--c-alerta)" } : undefined}>
+            {vencidos ? `${vencidos} ${vencidos === 1 ? "pago vencido" : "pagos vencidos"}` : proximo ? fMonto(proximo.monto, proximo.moneda) : "Sin pagos pendientes"}
           </div>
         </div>
       </div>
 
-      <section className="seccion">
-        <div className="seccion-cab">
-          <div className="fila">
-            <h2 className="seccion-titulo">Tu siguiente paso</h2>
-            {d.pendientes.length > 0 && <Etiqueta tono="violeta">{d.pendientes.length} pendientes</Etiqueta>}
-          </div>
-          <Enlace a="/entregables" className="enlace">
-            Ver todos los entregables →
-          </Enlace>
-        </div>
-        <p className="seccion-desc">Tu aprobación nos ayuda a mantener las publicaciones del mes a tiempo.</p>
-        {d.pendientes.length === 0 ? (
-          <TodoAlDia />
-        ) : (
-          <div className="grid-3">
-            {(d.pendientes as PiezaUI[]).slice(0, 3).map((p) => (
-              <TarjetaPieza key={p.id} p={p} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <div className="grid-2 seccion">
-        <div className="tarjeta" style={{ padding: "22px 20px" }}>
-          <h3 className="tarjeta-titulo">Servicios activos</h3>
-          <p className="texto-sm texto-muted" style={{ marginTop: 14 }}>
-            {d.plan?.nombre} · Contrato hasta el {d.plan?.fechaFin ? fCorta(d.plan.fechaFin) : "—"}
-          </p>
-          <div style={{ display: "grid", gap: 18, marginTop: 16 }}>
-            {d.servicios.map((s) => (
-              <div key={s.servicioContratadoId} style={{ display: "grid", gap: 8 }}>
-                <div className="fila">
-                  <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[s.codigo]}</span>
-                  <span className="negrita" style={{ fontSize: 13 }}>{s.titulo}</span>
-                  <Etiqueta tono={s.estado === "ACTIVO" ? "verde" : "gris"}>{s.estado === "ACTIVO" ? "Activo" : s.estado === "PAUSADO" ? "En pausa" : "Finalizado"}</Etiqueta>
+      <div className="con-lateral seccion">
+        <div className="pila">
+          <section className="tarjeta" style={{ padding: "22px 20px" }}>
+            <div className="fila entre" style={{ alignItems: "flex-start" }}>
+              <div>
+                <h2 className="tarjeta-titulo">Tu cuenta</h2>
+                <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
+                  {cuenta?.nombre} · {d.plan?.nombre}
+                  {d.plan?.fechaFin ? ` · Contrato hasta el ${fCorta(d.plan.fechaFin)}` : ""}
+                </p>
+              </div>
+              <Enlace a="/servicios" className="enlace">
+                Ver mis servicios →
+              </Enlace>
+            </div>
+            <div style={{ display: "grid", gap: 18, marginTop: 20 }}>
+              {d.servicios.map((x) => (
+                <div key={x.servicioContratadoId} style={{ display: "grid", gap: 8 }}>
+                  <div className="fila">
+                    <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
+                    <span className="negrita" style={{ fontSize: 13 }}>{x.titulo}</span>
+                  </div>
+                  <AvanceLineal avance={x.avance} compacto />
                 </div>
-                <AvanceLineal avance={s.avance} compacto />
+              ))}
+            </div>
+          </section>
+
+          {d.marca && <TuMarca marca={d.marca} />}
+
+          {d.actividad && d.actividad.length > 0 && (
+            <section className="tarjeta" style={{ padding: "20px 20px 12px" }}>
+              <h2 className="tarjeta-titulo" style={{ marginBottom: 6 }}>Actividad reciente</h2>
+              <div className="lista-lineas">
+                {d.actividad.map((x) => (
+                  <div key={`${x.fecha}-${x.texto}`} className="fila entre" style={{ paddingRight: 0 }}>
+                    <span className="texto-sm">{x.texto}</span>
+                    <span className="texto-xs texto-muted" style={{ whiteSpace: "nowrap" }}>{fDiaMes(x.fecha)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        <aside className="pila">
+          {cuenta?.responsable && (
+            <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
+              <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Tu equipo Inoo</h3>
+              <div className="fila">
+                <span className="avatar">{cuenta.responsable.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
+                <span>
+                  <span className="negrita" style={{ display: "block", fontSize: 13 }}>{cuenta.responsable.nombre}</span>
+                  <span className="texto-xs texto-muted">Responsable de tu cuenta</span>
+                </span>
+              </div>
+            </div>
+          )}
+          {cuenta?.driveUrl && (
+            <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
+              <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Carpeta de Drive</h3>
+              <p className="texto-xs texto-muted">Tu material, entregables y documentos del proyecto.</p>
+              <a className="boton boton--bloque" href={cuenta.driveUrl} target="_blank" rel="noreferrer">
+                <LuExternalLink size={16} /> Abrir carpeta
+              </a>
+            </div>
+          )}
+          <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
+            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Próximos pagos</h3>
+            {pagos.length === 0 && <p className="texto-xs texto-muted">No tienes pagos pendientes.</p>}
+            {pagos.map((x) => (
+              <div key={x.id} className="fila entre" style={{ alignItems: "flex-start" }}>
+                <span>
+                  <span className="negrita" style={{ display: "block", fontSize: 12.5 }}>{x.concepto}</span>
+                  <span className="texto-xs" style={{ color: x.estado === "VENCIDO" ? "var(--c-alerta)" : "var(--c-muted)" }}>
+                    {x.estado === "VENCIDO" ? `Venció el ${fDiaMes(x.fechaVencimiento)}` : `Vence el ${fDiaMes(x.fechaVencimiento)}`}
+                  </span>
+                </span>
+                <span className="negrita" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{fMonto(x.monto, x.moneda)}</span>
               </div>
             ))}
           </div>
-          <Enlace a="/servicios" className="enlace" style={{ marginTop: 20 }}>
-            Ver mis servicios →
-          </Enlace>
-        </div>
-        <AsiVaElMes progreso={a} proxima={d.proximaPublicacion ?? null} />
+        </aside>
       </div>
-
     </>
+  );
+}
+
+/** «Tu marca»: un resumen corto que se puede abrir. Solo aparece con servicios de marca o contenido. */
+function TuMarca({ marca: m }: { marca: NonNullable<S<"InicioCliente">["marca"]> }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <section className="tarjeta" style={{ padding: "20px 20px" }}>
+      <button type="button" className="fila entre" style={{ width: "100%", background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left" }} aria-expanded={abierto} onClick={() => setAbierto((v) => !v)}>
+        <span>
+          <span className="tarjeta-titulo" style={{ display: "block" }}>Tu marca</span>
+          <span className="texto-sm" style={{ display: "block", marginTop: 8 }}>
+            {m.mensajeCentral && <strong>«{m.mensajeCentral}»</strong>}
+            {!!m.tono?.length && <span className="texto-muted"> · {m.tono.join(" · ")}</span>}
+          </span>
+        </span>
+        <LuChevronDown size={18} style={{ transform: abierto ? "rotate(180deg)" : undefined, transition: "transform .15s", flexShrink: 0 }} />
+      </button>
+      {abierto && (
+        <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+          {m.descripcion && <p className="texto-sm texto-muted" style={{ lineHeight: 1.6 }}>{m.descripcion}</p>}
+          {m.campanaActual && <p className="texto-sm">{m.campanaActual}</p>}
+          {m.publico && (
+            <p className="texto-xs texto-muted">
+              <span className="negrita">Público: </span>
+              {m.publico}
+            </p>
+          )}
+          <p className="texto-xs texto-muted">Así entendemos tu marca. Si algo no te representa, cuéntaselo a tu equipo Inoo.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
