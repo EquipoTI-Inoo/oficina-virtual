@@ -4,6 +4,7 @@ import { pruebasFlujoPiezas } from "./flujo-piezas";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasCuentas } from "./flujo-cuentas";
+import { pruebasPanel } from "./flujo-panel";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { HOY } from "../../src/mock/datos";
 
@@ -14,4 +15,5 @@ pruebasFlujoPiezas("API simulada", manejar, reiniciarMock);
 pruebasPlanificacion("API simulada", manejar, reiniciarMock, eventos);
 pruebasServicios("API simulada", manejar, reiniciarMock, eventos);
 pruebasCuentas("API simulada", manejar, reiniciarMock, eventos);
+pruebasPanel("API simulada", manejar, reiniciarMock);
 pruebasRequerimientos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));

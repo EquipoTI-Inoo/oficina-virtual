@@ -16,6 +16,7 @@ import { uid } from "../../src/mock/datos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasCuentas } from "./flujo-cuentas";
+import { pruebasPanel } from "./flujo-panel";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
@@ -66,6 +67,7 @@ const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>(
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasPanel("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 // El backend usa la fecha real de Lima para los atrasos.
 pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 
@@ -154,6 +156,16 @@ describe("solo en Postgres", () => {
     const r = await llamar("POST", "/integraciones/inoowork/sincronizacion", DIEGO, {});
     assert.equal(r.status, 501);
     assert.equal(r.json.codigo, "RUTA_NO_IMPLEMENTADA");
+  });
+
+  test("bandeja: «Ver las otras N» pagina una columna con porColumna y cursor", async () => {
+    await reiniciar();
+    const primera = (await llamar("GET", `/panel/piezas?clienteId=${CASA_OLIVA}&columna=APROBADO&porColumna=2`, DIEGO)).json.columnas;
+    assert.deepEqual(primera.map((c: any) => c.columna), ["APROBADO"]);
+    assert.equal(primera[0].piezas.length, 2);
+    assert.equal(primera[0].siguienteCursor, "2");
+    const segunda = (await llamar("GET", `/panel/piezas?clienteId=${CASA_OLIVA}&columna=APROBADO&porColumna=2&cursor=2`, DIEGO)).json.columnas[0];
+    assert.notDeepEqual(segunda.piezas.map((x: any) => x.id), primera[0].piezas.map((x: any) => x.id));
   });
 
   test("ids mal formados responden 404 (no 500)", async () => {

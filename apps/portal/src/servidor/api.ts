@@ -16,7 +16,9 @@
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
  * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
  * POST /clientes/{id}/pagos · PATCH|DELETE /pagos/{id} · POST /clientes · PATCH /clientes/{id} (n8n completa driveUrl con
- * el scope clientes:write) · POST|PATCH|DELETE /clientes/{id}/miembros(/{id}) · GET /clientes/{id}/inicio · GET /clientes/{id}/actividad.
+ * el scope clientes:write) · POST|PATCH|DELETE /clientes/{id}/miembros(/{id}) · GET /clientes/{id}/inicio · GET /clientes/{id}/actividad ·
+ * panel del equipo (GET /panel/clientes(/exportar), GET /panel/piezas, GET /panel/costos-ia, GET /panel/ejecuciones) ·
+ * POST /clientes/{id}/piezas · PATCH /piezas/{id}.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -2381,6 +2383,263 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
   return r;
 });
 
+// ───────────────────────────────────────────── panel general y bandeja de producción (equipo)
+
+const redondear = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+
+interface FilaPanelDb {
+  id: string; nombre: string; slug: string; estado: S<"EstadoCliente">; contacto: string | null; am: string | null; am_id: string | null;
+  limite: string; umbral: number; gasto: string; atrasadas: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
+}
+
+/** Una fila por cliente (sin los dados de baja): atrasos, aprobaciones, tickets y gasto de IA del mes. */
+async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelCliente"> & { amId: string | null })[]> {
+  const { rows } = await ctx.c.query<FilaPanelDb>(
+    `SELECT c.id, c.nombre, c.slug, c.estado, cp.nombre AS contacto, am.nombre AS am, am.id AS am_id,
+            c.limite_gasto_ia_usd AS limite, c.umbral_alerta_pct AS umbral,
+            coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.cliente_id = c.id
+                      AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1), 0) AS gasto,
+            (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado <> 'PUBLICADO' AND p.fecha_programada < now()) AS atrasadas,
+            (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG') AS por_aprobar,
+            (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')) AS tickets_abiertos,
+            (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')
+               AND t.primera_respuesta_en IS NULL AND t.sla_primera_respuesta_en < now()) AS tickets_fuera_sla,
+            (SELECT json_object_agg(estado, n) FROM (SELECT p.estado, count(*)::int AS n FROM pieza p
+               WHERE p.cliente_id = c.id AND p.periodo = $1 GROUP BY p.estado) x) AS piezas
+     FROM cliente c LEFT JOIN usuario cp ON cp.id = c.contacto_principal_id LEFT JOIN usuario am ON am.id = c.account_manager_id
+     WHERE c.estado <> 'BAJA' ORDER BY c.nombre`,
+    [periodo],
+  );
+  return rows.map((c) => {
+    const gasto = redondear(Number(c.gasto));
+    const limite = Number(c.limite);
+    const pct = Math.round((gasto / limite) * 100);
+    return {
+      cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: c.estado, logoUrl: null },
+      contactoPrincipalNombre: c.contacto,
+      accountManagerNombre: c.am,
+      amId: c.am_id,
+      estadoOperativo: c.atrasadas > 0 ? "ATENCION" : c.por_aprobar === 0 ? "AL_DIA" : "EN_CURSO",
+      atrasadas: c.atrasadas,
+      porAprobar: c.por_aprobar,
+      piezas: c.piezas ?? {},
+      ticketsAbiertos: c.tickets_abiertos,
+      ticketsFueraSla: c.tickets_fuera_sla,
+      gastoIa: { gastoUsd: gasto, limiteUsd: limite, pctLimite: pct, alerta: pct >= c.umbral },
+    };
+  });
+}
+
+function filtrarPanel<T extends S<"FilaPanelCliente"> & { amId: string | null }>(filas: T[], q: URLSearchParams): T[] {
+  let xs = filas;
+  const texto = q.get("q")?.toLowerCase();
+  if (texto) xs = xs.filter((f) => f.cliente.nombre.toLowerCase().includes(texto) || (f.contactoPrincipalNombre ?? "").toLowerCase().includes(texto));
+  if (q.get("estadoOperativo")) xs = xs.filter((f) => f.estadoOperativo === q.get("estadoOperativo"));
+  if (q.get("accountManagerId")) xs = xs.filter((f) => f.amId === q.get("accountManagerId"));
+  return xs;
+}
+
+ruta("GET", "/panel/clientes", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const todas = await filasPanel(ctx, periodo);
+  const gasto = redondear(todas.reduce((t, f) => t + f.gastoIa.gastoUsd, 0));
+  const limite = todas.reduce((t, f) => t + f.gastoIa.limiteUsd, 0);
+  const resumen: S<"ResumenAgencia"> = {
+    clientesActivos: todas.filter((f) => f.cliente.estado === "ACTIVO").length,
+    piezasAtrasadas: todas.reduce((t, f) => t + f.atrasadas, 0),
+    atrasadasPorCliente: todas.filter((f) => f.atrasadas).map((f) => ({ clienteNombre: f.cliente.nombre, atrasadas: f.atrasadas })),
+    aprobacionesPendientes: todas.reduce((t, f) => t + f.porAprobar, 0),
+    gastoIaUsd: gasto,
+    limiteIaUsd: limite,
+    pctLimite: limite ? Math.round((gasto / limite) * 1000) / 10 : 0,
+    clientesSobreUmbral: todas.filter((f) => f.gastoIa.alerta).map((f) => ({ clienteId: f.cliente.id, clienteNombre: f.cliente.nombre, gastoUsd: f.gastoIa.gastoUsd, limiteUsd: f.gastoIa.limiteUsd, pctLimite: f.gastoIa.pctLimite })),
+  };
+  const datos = filtrarPanel(todas, q).map(({ amId: _a, ...f }) => f);
+  return { resumen, datos, paginacion: { siguienteCursor: null, total: datos.length } };
+});
+
+/** Un campo de CSV: entre comillas si lleva coma, comillas o salto de línea. */
+const campoCsv = (v: unknown) => {
+  const t = v === null || v === undefined ? "" : String(v);
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+
+ruta("GET", "/panel/clientes/exportar", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const filas = filtrarPanel(await filasPanel(ctx, periodo), q);
+  const csv = ["cliente,contacto,estado,atrasadas,por_aprobar,tickets_abiertos,gasto_ia_usd,limite_ia_usd"]
+    .concat(filas.map((f) => [f.cliente.nombre, f.contactoPrincipalNombre, f.estadoOperativo, f.atrasadas, f.porAprobar, f.ticketsAbiertos, f.gastoIa.gastoUsd, f.gastoIa.limiteUsd].map(campoCsv).join(",")))
+    .join("\n");
+  return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="panel-${periodo}.csv"` } });
+});
+
+const COLUMNA_BANDEJA: Record<Estado, S<"ColumnaBandeja">> = {
+  BORRADOR: "BORRADOR", EN_REVISION_INTERNA: "BORRADOR", LISTO_REVISION: "EN_REVISION", APROBADO_CLIENTE: "APROBADO", CAMBIOS_SOLICITADOS: "CAMBIOS_SOLICITADOS", PUBLICADO: "PUBLICADO",
+};
+const ORDEN_BANDEJA: S<"ColumnaBandeja">[] = ["BORRADOR", "EN_REVISION", "APROBADO", "CAMBIOS_SOLICITADOS", "PUBLICADO"];
+
+ruta("GET", "/panel/piezas", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const filtros: string[] = [];
+  const params: unknown[] = [];
+  const agregar = (sql: string, v: unknown) => {
+    params.push(v);
+    filtros.push(sql.replace("?", `$${params.length}`));
+  };
+  const cliente = q.get("clienteId");
+  if (cliente) agregar("p.cliente_id = ?", esUuid(cliente) ? cliente : "00000000-0000-0000-0000-000000000000");
+  if (q.get("periodo")) agregar("p.periodo = ?", exigirPeriodo(q.get("periodo")));
+  const servicio = q.get("servicioContratadoId");
+  if (servicio) agregar("p.servicio_contratado_id = ?", esUuid(servicio) ? servicio : "00000000-0000-0000-0000-000000000000");
+  if (q.get("origen")) agregar("coalesce(lv.autor_tipo::text, 'AGENTE') = ?", q.get("origen"));
+  const { rows } = await ctx.c.query<FilaPieza & { cliente_nombre: string }>(
+    `${SELECT_PIEZA.replace("FROM pieza p", "FROM pieza p JOIN cliente cl ON cl.id = p.cliente_id").replace("SELECT p.*,", "SELECT p.*, cl.nombre AS cliente_nombre,")}
+     ${filtros.length ? `WHERE ${filtros.join(" AND ")}` : ""} ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
+    params,
+  );
+  const ahora = Date.now();
+  const atrasada = (x: FilaPieza) => x.estado !== "PUBLICADO" && !!x.fecha_programada && new Date(x.fecha_programada).getTime() < ahora;
+  const porColumna = Math.min(Math.max(Number(q.get("porColumna") ?? 10) || 10, 1), 50);
+  const soloColumna = q.get("columna");
+  const desde = Math.max(Number(q.get("cursor") ?? 0) || 0, 0);
+  const n = (...es: Estado[]) => rows.filter((x) => es.includes(x.estado)).length;
+  let alertaGastoIa: S<"BandejaProduccion">["alertaGastoIa"] = null;
+  if (cliente && esUuid(cliente)) {
+    const f = (await filasPanel(ctx, PERIODO_ACTUAL())).find((x) => x.cliente.id === cliente);
+    if (f?.gastoIa.alerta) alertaGastoIa = { clienteNombre: f.cliente.nombre, gastoUsd: f.gastoIa.gastoUsd, limiteUsd: f.gastoIa.limiteUsd, pctLimite: f.gastoIa.pctLimite };
+  }
+  const r: S<"BandejaProduccion"> = {
+    resumen: { total: rows.length, atrasadas: rows.filter(atrasada).length, aprobadas: n("APROBADO_CLIENTE", "PUBLICADO"), publicadas: n("PUBLICADO"), porRevisar: n("LISTO_REVISION"), enProduccion: n("BORRADOR", "EN_REVISION_INTERNA", "CAMBIOS_SOLICITADOS") },
+    alertaGastoIa,
+    columnas: ORDEN_BANDEJA.filter((col) => !soloColumna || col === soloColumna).map((col) => {
+      const de = rows.filter((x) => COLUMNA_BANDEJA[x.estado] === col);
+      const inicio = soloColumna ? desde : 0;
+      const pagina = de.slice(inicio, inicio + porColumna);
+      return {
+        columna: col,
+        total: de.length,
+        piezas: pagina.map((x) => ({ ...resumenPieza(ctx, x), clienteNombre: x.cliente_nombre, atrasada: atrasada(x) })),
+        siguienteCursor: inicio + porColumna < de.length ? String(inicio + porColumna) : null,
+      };
+    }),
+  };
+  return r;
+});
+
+// «Nueva pieza» desde la bandeja: la hace una persona del equipo y nace en BORRADOR con su versión 1.
+ruta("POST", "/clientes/:id/piezas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Los agentes crean piezas por /integraciones/piezas");
+  await accesoCliente(ctx, p.id);
+  const b = (await cuerpo()) as Partial<S<"PiezaEntrada">>;
+  const errores: { campo: string; mensaje: string }[] = [];
+  const tipos = (await ctx.c.query<{ t: string }>("SELECT unnest(enum_range(NULL::tipo_pieza))::text AS t")).rows.map((r) => r.t);
+  if (!b.tipo || !tipos.includes(b.tipo)) errores.push({ campo: "tipo", mensaje: "Indica el tipo de pieza" });
+  if (!b.titulo?.trim()) errores.push({ campo: "titulo", mensaje: "Escribe un título" });
+  if (b.periodo !== undefined && !PERIODO_RE.test(b.periodo)) errores.push({ campo: "periodo", mensaje: "Formato AAAA-MM" });
+  if (b.fechaProgramada && Number.isNaN(Date.parse(b.fechaProgramada))) errores.push({ campo: "fechaProgramada", mensaje: "Fecha inválida" });
+  if (b.servicioContratadoId && !(esUuid(b.servicioContratadoId) && (await ctx.c.query("SELECT 1 FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [b.servicioContratadoId, p.id])).rows.length)) {
+    errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
+  }
+  if (b.responsableId && !(esUuid(b.responsableId) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [b.responsableId])).rows.length)) {
+    errores.push({ campo: "responsableId", mensaje: "El responsable debe ser del equipo" });
+  }
+  validacion(errores);
+  const fecha = b.fechaProgramada ?? `${HOY_LIMA()}T15:00:00Z`;
+  const periodo = b.periodo ?? new Date(Date.parse(fecha) - 5 * 3_600_000).toISOString().slice(0, 7);
+  const servicioId = b.servicioContratadoId ?? (await servicioParaTipo(ctx, p.id, b.tipo!));
+  const { rows } = await ctx.c.query<{ id: string }>(
+    `INSERT INTO pieza (cliente_id, servicio_contratado_id, tipo, titulo, resumen, canal, periodo, fecha_programada, responsable_id, nota_estado)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+    [p.id, servicioId, b.tipo, b.titulo!.trim(), b.resumen?.trim() || null, b.canal ?? (b.tipo === "BLOG" ? "Blog web" : "Instagram"), periodo, fecha, b.responsableId ?? ctx.u.usuarioId, NOTA_ESTADO.BORRADOR],
+  );
+  const pieza = await buscarPieza(ctx, rows[0].id);
+  // Sin contenido todavía: una versión 1 vacía que el equipo completa desde el detalle.
+  await nuevaVersion(ctx, pieza, b.version ?? { contenido: { tipo: "COPY", copy: "" } as S<"ContenidoPieza">, enviarARevisionInterna: false }, "PERSONA");
+  return { __status: 201, ...(await piezaCompleta(ctx, await buscarPieza(ctx, pieza.id))) };
+});
+
+ruta("PATCH", "/piezas/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const pieza = await buscarPieza(ctx, p.id);
+  const b = (await cuerpo()) as { titulo?: string; fechaProgramada?: string | null; etiquetas?: string[]; aptaPaidMedia?: boolean; responsableId?: string | null };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.titulo !== undefined && !String(b.titulo).trim()) errores.push({ campo: "titulo", mensaje: "El título no puede quedar vacío" });
+  if (b.fechaProgramada && Number.isNaN(Date.parse(b.fechaProgramada))) errores.push({ campo: "fechaProgramada", mensaje: "Fecha inválida" });
+  if (b.etiquetas !== undefined && (!Array.isArray(b.etiquetas) || b.etiquetas.some((e) => typeof e !== "string"))) errores.push({ campo: "etiquetas", mensaje: "Lista de textos" });
+  if (b.responsableId && !(esUuid(b.responsableId) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [b.responsableId])).rows.length)) {
+    errores.push({ campo: "responsableId", mensaje: "El responsable debe ser del equipo" });
+  }
+  validacion(errores);
+  const cambios: [string, unknown][] = [];
+  if (b.titulo) cambios.push(["titulo", b.titulo.trim()]);
+  if (b.fechaProgramada !== undefined) cambios.push(["fecha_programada", b.fechaProgramada]);
+  if (b.etiquetas) cambios.push(["etiquetas", [...new Set(b.etiquetas.map((e) => e.trim()).filter(Boolean))]]);
+  if (b.aptaPaidMedia !== undefined) cambios.push(["apta_paid_media", !!b.aptaPaidMedia]);
+  if (b.responsableId !== undefined) cambios.push(["responsable_id", b.responsableId]);
+  if (cambios.length) {
+    await ctx.c.query(`UPDATE pieza SET ${cambios.map(([k], i) => `${k} = $${i + 2}`).join(", ")}, actualizado_en = now() WHERE id = $1`, [pieza.id, ...cambios.map(([, v]) => v)]);
+  }
+  return piezaCompleta(ctx, await buscarPieza(ctx, pieza.id));
+});
+
+// ───────────────────────────────────────────── costos de IA y ejecuciones (ADM-01, solo ADMIN)
+
+ruta("GET", "/panel/costos-ia", async (ctx, _p, q) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo con rol ADMIN");
+  exigirRol(ctx, null, ["ADMIN"]);
+  const periodo = exigirPeriodo(q.get("periodo"));
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; limite: string; modelo: string | null; entrada: string; salida: string; imagenes: string; costo: string }>(
+    `SELECT c.id, c.nombre, c.limite_gasto_ia_usd AS limite, m.modelo,
+            coalesce(sum(m.tokens_entrada), 0) AS entrada, coalesce(sum(m.tokens_salida), 0) AS salida,
+            coalesce(sum(m.imagenes), 0) AS imagenes, coalesce(sum(m.costo_usd), 0) AS costo
+     FROM cliente c LEFT JOIN consumo_modelo m ON m.cliente_id = c.id AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1
+     WHERE c.estado <> 'BAJA' GROUP BY c.id, c.nombre, c.limite_gasto_ia_usd, m.modelo`,
+    [periodo],
+  );
+  const porCliente = new Map<string, S<"ReporteCostos">["clientes"][number]>();
+  for (const r of rows) {
+    const c = porCliente.get(r.id) ?? { clienteId: r.id, nombre: r.nombre, gastoUsd: 0, limiteUsd: Number(r.limite), pctLimite: 0, porModelo: [] };
+    if (r.modelo) {
+      c.porModelo.push({ modelo: r.modelo, tokensEntrada: Number(r.entrada), tokensSalida: Number(r.salida), imagenes: Number(r.imagenes), costoUsd: redondear(Number(r.costo)) });
+      c.gastoUsd = redondear(c.gastoUsd + Number(r.costo));
+    }
+    porCliente.set(r.id, c);
+  }
+  const clientes = [...porCliente.values()].map((c) => ({ ...c, pctLimite: Math.round((c.gastoUsd / c.limiteUsd) * 1000) / 10, porModelo: c.porModelo.sort((a, b) => (b.costoUsd ?? 0) - (a.costoUsd ?? 0)) }));
+  const r: S<"ReporteCostos"> = { periodo, totalUsd: redondear(clientes.reduce((t, c) => t + c.gastoUsd, 0)), clientes: clientes.sort((a, b) => b.pctLimite - a.pctLimite || a.nombre.localeCompare(b.nombre)) };
+  return r;
+});
+
+/** Enlace a la ejecución en n8n si se configuró N8N_URL (p. ej. https://n8n.inoo.pe). */
+const urlEjecucionN8n = (workflow: string | null, ejecucion: string | null) => {
+  const base = process.env.N8N_URL?.replace(/\/$/, "");
+  return base && workflow && ejecucion ? `${base}/workflow/${workflow}/executions/${ejecucion}` : null;
+};
+
+ruta("GET", "/panel/ejecuciones", async (ctx, _p, q) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo con rol ADMIN");
+  exigirRol(ctx, null, ["ADMIN"]);
+  const limite = Math.min(Math.max(Number(q.get("limite") ?? 50) || 50, 1), 200);
+  const desde = Math.max(Number(q.get("cursor") ?? 0) || 0, 0);
+  const cliente = q.get("clienteId");
+  const { rows } = await ctx.c.query<{ id: string; cliente_id: string; cliente_nombre: string; agente: string; estado: S<"EstadoEjecucion">; pieza_id: string | null; costo: string; error: string | null; n8n_workflow_id: string | null; n8n_execution_id: string | null; iniciado_en: Date; finalizado_en: Date | null; total: number }>(
+    `SELECT e.*, c.nombre AS cliente_nombre, coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.ejecucion_id = e.id), 0) AS costo, count(*) OVER ()::int AS total
+     FROM ejecucion_agente e JOIN cliente c ON c.id = e.cliente_id
+     WHERE ($1::uuid IS NULL OR e.cliente_id = $1) AND ($2::text IS NULL OR e.agente = $2) AND ($3::text IS NULL OR e.estado::text = $3)
+     ORDER BY e.iniciado_en DESC, e.id LIMIT $4 OFFSET $5`,
+    [cliente && esUuid(cliente) ? cliente : null, q.get("agente"), q.get("estado"), limite, desde],
+  );
+  const total = rows[0]?.total ?? 0;
+  const datos = rows.map((e): S<"Ejecucion"> => ({
+    id: e.id, clienteId: e.cliente_id, clienteNombre: e.cliente_nombre, agente: e.agente, estado: e.estado, piezaId: e.pieza_id, costoUsd: redondear(Number(e.costo), 4),
+    error: e.error, n8nExecutionUrl: urlEjecucionN8n(e.n8n_workflow_id, e.n8n_execution_id), iniciadoEn: iso(e.iniciado_en)!, finalizadoEn: iso(e.finalizado_en),
+  }));
+  return { datos, paginacion: { siguienteCursor: desde + limite < total ? String(desde + limite) : null, total } };
+});
+
 // ───────────────────────────────────────────── despachador
 
 function coincide(patron: string, camino: string) {
@@ -2435,6 +2694,8 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
         if (previa) return previa;
       }
       const resultado = await encontrada.fn({ u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO" }, encontrada.params!, url.searchParams, cuerpo);
+      // Descargas (CSV): la ruta arma la respuesta completa.
+      if (resultado instanceof Response) return resultado;
       let status = 200;
       let datos = resultado;
       if (resultado && typeof resultado === "object" && !Array.isArray(resultado) && "__status" in resultado) {
