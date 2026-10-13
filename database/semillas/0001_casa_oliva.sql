@@ -192,6 +192,12 @@ VALUES
   ('00000000-0000-4000-8010-000000000002', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Ritual_diario.mp4', 'Ritual_diario.mp4', 'video/mp4', 19503513, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001'),
   ('00000000-0000-4000-8010-000000000003', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Guía_de_marca.pdf', 'Guía_de_marca.pdf', 'application/pdf', 1258291, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001');
 
+-- Biblioteca de la marca (fotos con derechos firmados): la usan Paid media y los agentes.
+INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, bytes, categoria, etiquetas, uso, estado, declara_derechos, declarado_por, declarado_en, subido_por, creado_en)
+VALUES
+  ('00000000-0000-4000-8010-000000000011', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/biblioteca/Serum_bodegon_olivo.jpg', 'Serum_bodegon_olivo.jpg', 'image/jpeg', 3145728, 'Producto', '{serum,bodegón}', 'BIBLIOTECA', 'DISPONIBLE', true, '00000000-0000-4000-8001-000000000001', '2026-09-12T15:00:00Z', '00000000-0000-4000-8001-000000000001', '2026-09-12T15:00:00Z'),
+  ('00000000-0000-4000-8010-000000000012', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/biblioteca/Ritual_manos_luz_natural.jpg', 'Ritual_manos_luz_natural.jpg', 'image/jpeg', 2831155, 'Lifestyle', '{ritual,manos}', 'BIBLIOTECA', 'DISPONIBLE', true, '00000000-0000-4000-8001-000000000001', '2026-09-12T15:05:00Z', '00000000-0000-4000-8001-000000000001', '2026-09-12T15:05:00Z');
+
 INSERT INTO referencia_cliente (id, cliente_id, tipo, titulo, url, notas, paleta, creado_por, brief_id)
 VALUES
   ('00000000-0000-4000-8011-000000000001', '00000000-0000-4000-8002-000000000001', 'COMPETIDOR', 'Natura Perú · Competidor', 'https://www.natura.com.pe', 'Solo como inspiración. No replicar contenido.', ARRAY[]::text[], '00000000-0000-4000-8001-000000000001', '00000000-0000-4000-8014-000000000001'),

@@ -68,7 +68,7 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 | n8n (perfil `fase1`) | http://localhost:5678 | se crea al primer ingreso | n8n en VPS/ECS |
 | NocoDB (perfil `fase1`) | http://localhost:8080 | se crea al primer ingreso | Panel interno Fase 1 |
 
-Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0013) y luego `database/semillas/0001_casa_oliva.sql`
+Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0014) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
 
 Para que el portal hable con Prism en vez de la API simulada: `API_MODO=proxy` en `infra/local/.env`.
@@ -113,6 +113,8 @@ moverla a `tests/api/flujo-piezas.ts` (o a una suite compartida nueva) para que 
 | `AUTH_MODO` | `demo`, `cognito` | `demo`: token `demo.<usuario_id>` (bloqueado en producción salvo `PERMITIR_AUTH_DEMO=true`). `cognito`: JWT de los dos pools, verificado con su JWKS |
 | `COGNITO_REGION`, `COGNITO_POOL_EQUIPO`, `COGNITO_POOL_CLIENTES`, `COGNITO_CLIENT_IDS` | | Pools y apps de Cognito; el `sub` se busca en `usuario.cognito_sub` |
 | `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRETO` | | Destino y secreto del despachador del outbox (`npm run outbox`) |
+| `S3_BUCKET`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | | Bucket de archivos de clientes. El navegador sube y descarga con URLs prefirmadas (15 min); sin estas variables las subidas responden `503 ALMACEN_NO_CONFIGURADO` |
+| `S3_ENDPOINT`, `S3_ENDPOINT_PUBLICO` | URL | Solo MinIO: `http://minio:9000` y la URL que ve el navegador (`http://localhost:9000`). En AWS se dejan vacías |
 
 **Despachador del outbox.** `npm run outbox` entrega a n8n los eventos pendientes, en orden y firmados
 (`X-Inoo-Firma` = HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>`), con reintentos exponenciales hasta 24 h.
@@ -122,8 +124,11 @@ Si un evento falla, los siguientes esperan. Correrlo como segundo proceso del co
 proceso (PGlite, sin Docker), con RLS activo, y prueba el despachador. En CI, el job `base-de-datos` además
 aplica las migraciones en un Postgres real.
 
-**Pendiente para producción:** migrar el resto de las rutas, URLs prefirmadas de S3 en
-`POST /clientes/{id}/archivos`, API keys de `/integraciones/*` contra la tabla `api_key` (hash + scopes)
+**Bucket S3.** Necesita CORS que permita `PUT` y `GET` desde el dominio del portal con la cabecera
+`Content-Type`, y una regla de ciclo de vida que borre los objetos de archivos marcados `ELIMINADO`
+(el portal hace borrado lógico). La llave de AWS solo necesita `s3:PutObject`, `s3:GetObject` y `s3:ListBucket` (para el `HEAD`).
+
+**Pendiente para producción:** API keys de `/integraciones/*` contra la tabla `api_key` (hash + scopes)
 y el ingreso con Cognito en `PantallaIngreso` (hoy `POST /api/v1/__pruebas/ingresar`).
 
 ## 6. Seguridad del repositorio

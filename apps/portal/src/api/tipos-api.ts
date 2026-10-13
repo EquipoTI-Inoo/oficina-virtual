@@ -2742,7 +2742,8 @@ export interface components {
         SubidaEntrada: {
             nombre: string;
             /** @enum {string} */
-            mime: "image/jpeg" | "image/png" | "video/mp4" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            mime: "image/jpeg" | "image/png" | "video/mp4" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            /** @description Máximo 10 MB para ADJUNTO_TICKET (413 ARCHIVO_DEMASIADO_GRANDE) */
             bytes: number;
             sha256?: string;
             /** @enum {string} */
@@ -2751,6 +2752,8 @@ export interface components {
             /** @enum {string} */
             categoria?: "FOTO" | "VIDEO" | "DOCUMENTO" | "LOGO" | "OTRO";
             etiquetas?: string[];
+            /** @description Obligatorio en true para BIBLIOTECA (422 DERECHOS_REQUERIDOS) */
+            declaraDerechos?: boolean;
         };
         SubidaIniciada: {
             archivo: components["schemas"]["Archivo"];

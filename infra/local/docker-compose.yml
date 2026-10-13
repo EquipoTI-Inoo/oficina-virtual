@@ -32,6 +32,7 @@ services:
       - ../../database/migraciones/0011_avisos.sql:/docker-entrypoint-initdb.d/01k_avisos.sql:ro
       - ../../database/migraciones/0012_blogs_internos.sql:/docker-entrypoint-initdb.d/01l_blogs_internos.sql:ro
       - ../../database/migraciones/0013_invitaciones.sql:/docker-entrypoint-initdb.d/01m_invitaciones.sql:ro
+      - ../../database/migraciones/0014_paid_media_por_tipo.sql:/docker-entrypoint-initdb.d/01n_paid_media_por_tipo.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

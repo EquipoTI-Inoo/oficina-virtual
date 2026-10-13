@@ -3419,13 +3419,14 @@ components:
       required: [nombre, mime, bytes, uso]
       properties:
         nombre: { type: string, maxLength: 255 }
-        mime: { type: string, enum: [image/jpeg, image/png, video/mp4, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document] }
-        bytes: { type: integer, minimum: 1, maximum: 104857600 }
+        mime: { type: string, enum: [image/jpeg, image/png, video/mp4, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet] }
+        bytes: { type: integer, minimum: 1, maximum: 104857600, description: 'Máximo 10 MB para ADJUNTO_TICKET (413 ARCHIVO_DEMASIADO_GRANDE)' }
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
         uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, REQUERIMIENTO] }
         briefPeriodo: { $ref: '#/components/schemas/Periodo' }
         categoria: { type: string, enum: [FOTO, VIDEO, DOCUMENTO, LOGO, OTRO] }
         etiquetas: { type: array, items: { type: string } }
+        declaraDerechos: { type: boolean, description: 'Obligatorio en true para BIBLIOTECA (422 DERECHOS_REQUERIDOS)' }
     SubidaIniciada:
       type: object
       required: [archivo, subida]

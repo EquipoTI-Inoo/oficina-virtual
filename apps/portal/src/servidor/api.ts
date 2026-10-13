@@ -18,7 +18,9 @@
  * POST /clientes/{id}/pagos · PATCH|DELETE /pagos/{id} · POST /clientes · PATCH /clientes/{id} (n8n completa driveUrl con
  * el scope clientes:write) · POST|PATCH|DELETE /clientes/{id}/miembros(/{id}) · GET /clientes/{id}/inicio · GET /clientes/{id}/actividad ·
  * panel del equipo (GET /panel/clientes(/exportar), GET /panel/piezas, GET /panel/costos-ia, GET /panel/ejecuciones) ·
- * POST /clientes/{id}/piezas · PATCH /piezas/{id}.
+ * POST /clientes/{id}/piezas · PATCH /piezas/{id} · archivos con URLs prefirmadas de S3 (POST|GET /clientes/{id}/archivos,
+ * POST /archivos/{id}/confirmar, PATCH|DELETE /archivos/{id}, GET /archivos/{id}/descarga, GET /piezas/{id}/descarga,
+ * GET /clientes/{id}/plan/contrato) · GET /clientes/{id}/reportes/resultados|informe · GET /clientes/{id}/biblioteca-paid.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -30,6 +32,7 @@ import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
+import { almacen } from "./almacen";
 import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
@@ -97,7 +100,7 @@ interface FilaPieza {
   responsable_nombre: string | null;
   nota_estado: string | null;
   etiquetas: string[];
-  apta_paid_media: boolean;
+  apta_paid_media: boolean | null;
   publicado_url: string | null;
   publicado_en: Date | null;
   actualizado_en: Date;
@@ -214,7 +217,7 @@ async function piezaCompleta(ctx: Ctx, p: FilaPieza): Promise<S<"Pieza">> {
     calendarioId: p.calendario_id,
     versionCliente: p.version_cliente,
     etiquetas: p.etiquetas,
-    aptaPaidMedia: p.apta_paid_media,
+    aptaPaidMedia: p.apta_paid_media ?? (p.tipo !== "BLOG" && p.tipo !== "GUION"),
     publicadoUrl: p.publicado_url,
     publicadoEn: iso(p.publicado_en),
     acciones: accionesPara(ctx, p),
@@ -2638,6 +2641,304 @@ ruta("GET", "/panel/ejecuciones", async (ctx, _p, q) => {
     error: e.error, n8nExecutionUrl: urlEjecucionN8n(e.n8n_workflow_id, e.n8n_execution_id), iniciadoEn: iso(e.iniciado_en)!, finalizadoEn: iso(e.finalizado_en),
   }));
   return { datos, paginacion: { siguienteCursor: desde + limite < total ? String(desde + limite) : null, total } };
+});
+
+// ───────────────────────────────────────────── archivos en S3 (subida en 3 pasos) y descargas
+
+const MIME_ARCHIVO = /^(image\/(jpeg|png)|video\/mp4|application\/pdf|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/;
+const USOS_SUBIDA = ["BRIEF", "ADJUNTO_TICKET", "BIBLIOTECA", "REQUERIMIENTO"];
+
+interface FilaArchivo {
+  id: string; cliente_id: string; origen: string; almacen: "S3" | "DRIVE"; s3_key: string | null; drive_file_id: string | null;
+  nombre: string; mime: string; bytes: string | null; categoria: string | null; etiquetas: string[]; uso: string; brief_id: string | null;
+  estado: string; declara_derechos: boolean; subido_por: string | null; subido_por_nombre: string | null; creado_en: Date;
+}
+const SELECT_ARCHIVO = "SELECT a.*, u.nombre AS subido_por_nombre FROM archivo a LEFT JOIN usuario u ON u.id = a.subido_por";
+
+/** URL temporal del archivo: prefirmada en S3, o el enlace de descarga de Drive. */
+function urlArchivo(a: Pick<FilaArchivo, "almacen" | "s3_key" | "drive_file_id" | "nombre">): S<"UrlFirmada"> {
+  if (a.almacen === "DRIVE") {
+    return { url: `https://drive.google.com/uc?export=download&id=${encodeURIComponent(a.drive_file_id!)}`, expiraEn: new Date(Date.now() + 900_000).toISOString(), nombreArchivo: a.nombre };
+  }
+  return { ...almacen().urlDescarga(a.s3_key!, a.nombre), nombreArchivo: a.nombre };
+}
+
+/** Miniatura de imágenes; sin almacén configurado la lista funciona igual, solo sin vista previa. */
+function miniatura(a: Pick<FilaArchivo, "almacen" | "s3_key" | "mime" | "nombre" | "estado" | "drive_file_id">): string | null {
+  if (!a.mime.startsWith("image/") || a.almacen !== "S3" || a.estado === "PENDIENTE_SUBIDA") return null;
+  try {
+    return almacen().urlDescarga(a.s3_key!, a.nombre, 3600).url;
+  } catch {
+    return null;
+  }
+}
+
+const archivoVista = (a: FilaArchivo): S<"Archivo"> => ({
+  id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes === null ? null : Number(a.bytes), miniaturaUrl: miniatura(a),
+  origen: a.origen as S<"Archivo">["origen"], categoria: a.categoria, etiquetas: a.etiquetas, uso: a.uso as S<"Archivo">["uso"],
+  estado: a.estado as S<"Archivo">["estado"], declaraDerechos: a.declara_derechos, subidoPor: persona(a.subido_por, a.subido_por_nombre), creadoEn: iso(a.creado_en)!,
+});
+
+async function buscarArchivo(ctx: Ctx, id: string): Promise<FilaArchivo> {
+  const { rows } = esUuid(id) ? await ctx.c.query<FilaArchivo>(`${SELECT_ARCHIVO} WHERE a.id = $1 AND a.estado <> 'ELIMINADO'`, [id]) : { rows: [] };
+  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese archivo");
+  await accesoCliente(ctx, rows[0].cliente_id);
+  return rows[0];
+}
+
+/** Nombre seguro para la clave en S3 (el nombre original se conserva en la base y en la descarga). */
+const nombreEnClave = (n: string) => n.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "archivo";
+
+ruta("POST", "/clientes/:id/archivos", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  const b = (await cuerpo()) as { nombre?: unknown; mime?: unknown; bytes?: unknown; uso?: unknown; briefPeriodo?: unknown; categoria?: unknown; etiquetas?: unknown; declaraDerechos?: unknown };
+  const uso = typeof b.uso === "string" ? b.uso : "BRIEF";
+  if (uso !== "ADJUNTO_TICKET") exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!USOS_SUBIDA.includes(uso)) errores.push({ campo: "uso", mensaje: "Usa BRIEF, ADJUNTO_TICKET, BIBLIOTECA o REQUERIMIENTO" });
+  if (typeof b.nombre !== "string" || !b.nombre.trim() || b.nombre.length > 255) errores.push({ campo: "nombre", mensaje: "Indica el nombre del archivo (máximo 255 caracteres)" });
+  if (typeof b.mime !== "string") errores.push({ campo: "mime", mensaje: "Indica el tipo de archivo" });
+  if (!Number.isInteger(b.bytes) || (b.bytes as number) < 1) errores.push({ campo: "bytes", mensaje: "Indica el tamaño en bytes" });
+  validacion(errores);
+  const limite = uso === "ADJUNTO_TICKET" ? 10 : 100;
+  if ((b.bytes as number) > limite * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", `El archivo supera ${limite} MB`);
+  if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", "Usa JPG, PNG, MP4, PDF, DOCX o XLSX.");
+  if (uso === "BIBLIOTECA" && b.declaraDerechos !== true) {
+    throw new ErrorApi(422, "DERECHOS_REQUERIDOS", "Declara que tienes los derechos de uso del archivo", undefined, [{ campo: "declaraDerechos", mensaje: "Obligatorio para la biblioteca" }]);
+  }
+  let briefId: string | null = null;
+  if (uso === "BRIEF") {
+    const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(typeof b.briefPeriodo === "string" ? b.briefPeriodo : PERIODO_ACTUAL(), "briefPeriodo"));
+    if (brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+    briefId = brief.id;
+  }
+  const id = crypto.randomUUID();
+  const nombre = (b.nombre as string).trim();
+  const clave = `clientes/${p.id}/${uso.toLowerCase()}/${id}/${nombreEnClave(nombre)}`;
+  const subida = almacen().urlSubida(clave, b.mime as string);
+  const etiquetas = Array.isArray(b.etiquetas) ? [...new Set(b.etiquetas.filter((e): e is string => typeof e === "string").map((e) => e.trim()).filter(Boolean))] : [];
+  const declara = uso === "BIBLIOTECA";
+  await ctx.c.query(
+    `INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, bytes, categoria, etiquetas, uso, brief_id, subido_por, declara_derechos, declarado_por, declarado_en)
+     VALUES ($1, $2, $3, 'S3', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 THEN $12::uuid END, CASE WHEN $13 THEN now() END)`,
+    [id, p.id, ctx.esEquipo ? "EQUIPO" : "CLIENTE", clave, nombre, b.mime, b.bytes, typeof b.categoria === "string" ? b.categoria : null, etiquetas, uso, briefId, ctx.u.usuarioId, declara],
+  );
+  return { __status: 201, archivo: archivoVista(await buscarArchivo(ctx, id)), subida: { metodo: "PUT", url: subida.url, headers: subida.headers, expiraEn: subida.expiraEn } };
+});
+
+ruta("POST", "/archivos/:id/confirmar", async (ctx, p) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.estado !== "PENDIENTE_SUBIDA") return archivoVista(a);
+  const bytes = await almacen().tamano(a.s3_key!);
+  if (bytes === null) throw new ErrorApi(409, "ARCHIVO_NO_SUBIDO", "Todavía no recibimos el archivo", "Vuelve a subirlo e inténtalo de nuevo.");
+  // La biblioteca ya trae la declaración de derechos; lo demás queda SUBIDO hasta que se envía (brief, requerimiento).
+  const estado = a.uso === "BIBLIOTECA" ? "DISPONIBLE" : "SUBIDO";
+  await ctx.c.query("UPDATE archivo SET estado = $2, bytes = $3 WHERE id = $1", [a.id, estado, bytes]);
+  await emitirOutbox(ctx, "archivo.subido", a.cliente_id, { archivoId: a.id, uso: a.uso, usuarioId: ctx.u.usuarioId });
+  return archivoVista(await buscarArchivo(ctx, a.id));
+});
+
+ruta("GET", "/clientes/:id/archivos", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const limite = Math.min(Math.max(Number(q.get("limite")) || 50, 1), 100);
+  const desde = Math.max(Number(q.get("cursor")) || 0, 0);
+  // La biblioteca de la marca y los archivos de briefs ya enviados (los que firmaron derechos).
+  const filtro = `a.cliente_id = $1 AND a.estado = 'DISPONIBLE' AND a.uso IN ('BIBLIOTECA', 'BRIEF')
+    AND ($2::text IS NULL OR a.categoria = $2) AND ($3::text IS NULL OR $3 = ANY (a.etiquetas))`;
+  const params = [p.id, q.get("categoria"), q.get("etiqueta")];
+  const total = Number((await ctx.c.query<{ n: string }>(`SELECT count(*) AS n FROM archivo a WHERE ${filtro}`, params)).rows[0].n);
+  const { rows } = await ctx.c.query<FilaArchivo>(`${SELECT_ARCHIVO} WHERE ${filtro} ORDER BY a.uso DESC, a.creado_en DESC, a.id LIMIT $4 OFFSET $5`, [...params, limite, desde]);
+  return { datos: rows.map(archivoVista), paginacion: { siguienteCursor: desde + rows.length < total ? String(desde + rows.length) : null, total } };
+});
+
+ruta("PATCH", "/archivos/:id", async (ctx, p, _q, cuerpo) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.uso !== "BIBLIOTECA") throw new ErrorApi(409, "ARCHIVO_DE_BRIEF", "Los archivos del brief se editan desde el brief");
+  exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = (await cuerpo()) as { nombre?: unknown; categoria?: unknown; etiquetas?: unknown };
+  if (b.nombre !== undefined && (typeof b.nombre !== "string" || !b.nombre.trim())) validacion([{ campo: "nombre", mensaje: "El nombre no puede quedar vacío" }]);
+  const cambios: [string, unknown][] = [];
+  if (typeof b.nombre === "string") cambios.push(["nombre", b.nombre.trim()]);
+  if (b.categoria !== undefined) cambios.push(["categoria", typeof b.categoria === "string" && b.categoria ? b.categoria : null]);
+  if (Array.isArray(b.etiquetas)) cambios.push(["etiquetas", [...new Set(b.etiquetas.filter((e): e is string => typeof e === "string").map((e) => e.trim()).filter(Boolean))]]);
+  if (cambios.length) {
+    await ctx.c.query(`UPDATE archivo SET ${cambios.map(([c], i) => `${c} = $${i + 2}`).join(", ")} WHERE id = $1`, [a.id, ...cambios.map(([, v]) => v)]);
+  }
+  return archivoVista(await buscarArchivo(ctx, a.id));
+});
+
+ruta("DELETE", "/archivos/:id", async (ctx, p) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.uso === "BIBLIOTECA") exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  else if (a.estado === "DISPONIBLE" || ["CONTRATO", "INFORME", "ENTREGABLE"].includes(a.uso)) {
+    throw new ErrorApi(409, "ARCHIVO_EN_USO", "Este archivo ya se envió al equipo", "Si necesitas cambiarlo, escríbele a tu equipo Inoo.");
+  } else if (a.subido_por !== ctx.u.usuarioId) exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  // Borrado lógico: el objeto en S3 lo limpia la regla de ciclo de vida del bucket.
+  await ctx.c.query("UPDATE archivo SET estado = 'ELIMINADO' WHERE id = $1", [a.id]);
+  return null;
+});
+
+ruta("GET", "/archivos/:id/descarga", async (ctx, p) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.estado === "PENDIENTE_SUBIDA") throw new ErrorApi(409, "ARCHIVO_NO_SUBIDO", "Este archivo todavía no termina de subirse");
+  return urlArchivo(a);
+});
+
+ruta("GET", "/piezas/:id/descarga", async (ctx, p, q) => {
+  const pieza = await buscarPieza(ctx, p.id);
+  // El cliente descarga lo que revisó (la versión enviada); el equipo puede pedir cualquier versión.
+  const pedida = q.get("version") && ctx.esEquipo ? Number(q.get("version")) : null;
+  const numero = pedida ?? (ctx.esEquipo ? pieza.version_actual : pieza.version_cliente);
+  const { rows } = await ctx.c.query<FilaArchivo>(
+    `SELECT a.* FROM version_pieza v JOIN archivo a ON a.id = v.archivo_id AND a.estado <> 'ELIMINADO' WHERE v.pieza_id = $1 AND v.numero = $2`,
+    [pieza.id, numero],
+  );
+  if (!rows[0]) throw new ErrorApi(404, "SIN_ARCHIVO", "Esta versión no tiene un archivo para descargar");
+  return urlArchivo(rows[0]);
+});
+
+ruta("GET", "/clientes/:id/plan/contrato", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaArchivo>(
+    "SELECT a.* FROM plan_cliente pl JOIN archivo a ON a.id = pl.contrato_archivo_id AND a.estado <> 'ELIMINADO' WHERE pl.cliente_id = $1 AND pl.vigente",
+    [p.id],
+  );
+  if (!rows[0]) throw new ErrorApi(404, "SIN_CONTRATO", "Todavía no cargamos el contrato de tu plan", "Pídeselo a tu equipo Inoo.");
+  return urlArchivo(rows[0]);
+});
+
+// ───────────────────────────────────────────── resultados (PRG-01) e informe
+
+const ETIQUETA_INDICADOR: Record<string, string> = {
+  ALCANCE: "Alcance en redes", VISITAS_SITIO: "Visitas al sitio", CONTACTOS: "Contactos recibidos", COMPRAS: "Compras registradas", CONVERSION: "Conversión a compra",
+};
+const sumarDias = (f: string, n: number) => new Date(Date.parse(`${f}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+/** Mismo tramo del mes anterior (1–6 oct → 1–6 sep). */
+function mesAnterior(f: string) {
+  const d = new Date(`${f}T00:00:00Z`);
+  const dia = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  const ultimo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(dia, ultimo));
+  return d.toISOString().slice(0, 10);
+}
+const variacion = (actual: number, antes: number) => (antes > 0 ? Math.round(((actual - antes) / antes) * 1000) / 10 : null);
+
+ruta("GET", "/clientes/:id/reportes/resultados", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const hoy = HOY_LIMA();
+  const fechaOk = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
+  const hasta = fechaOk(q.get("hasta")) ?? hoy;
+  const desde = fechaOk(q.get("desde")) ?? `${hasta.slice(0, 7)}-01`;
+  if (desde > hasta) validacion([{ campo: "desde", mensaje: "La fecha inicial va antes que la final" }]);
+  const comparativa = { desde: mesAnterior(desde), hasta: mesAnterior(hasta) };
+  const { rows } = await ctx.c.query<{ fecha: Date; canal: string; metrica: string; valor: string; es_muestra: boolean; actual: boolean }>(
+    `SELECT fecha, canal, metrica, valor, es_muestra, fecha >= $2 AS actual FROM metrica_cliente
+     WHERE cliente_id = $1 AND ((fecha BETWEEN $2 AND $3) OR (fecha BETWEEN $4 AND $5)) ORDER BY fecha`,
+    [p.id, desde, hasta, comparativa.desde, comparativa.hasta],
+  );
+  const actuales = rows.filter((r) => r.actual);
+  // Total de una métrica: la fila TOTAL si n8n la cargó; si no, la suma de los canales.
+  const total = (xs: typeof rows, metrica: string) => {
+    const m = xs.filter((r) => r.metrica === metrica);
+    const conTotal = m.filter((r) => r.canal === "TOTAL");
+    return (conTotal.length ? conTotal : m).reduce((s, r) => s + Number(r.valor), 0);
+  };
+  const tiene = (metrica: string) => actuales.some((r) => r.metrica === metrica);
+  const previas = rows.filter((r) => !r.actual);
+  const indicadores: S<"ReporteResultados">["indicadores"] = ["ALCANCE", "VISITAS_SITIO", "CONTACTOS", "COMPRAS"].filter(tiene).map((clave) => ({
+    clave: clave as "ALCANCE", etiqueta: ETIQUETA_INDICADOR[clave], valor: total(actuales, clave), unidad: null, detalle: null, variacionPct: variacion(total(actuales, clave), total(previas, clave)),
+  }));
+  if (tiene("COMPRAS") && total(actuales, "VISITAS_SITIO") > 0) {
+    const compras = total(actuales, "COMPRAS");
+    const visitas = total(actuales, "VISITAS_SITIO");
+    indicadores.push({ clave: "CONVERSION", etiqueta: ETIQUETA_INDICADOR.CONVERSION, valor: Math.round((compras / visitas) * 1000) / 10, unidad: "%", detalle: `${compras} compras / ${visitas} visitas`, variacionPct: null });
+  }
+  // Rendimiento por canal: visitas al sitio que trae cada canal, día a día.
+  const canales = [...new Set(actuales.filter((r) => r.metrica === "VISITAS_SITIO" && r.canal !== "TOTAL").map((r) => r.canal))].map((canal) => {
+    const serie = actuales.filter((r) => r.canal === canal && r.metrica === "VISITAS_SITIO");
+    const suma = serie.reduce((s, r) => s + Number(r.valor), 0);
+    const antes = previas.filter((r) => r.canal === canal && r.metrica === "VISITAS_SITIO").reduce((s, r) => s + Number(r.valor), 0);
+    return { canal, metrica: "VISITAS_SITIO" as const, total: suma, variacionPct: variacion(suma, antes), puntos: serie.map((r) => ({ fecha: fechaIso(r.fecha)!, valor: Number(r.valor) })) };
+  });
+  const periodo = desde.slice(0, 7);
+  const etapas = await ctx.c.query<{ orden: number; nombre: string; descripcion: string | null; metrica: string | null; valor: string | null; fuente: string | null }>(
+    `SELECT e.orden, e.nombre, e.descripcion, e.metrica, v.valor, v.fuente FROM journey_etapa e
+     LEFT JOIN journey_valor v ON v.etapa_id = e.id AND v.periodo = $2 WHERE e.cliente_id = $1 ORDER BY e.orden`,
+    [p.id, periodo],
+  );
+  const recorrido = etapas.rows.map((e) => {
+    const desdeMetricas = e.metrica && tiene(e.metrica);
+    return { orden: e.orden, nombre: e.nombre, descripcion: e.descripcion, valor: desdeMetricas ? total(actuales, e.metrica!) : e.valor === null ? null : Number(e.valor), fuente: (desdeMetricas ? "MANUAL" : e.fuente ?? "MANUAL") as "MANUAL", pctEtapaAnterior: null as number | null };
+  });
+  recorrido.forEach((e, i) => {
+    const previo = recorrido[i - 1]?.valor;
+    e.pctEtapaAnterior = i && previo && e.valor !== null ? Math.round((e.valor / previo) * 1000) / 10 : null;
+  });
+  const resumen = (await ctx.c.query<{ texto: string; informe_archivo_id: string | null }>(
+    "SELECT texto, informe_archivo_id FROM resumen_resultados WHERE cliente_id = $1 AND periodo = $2 AND publicado", [p.id, periodo],
+  )).rows[0];
+  const r: S<"ReporteResultados"> = {
+    periodo: { desde, hasta: sumarDias(hasta, 0) },
+    comparativa,
+    esMuestra: actuales.some((x) => x.es_muestra),
+    notas: actuales.length ? [] : ["Todavía no hay métricas cargadas para estas fechas."],
+    indicadores,
+    canales,
+    recorrido,
+    lectura: resumen?.texto ?? null,
+    informeDisponible: !!resumen?.informe_archivo_id,
+  };
+  return r;
+});
+
+ruta("GET", "/clientes/:id/reportes/informe", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo"));
+  const { rows } = await ctx.c.query<FilaArchivo>(
+    `SELECT a.* FROM resumen_resultados r JOIN archivo a ON a.id = r.informe_archivo_id AND a.estado <> 'ELIMINADO'
+     WHERE r.cliente_id = $1 AND r.periodo = $2 AND r.publicado`,
+    [p.id, periodo],
+  );
+  if (!rows[0]) throw new ErrorApi(404, "SIN_INFORME", "El informe de este mes todavía no está listo");
+  return urlArchivo(rows[0]);
+});
+
+// ───────────────────────────────────────────── biblioteca de paid media (PMD-01)
+
+ruta("GET", "/clientes/:id/biblioteca-paid", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const lista = (k: string) => q.getAll(k).flatMap((t) => t.split(",")).map((t) => t.trim()).filter(Boolean);
+  const tipos = lista("tipo");
+  const etiquetas = lista("etiquetas").map((t) => t.toLowerCase());
+  const origen = q.get("origen");
+  // Aptas por defecto: lo visual y los copies aprobados (no blogs ni guiones), salvo que el equipo diga otra cosa.
+  const piezas = await ctx.c.query<{ id: string; titulo: string; tipo: string; etiquetas: string[]; canal: string | null; aprobado_en: Date | null; almacen: "S3" | "DRIVE" | null; s3_key: string | null; drive_file_id: string | null; mime: string | null; nombre: string | null }>(
+    `SELECT p.id, p.titulo, p.tipo, p.etiquetas, p.canal,
+            (SELECT max(e.creado_en) FROM evento_pieza e WHERE e.pieza_id = p.id AND e.a_estado = 'APROBADO_CLIENTE') AS aprobado_en,
+            a.almacen, a.s3_key, a.drive_file_id, a.mime, a.nombre
+     FROM pieza p
+     LEFT JOIN version_pieza v ON v.pieza_id = p.id AND v.numero = p.version_cliente
+     LEFT JOIN archivo a ON a.id = v.archivo_id AND a.estado <> 'ELIMINADO'
+     WHERE p.cliente_id = $1 AND p.estado IN ('APROBADO_CLIENTE', 'PUBLICADO') AND coalesce(p.apta_paid_media, p.tipo NOT IN ('BLOG', 'GUION'))
+     ORDER BY aprobado_en DESC NULLS LAST, p.id`,
+    [p.id],
+  );
+  const archivos = await ctx.c.query<FilaArchivo>(`${SELECT_ARCHIVO} WHERE a.cliente_id = $1 AND a.uso = 'BIBLIOTECA' AND a.estado = 'DISPONIBLE' ORDER BY a.creado_en DESC, a.id`, [p.id]);
+  let datos: S<"ItemBiblioteca">[] = [
+    ...piezas.rows.map((x) => ({
+      origen: "PIEZA" as const, id: x.id, titulo: x.titulo, tipo: x.tipo as S<"TipoPieza">,
+      etiquetas: x.etiquetas.length ? x.etiquetas : x.canal ? [x.canal.toLowerCase()] : [],
+      miniaturaUrl: x.mime && x.almacen ? miniatura({ almacen: x.almacen, s3_key: x.s3_key, drive_file_id: x.drive_file_id, mime: x.mime, nombre: x.nombre!, estado: "DISPONIBLE" }) : null,
+      aprobadoEn: iso(x.aprobado_en),
+    })),
+    ...archivos.rows.map((a) => ({ origen: "ARCHIVO_CLIENTE" as const, id: a.id, titulo: a.nombre, tipo: null, etiquetas: a.etiquetas, miniaturaUrl: miniatura(a), aprobadoEn: null })),
+  ];
+  if (origen) datos = datos.filter((d) => d.origen === origen);
+  if (tipos.length) datos = datos.filter((d) => d.tipo && tipos.includes(d.tipo));
+  if (etiquetas.length) datos = datos.filter((d) => etiquetas.every((e) => (d.etiquetas ?? []).some((x) => x.toLowerCase() === e)));
+  return { datos, paginacion: { siguienteCursor: null, total: datos.length } };
 });
 
 // ───────────────────────────────────────────── despachador
