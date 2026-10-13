@@ -71,6 +71,19 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0015) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
 
+### Probar el backend real en local (base, archivos, correos y n8n)
+
+1. En `infra/local/.env`: `API_MODO=db`.
+2. `docker compose --profile fase1 up --build -d postgres prism portal mailpit minio minio-bucket n8n outbox`
+   (si la base ya existía de antes, `./reiniciar-base.sh` para que corran las migraciones nuevas).
+3. Portal en http://localhost:3000 con los usuarios de prueba (clave `demo1234`): `valeria@casaoliva.pe`
+   (cliente), `diego.castro@inoo.pe` (equipo). Los archivos van a MinIO y se ven en http://localhost:9001.
+4. n8n en http://localhost:5678: crear la cuenta, importar los dos JSON de `n8n/workflows/comunes`
+   y crear las credenciales «Portal Inoo · X-Api-Key» (Header Auth `X-Api-Key` = `demo-n8n`) y
+   «SMTP Inoo» (host `mailpit`, puerto `1025`, sin SSL ni usuario). Activar los workflows.
+5. Cada acción del portal (pedir cambios, abrir un ticket, invitar a alguien) sale por el despachador
+   (`outbox`) hacia n8n, y el correo aparece en Mailpit (http://localhost:8025) y en Cuenta → Correos automáticos.
+
 Para que el portal hable con Prism en vez de la API simulada: `API_MODO=proxy` en `infra/local/.env`.
 Prism responde con los ejemplos del contrato (útil para probar que la interfaz tolera respuestas válidas
 distintas a las de Figma).

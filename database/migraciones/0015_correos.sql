@@ -3,7 +3,9 @@
 -- arma destinatarios y contenido, así que las reglas y los textos viven en el repo, no en n8n.
 ALTER TABLE correo_enviado
   ADD COLUMN evento    text,
-  ADD COLUMN outbox_id bigint REFERENCES outbox_evento(id) ON DELETE SET NULL,
+  -- Sin FK a propósito: el despachador tiene la fila del evento tomada (FOR UPDATE) mientras espera a n8n,
+  -- y la verificación de una FK bloquearía el INSERT de preparar hasta que se venza el envío.
+  ADD COLUMN outbox_id bigint,
   ADD COLUMN nombre    text,
   ADD COLUMN html      text,
   ADD COLUMN texto     text,

@@ -3107,9 +3107,44 @@ async function idempotencia(c: Consultor, usuarioId: string, clave: string, hash
 
 export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}")}`);
 
+/**
+ * Ingreso de prueba con la base real (AUTH_MODO=demo): la pantalla de ingreso usa la misma ruta que con la
+ * API simulada, así se prueba el portal completo en local. Clave única CLAVE_DEMO (por defecto demo1234).
+ * Bloqueado con Cognito y en producción salvo PERMITIR_AUTH_DEMO=true, igual que los tokens demo.
+ */
+async function ingresarDemo(req: Request): Promise<Response> {
+  try {
+    if ((process.env.AUTH_MODO ?? "demo") !== "demo" || (process.env.NODE_ENV === "production" && process.env.PERMITIR_AUTH_DEMO !== "true")) {
+      throw new ErrorApi(404, "NO_ENCONTRADO", "El ingreso de prueba no está disponible");
+    }
+    let b: { email?: unknown; clave?: unknown } = {};
+    try {
+      b = (await req.json()) as typeof b;
+    } catch {
+      /* cuerpo vacío o inválido: credenciales incorrectas */
+    }
+    const email = typeof b.email === "string" ? b.email.trim() : "";
+    if (!email || b.clave !== (process.env.CLAVE_DEMO ?? "demo1234")) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+    const db = await baseDatos();
+    return await db.transaccion(async (c) => {
+      // usuario y miembro_cliente no tienen RLS (igual que en autenticar).
+      const u = (await c.query<{ id: string; tipo: string }>("SELECT id, tipo FROM usuario WHERE email = $1 AND activo AND tipo <> 'SERVICIO'", [email])).rows[0];
+      if (!u) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+      if (u.tipo === "CLIENTE") await c.query("UPDATE miembro_cliente SET invitacion_pendiente = false WHERE usuario_id = $1 AND invitacion_pendiente", [u.id]);
+      const m = (await c.query<{ cliente_id: string }>("SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1 ORDER BY creado_en LIMIT 1", [u.id])).rows[0];
+      return Response.json({ token: `demo.${u.id}`, tipo: u.tipo, clienteId: u.tipo === "CLIENTE" ? m?.cliente_id ?? null : null });
+    });
+  } catch (e) {
+    if (e instanceof ErrorApi) return problema(e);
+    console.error(e);
+    return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+  }
+}
+
 export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promise<Response> {
   const url = new URL(req.url, "http://localhost");
   const camino = url.pathname.startsWith(base) ? url.pathname.slice(base.length) || "/" : url.pathname;
+  if (req.method === "POST" && camino === "/__pruebas/ingresar") return ingresarDemo(req);
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);
   if (!encontrada) {
     return problema(new ErrorApi(501, "RUTA_NO_IMPLEMENTADA", `El backend todavía no implementa ${req.method} ${camino}`, "Usa API_MODO=mock para el resto del contrato mientras se completa el backend."));

@@ -589,3 +589,23 @@ describe("correos automáticos con n8n · solo backend real", () => {
     assert.equal((await llamar("POST", `/integraciones/correos/${uid(17, 9)}/resultado`, undefined, { estado: "ENVIADO" }, LLAVE)).status, 404);
   });
 });
+
+describe("ingreso de prueba con la base real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  test("la pantalla de ingreso funciona con API_MODO=db: token demo, tipo y cliente; clave o correo incorrectos dan 401", async () => {
+    await reiniciar();
+    const ok = await llamar("POST", "/__pruebas/ingresar", undefined, { email: "Valeria@CasaOliva.pe ", clave: "demo1234" });
+    assert.deepEqual(ok.json, { token: VALERIA, tipo: "CLIENTE", clienteId: CASA_OLIVA });
+    assert.equal((await llamar("GET", "/me", ok.json.token)).status, 200);
+    const equipo = await llamar("POST", "/__pruebas/ingresar", undefined, { email: "diego.castro@inoo.pe", clave: "demo1234" });
+    assert.deepEqual([equipo.json.tipo, equipo.json.clienteId], ["EQUIPO", null]);
+    assert.equal((await llamar("POST", "/__pruebas/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "otra" })).status, 401);
+    assert.equal((await llamar("POST", "/__pruebas/ingresar", undefined, { email: "n8n@sistema.inoo.pe", clave: "demo1234" })).status, 401, "las cuentas de servicio no ingresan");
+    process.env.AUTH_MODO = "cognito";
+    try {
+      assert.equal((await llamar("POST", "/__pruebas/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "demo1234" })).status, 404);
+    } finally {
+      delete process.env.AUTH_MODO;
+    }
+  });
+});

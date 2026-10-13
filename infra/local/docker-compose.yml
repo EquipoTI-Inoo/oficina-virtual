@@ -50,8 +50,33 @@ services:
       API_URL_BACKEND: http://prism:4010
       PERMITIR_MOCK: "true"
       MOCK_LATENCIA_MS: ${MOCK_LATENCIA_MS:-0}
+      # Backend real (API_MODO=db): ingreso de prueba y archivos en MinIO.
+      AUTH_MODO: demo
+      PERMITIR_AUTH_DEMO: "true"
+      PORTAL_URL: http://localhost:${PUERTO_PORTAL:-3000}
+      S3_BUCKET: inoo-contenido-clientes
+      S3_REGION: us-east-1
+      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT_PUBLICO: http://localhost:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_USUARIO:-inoo}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_CLAVE:-inoo-minio-123}
     ports: ["${PUERTO_PORTAL:-3000}:3000"]
-    depends_on: [prism]
+    depends_on:
+      prism: { condition: service_started }
+      postgres: { condition: service_healthy }
+
+  # Despachador del outbox: entrega los eventos del portal a n8n (perfil fase1, con API_MODO=db).
+  outbox:
+    profiles: ["fase1"]
+    build: { context: ../../apps/portal, target: build }
+    command: ["npx", "tsx", "scripts/despachar-outbox.ts"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-inoo}:${POSTGRES_PASSWORD:-inoo}@postgres:5432/${POSTGRES_DB:-oficina_virtual}
+      N8N_WEBHOOK_URL: http://n8n:5678/webhook/inoo-eventos
+      N8N_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO:-secreto-local}
+    depends_on:
+      postgres: { condition: service_healthy }
+      n8n: { condition: service_started }
 
   prism:
     image: stoplight/prism:5
@@ -99,7 +124,7 @@ services:
       N8N_SMTP_PORT: 1025
       N8N_SMTP_SSL: "false"
       # Conexión con el portal (n8n/README.md): correos por evento y atrasos diarios.
-      PORTAL_API_URL: ${PORTAL_API_URL:-http://host.docker.internal:3000}
+      PORTAL_API_URL: ${PORTAL_API_URL:-http://portal:3000}   # http://host.docker.internal:3000 si el portal corre con npm run dev
       INOO_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO:-secreto-local}
       CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
       NODE_FUNCTION_ALLOW_BUILTIN: crypto
