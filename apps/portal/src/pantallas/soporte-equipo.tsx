@@ -11,6 +11,7 @@ import {
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
+import { NuevoServicio } from "./proyecto-equipo";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
@@ -628,6 +629,7 @@ function Ficha() {
   const { params } = useNavegacion();
   const avisar = useAviso();
   const [editando, setEditando] = useState(false);
+  const [nuevoServicio, setNuevoServicio] = useState(false);
   const id = params.id ?? CLIENTE_DEMO;
   const c = useConsulta<ClienteFicha>(`/clientes/${id}`);
   const s = useConsulta<S<"ServiciosCliente">>(`/clientes/${id}/servicios`);
@@ -699,13 +701,19 @@ function Ficha() {
             </div>
           </div>
           <div className="tarjeta" style={{ padding: "22px 16px" }}>
-            <h3 className="tarjeta-titulo" style={{ marginBottom: 18 }}>Servicios y alcance</h3>
+            <div className="fila entre" style={{ marginBottom: 18 }}>
+              <h3 className="tarjeta-titulo">Servicios y alcance</h3>
+              <button className="boton boton--chico" onClick={() => setNuevoServicio(true)}>
+                <LuPlus size={14} /> Nuevo servicio
+              </button>
+            </div>
+            <NuevoServicio clienteId={id} abierto={nuevoServicio} alCerrar={() => setNuevoServicio(false)} alCrear={() => void s.recargar()} />
             <div style={{ display: "grid", gap: 16 }}>
               {s.datos.servicios.map((x) => (
                 <div key={x.servicioContratadoId} className="fila">
                   <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
                   <span style={{ flex: 1 }}>
-                    <span className="negrita" style={{ display: "block", fontSize: 11.5 }}>{x.titulo}</span>
+                    <Enlace a={`/equipo/proyectos/${x.servicioContratadoId}`} className="negrita enlace" style={{ display: "block", fontSize: 11.5 }}>{x.titulo}</Enlace>
                     <span className="texto-xs texto-muted" style={{ fontSize: 9.5 }}>
                       {[detalleServicio(x), x.avance.etapaActual ? `${x.avance.porcentaje} % · ${x.avance.etapaActual.nombre}` : `${x.avance.porcentaje} %`].filter(Boolean).join(" · ")}
                     </span>

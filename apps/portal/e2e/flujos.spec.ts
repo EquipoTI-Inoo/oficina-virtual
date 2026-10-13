@@ -158,6 +158,32 @@ test("cambio de responsable: la administradora propone a su sucesor y el equipo 
   await expect(equipo.getByText("Gabriel Villegas ya tiene acceso")).toBeVisible();
 });
 
+test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuevo", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await page.getByRole("link", { name: "Implementación de CRM - Casa Oliva", exact: true }).click({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: "Implementación de CRM - Casa Oliva" })).toBeVisible({ timeout: 20_000 });
+  await page.selectOption("[aria-label='Estado de Procesos e implementación']", "COMPLETADO");
+  await expect(page.getByText("Etapa 3 de 4 · Capacitación 1")).toBeVisible();
+  await page.getByRole("button", { name: "Registrar" }).click();
+  await page.fill("#reu-titulo", "Revisión del pipeline");
+  await page.fill("#reu-fecha", "2026-10-09T10:00");
+  await page.getByRole("button", { name: "Guardar reunión" }).click();
+  await expect(page.getByText("Revisión del pipeline")).toBeVisible();
+  await page.getByRole("button", { name: "Marcar realizada" }).first().click();
+  await page.fill("#cerrar-resumen", "Pipeline aprobado.");
+  await page.getByRole("dialog", { name: "Marcar reunión realizada" }).getByRole("button", { name: "Guardar" }).click();
+  await expect(page.locator(".kpi, .tarjeta").filter({ hasText: "Reuniones realizadas" }).first()).toContainText("4");
+  await page.getByText("← Ficha del cliente").click();
+  await page.getByRole("button", { name: "Nuevo servicio" }).click();
+  await page.selectOption("#ns-servicio", "WEB");
+  await page.selectOption("#ns-variante", "LANDING");
+  await page.fill("#ns-fechaInicio", "2026-10-19");
+  await page.getByRole("button", { name: "Contratar" }).click();
+  await expect(page.getByText("Servicio contratado")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Diseño y desarrollo web - Casa Oliva", exact: true })).toHaveCount(2);
+});
+
 test("blog (equipo): elegir otra idea", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/blog");

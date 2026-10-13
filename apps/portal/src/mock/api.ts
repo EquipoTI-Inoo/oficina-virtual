@@ -1663,7 +1663,7 @@ ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", (ctx, p) => {
 
 ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ["ADMIN"]);
+  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ServicioContratadoEntrada">>(req);
   const { cat, errores } = validarContratacion(b);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
@@ -1737,9 +1737,9 @@ function buscarServicio(ctx: Ctx, id: string) {
 const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: r.fecha, estado: r.estado, conAcuerdos: r.conAcuerdos, resumen: r.resumen });
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
-ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => {
-  const s = buscarServicio(ctx, p.id);
-  const periodo = q.get("periodo") ?? D.PERIODO;
+ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => perfilVista(ctx, buscarServicio(ctx, p.id), q.get("periodo") ?? D.PERIODO));
+
+function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<"PerfilProyecto"> {
   const cat = servicioDeCatalogo(s.codigo)!;
   const av = avanceServicio(s);
   const reuniones = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado !== "CANCELADA");
@@ -1748,6 +1748,7 @@ ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => {
   const ticketsResueltos = E.tickets.filter((t) => t.servicioContratadoId === s.id && ["RESUELTO", "CERRADO"].includes(t.estado) && t.actualizadoEn.startsWith(periodo)).length;
   const r: S<"PerfilProyecto"> = {
     ...av,
+    clienteId: s.clienteId,
     descripcion: cat.descripcion,
     modalidad: cat.modalidad,
     fechaInicio: s.fechaInicio,
@@ -1762,6 +1763,71 @@ ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => {
     porRevisar: piezasDe(s.clienteId).filter((x) => x.servicioId === s.id && x.estado === "LISTO_REVISION").sort((a, b) => a.fecha.localeCompare(b.fecha)).map((x) => resumenPieza(ctx, x)),
   };
   return r;
+}
+
+
+/** Valida una reunión nueva (`parcial` = false) o un cambio. conAcuerdos solo si quedó REALIZADA. */
+function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown; conAcuerdos?: unknown; resumen?: unknown }, parcial: boolean, estadoFinal: string) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((!parcial || b.titulo !== undefined) && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Escribe el tema de la reunión" });
+  if ((!parcial || b.fecha !== undefined) && (typeof b.fecha !== "string" || Number.isNaN(Date.parse(b.fecha)))) errores.push({ campo: "fecha", mensaje: "Indica fecha y hora" });
+  if (b.estado !== undefined && !["PROGRAMADA", "REALIZADA", "CANCELADA"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Estado inválido" });
+  if (b.conAcuerdos !== undefined && b.conAcuerdos !== null && (typeof b.conAcuerdos !== "boolean" || estadoFinal !== "REALIZADA")) errores.push({ campo: "conAcuerdos", mensaje: "Solo para reuniones realizadas" });
+  return errores;
+}
+
+ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null }>(req);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
+  if (b.detalle !== undefined && (typeof b.detalle !== "object" || b.detalle === null || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
+  if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.siguientePaso !== undefined) s.siguientePaso = b.siguientePaso?.trim() ?? "";
+  if (b.estado !== undefined) s.estado = b.estado as D.ServicioContratadoDemo["estado"];
+  if (b.marca !== undefined) s.marca = b.marca?.trim() || null;
+  if (b.detalle !== undefined) s.detalle = b.detalle;
+  if (b.fechaFin !== undefined) s.fechaFin = b.fechaFin;
+  return perfilVista(ctx, s, D.PERIODO);
+});
+
+ruta("GET", "/servicios-contratados/:id/reuniones", (ctx, p) => {
+  const s = buscarServicio(ctx, p.id);
+  return { datos: E.reuniones.filter((r) => r.servicioContratadoId === s.id).sort((a, b) => b.fecha.localeCompare(a.fecha)).map(reunionVista) };
+});
+
+ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null }>(req);
+  const estado = b.estado ?? "PROGRAMADA";
+  const errores = validarReunion(b, false, estado);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const r: D.ReunionDemo = {
+    id: nuevoId(23), servicioContratadoId: s.id, clienteId: s.clienteId, titulo: b.titulo!.trim(), fecha: new Date(b.fecha!).toISOString(), estado,
+    conAcuerdos: estado === "REALIZADA" ? b.conAcuerdos ?? null : null, resumen: b.resumen?.trim() || null,
+  };
+  E.reuniones.push(r);
+  return { __status: 201, ...reunionVista(r) };
+});
+
+ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const r = E.reuniones.find((x) => x.id === p.id);
+  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
+  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null }>(req);
+  const estado = b.estado ?? r.estado;
+  const errores = validarReunion(b, true, estado);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.titulo !== undefined) r.titulo = b.titulo.trim();
+  if (b.fecha !== undefined) r.fecha = new Date(b.fecha).toISOString();
+  r.estado = estado;
+  if (b.conAcuerdos !== undefined) r.conAcuerdos = b.conAcuerdos;
+  if (estado !== "REALIZADA") r.conAcuerdos = null;
+  if (b.resumen !== undefined) r.resumen = b.resumen?.trim() || null;
+  return reunionVista(r);
 });
 
 const comentarioProyectoVista = (ctx: Ctx, c: D.ComentarioProyectoDemo): S<"ComentarioProyecto"> => {

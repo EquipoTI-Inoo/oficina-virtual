@@ -14,6 +14,7 @@ import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, 
 import { PantallaCalendarioEquipo, PantallaCostosIa } from "./pantallas/sin-diseno";
 import { PantallaCuenta } from "./pantallas/cuenta";
 import { PantallaAvisosEquipo } from "./pantallas/avisos";
+import { PantallaProyectoEquipo } from "./pantallas/proyecto-equipo";
 import {
   PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
 } from "./pantallas/soporte-equipo";
@@ -50,6 +51,7 @@ export const RUTAS: Ruta[] = [
   { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/equipo/plan", pantalla: PantallaPlanMes, figma: null, espacio: "equipo" },
   { patron: "/equipo/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "equipo" },
+  { patron: "/equipo/proyectos/:id", pantalla: PantallaProyectoEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/avisos", pantalla: PantallaAvisosEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/costos", pantalla: PantallaCostosIa, figma: null, espacio: "equipo" },

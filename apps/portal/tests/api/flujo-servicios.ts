@@ -172,6 +172,25 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("DELETE", `/avisos/${general.json.id}`, DIEGO)).status, 204);
     });
 
+    test("el equipo gestiona el proyecto: siguiente paso, estado y reuniones que alimentan las métricas", async () => {
+      await reiniciar();
+      assert.equal((await llamar("PATCH", `/servicios-contratados/${CRM}`, VALERIA, { siguientePaso: "x" })).status, 403);
+      assert.equal((await llamar("PATCH", `/servicios-contratados/${CRM}`, DIEGO, { estado: "CERRADO" })).status, 422);
+      const p = await llamar("PATCH", `/servicios-contratados/${CRM}`, DIEGO, { siguientePaso: "confirmar la fecha de la capacitación 1.", detalle: { crm: "HubSpot", licencias: 4, usuarios: 6 } });
+      assert.deepEqual([p.json.siguientePaso.texto, p.json.detalle.licencias], ["Siguiente paso: confirmar la fecha de la capacitación 1.", 4]);
+      const ruta = `/servicios-contratados/${CRM}/reuniones`;
+      assert.equal((await llamar("POST", ruta, VALERIA, { titulo: "Revisión", fecha: "2026-10-09T15:00:00Z" })).status, 403);
+      assert.deepEqual((await llamar("POST", ruta, DIEGO, { titulo: "x", conAcuerdos: true })).json.errores.map((e: any) => e.campo).sort(), ["conAcuerdos", "fecha", "titulo"]);
+      const nueva = await llamar("POST", ruta, DIEGO, { titulo: "Revisión del pipeline", fecha: "2026-10-09T15:00:00Z" });
+      assert.deepEqual([nueva.status, nueva.json.estado, nueva.json.conAcuerdos], [201, "PROGRAMADA", null]);
+      const hecha = await llamar("PATCH", `/reuniones/${nueva.json.id}`, DIEGO, { estado: "REALIZADA", conAcuerdos: true, resumen: "Se aprobó el pipeline de 6 etapas." });
+      assert.deepEqual([hecha.json.estado, hecha.json.conAcuerdos], ["REALIZADA", true]);
+      const m = (await llamar("GET", `/servicios-contratados/${CRM}?periodo=2026-10`, VALERIA)).json.metricas;
+      assert.deepEqual(m.slice(0, 2).map((x: any) => x.valor), ["4", "3 de 4"], "la nueva reunión cuenta para el cliente");
+      assert.equal((await llamar("GET", ruta, VALERIA)).json.datos.length, 5);
+      assert.equal((await llamar("PATCH", `/reuniones/${nueva.json.id}`, DIEGO, { estado: "CANCELADA", conAcuerdos: true })).status, 422);
+    });
+
     test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
       await reiniciar();
       const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);
@@ -188,7 +207,7 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       const sinVariante = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", fechaInicio: "2026-10-12" });
       assert.deepEqual(sinVariante.json.errores.map((e: any) => e.campo), ["variante"]);
       assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "BLOG", fechaInicio: "2026-10-12" })).status, 422, "blog ya no es un servicio");
-      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-12" })).status, 403);
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, VALERIA, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-12" })).status, 403, "el cliente no contrata solo");
       const ok = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", marca: "Línea Bebé", fechaInicio: "2026-10-16" });
       assert.equal(ok.status, 201);
       assert.equal(ok.json.titulo, "Producción audiovisual - Línea Bebé");

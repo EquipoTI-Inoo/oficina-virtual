@@ -883,7 +883,7 @@ paths:
       tags: [Servicios]
       operationId: contratarServicio
       summary: Registrar un servicio contratado con sus entregables incluidos
-      x-roles: [ADMIN]
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
       requestBody:
         required: true
         content:
@@ -932,6 +932,90 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PerfilProyecto' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Servicios]
+      operationId: actualizarServicioContratado
+      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca o detalle (CRM, licencias, usuarios)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                siguientePaso: { type: [string, 'null'], description: 'Lo que ve el cliente como «Siguiente paso»' }
+                estado: { $ref: '#/components/schemas/EstadoServicio' }
+                marca: { type: [string, 'null'] }
+                detalle: { $ref: '#/components/schemas/DetalleServicio' }
+                fechaFin: { type: [string, 'null'], format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PerfilProyecto' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/reuniones:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarReuniones
+      summary: Todas las reuniones del proyecto (las más recientes primero)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Reunion' } }
+    post:
+      tags: [Servicios]
+      operationId: registrarReunion
+      summary: 'El equipo programa una reunión o registra una ya realizada (alimenta las métricas del perfil)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReunionEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reunion' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /reuniones/{reunionId}:
+    parameters:
+      - { name: reunionId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Servicios]
+      operationId: actualizarReunion
+      summary: 'Marcar realizada (con o sin acuerdos y su resumen), reprogramar o cancelar'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReunionEntrada' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reunion' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /servicios-contratados/{servicioContratadoId}/comentarios:
     parameters:
@@ -2871,13 +2955,23 @@ components:
         estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
         conAcuerdos: { type: [boolean, 'null'], description: 'REALIZADA: si terminó con acuerdos (cuenta como exitosa)' }
         resumen: { type: [string, 'null'], description: 'Lo que se acordó; lo ve el cliente' }
+    ReunionEntrada:
+      type: object
+      description: 'Al crear: titulo y fecha obligatorios. conAcuerdos solo con estado REALIZADA.'
+      properties:
+        titulo: { type: string, minLength: 3 }
+        fecha: { type: string, format: date-time }
+        estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
+        conAcuerdos: { type: [boolean, 'null'] }
+        resumen: { type: [string, 'null'] }
     PerfilProyecto:
       description: 'Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión'
       allOf:
         - $ref: '#/components/schemas/AvanceServicio'
         - type: object
-          required: [modalidad, metricas, reuniones, porRevisar]
+          required: [clienteId, modalidad, metricas, reuniones, porRevisar]
           properties:
+            clienteId: { type: string, format: uuid }
             descripcion: { type: [string, 'null'] }
             modalidad: { $ref: '#/components/schemas/ModalidadServicio' }
             fechaInicio: { type: [string, 'null'], format: date }

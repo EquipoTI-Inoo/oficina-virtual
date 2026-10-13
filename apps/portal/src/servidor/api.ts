@@ -13,7 +13,8 @@
  * requerimientos de la agencia al cliente
  * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
- * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id}.
+ * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
+ * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id}.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -1400,7 +1401,7 @@ ruta("GET", "/servicios-contratados/:id/avance", async (ctx, p) => avanceServici
 
 ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["ADMIN"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as Partial<S<"ServicioContratadoEntrada">>;
   const { cat, errores } = validarContratacion(b);
   if (errores.length) validacion(errores);
@@ -1443,9 +1444,9 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
 });
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
-ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => {
-  const s = await buscarServicio(ctx, p.id);
-  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => perfilVista(ctx, await buscarServicio(ctx, p.id), exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL())));
+
+async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<S<"PerfilProyecto">> {
   const av = await avanceServicio(ctx, s, periodo);
   const reuniones = (await ctx.c.query<{ id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null }>(
     "SELECT * FROM reunion WHERE servicio_contratado_id = $1 AND estado <> 'CANCELADA' ORDER BY fecha", [s.id],
@@ -1462,6 +1463,7 @@ ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => {
   const vista = (r: (typeof reuniones)[number]): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen });
   const r: S<"PerfilProyecto"> = {
     ...av,
+    clienteId: s.cliente_id,
     descripcion: s.descripcion,
     modalidad: s.modalidad,
     fechaInicio: fechaIso(s.fecha_inicio),
@@ -1476,6 +1478,78 @@ ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => {
     porRevisar: piezas.map((x) => resumenPieza(ctx, x)),
   };
   return r;
+}
+
+
+/** Valida una reunión nueva (`parcial` = false) o un cambio. conAcuerdos solo si quedó REALIZADA. */
+function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown; conAcuerdos?: unknown; resumen?: unknown }, parcial: boolean, estadoFinal: string) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((!parcial || b.titulo !== undefined) && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Escribe el tema de la reunión" });
+  if ((!parcial || b.fecha !== undefined) && (typeof b.fecha !== "string" || Number.isNaN(Date.parse(b.fecha)))) errores.push({ campo: "fecha", mensaje: "Indica fecha y hora" });
+  if (b.estado !== undefined && !["PROGRAMADA", "REALIZADA", "CANCELADA"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Estado inválido" });
+  if (b.conAcuerdos !== undefined && b.conAcuerdos !== null && (typeof b.conAcuerdos !== "boolean" || estadoFinal !== "REALIZADA")) errores.push({ campo: "conAcuerdos", mensaje: "Solo para reuniones realizadas" });
+  return errores;
+}
+
+interface FilaReunion { id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null }
+const reunionVistaDb = (r: FilaReunion): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen });
+
+ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: unknown; fechaFin?: string | null };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
+  if (b.detalle !== undefined && (typeof b.detalle !== "object" || b.detalle === null || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
+  if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
+  validacion(errores);
+  const cambios: [string, unknown][] = [];
+  if (b.siguientePaso !== undefined) cambios.push(["siguiente_paso", b.siguientePaso?.trim() || null]);
+  if (b.estado !== undefined) cambios.push(["estado", b.estado]);
+  if (b.marca !== undefined) cambios.push(["marca", b.marca?.trim() || null]);
+  if (b.detalle !== undefined) cambios.push(["detalle", JSON.stringify(b.detalle)]);
+  if (b.fechaFin !== undefined) cambios.push(["fecha_fin", b.fechaFin]);
+  if (cambios.length) {
+    await ctx.c.query(`UPDATE servicio_contratado SET ${cambios.map(([k], i) => `${k} = $${i + 2}${k === "estado" ? "::estado_servicio" : k === "detalle" ? "::jsonb" : ""}`).join(", ")} WHERE id = $1`, [s.id, ...cambios.map(([, v]) => v)]);
+  }
+  return perfilVista(ctx, await buscarServicio(ctx, s.id), PERIODO_ACTUAL());
+});
+
+ruta("GET", "/servicios-contratados/:id/reuniones", async (ctx, p) => {
+  const s = await buscarServicio(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaReunion>("SELECT * FROM reunion WHERE servicio_contratado_id = $1 ORDER BY fecha DESC", [s.id]);
+  return { datos: rows.map(reunionVistaDb) };
+});
+
+ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null };
+  const estado = b.estado ?? "PROGRAMADA";
+  validacion(validarReunion(b, false, estado));
+  const { rows } = await ctx.c.query<FilaReunion>(
+    `INSERT INTO reunion (servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen, creado_por)
+     VALUES ($1, $2, $3, $4, $5::estado_reunion, $6, $7, $8) RETURNING *`,
+    [s.id, s.cliente_id, b.titulo!.trim(), b.fecha, estado, estado === "REALIZADA" ? b.conAcuerdos ?? null : null, b.resumen?.trim() || null, ctx.u.usuarioId],
+  );
+  return { __status: 201, ...reunionVistaDb(rows[0]) };
+});
+
+ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
+  const r = (await ctx.c.query<FilaReunion>("SELECT * FROM reunion WHERE id = $1 FOR UPDATE", [p.id])).rows[0];
+  if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
+  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null };
+  const estado = b.estado ?? r.estado;
+  validacion(validarReunion(b, true, estado));
+  const acuerdos = estado !== "REALIZADA" ? null : b.conAcuerdos !== undefined ? b.conAcuerdos : r.con_acuerdos;
+  const { rows } = await ctx.c.query<FilaReunion>(
+    `UPDATE reunion SET titulo = coalesce($2, titulo), fecha = coalesce($3::timestamptz, fecha), estado = $4::estado_reunion, con_acuerdos = $5,
+            resumen = CASE WHEN $6::boolean THEN $7 ELSE resumen END WHERE id = $1 RETURNING *`,
+    [r.id, b.titulo?.trim() ?? null, b.fecha ?? null, estado, acuerdos, b.resumen !== undefined, b.resumen?.trim() || null],
+  );
+  return reunionVistaDb(rows[0]);
 });
 
 interface FilaComentarioProyecto {

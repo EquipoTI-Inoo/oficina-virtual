@@ -66,9 +66,9 @@ describe("clientes y servicios", () => {
     await llamar("PATCH", `/clientes/${nuevo.id}`, undefined, { driveUrl: "https://drive.google.com/drive/folders/abc" }, N8N);
     assert.equal((await llamar("GET", `/clientes/${nuevo.id}`, DIEGO)).json.driveUrl, "https://drive.google.com/drive/folders/abc");
   });
-  test("contratar servicio: solo ADMIN, sin duplicados, y aparece en Mis servicios", async () => {
+  test("contratar servicio: el equipo de cuenta, sin duplicados, y aparece en Mis servicios", async () => {
     const cuerpo = { servicioCodigo: "PAID_MEDIA", fechaInicio: "2026-11-01", entregables: [{ tipoPieza: "ANUNCIO", cantidadMensual: 6 }] };
-    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, cuerpo)).status, 403);
+    assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, VALERIA, cuerpo)).status, 403);
     const ok = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, cuerpo);
     assert.equal(ok.status, 201);
     assert.equal(ok.json.cantidadMensual, 6);

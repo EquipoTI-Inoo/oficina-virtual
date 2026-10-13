@@ -616,7 +616,47 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** El equipo actualiza el proyecto: siguiente paso, estado, marca o detalle (CRM, licencias, usuarios) */
+        patch: operations["actualizarServicioContratado"];
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/reuniones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Todas las reuniones del proyecto (las más recientes primero) */
+        get: operations["listarReuniones"];
+        put?: never;
+        /** El equipo programa una reunión o registra una ya realizada (alimenta las métricas del perfil) */
+        post: operations["registrarReunion"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/reuniones/{reunionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reunionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Marcar realizada (con o sin acuerdos y su resumen), reprogramar o cancelar */
+        patch: operations["actualizarReunion"];
         trace?: never;
     };
     "/servicios-contratados/{servicioContratadoId}/comentarios": {
@@ -2235,8 +2275,20 @@ export interface components {
             /** @description Lo que se acordó; lo ve el cliente */
             resumen?: string | null;
         };
+        /** @description Al crear: titulo y fecha obligatorios. conAcuerdos solo con estado REALIZADA. */
+        ReunionEntrada: {
+            titulo?: string;
+            /** Format: date-time */
+            fecha?: string;
+            /** @enum {string} */
+            estado?: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
+            conAcuerdos?: boolean | null;
+            resumen?: string | null;
+        };
         /** @description Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión */
         PerfilProyecto: components["schemas"]["AvanceServicio"] & {
+            /** Format: uuid */
+            clienteId: string;
             descripcion?: string | null;
             modalidad: components["schemas"]["ModalidadServicio"];
             /** Format: date */
@@ -4452,6 +4504,121 @@ export interface operations {
                 };
             };
             404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizarServicioContratado: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Lo que ve el cliente como «Siguiente paso» */
+                    siguientePaso?: string | null;
+                    estado?: components["schemas"]["EstadoServicio"];
+                    marca?: string | null;
+                    detalle?: components["schemas"]["DetalleServicio"];
+                    /** Format: date */
+                    fechaFin?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PerfilProyecto"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarReuniones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Reunion"][];
+                    };
+                };
+            };
+        };
+    };
+    registrarReunion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReunionEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reunion"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    actualizarReunion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reunionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReunionEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Reunion"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     listarComentariosProyecto: {
