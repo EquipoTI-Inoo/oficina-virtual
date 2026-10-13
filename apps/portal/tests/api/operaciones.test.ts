@@ -41,6 +41,19 @@ const eventos = async () => (await llamar("GET", "/__pruebas/eventos")).json.dat
 beforeEach(() => reiniciarMock());
 
 describe("clientes y servicios", () => {
+  test("alta de cliente con su responsable: se crea su acceso al portal y el aniversario", async () => {
+    const malo = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", contacto: { nombre: "Ana", email: "ana" } });
+    assert.deepEqual(malo.json.errores.map((e: any) => e.campo), ["contacto.email"]);
+    const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", fechaAniversario: "2025-03-14", contacto: { nombre: "Ana Quispe", email: "ana@hidraulicasur.pe", cargo: "Gerente" } });
+    assert.equal(ok.status, 201);
+    assert.deepEqual([ok.json.contactoPrincipal.nombre, ok.json.fechaAniversario], ["Ana Quispe", "2025-03-14"]);
+    const miembros = (await llamar("GET", `/clientes/${ok.json.id}/miembros`, DIEGO)).json.datos;
+    assert.deepEqual(miembros.map((m: any) => [m.email, m.rol, m.invitacionPendiente]), [["ana@hidraulicasur.pe", "ADMIN_CLIENTE", true]]);
+    const correos = (await llamar("GET", `/clientes/${ok.json.id}/correos-automaticos`, DIEGO)).json.recientes;
+    assert.ok(correos.some((c: any) => c.para === "ana@hidraulicasur.pe"));
+    const cambio = await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { fechaAniversario: "2025-03-15" });
+    assert.equal(cambio.json.fechaAniversario, "2025-03-15");
+  });
   test("alta de cliente (CU-01): solo AM/ADMIN, valida y emite cliente.creado", async () => {
     assert.equal((await llamar("POST", "/clientes", VALERIA, { nombre: "Nueva" })).status, 403);
     const mal = await llamar("POST", "/clientes", DIEGO, { nombre: " ", limiteGastoIaUsd: 0 });

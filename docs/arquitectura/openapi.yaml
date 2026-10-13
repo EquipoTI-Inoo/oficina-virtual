@@ -2474,6 +2474,14 @@ components:
         canales: { type: array, items: { type: string, enum: [INSTAGRAM, FACEBOOK, LINKEDIN, TIKTOK, YOUTUBE, BLOG, WEB] } }
         wordpressUrl: { type: [string, 'null'], format: uri }
         fechaAniversario: { type: [string, 'null'], format: date, description: 'Desde cuándo trabajamos juntos (día del aniversario)' }
+        contacto:
+          type: object
+          description: 'Solo al crear: crea el acceso al portal de su responsable como ADMIN_CLIENTE (invitación por correo) y lo deja como contacto principal'
+          required: [nombre, email]
+          properties:
+            nombre: { type: string, minLength: 3 }
+            email: { type: string, format: email }
+            cargo: { type: string }
         accountManagerId: { type: string, format: uuid }
         limiteGastoIaUsd: { type: number, minimum: 0, description: Solo ADMIN }
         estado: { $ref: '#/components/schemas/EstadoCliente' }
@@ -2498,6 +2506,7 @@ components:
             pilaresContenido: { type: array, items: { type: string } }
             canales: { type: array, items: { type: string } }
             wordpressUrl: { type: [string, 'null'] }
+            fechaAniversario: { type: [string, 'null'], format: date }
             plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
             contactoPrincipal: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
             accountManager:

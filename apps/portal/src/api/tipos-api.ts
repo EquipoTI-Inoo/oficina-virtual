@@ -1717,6 +1717,13 @@ export interface components {
              * @description Desde cuándo trabajamos juntos (día del aniversario)
              */
             fechaAniversario?: string | null;
+            /** @description Solo al crear: crea el acceso al portal de su responsable como ADMIN_CLIENTE (invitación por correo) y lo deja como contacto principal */
+            contacto?: {
+                nombre: string;
+                /** Format: email */
+                email: string;
+                cargo?: string;
+            };
             /** Format: uuid */
             accountManagerId?: string;
             /** @description Solo ADMIN */
@@ -1740,6 +1747,8 @@ export interface components {
             pilaresContenido?: string[];
             canales?: string[];
             wordpressUrl?: string | null;
+            /** Format: date */
+            fechaAniversario?: string | null;
             plan?: components["schemas"]["PlanCliente"] | null;
             contactoPrincipal?: components["schemas"]["PersonaMini"] | null;
             /** @description "Tu equipo de contacto" en el portal y "Responsable de cuenta" en la ficha */

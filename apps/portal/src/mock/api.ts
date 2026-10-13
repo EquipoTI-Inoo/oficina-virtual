@@ -555,6 +555,7 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
     pilaresContenido: f.publico.intereses,
     canales: f.canales,
     wordpressUrl: f.wordpressUrl ?? null,
+    fechaAniversario: c.fechaAniversario ?? null,
     plan: f.plan,
     contactoPrincipal: persona(c.contactoPrincipalId),
     accountManager: persona(c.accountManagerId ?? E.usuarios[2].id),
@@ -1428,6 +1429,7 @@ function validarClienteEntrada(b: S<"ClienteEntrada">, alta: boolean) {
   if (b.limiteGastoIaUsd !== undefined && !(b.limiteGastoIaUsd > 0)) errores.push({ campo: "limiteGastoIaUsd", mensaje: "El límite de IA debe ser mayor a 0" });
   if (b.wordpressUrl && !/^https?:\/\//.test(b.wordpressUrl)) errores.push({ campo: "wordpressUrl", mensaje: "El enlace debe empezar con https://" });
   if (b.contactoPrincipalId && !E.usuarios.some((u) => u.id === b.contactoPrincipalId)) errores.push({ campo: "contactoPrincipalId", mensaje: "Ese usuario no existe" });
+  if (b.fechaAniversario && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaAniversario)) errores.push({ campo: "fechaAniversario", mensaje: "Usa el formato AAAA-MM-DD" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
 }
 
@@ -1440,13 +1442,27 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   validarClienteEntrada(b, true);
   const slug = slugDe(b.nombre!);
   if (E.clientes.some((c) => c.slug === slug)) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
+  // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
+  const k = b.contacto;
+  if (k) {
+    const errores = validarSucesor({ nombre: k.nombre, email: k.email, telefono: "000000" });
+    if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores.map((e) => ({ ...e, campo: `contacto.${e.campo}` })));
+    if (E.usuarios.some((u) => u.email.toLowerCase() === k.email.trim().toLowerCase() && u.tipo === "EQUIPO")) throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
+  }
+  let contacto = k ? E.usuarios.find((u) => u.email.toLowerCase() === k.email.trim().toLowerCase()) : undefined;
+  if (k && !contacto) {
+    const n = k.nombre.trim();
+    contacto = { id: nuevoId(1), nombre: n, email: k.email.trim().toLowerCase(), cargo: k.cargo?.trim() || null, iniciales: n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, claveDemo: "" };
+    E.usuarios.push(contacto);
+  }
   const c: D.ClienteDemo = {
     id: nuevoId(2),
     nombre: b.nombre!.trim(),
     slug,
     iniciales: b.nombre!.trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
-    contactoPrincipalId: b.contactoPrincipalId ?? null,
-    contactoNombre: persona(b.contactoPrincipalId ?? null)?.nombre ?? "Sin contacto",
+    contactoPrincipalId: contacto?.id ?? b.contactoPrincipalId ?? null,
+    contactoNombre: contacto?.nombre ?? persona(b.contactoPrincipalId ?? null)?.nombre ?? "Sin contacto",
+    fechaAniversario: b.fechaAniversario ?? null,
     limiteGastoIaUsd: b.limiteGastoIaUsd ?? 25,
     gastoIaUsd: 0,
     resumenFijo: undefined,
@@ -1465,7 +1481,11 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     plan: { id: nuevoId(3), nombre: "Sin plan", fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: "", tieneContrato: false },
     wordpressUrl: b.wordpressUrl ?? null,
   } as Ficha;
-  emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId });
+  if (contacto) {
+    E.miembros.push({ clienteId: c.id, usuarioId: contacto.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
+    registrarCorreo(contacto.email, `Te damos la bienvenida al portal de ${c.nombre}`, "miembro.invitado");
+  }
+  emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId, contactoId: contacto?.id ?? null });
   return { __status: 201, ...clienteVista(ctx, c) };
 });
 
@@ -1489,6 +1509,7 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
   if (b.pilaresContenido) f.publico.intereses = b.pilaresContenido;
   if (b.canales) f.canales = b.canales.map((k) => k.charAt(0) + k.slice(1).toLowerCase());
   if (b.wordpressUrl !== undefined) f.wordpressUrl = b.wordpressUrl;
+  if (b.fechaAniversario !== undefined) c.fechaAniversario = b.fechaAniversario;
   // driveUrl lo escribe n8n después de crear las carpetas (no es parte de ClienteEntrada para personas).
   if (ctx.esServicio && b.driveUrl) f.driveUrl = b.driveUrl;
   return clienteVista(ctx, c);

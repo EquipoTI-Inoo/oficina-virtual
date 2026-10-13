@@ -445,6 +445,7 @@ ruta("GET", "/clientes/:id", async (ctx, p) => {
     pilaresContenido: c.pilares_contenido,
     canales: c.canales,
     wordpressUrl: c.wordpress_url,
+    fechaAniversario: c.fecha_aniversario instanceof Date ? c.fecha_aniversario.toISOString().slice(0, 10) : c.fecha_aniversario ?? null,
     plan: c.plan_id ? { id: c.plan_id, nombre: c.plan_nombre, fechaInicio: fecha(c.fecha_inicio)!, fechaFin: fecha(c.fecha_fin), tieneContrato: !!c.contrato_archivo_id } : null,
     contactoPrincipal: c.contacto_principal_id ? { id: c.contacto_principal_id, nombre: c.cp_nombre, cargo: c.cp_cargo, email: c.cp_email } : null,
     accountManager: c.account_manager_id ? { id: c.account_manager_id, nombre: c.am_nombre, cargo: c.am_cargo, email: c.am_email } : null,

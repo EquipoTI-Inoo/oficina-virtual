@@ -456,13 +456,23 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const [nombre, setNombre] = useState("");
   const [limite, setLimite] = useState("25");
   const [canales, setCanales] = useState<string[]>(["INSTAGRAM"]);
+  const [contacto, setContacto] = useState({ nombre: "", email: "", cargo: "" });
+  const [aniversario, setAniversario] = useState("");
   const [err, setErr] = useState<Record<string, string>>({});
   const crear = async (e: FormEvent) => {
     e.preventDefault();
     setErr({});
     try {
-      const c = await api<S<"Cliente">>("/clientes", { metodo: "POST", cuerpo: { nombre, limiteGastoIaUsd: Number(limite), canales }, idempotente: true });
+      const c = await api<S<"Cliente">>("/clientes", {
+        metodo: "POST",
+        cuerpo: {
+          nombre, limiteGastoIaUsd: Number(limite), canales, fechaAniversario: aniversario || undefined,
+          contacto: contacto.nombre || contacto.email ? { nombre: contacto.nombre, email: contacto.email, cargo: contacto.cargo || undefined } : undefined,
+        },
+        idempotente: true,
+      });
       setNombre("");
+      setContacto({ nombre: "", email: "", cargo: "" });
       alCrear(c.id);
     } catch (x) {
       const p = x as ProblemaApi;
@@ -473,13 +483,34 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo cliente">
       <form onSubmit={crear} noValidate style={{ display: "grid", gap: 14 }}>
         <h2 style={{ fontSize: 20, fontWeight: 600 }}>Nuevo cliente</h2>
-        <p className="texto-xs texto-muted">Al crearlo, n8n prepara su carpeta en Drive y lo deja listo para recibir briefs (CU-01).</p>
+        <p className="texto-xs texto-muted">Al crearlo, n8n prepara su carpeta en Drive. Si indicas su responsable, le enviamos el acceso al portal. Luego contrata sus servicios desde la ficha.</p>
         <div className="campo">
           <label htmlFor="nc-nombre">Nombre de la marca</label>
           <div className="entrada">
             <input id="nc-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} aria-invalid={!!err.nombre} />
           </div>
           <Ayuda error={err.nombre} />
+        </div>
+        <div className="campo">
+          <label htmlFor="nc-contacto-nombre">Responsable del cliente</label>
+          <div className="entrada">
+            <input id="nc-contacto-nombre" placeholder="Nombre" value={contacto.nombre} onChange={(e) => setContacto({ ...contacto, nombre: e.target.value })} aria-invalid={!!err["contacto.nombre"]} />
+          </div>
+          <Ayuda error={err["contacto.nombre"]} />
+          <div className="entrada">
+            <input id="nc-contacto-email" type="email" placeholder="Correo (recibe el acceso al portal)" value={contacto.email} onChange={(e) => setContacto({ ...contacto, email: e.target.value })} aria-invalid={!!err["contacto.email"]} />
+          </div>
+          <Ayuda error={err["contacto.email"]} />
+          <div className="entrada">
+            <input id="nc-contacto-cargo" placeholder="Cargo (opcional)" value={contacto.cargo} onChange={(e) => setContacto({ ...contacto, cargo: e.target.value })} />
+          </div>
+        </div>
+        <div className="campo">
+          <label htmlFor="nc-aniversario">Empezamos a trabajar juntos el (opcional)</label>
+          <div className="entrada">
+            <input id="nc-aniversario" type="date" value={aniversario} onChange={(e) => setAniversario(e.target.value)} />
+          </div>
+          <Ayuda texto="Cada año, ese día el portal le saluda por el aniversario." />
         </div>
         <div className="campo">
           <label htmlFor="nc-limite">Límite mensual de IA (US$)</label>
@@ -514,6 +545,7 @@ export function EditarFicha({ cliente, abierto, alCerrar, alGuardar }: { cliente
   const [tono, setTono] = useState((cliente.tono?.etiquetas ?? []).join(", "));
   const [tonoDesc, setTonoDesc] = useState(cliente.tono?.descripcion ?? "");
   const [limite, setLimite] = useState(String(cliente.limiteGastoIaUsd ?? ""));
+  const [aniversario, setAniversario] = useState(cliente.fechaAniversario ?? "");
   const [err, setErr] = useState<Record<string, string>>({});
   const guardar = async (e: FormEvent) => {
     e.preventDefault();
@@ -525,6 +557,7 @@ export function EditarFicha({ cliente, abierto, alCerrar, alGuardar }: { cliente
           marca: { mensajeCentral: mensaje, campanaActual: campana },
           tono: { etiquetas: tono.split(",").map((t) => t.trim()).filter(Boolean), descripcion: tonoDesc },
           ...(limite ? { limiteGastoIaUsd: Number(limite) } : {}),
+          fechaAniversario: aniversario || null,
         },
       });
       alGuardar();
@@ -567,6 +600,13 @@ export function EditarFicha({ cliente, abierto, alCerrar, alGuardar }: { cliente
             <input id="ef-limite" type="number" min={1} value={limite} onChange={(e) => setLimite(e.target.value)} aria-invalid={!!err.limiteGastoIaUsd} />
           </div>
           <Ayuda error={err.limiteGastoIaUsd} />
+        </div>
+        <div className="campo">
+          <label htmlFor="ef-aniversario">Aniversario (empezamos a trabajar juntos)</label>
+          <div className="entrada">
+            <input id="ef-aniversario" type="date" value={aniversario} onChange={(e) => setAniversario(e.target.value)} />
+          </div>
+          <Ayuda error={err.fechaAniversario} />
         </div>
         <Ayuda error={err.general} />
         <button className="boton boton--primario">Guardar cambios</button>
