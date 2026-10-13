@@ -425,3 +425,104 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
     </Modal>
   );
 }
+
+// ═════════════════════════════════════════════ Ficha: pagos del cliente (el cliente los ve en Mi cuenta)
+
+const SIMBOLO: Record<string, string> = { PEN: "S/", USD: "US$" };
+
+export function PagosDelCliente({ clienteId }: { clienteId: string }) {
+  const avisar = useAviso();
+  const lista = useConsulta<{ pendientes: S<"PagoProgramado">[]; pagados: S<"PagoProgramado">[] }>(`/clientes/${clienteId}/pagos`);
+  const [abierto, setAbierto] = useState(false);
+  const [f, setF] = useState({ concepto: "", monto: "", moneda: "PEN", fechaVencimiento: "" });
+  const [errores, setErrores] = useState<Record<string, string>>({});
+  const accion = async (camino: string, metodo: string, cuerpo?: unknown) => {
+    try {
+      await api(camino, { metodo, cuerpo });
+      void lista.recargar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo guardar el pago", texto: errorDe(e) });
+    }
+  };
+  const crear = async () => {
+    setErrores({});
+    try {
+      await api(`/clientes/${clienteId}/pagos`, { metodo: "POST", cuerpo: { concepto: f.concepto, monto: f.monto ? Number(f.monto) : undefined, moneda: f.moneda, fechaVencimiento: f.fechaVencimiento || undefined } });
+      setF({ concepto: "", monto: "", moneda: "PEN", fechaVencimiento: "" });
+      setAbierto(false);
+      void lista.recargar();
+    } catch (e) {
+      setErrores(Object.fromEntries((e as ProblemaApi).errores.map((x) => [x.campo, x.mensaje])));
+    }
+  };
+  const fila = (x: S<"PagoProgramado">) => (
+    <div key={x.id} className="fila-suave" style={{ padding: "10px 12px" }}>
+      <span style={{ display: "grid", gap: 2 }}>
+        <span className="negrita texto-sm">{x.concepto}</span>
+        <span className="texto-xs" style={{ color: x.estado === "VENCIDO" ? "var(--c-alerta)" : "var(--c-muted)" }}>
+          {x.estado === "PAGADO" && x.pagadoEn ? `Pagado el ${fCorta(x.pagadoEn)}` : `${x.estado === "VENCIDO" ? "Venció" : "Vence"} el ${fCorta(x.fechaVencimiento)}`}
+        </span>
+      </span>
+      <span className="fila" style={{ gap: 10 }}>
+        <span className="negrita texto-sm">
+          {SIMBOLO[x.moneda] ?? x.moneda} {x.monto.toLocaleString("es-PE")}
+        </span>
+        {x.estado !== "PAGADO" && (
+          <button className="boton boton--chico" onClick={() => void accion(`/pagos/${x.id}`, "PATCH", { estado: "PAGADO" })}>
+            Marcar pagado
+          </button>
+        )}
+      </span>
+    </div>
+  );
+  return (
+    <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 12 }}>
+      <div className="fila entre">
+        <h3 className="tarjeta-titulo">Pagos</h3>
+        <button className="boton boton--chico" onClick={() => setAbierto(true)}>
+          <LuPlus size={14} /> Nuevo pago
+        </button>
+      </div>
+      {!lista.datos ? (
+        <Cargando />
+      ) : (
+        <>
+          {lista.datos.pendientes.length === 0 && <p className="texto-xs texto-muted">Sin pagos pendientes.</p>}
+          <div className="lista-suave">{lista.datos.pendientes.map(fila)}</div>
+          {lista.datos.pagados.length > 0 && (
+            <>
+              <span className="texto-xs texto-muted negrita">Pagados</span>
+              <div className="lista-suave">{lista.datos.pagados.slice(0, 3).map(fila)}</div>
+            </>
+          )}
+        </>
+      )}
+      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Nuevo pago">
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nuevo pago</h2>
+        {(["concepto", "monto", "fechaVencimiento"] as const).map((k) => (
+          <div className="campo" key={k}>
+            <label htmlFor={`pago-${k}`}>{k === "concepto" ? "Concepto" : k === "monto" ? "Monto" : "Vence el"}</label>
+            <div className="entrada">
+              <input id={`pago-${k}`} type={k === "monto" ? "number" : k === "fechaVencimiento" ? "date" : "text"} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+            </div>
+            {errores[k] && (
+              <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
+                {errores[k]}
+              </span>
+            )}
+          </div>
+        ))}
+        <div className="campo">
+          <label htmlFor="pago-moneda">Moneda</label>
+          <select id="pago-moneda" className="input" value={f.moneda} onChange={(e) => setF({ ...f, moneda: e.target.value })}>
+            <option value="PEN">Soles (S/)</option>
+            <option value="USD">Dólares (US$)</option>
+          </select>
+        </div>
+        <button className="boton boton--primario boton--bloque" onClick={() => void crear()}>
+          Guardar pago
+        </button>
+      </Modal>
+    </div>
+  );
+}

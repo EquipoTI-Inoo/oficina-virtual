@@ -280,6 +280,53 @@ paths:
                   pagados: { type: array, description: Los más recientes primero, items: { $ref: '#/components/schemas/PagoProgramado' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Clientes]
+      operationId: registrarPago
+      summary: 'El equipo programa un pago del cliente (cuota del plan o de un servicio)'
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagoEntrada' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagoProgramado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /pagos/{pagoId}:
+    parameters:
+      - { name: pagoId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Clientes]
+      operationId: actualizarPago
+      summary: 'Marcar pagado (estado PAGADO, por defecto hoy) o corregir concepto, monto o vencimiento'
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagoEntrada' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagoProgramado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Clientes]
+      operationId: eliminarPago
+      summary: Quitar un pago programado por error
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      responses:
+        '204': { description: Eliminado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /avisos:
     get:
@@ -2622,6 +2669,17 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: string, format: date }
         visibleDesde: { type: string, format: date }
+    PagoEntrada:
+      type: object
+      description: 'Al crear: concepto, monto y fechaVencimiento obligatorios'
+      properties:
+        concepto: { type: string, minLength: 3 }
+        monto: { type: number, exclusiveMinimum: 0 }
+        moneda: { type: string, enum: [PEN, USD], default: PEN }
+        fechaVencimiento: { type: string, format: date }
+        servicioContratadoId: { type: [string, 'null'], format: uuid }
+        estado: { type: string, enum: [PENDIENTE, PAGADO] }
+        pagadoEn: { type: [string, 'null'], format: date }
     PagoProgramado:
       type: object
       required: [id, concepto, monto, moneda, fechaVencimiento, estado]

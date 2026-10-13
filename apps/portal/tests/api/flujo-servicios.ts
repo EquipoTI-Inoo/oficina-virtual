@@ -191,6 +191,22 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("PATCH", `/reuniones/${nueva.json.id}`, DIEGO, { estado: "CANCELADA", conAcuerdos: true })).status, 422);
     });
 
+    test("el equipo registra pagos y los marca pagados; el cliente los ve en Mi cuenta", async () => {
+      await reiniciar();
+      const ruta = `/clientes/${CASA_OLIVA}/pagos`;
+      assert.equal((await llamar("POST", ruta, VALERIA, { concepto: "x", monto: 1, fechaVencimiento: "2026-12-15" })).status, 403);
+      assert.deepEqual((await llamar("POST", ruta, DIEGO, { concepto: "x", monto: 0 })).json.errores.map((e: any) => e.campo).sort(), ["concepto", "fechaVencimiento", "monto"]);
+      const nuevo = await llamar("POST", ruta, DIEGO, { concepto: "Mensualidad de diciembre", monto: 4800, fechaVencimiento: "2026-12-15" });
+      assert.deepEqual([nuevo.status, nuevo.json.estado, nuevo.json.moneda], [201, "PENDIENTE", "PEN"]);
+      const pagado = await llamar("PATCH", `/pagos/${uid(22, 2)}`, DIEGO, { estado: "PAGADO", pagadoEn: "2026-10-05" });
+      assert.deepEqual([pagado.json.estado, pagado.json.pagadoEn], ["PAGADO", "2026-10-05"]);
+      const cliente = (await llamar("GET", ruta, VALERIA)).json;
+      assert.ok(cliente.pendientes.some((x: any) => x.concepto === "Mensualidad de diciembre"));
+      assert.ok(cliente.pagados.some((x: any) => x.id === uid(22, 2)));
+      assert.equal((await llamar("DELETE", `/pagos/${nuevo.json.id}`, VALERIA)).status, 403);
+      assert.equal((await llamar("DELETE", `/pagos/${nuevo.json.id}`, DIEGO)).status, 204);
+    });
+
     test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
       await reiniciar();
       const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);

@@ -146,11 +146,32 @@ export interface paths {
          */
         get: operations["listarPagosCliente"];
         put?: never;
-        post?: never;
+        /** El equipo programa un pago del cliente (cuota del plan o de un servicio) */
+        post: operations["registrarPago"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/pagos/{pagoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pagoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quitar un pago programado por error */
+        delete: operations["eliminarPago"];
+        options?: never;
+        head?: never;
+        /** Marcar pagado (estado PAGADO, por defecto hoy) o corregir concepto, monto o vencimiento */
+        patch: operations["actualizarPago"];
         trace?: never;
     };
     "/avisos": {
@@ -1867,6 +1888,24 @@ export interface components {
             /** Format: date */
             visibleDesde?: string;
         };
+        /** @description Al crear: concepto, monto y fechaVencimiento obligatorios */
+        PagoEntrada: {
+            concepto?: string;
+            monto?: number;
+            /**
+             * @default PEN
+             * @enum {string}
+             */
+            moneda: "PEN" | "USD";
+            /** Format: date */
+            fechaVencimiento?: string;
+            /** Format: uuid */
+            servicioContratadoId?: string | null;
+            /** @enum {string} */
+            estado?: "PENDIENTE" | "PAGADO";
+            /** Format: date */
+            pagadoEn?: string | null;
+        };
         PagoProgramado: {
             /** Format: uuid */
             id: string;
@@ -3578,6 +3617,82 @@ export interface operations {
             };
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
+        };
+    };
+    registrarPago: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PagoEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagoProgramado"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarPago: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pagoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizarPago: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pagoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PagoEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagoProgramado"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     listarAvisos: {

@@ -53,7 +53,7 @@ aprobadas de las pruebas visuales.
 | `/soporte` | 07-soporte | Fuera del menú (reunión 12 oct); solo se llega desde «Contactar a mi equipo» |
 | `/soporte/nuevo` | 09-crear-ticket | |
 | `/equipo/panel` | 14-panel-general | |
-| `/equipo/clientes/{id}` | 15-ficha-de-cliente | |
+| `/equipo/clientes/{id}` | 15-ficha-de-cliente | Más secciones sin diseño: servicios con «Nuevo servicio», cambio de responsable pendiente, requerimientos al cliente y pagos (registrar y marcar pagado) |
 | `/equipo/produccion` | 16-bandeja-de-produccion | |
 | `/muestras` | 10-muestras-de-estados | Hoja de estados para QA de diseño |
 | `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel; botón «Nuevo cliente» (modal) |

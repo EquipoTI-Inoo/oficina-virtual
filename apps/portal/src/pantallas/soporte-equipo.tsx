@@ -11,7 +11,7 @@ import {
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
-import { NuevoServicio } from "./proyecto-equipo";
+import { NuevoServicio, PagosDelCliente } from "./proyecto-equipo";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
@@ -725,6 +725,7 @@ function Ficha() {
           </div>
           <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
+          <PagosDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>

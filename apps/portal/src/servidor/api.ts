@@ -14,7 +14,8 @@
  * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
- * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id}.
+ * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
+ * POST /clientes/{id}/pagos · PATCH|DELETE /pagos/{id}.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -1602,6 +1603,75 @@ ruta("POST", "/servicios-contratados/:id/comentarios", async (ctx, p, _q, cuerpo
   await emitirOutbox(ctx, "comentario_proyecto.creado", s.cliente_id, { servicioContratadoId: s.id, comentarioId: id, interno, usuarioId: ctx.u.usuarioId });
   const c = (await ctx.c.query<FilaComentarioProyecto>(`${SELECT_COMENTARIO_PROYECTO} WHERE c.id = $1`, [id])).rows[0];
   return { __status: 201, ...comentarioProyectoVista(ctx, c) };
+});
+
+
+/** Pago nuevo (`parcial` = false) o cambio: concepto, monto > 0, moneda y fecha de vencimiento. */
+function validarPago(b: { concepto?: unknown; monto?: unknown; moneda?: unknown; fechaVencimiento?: unknown; estado?: unknown; pagadoEn?: unknown }, parcial: boolean) {
+  const fecha = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((!parcial || b.concepto !== undefined) && (typeof b.concepto !== "string" || b.concepto.trim().length < 3)) errores.push({ campo: "concepto", mensaje: "Escribe el concepto" });
+  if ((!parcial || b.monto !== undefined) && !(typeof b.monto === "number" && b.monto > 0)) errores.push({ campo: "monto", mensaje: "El monto debe ser mayor a 0" });
+  if (b.moneda !== undefined && !["PEN", "USD"].includes(b.moneda as string)) errores.push({ campo: "moneda", mensaje: "Usa PEN o USD" });
+  if ((!parcial || b.fechaVencimiento !== undefined) && !fecha(b.fechaVencimiento)) errores.push({ campo: "fechaVencimiento", mensaje: "Indica la fecha (AAAA-MM-DD)" });
+  if (b.estado !== undefined && !["PENDIENTE", "PAGADO"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Usa PENDIENTE o PAGADO" });
+  if (b.pagadoEn != null && !fecha(b.pagadoEn)) errores.push({ campo: "pagadoEn", mensaje: "Usa el formato AAAA-MM-DD" });
+  return errores;
+}
+
+interface FilaPago { id: string; cliente_id: string; concepto: string; servicio_contratado_id: string | null; monto: string; moneda: "PEN" | "USD"; fecha_vencimiento: Date; estado: "PENDIENTE" | "PAGADO"; pagado_en: Date | null }
+const pagoVistaDb = (x: FilaPago): S<"PagoProgramado"> => {
+  const vence = fechaIso(x.fecha_vencimiento)!;
+  return {
+    id: x.id, concepto: x.concepto, servicioContratadoId: x.servicio_contratado_id, monto: Number(x.monto), moneda: x.moneda, fechaVencimiento: vence,
+    estado: x.estado === "PENDIENTE" && vence < HOY_LIMA() ? "VENCIDO" : x.estado, pagadoEn: fechaIso(x.pagado_en),
+  };
+};
+
+ruta("POST", "/clientes/:id/pagos", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { concepto?: string; monto?: number; moneda?: string; fechaVencimiento?: string; servicioContratadoId?: string | null };
+  const errores = validarPago(b, false);
+  if (b.servicioContratadoId && !(esUuid(b.servicioContratadoId) && (await ctx.c.query("SELECT 1 FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [b.servicioContratadoId, p.id])).rows.length)) {
+    errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
+  }
+  validacion(errores);
+  const { rows } = await ctx.c.query<FilaPago>(
+    `INSERT INTO pago_programado (cliente_id, servicio_contratado_id, concepto, monto, moneda, fecha_vencimiento, creado_por)
+     VALUES ($1, $2, $3, $4, $5::moneda, $6, $7) RETURNING *`,
+    [p.id, b.servicioContratadoId ?? null, b.concepto!.trim(), b.monto, b.moneda ?? "PEN", b.fechaVencimiento, ctx.u.usuarioId],
+  );
+  return { __status: 201, ...pagoVistaDb(rows[0]) };
+});
+
+async function buscarPago(ctx: Ctx, id: string): Promise<FilaPago> {
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
+  const x = (await ctx.c.query<FilaPago>("SELECT * FROM pago_programado WHERE id = $1", [id])).rows[0];
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
+  await accesoCliente(ctx, x.cliente_id);
+  exigirRol(ctx, x.cliente_id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  return x;
+}
+
+ruta("PATCH", "/pagos/:id", async (ctx, p, _q, cuerpo) => {
+  const x = await buscarPago(ctx, p.id);
+  const b = (await cuerpo()) as { concepto?: string; monto?: number; moneda?: string; fechaVencimiento?: string; estado?: string; pagadoEn?: string | null };
+  validacion(validarPago(b, true));
+  const estado = b.estado ?? x.estado;
+  const pagado = estado === "PAGADO" ? (b.estado ? b.pagadoEn ?? HOY_LIMA() : fechaIso(x.pagado_en)) : null;
+  const { rows } = await ctx.c.query<FilaPago>(
+    `UPDATE pago_programado SET concepto = coalesce($2, concepto), monto = coalesce($3, monto), moneda = coalesce($4::moneda, moneda),
+            fecha_vencimiento = coalesce($5::date, fecha_vencimiento), estado = $6::estado_pago, pagado_en = $7::date WHERE id = $1 RETURNING *`,
+    [x.id, b.concepto?.trim() ?? null, b.monto ?? null, b.moneda ?? null, b.fechaVencimiento ?? null, estado, pagado],
+  );
+  return pagoVistaDb(rows[0]);
+});
+
+ruta("DELETE", "/pagos/:id", async (ctx, p) => {
+  const x = await buscarPago(ctx, p.id);
+  await ctx.c.query("DELETE FROM pago_programado WHERE id = $1", [x.id]);
+  return null;
 });
 
 // «Mi cuenta → Pagos»: solo quien administra la cuenta y el equipo. VENCIDO se calcula al leer.

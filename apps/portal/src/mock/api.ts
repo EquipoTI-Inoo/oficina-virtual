@@ -636,6 +636,60 @@ function avisoPago(clienteId: string): S<"InicioCliente">["avisoPago"] {
   return { concepto: x.concepto, fechaVencimiento: x.fechaVencimiento, estado: x.fechaVencimiento < hoy ? "VENCIDO" : "POR_VENCER", vencidos };
 }
 
+
+/** Pago nuevo (`parcial` = false) o cambio: concepto, monto > 0, moneda y fecha de vencimiento. */
+function validarPago(b: { concepto?: unknown; monto?: unknown; moneda?: unknown; fechaVencimiento?: unknown; estado?: unknown; pagadoEn?: unknown }, parcial: boolean) {
+  const fecha = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if ((!parcial || b.concepto !== undefined) && (typeof b.concepto !== "string" || b.concepto.trim().length < 3)) errores.push({ campo: "concepto", mensaje: "Escribe el concepto" });
+  if ((!parcial || b.monto !== undefined) && !(typeof b.monto === "number" && b.monto > 0)) errores.push({ campo: "monto", mensaje: "El monto debe ser mayor a 0" });
+  if (b.moneda !== undefined && !["PEN", "USD"].includes(b.moneda as string)) errores.push({ campo: "moneda", mensaje: "Usa PEN o USD" });
+  if ((!parcial || b.fechaVencimiento !== undefined) && !fecha(b.fechaVencimiento)) errores.push({ campo: "fechaVencimiento", mensaje: "Indica la fecha (AAAA-MM-DD)" });
+  if (b.estado !== undefined && !["PENDIENTE", "PAGADO"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Usa PENDIENTE o PAGADO" });
+  if (b.pagadoEn != null && !fecha(b.pagadoEn)) errores.push({ campo: "pagadoEn", mensaje: "Usa el formato AAAA-MM-DD" });
+  return errores;
+}
+
+ruta("POST", "/clientes/:id/pagos", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = await cuerpo<{ concepto?: string; monto?: number; moneda?: "PEN" | "USD"; fechaVencimiento?: string; servicioContratadoId?: string | null }>(req);
+  const errores = validarPago(b, false);
+  if (b.servicioContratadoId && !E.servicios.some((x) => x.id === b.servicioContratadoId && x.clienteId === c.id)) errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const x: D.PagoDemo = { id: nuevoId(22), clienteId: c.id, servicioContratadoId: b.servicioContratadoId ?? null, concepto: b.concepto!.trim(), monto: b.monto!, moneda: b.moneda ?? "PEN", fechaVencimiento: b.fechaVencimiento!, estado: "PENDIENTE", pagadoEn: null };
+  E.pagos.push(x);
+  return { __status: 201, ...pagoVista(x) };
+});
+
+ruta("PATCH", "/pagos/:id", async (ctx, p, _q, req) => {
+  const x = E.pagos.find((y) => y.id === p.id);
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
+  accesoCliente(ctx, x.clienteId);
+  exigirRol(ctx, x.clienteId, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = await cuerpo<{ concepto?: string; monto?: number; moneda?: "PEN" | "USD"; fechaVencimiento?: string; estado?: "PENDIENTE" | "PAGADO"; pagadoEn?: string | null }>(req);
+  const errores = validarPago(b, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.concepto !== undefined) x.concepto = b.concepto.trim();
+  if (b.monto !== undefined) x.monto = b.monto;
+  if (b.moneda !== undefined) x.moneda = b.moneda;
+  if (b.fechaVencimiento !== undefined) x.fechaVencimiento = b.fechaVencimiento;
+  if (b.estado !== undefined) {
+    x.estado = b.estado;
+    x.pagadoEn = b.estado === "PAGADO" ? b.pagadoEn ?? D.HOY.slice(0, 10) : null;
+  }
+  return pagoVista(x);
+});
+
+ruta("DELETE", "/pagos/:id", (ctx, p) => {
+  const x = E.pagos.find((y) => y.id === p.id);
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
+  accesoCliente(ctx, x.clienteId);
+  exigirRol(ctx, x.clienteId, ["ACCOUNT_MANAGER", "ADMIN"]);
+  E.pagos = E.pagos.filter((y) => y.id !== x.id);
+  return null;
+});
+
 ruta("GET", "/clientes/:id/pagos", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
   exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
