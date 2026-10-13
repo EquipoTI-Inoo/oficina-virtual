@@ -13,7 +13,8 @@ export const DIEGO = `demo.${uid(1, 3)}`;
 export const CASA_OLIVA = uid(2, 1);
 export const NATIVA = uid(2, 2);
 export const TU_RITUAL = uid(5, 5);
-export const BORRADOR = uid(5, 19);
+// Pieza de redes en borrador (la 19 es un blog: el cliente no ve los blogs).
+export const BORRADOR = uid(5, 20);
 
 export type Manejador = (req: Request) => Promise<Response>;
 
@@ -67,8 +68,9 @@ export function pruebasFlujoPiezas(nombre: string, manejar: Manejador, reiniciar
       assert.equal(p.estado, "EN_PRODUCCION");
       assert.equal(p.origen, undefined);
       assert.equal(p.notaEstado, undefined);
-      assert.equal(c.conteos.LISTO_REVISION, 4);
-      assert.equal(c.datos.length, 20);
+      assert.equal(c.conteos.LISTO_REVISION, 3, "los blogs no son entregables del cliente");
+      assert.equal(c.datos.length, 16);
+      assert.ok(c.datos.every((x: any) => x.tipo !== "BLOG"));
       const e = (await llamar("GET", `/clientes/${CASA_OLIVA}/piezas`, DIEGO)).json.datos.find((x: any) => x.id === BORRADOR);
       assert.equal(e.estado, "BORRADOR");
       assert.equal(e.origen.tipo, "AGENTE");
@@ -76,7 +78,7 @@ export function pruebasFlujoPiezas(nombre: string, manejar: Manejador, reiniciar
 
     test("filtro por estado y búsqueda", async () => {
       const r = (await llamar("GET", `/clientes/${CASA_OLIVA}/piezas?estado=LISTO_REVISION`, VALERIA)).json;
-      assert.equal(r.paginacion.total, 4);
+      assert.equal(r.paginacion.total, 3);
       assert.ok(r.datos.every((x: any) => x.estado === "LISTO_REVISION"));
       const q = (await llamar("GET", `/clientes/${CASA_OLIVA}/piezas?q=minuto`, VALERIA)).json;
       assert.deepEqual(q.datos.map((x: any) => x.titulo), ["Un minuto para cuidarte"]);
@@ -93,6 +95,23 @@ export function pruebasFlujoPiezas(nombre: string, manejar: Manejador, reiniciar
     test("un LECTOR comenta pero no aprueba", async () => {
       assert.deepEqual((await llamar("GET", `/piezas/${TU_RITUAL}`, MARTIN_LECTOR)).json.acciones, ["COMENTAR", "DESCARGAR"]);
       assert.equal((await llamar("POST", `/piezas/${TU_RITUAL}/aprobar`, MARTIN_LECTOR, { version: 2 })).status, 403);
+    });
+
+    test("blogs: el cliente no los ve y el equipo los aprueba desde la revisión interna", async () => {
+      await reiniciar();
+      const BLOG = uid(5, 6);
+      assert.equal((await llamar("GET", `/piezas/${BLOG}`, VALERIA)).status, 404);
+      assert.equal((await llamar("POST", `/piezas/${BLOG}/aprobar`, VALERIA, { version: 1 })).status, 404);
+      // Un blog nuevo: borrador → revisión interna → aprobado por el equipo, sin pasar por el cliente.
+      const BORRADOR_BLOG = uid(5, 19);
+      assert.equal((await llamar("POST", `/piezas/${BORRADOR_BLOG}/transiciones`, DIEGO, { aEstado: "EN_REVISION_INTERNA" })).status, 200);
+      assert.ok((await llamar("GET", `/piezas/${BORRADOR_BLOG}`, DIEGO)).json.acciones.includes("APROBAR"));
+      assert.equal((await llamar("POST", `/piezas/${BORRADOR_BLOG}/transiciones`, DIEGO, { aEstado: "LISTO_REVISION" })).json.codigo, "BLOG_SIN_CLIENTE");
+      const ok = await llamar("POST", `/piezas/${BORRADOR_BLOG}/transiciones`, DIEGO, { aEstado: "APROBADO_CLIENTE" });
+      assert.equal(ok.json.estado, "APROBADO_CLIENTE");
+      // Las demás piezas sí pasan por el cliente.
+      await llamar("POST", `/piezas/${BORRADOR}/transiciones`, DIEGO, { aEstado: "EN_REVISION_INTERNA" });
+      assert.equal((await llamar("POST", `/piezas/${BORRADOR}/transiciones`, DIEGO, { aEstado: "APROBADO_CLIENTE" })).status, 409);
     });
 
     test("aprobar exige la versión vista (409 VERSION_DESACTUALIZADA)", async () => {
@@ -112,7 +131,7 @@ export function pruebasFlujoPiezas(nombre: string, manejar: Manejador, reiniciar
         [1, "APROBADO_CLIENTE", "Valeria Mendoza"],
       ]);
       const pendientes = (await llamar("GET", `/clientes/${CASA_OLIVA}/piezas?estado=LISTO_REVISION`, VALERIA)).json;
-      assert.equal(pendientes.paginacion.total, 3);
+      assert.equal(pendientes.paginacion.total, 2);
       assert.equal((await llamar("POST", `/piezas/${TU_RITUAL}/aprobar`, VALERIA, { version: 2 })).json.codigo, "TRANSICION_INVALIDA");
     });
 

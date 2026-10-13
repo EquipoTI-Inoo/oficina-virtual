@@ -298,11 +298,15 @@ function estadoVisible(ctx: Ctx, estado: D.Estado): S<"EstadoPieza"> {
   return estado;
 }
 
+/** Los blogs los revisa y aprueba el equipo (reunión 12 oct): el cliente no los ve como entregables. */
+const esBlog = (p: { tipo: string }) => p.tipo === "BLOG";
+const paraCliente = (p: { tipo: string }) => !esBlog(p);
+
 function accionesPara(ctx: Ctx, p: D.PiezaDemo): S<"AccionPieza">[] {
   if (ctx.esEquipo) {
     const a: S<"AccionPieza">[] = ["COMENTAR", "DESCARGAR", "SUBIR_VERSION"];
     if (p.estado === "BORRADOR") a.push("ENVIAR_REVISION_INTERNA");
-    if (p.estado === "EN_REVISION_INTERNA") a.push("LIBERAR_A_CLIENTE");
+    if (p.estado === "EN_REVISION_INTERNA") a.push(esBlog(p) ? "APROBAR" : "LIBERAR_A_CLIENTE");
     if (p.estado === "LISTO_REVISION") a.push("APROBAR", "SOLICITAR_CAMBIOS", "RETIRAR");
     if (p.estado === "APROBADO_CLIENTE") a.push("MARCAR_PUBLICADO");
     return a;
@@ -559,7 +563,7 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
     plan: f.plan,
     contactoPrincipal: persona(c.contactoPrincipalId),
     accountManager: persona(c.accountManagerId ?? E.usuarios[2].id),
-    conteos: { serviciosActivos: serviciosDe(c.id).length, aprobacionesPendientes: piezasDe(c.id).filter((x) => x.estado === "LISTO_REVISION").length },
+    conteos: { serviciosActivos: serviciosDe(c.id).length, aprobacionesPendientes: piezasDe(c.id).filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length },
     estado: c.estado ?? "ACTIVO",
     creadoEn: c.creadoEn ?? "2026-01-02T15:00:00Z",
   } as S<"Cliente"> & Record<string, unknown>;
@@ -720,7 +724,7 @@ ruta("DELETE", "/avisos/:id", (ctx, p) => {
 ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
   const ps = piezasDelMes(c.id);
-  const pendientes = ps.filter((x) => x.estado === "LISTO_REVISION").sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const pendientes = ps.filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).sort((a, b) => a.fecha.localeCompare(b.fecha));
   // Figma: «Próxima publicación» es la siguiente pieza que espera la revisión del cliente.
   const proxima = pendientes.find((x) => x.fecha >= D.HOY.slice(0, 10));
   const abiertos = E.tickets.filter((t) => !["RESUELTO", "CERRADO"].includes(t.estado));
@@ -773,7 +777,8 @@ ruta("GET", "/clientes/:id/plan/contrato", (ctx, p) => {
 // Piezas
 ruta("GET", "/clientes/:id/piezas", (ctx, p, q) => {
   const c = accesoCliente(ctx, p.id);
-  let ps = piezasDe(c.id);
+  const todas = piezasDe(c.id).filter((x) => ctx.esEquipo || paraCliente(x));
+  let ps = todas;
   const estados = q.getAll("estado").flatMap((e) => e.split(","));
   if (estados.length) ps = ps.filter((x) => estados.includes(estadoVisible(ctx, x.estado)));
   if (q.get("tipo")) ps = ps.filter((x) => x.tipo === q.get("tipo"));
@@ -785,7 +790,7 @@ ruta("GET", "/clientes/:id/piezas", (ctx, p, q) => {
   }
   ps = [...ps].sort((a, b) => a.fecha.localeCompare(b.fecha));
   const conteos: Record<string, number> = {};
-  piezasDe(c.id).forEach((x) => {
+  todas.forEach((x) => {
     const e = estadoVisible(ctx, x.estado);
     conteos[e] = (conteos[e] ?? 0) + 1;
   });
@@ -794,7 +799,7 @@ ruta("GET", "/clientes/:id/piezas", (ctx, p, q) => {
 
 function buscarPieza(ctx: Ctx, id: string) {
   const p = E.piezas.find((x) => x.id === id);
-  if (!p) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  if (!p || (!ctx.esEquipo && !paraCliente(p))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   accesoCliente(ctx, p.clienteId);
   return p;
 }
@@ -879,9 +884,12 @@ ruta("POST", "/piezas/:id/transiciones", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const pieza = buscarPieza(ctx, p.id);
   const b = await cuerpo<{ aEstado?: D.Estado; comentario?: string }>(req);
-  if (!b.aEstado || !TRANSICIONES[pieza.estado].includes(b.aEstado)) {
+  const aprobarBlog = esBlog(pieza) && pieza.estado === "EN_REVISION_INTERNA" && b.aEstado === "APROBADO_CLIENTE";
+  if (!b.aEstado || (!TRANSICIONES[pieza.estado].includes(b.aEstado) && !aprobarBlog)) {
     throw new ErrorApi(409, "TRANSICION_INVALIDA", `No se puede pasar de ${pieza.estado} a ${b.aEstado}`);
   }
+  if (esBlog(pieza) && b.aEstado === "LISTO_REVISION") throw new ErrorApi(409, "BLOG_SIN_CLIENTE", "Los blogs no pasan por la revisión del cliente", "Apruébalo desde la revisión interna.");
+  if (aprobarBlog) pieza.versionCliente = pieza.versionActual;
   const de = pieza.estado;
   if (b.aEstado === "LISTO_REVISION") {
     const v = pieza.versiones[pieza.versiones.length - 1];
@@ -1250,7 +1258,7 @@ ruta("GET", "/clientes/:id/avance", (ctx, p) => {
   const r: S<"AvanceCliente"> = {
     periodo: D.PERIODO,
     resumenMes: progreso(ps, cuotaMensual(c.id)),
-    piezasPorRevisar: ps.filter((x) => x.estado === "LISTO_REVISION").map((x) => ({ id: x.id, titulo: x.titulo, fechaProgramada: iso(x.fecha) })),
+    piezasPorRevisar: ps.filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).map((x) => ({ id: x.id, titulo: x.titulo, fechaProgramada: iso(x.fecha) })),
     servicios: ordenados(serviciosDe(c.id)).map(avanceServicio),
   };
   return r;
@@ -1315,7 +1323,7 @@ ruta("POST", "/tickets/:id/mensajes", async (ctx, p, _q, req) => {
 function filaPanel(c: D.ClienteDemo): S<"FilaPanelCliente"> {
   const ps = piezasDe(c.id);
   const atrasadas = c.resumenFijo?.atrasadas ?? 0;
-  const porAprobar = c.resumenFijo?.porAprobar ?? ps.filter((x) => x.estado === "LISTO_REVISION").length;
+  const porAprobar = c.resumenFijo?.porAprobar ?? ps.filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length;
   const pct = Math.round((gastoDe(c) / c.limiteGastoIaUsd) * 100);
   const alerta = pct >= 80;
   const estadoOperativo = atrasadas > 0 ? "ATENCION" : porAprobar === 0 ? "AL_DIA" : "EN_CURSO";
@@ -1781,7 +1789,7 @@ function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<
       ticketsResueltos,
     }),
     reuniones: [...proximas, ...pasadas].slice(0, 6).map(reunionVista),
-    porRevisar: piezasDe(s.clienteId).filter((x) => x.servicioId === s.id && x.estado === "LISTO_REVISION").sort((a, b) => a.fecha.localeCompare(b.fecha)).map((x) => resumenPieza(ctx, x)),
+    porRevisar: piezasDe(s.clienteId).filter((x) => x.servicioId === s.id && x.estado === "LISTO_REVISION" && paraCliente(x)).sort((a, b) => a.fecha.localeCompare(b.fecha)).map((x) => resumenPieza(ctx, x)),
   };
   return r;
 }

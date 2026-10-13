@@ -60,7 +60,8 @@ function accionesPara(ctx: Ctx, p: FilaPieza): S<"AccionPieza">[] {
   if (ctx.esEquipo) {
     const a: S<"AccionPieza">[] = ["COMENTAR", "DESCARGAR", "SUBIR_VERSION"];
     if (p.estado === "BORRADOR") a.push("ENVIAR_REVISION_INTERNA");
-    if (p.estado === "EN_REVISION_INTERNA") a.push("LIBERAR_A_CLIENTE");
+    // Los blogs los aprueba el equipo (reunión 12 oct): no se liberan al cliente.
+    if (p.estado === "EN_REVISION_INTERNA") a.push(p.tipo === "BLOG" ? "APROBAR" : "LIBERAR_A_CLIENTE");
     if (p.estado === "LISTO_REVISION") a.push("APROBAR", "SOLICITAR_CAMBIOS", "RETIRAR");
     if (p.estado === "APROBADO_CLIENTE") a.push("MARCAR_PUBLICADO");
     return a;
@@ -138,7 +139,7 @@ function resumenPieza(ctx: Ctx, p: FilaPieza): S<"PiezaResumen"> & Record<string
 
 async function buscarPieza(ctx: Ctx, id: string): Promise<FilaPieza> {
   const { rows } = await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.id = $1`, [id]);
-  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  if (!rows[0] || (!ctx.esEquipo && rows[0].tipo === "BLOG")) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   return rows[0];
 }
 
@@ -251,7 +252,10 @@ ruta("GET", "/me", async (ctx) => {
 
 ruta("GET", "/clientes/:id/piezas", async (ctx, p, q) => {
   await accesoCliente(ctx, p.id);
-  const { rows } = await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.cliente_id = $1 ORDER BY p.fecha_programada NULLS LAST, p.titulo`, [p.id]);
+  const { rows } = await ctx.c.query<FilaPieza>(
+    `${SELECT_PIEZA} WHERE p.cliente_id = $1 ${ctx.esEquipo ? "" : "AND p.tipo <> 'BLOG'"} ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
+    [p.id],
+  );
   const conteos: Record<string, number> = {};
   for (const x of rows) {
     const e = estadoVisible(ctx, x.estado);
@@ -375,6 +379,11 @@ ruta("POST", "/piezas/:id/transiciones", async (ctx, p, _q, cuerpo) => {
   const pieza = await buscarPieza(ctx, p.id);
   const b = (await cuerpo()) as { aEstado?: Estado; comentario?: string };
   if (!b.aEstado || !(b.aEstado in NOTA_ESTADO)) throw new ErrorApi(422, "VALIDACION", "Indica el estado de destino", undefined, [{ campo: "aEstado", mensaje: "Estado inválido" }]);
+  if (pieza.tipo === "BLOG" && b.aEstado === "LISTO_REVISION") throw new ErrorApi(409, "BLOG_SIN_CLIENTE", "Los blogs no pasan por la revisión del cliente", "Apruébalo desde la revisión interna.");
+  // Aprobar desde la revisión interna (migración 0012) es solo para blogs.
+  if (pieza.tipo !== "BLOG" && pieza.estado === "EN_REVISION_INTERNA" && b.aEstado === "APROBADO_CLIENTE") {
+    throw new ErrorApi(409, "TRANSICION_INVALIDA", `No se puede pasar de ${pieza.estado} a ${b.aEstado}`);
+  }
   try {
     await cambiarEstado(ctx, pieza, b.aEstado, b.comentario?.trim() || null, null);
   } catch (e) {
@@ -423,7 +432,7 @@ ruta("GET", "/clientes/:id", async (ctx, p) => {
             am.nombre AS am_nombre, am.cargo AS am_cargo, am.email::text AS am_email,
             pl.id AS plan_id, pl.nombre AS plan_nombre, pl.fecha_inicio, pl.fecha_fin, pl.contrato_archivo_id,
             (SELECT count(*)::int FROM servicio_contratado s WHERE s.cliente_id = c.id AND s.estado = 'ACTIVO') AS servicios_activos,
-            (SELECT count(*)::int FROM pieza x WHERE x.cliente_id = c.id AND x.estado = 'LISTO_REVISION') AS pendientes
+            (SELECT count(*)::int FROM pieza x WHERE x.cliente_id = c.id AND x.estado = 'LISTO_REVISION' AND x.tipo <> 'BLOG') AS pendientes
      FROM cliente c
      LEFT JOIN usuario cp ON cp.id = c.contacto_principal_id
      LEFT JOIN usuario am ON am.id = c.account_manager_id
@@ -1387,7 +1396,7 @@ ruta("GET", "/clientes/:id/avance", async (ctx, p, q) => {
   const servicios = await serviciosDelCliente(ctx, p.id);
   const cuota = servicios.reduce((t, s) => t + s.entregables.reduce((x, e) => x + e.cantidadMensual, 0), 0);
   const porRevisar = (await ctx.c.query<{ id: string; titulo: string; fecha_programada: Date | null }>(
-    "SELECT id, titulo, fecha_programada FROM pieza WHERE cliente_id = $1 AND periodo = $2 AND estado = 'LISTO_REVISION' ORDER BY fecha_programada", [p.id, periodo],
+    "SELECT id, titulo, fecha_programada FROM pieza WHERE cliente_id = $1 AND periodo = $2 AND estado = 'LISTO_REVISION' AND tipo <> 'BLOG' ORDER BY fecha_programada", [p.id, periodo],
   )).rows;
   const r: S<"AvanceCliente"> = {
     periodo,
@@ -1460,7 +1469,7 @@ async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<
     [s.id, periodo],
   )).rows[0].n;
   const metricas = (await ctx.c.query<{ metricas: S<"MetricaProyecto">[] }>("SELECT metricas FROM plantilla_proyecto WHERE id = $1", [s.plantilla_id])).rows[0]?.metricas ?? [];
-  const piezas = (await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.servicio_contratado_id = $1 AND p.estado = 'LISTO_REVISION' ORDER BY p.fecha_programada`, [s.id])).rows;
+  const piezas = (await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.servicio_contratado_id = $1 AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG' ORDER BY p.fecha_programada`, [s.id])).rows;
   const vista = (r: (typeof reuniones)[number]): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen });
   const r: S<"PerfilProyecto"> = {
     ...av,

@@ -35,6 +35,7 @@ services:
       - ../../database/migraciones/0009_tickets_servicio.sql:/docker-entrypoint-initdb.d/01i_tickets_servicio.sql:ro
       - ../../database/migraciones/0010_cambio_responsable.sql:/docker-entrypoint-initdb.d/01j_cambio_responsable.sql:ro
       - ../../database/migraciones/0011_avisos.sql:/docker-entrypoint-initdb.d/01k_avisos.sql:ro
+      - ../../database/migraciones/0012_blogs_internos.sql:/docker-entrypoint-initdb.d/01l_blogs_internos.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

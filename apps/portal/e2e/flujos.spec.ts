@@ -18,7 +18,7 @@ test("ingreso: rechaza la clave incorrecta y entra con la correcta", async ({ pa
 test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/entregables");
-  await expect(page.getByText("Tienes 4 piezas listas para revisión")).toBeVisible();
+  await expect(page.getByText("Tienes 3 piezas listas para revisión")).toBeVisible();
   await page.fill("input[aria-label='Buscar una pieza']", "minuto");
   await expect(page.getByText("1 entregables")).toBeVisible();
   await page.fill("input[aria-label='Buscar una pieza']", "");
@@ -31,7 +31,7 @@ test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
   await expect(page.getByText("Versión 2 aprobada")).toBeVisible();
   await expect(page.getByText("Aprobaste la versión 2")).toBeVisible();
   await page.goto("/inicio");
-  await expect(page.locator(".nav-item", { hasText: "Entregables" }).locator(".nav-contador")).toHaveText("3");
+  await expect(page.locator(".nav-item", { hasText: "Entregables" }).locator(".nav-contador")).toHaveText("2");
 });
 
 test("CU-06: pedir cambios con comentario", async ({ page }) => {

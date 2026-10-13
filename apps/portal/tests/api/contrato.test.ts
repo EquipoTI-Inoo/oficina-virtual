@@ -13,7 +13,8 @@ const DIEGO = `demo.${uid(1, 3)}`;
 const CASA_OLIVA = uid(2, 1);
 const NATIVA = uid(2, 2);
 const TU_RITUAL = uid(5, 5);
-const BORRADOR = uid(5, 19);
+// Pieza de redes en borrador (la 19 es un blog: el cliente no ve los blogs).
+const BORRADOR = uid(5, 20);
 
 async function llamar(metodo: string, camino: string, token?: string, cuerpo?: unknown, extra: Record<string, string> = {}) {
   const headers: Record<string, string> = { ...extra };
@@ -88,7 +89,7 @@ describe("aislamiento por cliente y permisos", () => {
 describe("aprobaciones (CU-06)", () => {
   test("los números de Inicio coinciden con Figma", async () => {
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
-    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 3, ideasPorElegir: 0, requerimientosPendientes: 3 });
+    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 3, ticketsAbiertos: 3, ideasPorElegir: 0, requerimientosPendientes: 3 });
     assert.equal(r.json.avanceMes.porcentaje, 60);
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");
@@ -120,7 +121,7 @@ describe("aprobaciones (CU-06)", () => {
     assert.deepEqual(r.json.acciones, ["COMENTAR", "DESCARGAR"]);
     const vs = (await llamar("GET", `/piezas/${TU_RITUAL}/versiones`, VALERIA)).json;
     assert.equal(vs[0].decision.usuarioNombre, "Valeria Mendoza");
-    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json.indicadores.porAprobar, 3);
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json.indicadores.porAprobar, 2);
   });
   test("pedir cambios sin comentario responde 422 COMENTARIO_REQUERIDO", async () => {
     const r = await llamar("POST", `/piezas/${TU_RITUAL}/solicitar-cambios`, VALERIA, { version: 2, comentario: "  " });
@@ -181,7 +182,7 @@ describe("brief, blog y soporte", () => {
 describe("panel interno", () => {
   test("resumen de agencia igual a Figma", async () => {
     const r = (await llamar("GET", "/panel/clientes", DIEGO)).json.resumen;
-    assert.equal(r.aprobacionesPendientes, 15);
+    assert.equal(r.aprobacionesPendientes, 14);
     assert.equal(r.piezasAtrasadas, 3);
     assert.equal(r.gastoIaUsd, 208);
     assert.equal(r.pctLimite, 59.4);

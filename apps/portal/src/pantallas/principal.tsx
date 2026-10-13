@@ -626,7 +626,9 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
   const c = (v?.contenido ?? {}) as Record<string, unknown> & { imagenes?: { etiqueta?: string; url?: string }[] };
   const imagenes = c.imagenes ?? [];
   const anterior = versiones.datos?.find((x) => !x.actual && x.decision);
-  const puedeDecidir = p.acciones.includes("APROBAR");
+  // Blogs: el equipo los aprueba desde la revisión interna (reunión 12 oct), sin la decisión del cliente.
+  const blogInterno = p.tipo === "BLOG" && p.estado === "EN_REVISION_INTERNA";
+  const puedeDecidir = p.acciones.includes("APROBAR") && !blogInterno;
   const nombreUsuario = portal.sesion?.usuario.nombre ?? "";
 
   const recargarTodo = () => {
@@ -760,10 +762,30 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
         </div>
 
         <div className="pila">
-          {p.acciones.some((x) => ACCIONES_EQUIPO[x]) && (
+          {(p.acciones.some((x) => ACCIONES_EQUIPO[x]) || blogInterno) && (
             <div className="tarjeta" style={{ display: "grid", gap: 10, padding: "22px 18px" }}>
               <h3 className="tarjeta-titulo">Acciones del equipo</h3>
               <p className="texto-xs texto-muted">Estado interno: {p.estado} · versión vigente {p.versionActual}</p>
+              {blogInterno && (
+                <>
+                  <p className="texto-xs texto-muted">Los blogs no pasan por el cliente: apruébalo cuando esté listo para publicar.</p>
+                  <button
+                    className="boton boton--bloque boton--primario"
+                    style={{ height: 40 }}
+                    onClick={async () => {
+                      try {
+                        await api(`/piezas/${p.id}/transiciones`, { metodo: "POST", cuerpo: { aEstado: "APROBADO_CLIENTE" } });
+                        avisar({ titulo: "Artículo aprobado", texto: p.titulo });
+                        recargarTodo();
+                      } catch (e) {
+                        tratarError(e);
+                      }
+                    }}
+                  >
+                    Aprobar artículo
+                  </button>
+                </>
+              )}
               {p.acciones
                 .filter((x) => ACCIONES_EQUIPO[x])
                 .map((x) => (

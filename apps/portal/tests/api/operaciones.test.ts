@@ -18,7 +18,8 @@ const N8N = { "x-api-key": "demo-n8n" };
 const CASA_OLIVA = uid(2, 1);
 const TU_RITUAL = uid(5, 5);
 const CAMBIOS = uid(5, 17);
-const BORRADOR = uid(5, 19);
+// Pieza de redes en borrador (la 19 es un blog: el cliente no ve los blogs).
+const BORRADOR = uid(5, 20);
 const SERVICIO_REDES = uid(4, 2);
 
 async function llamar(metodo: string, camino: string, token?: string, cuerpo?: unknown, extra: Record<string, string> = {}) {

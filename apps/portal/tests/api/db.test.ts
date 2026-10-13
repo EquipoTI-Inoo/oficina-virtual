@@ -46,6 +46,7 @@ before(async () => {
   await db.exec(sql("migraciones/0009_tickets_servicio.sql"));
   await db.exec(sql("migraciones/0010_cambio_responsable.sql"));
   await db.exec(sql("migraciones/0011_avisos.sql"));
+  await db.exec(sql("migraciones/0012_blogs_internos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -315,10 +316,8 @@ describe("integraciones (n8n, X-Api-Key) · Postgres", () => {
     assert.deepEqual(r.json.origen, { tipo: "AGENTE", nombre: "contenido-blog" });
     const { rows } = await db.query<{ canal: string; usuario_id: string }>(`SELECT canal, usuario_id FROM evento_pieza WHERE pieza_id = '${r.json.id}'`);
     assert.deepEqual(rows, [{ canal: "SISTEMA", usuario_id: uid(1, 99) }]);
-    // El cliente la ve en producción, sin contenido.
-    const cliente = await llamar("GET", `/piezas/${r.json.id}`, VALERIA);
-    assert.equal(cliente.json.estado, "EN_PRODUCCION");
-    assert.equal(cliente.json.version, undefined);
+    // Es un blog: el cliente no lo ve (lo revisa y aprueba el equipo).
+    assert.equal((await llamar("GET", `/piezas/${r.json.id}`, VALERIA)).status, 404);
   });
 
   test("tras cambios del cliente, la nueva versión del agente vuelve a revisión interna pasando por BORRADOR", async () => {
