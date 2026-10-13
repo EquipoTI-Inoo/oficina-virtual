@@ -33,9 +33,11 @@ let tablas = "";
 // Los feriados vienen de la migración 0011; el TRUNCATE en cascada de cliente vacía aviso, así que se
 // guardan al cargar el esquema y se vuelven a insertar en cada reinicio.
 let feriadosMigracion: { fecha: string; nombre: string }[] = [];
+// Igual con las reglas globales de correo de la 0015 (regla_correo referencia a cliente).
+let reglasCorreo = "";
 async function reiniciar() {
   const feriados = feriadosMigracion.map((f) => `('FERIADO', '${f.nombre.replace(/'/g, "''")}', DATE '${f.fecha}', DATE '${f.fecha}', DATE '${f.fecha}' - 7)`).join(",\n");
-  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${SEMILLAS}`);
+  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${reglasCorreo}\n${SEMILLAS}`);
 }
 
 before(async () => {
@@ -53,6 +55,7 @@ before(async () => {
   await db.exec(sql("migraciones/0012_blogs_internos.sql"));
   await db.exec(sql("migraciones/0013_invitaciones.sql"));
   await db.exec(sql("migraciones/0014_paid_media_por_tipo.sql"));
+  await db.exec(sql("migraciones/0015_correos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -61,6 +64,9 @@ before(async () => {
   feriadosMigracion = (await db.query<{ fecha: string; nombre: string }>(
     "SELECT to_char(fecha_inicio, 'YYYY-MM-DD') AS fecha, titulo AS nombre FROM aviso WHERE tipo = 'FERIADO' ORDER BY fecha_inicio",
   )).rows;
+  const reglas = (await db.query<{ evento: string; plantilla: string; destinatarios: string; descripcion: string }>("SELECT evento, plantilla, destinatarios, descripcion FROM regla_correo WHERE cliente_id IS NULL")).rows;
+  const q = (t: string) => `'${t.replace(/'/g, "''")}'`;
+  reglasCorreo = `INSERT INTO regla_correo (evento, plantilla, destinatarios, descripcion) VALUES ${reglas.map((r) => `(${q(r.evento)}, ${q(r.plantilla)}, ${q(r.destinatarios)}, ${q(r.descripcion)})`).join(", ")};`;
   await reiniciar();
   usarBaseDatos(desdePglite(db as never));
 });
@@ -511,5 +517,75 @@ describe("archivos, descargas y resultados · solo backend real", () => {
     assert.equal((await llamar("PATCH", `/piezas/${PUBLICADA}`, DIEGO, { aptaPaidMedia: false })).status, 200);
     assert.ok(!(await paid()).some((d: any) => d.id === PUBLICADA));
     assert.equal((await llamar("GET", `/piezas/${PUBLICADA}`, DIEGO)).json.aptaPaidMedia, false);
+  });
+});
+
+describe("correos automáticos con n8n · solo backend real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const LLAVE = { "x-api-key": "demo-n8n" };
+  const ultimoEvento = async (tipo: string) =>
+    (await db.query<{ id: number; tipo: string; clienteId: string; datos: any }>(`SELECT id, tipo, cliente_id AS "clienteId", payload AS datos FROM outbox_evento WHERE tipo = $1 ORDER BY id DESC LIMIT 1`, [tipo])).rows[0];
+  const preparar = (ev: unknown) => llamar("POST", "/integraciones/correos/preparar", undefined, ev, LLAVE);
+
+  test("ticket creado: un correo a quien lo abrió; idempotente por evento; el resultado lo marca enviado", async () => {
+    await reiniciar();
+    await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Campaña de verano", categoria: "MARKETING", descripcion: "Hola" });
+    const ev = await ultimoEvento("ticket.creado");
+    const r = await preparar(ev);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.correos.map((c: any) => [c.para, c.asunto, c.evento]), [["valeria@casaoliva.pe", "Recibimos tu ticket #1043", "ticket.creado"]]);
+    assert.match(r.json.correos[0].html, /Hola, Valeria:/);
+    assert.match(r.json.correos[0].texto, /\/soporte$/);
+    const otra = await preparar(ev);
+    assert.equal(otra.json.correos[0].id, r.json.correos[0].id, "un reintento de n8n no duplica el correo");
+    assert.equal((await llamar("POST", `/integraciones/correos/${r.json.correos[0].id}/resultado`, undefined, { estado: "ENVIADO", messageId: "<abc@smtp>" }, LLAVE)).status, 204);
+    assert.deepEqual((await preparar(ev)).json.correos, [], "lo enviado no vuelve");
+    assert.equal((await llamar("POST", `/integraciones/correos/${r.json.correos[0].id}/resultado`, undefined, { estado: "FALLIDO", error: "tarde" }, LLAVE)).status, 204);
+    const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json;
+    assert.equal(vista.reglas.length, 10);
+    assert.equal(vista.reglas[0].evento, "pieza.lista_revision");
+    assert.deepEqual(vista.recientes.map((c: any) => [c.asunto, c.estado, c.evento]), [["Recibimos tu ticket #1043", "ENVIADO", "ticket.creado"]]);
+    assert.ok(vista.recientes[0].enviadoEn);
+  });
+
+  test("pieza aprobada por el cliente: confirmación a quien aprobó y aviso al AM, con enlaces distintos", async () => {
+    await reiniciar();
+    assert.equal((await llamar("POST", `/piezas/${TU_RITUAL}/aprobar`, VALERIA, { version: 2 })).status, 200);
+    const ev = await ultimoEvento("pieza.estado_cambiado");
+    const correos = (await preparar(ev)).json.correos;
+    assert.deepEqual(correos.map((c: any) => [c.para, c.asunto]), [
+      ["valeria@casaoliva.pe", "Aprobaste «Tu ritual, tu momento»"],
+      ["diego.castro@inoo.pe", "Valeria Mendoza aprobó «Tu ritual, tu momento»"],
+    ]);
+    assert.match(correos[0].texto, new RegExp(`/entregables/${TU_RITUAL}$`));
+    assert.match(correos[1].texto, new RegExp(`/equipo/piezas/${TU_RITUAL}$`));
+    // El equipo que solo mira su bandeja no recibe avisos de sus propios cambios internos.
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('pieza.estado_cambiado', '${CASA_OLIVA}', '{"piezaId":"${TU_RITUAL}","estado":"EN_REVISION_INTERNA","canal":"PANEL"}')`);
+    assert.deepEqual((await preparar(await ultimoEvento("pieza.estado_cambiado"))).json.correos, []);
+  });
+
+  test("invitación: al correo invitado, nombrando a quien invitó; HTML escapado", async () => {
+    await reiniciar();
+    await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa <b>Paz</b>", rol: "APROBADOR" });
+    const [c] = (await preparar(await ultimoEvento("miembro.invitado"))).json.correos;
+    assert.equal(c.para, "rosa@casaoliva.pe");
+    assert.equal(c.asunto, "Te damos la bienvenida al portal de Casa Oliva");
+    assert.match(c.html, /Diego Castro te dio acceso/);
+    assert.match(c.html, /Hola, Rosa:/);
+    assert.ok(!c.html.includes("<b>"));
+  });
+
+  test("reglas: la del cliente reemplaza a la global; solo eventos reales y solo con la llave", async () => {
+    await reiniciar();
+    await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Otra consulta", categoria: "OTRO", descripcion: "Hola" });
+    const ev = await ultimoEvento("ticket.creado");
+    assert.equal((await llamar("POST", "/integraciones/correos/preparar", DIEGO, ev)).status, 403);
+    assert.equal((await preparar({ ...ev, id: 99_999 })).status, 404);
+    assert.equal((await preparar({ ...ev, datos: undefined })).status, 422);
+    await db.exec(`INSERT INTO regla_correo (evento, plantilla, destinatarios, cliente_id, activa, descripcion) VALUES ('ticket.creado', 'ticket.creado', 'MIEMBROS_CLIENTE', '${CASA_OLIVA}', false, 'Desactivado por pedido del cliente')`);
+    assert.deepEqual((await preparar(ev)).json.correos, []);
+    const regla = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json.reglas.find((r: any) => r.evento === "ticket.creado");
+    assert.deepEqual([regla.activa, regla.descripcion], [false, "Desactivado por pedido del cliente"]);
+    assert.equal((await llamar("POST", `/integraciones/correos/${uid(17, 9)}/resultado`, undefined, { estado: "ENVIADO" }, LLAVE)).status, 404);
   });
 });

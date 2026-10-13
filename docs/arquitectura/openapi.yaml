@@ -893,6 +893,59 @@ paths:
                   revisados: { type: integer, description: Requerimientos vencidos revisados }
                   corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
 
+  /integraciones/correos/preparar:
+    post:
+      tags: [Integraciones]
+      operationId: prepararCorreos
+      summary: 'n8n, por cada evento del outbox: qué correos mandar, a quién y con qué contenido (INO-04)'
+      description: |
+        n8n recibe el evento firmado del outbox y lo reenvía tal cual. La API aplica las reglas de
+        `regla_correo` (la del cliente si existe, si no la global), resuelve los destinatarios, arma el asunto
+        y el HTML y deja cada correo en PENDIENTE. Idempotente por evento y destinatario: si n8n reintenta,
+        vuelven solo los que aún no se enviaron. Un evento sin regla activa devuelve una lista vacía.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventoSaliente' }
+      responses:
+        '200':
+          description: Correos por enviar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [correos]
+                properties:
+                  correos: { type: array, items: { $ref: '#/components/schemas/CorreoPreparado' } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /integraciones/correos/{correoId}/resultado:
+    post:
+      tags: [Integraciones]
+      operationId: registrarResultadoCorreo
+      summary: n8n informa si el correo salió por SMTP o falló
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      parameters:
+        - { name: correoId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado: { type: string, enum: [ENVIADO, FALLIDO] }
+                messageId: { type: string, description: Message-ID que devolvió el servidor SMTP }
+                error: { type: string, maxLength: 2000 }
+      responses:
+        '204': { description: Registrado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /clientes/{clienteId}/servicios:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
     get:
@@ -3590,6 +3643,17 @@ components:
         descripcion: { type: string, examples: ['Te avisamos cuando una pieza está lista para tu revisión'] }
         destinatarios: { type: string, enum: [MIEMBROS_CLIENTE, ACCOUNT_MANAGER, AMBOS] }
         activa: { type: boolean }
+    CorreoPreparado:
+      type: object
+      required: [id, para, asunto, html, texto, evento]
+      properties:
+        id: { type: string, format: uuid }
+        para: { type: string, format: email }
+        nombre: { type: ['string', 'null'] }
+        asunto: { type: string }
+        html: { type: string }
+        texto: { type: string, description: Versión en texto plano del mismo correo }
+        evento: { type: string, examples: [pieza.lista_revision] }
     CorreoEnviado:
       type: object
       required: [id, para, asunto, estado, creadoEn]

@@ -584,6 +584,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integraciones/correos/preparar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * n8n, por cada evento del outbox: qué correos mandar, a quién y con qué contenido (INO-04)
+         * @description n8n recibe el evento firmado del outbox y lo reenvía tal cual. La API aplica las reglas de
+         *     `regla_correo` (la del cliente si existe, si no la global), resuelve los destinatarios, arma el asunto
+         *     y el HTML y deja cada correo en PENDIENTE. Idempotente por evento y destinatario: si n8n reintenta,
+         *     vuelven solo los que aún no se enviaron. Un evento sin regla activa devuelve una lista vacía.
+         */
+        post: operations["prepararCorreos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integraciones/correos/{correoId}/resultado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** n8n informa si el correo salió por SMTP o falló */
+        post: operations["registrarResultadoCorreo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/servicios": {
         parameters: {
             query?: never;
@@ -2934,6 +2974,19 @@ export interface components {
             destinatarios?: "MIEMBROS_CLIENTE" | "ACCOUNT_MANAGER" | "AMBOS";
             activa: boolean;
         };
+        CorreoPreparado: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            para: string;
+            nombre?: string | null;
+            asunto: string;
+            html: string;
+            /** @description Versión en texto plano del mismo correo */
+            texto: string;
+            /** @example pieza.lista_revision */
+            evento: string;
+        };
         CorreoEnviado: {
             /** Format: uuid */
             id: string;
@@ -4478,6 +4531,64 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    prepararCorreos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventoSaliente"];
+            };
+        };
+        responses: {
+            /** @description Correos por enviar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        correos: components["schemas"]["CorreoPreparado"][];
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    registrarResultadoCorreo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                correoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    estado: "ENVIADO" | "FALLIDO";
+                    /** @description Message-ID que devolvió el servidor SMTP */
+                    messageId?: string;
+                    error?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Registrado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
         };
     };
     listarServiciosCliente: {

@@ -2192,6 +2192,9 @@ const REGLAS_CORREO: S<"ReglaCorreo">[] = [
   { evento: "ticket.creado", descripcion: "Número de ticket y tiempo de respuesta comprometido", destinatarios: "MIEMBROS_CLIENTE", activa: true },
   { evento: "ticket.resuelto", descripcion: "Aviso cuando el equipo resuelve tu ticket", destinatarios: "MIEMBROS_CLIENTE", activa: true },
   { evento: "miembro.invitado", descripcion: "Invitación al portal para un nuevo usuario", destinatarios: "MIEMBROS_CLIENTE", activa: true },
+  { evento: "requerimiento.creado", descripcion: "Lo que necesitamos de ti y hasta cuándo", destinatarios: "MIEMBROS_CLIENTE", activa: true },
+  { evento: "requerimiento.atrasado", descripcion: "Recordatorio cuando un pedido se pasa de la fecha límite", destinatarios: "MIEMBROS_CLIENTE", activa: true },
+  { evento: "requerimiento.enviado", descripcion: "Aviso al equipo cuando respondes un pedido", destinatarios: "ACCOUNT_MANAGER", activa: true },
 ];
 
 ruta("GET", "/clientes/:id/correos-automaticos", (ctx, p) => {
@@ -2200,6 +2203,20 @@ ruta("GET", "/clientes/:id/correos-automaticos", (ctx, p) => {
   // El cliente ve sus propios correos; el equipo además los avisos al AM de esta cuenta.
   const recientes = E.correos.filter((c) => correos.has(c.para) || (ctx.esEquipo && c.para === E.usuarios[2].email && p.id === E.clientes[0].id));
   return { reglas: REGLAS_CORREO, recientes: recientes.slice(0, 20) };
+});
+
+// La API simulada registra cada correo en el momento de la acción (registrarCorreo), así que a n8n
+// no le queda nada por preparar; el backend real sí arma los correos desde el evento.
+ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpo<{ id?: number; tipo?: string }>(req);
+  if (typeof b.id !== "number" || typeof b.tipo !== "string") throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, [{ campo: "tipo", mensaje: "Envía el evento del outbox tal cual" }]);
+  return { correos: [] };
+});
+ruta("POST", "/integraciones/correos/:id/resultado", (ctx, p) => {
+  soloServicio(ctx);
+  if (!E.correos.some((c) => c.id === p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese correo");
+  return null;
 });
 
 // ───────────────────────────────────────────── costos de IA y ejecuciones (ADM-01)

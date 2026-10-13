@@ -33,6 +33,7 @@ services:
       - ../../database/migraciones/0012_blogs_internos.sql:/docker-entrypoint-initdb.d/01l_blogs_internos.sql:ro
       - ../../database/migraciones/0013_invitaciones.sql:/docker-entrypoint-initdb.d/01m_invitaciones.sql:ro
       - ../../database/migraciones/0014_paid_media_por_tipo.sql:/docker-entrypoint-initdb.d/01n_paid_media_por_tipo.sql:ro
+      - ../../database/migraciones/0015_correos.sql:/docker-entrypoint-initdb.d/01o_correos.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data
@@ -97,7 +98,14 @@ services:
       N8N_SMTP_HOST: mailpit
       N8N_SMTP_PORT: 1025
       N8N_SMTP_SSL: "false"
+      # Conexión con el portal (n8n/README.md): correos por evento y atrasos diarios.
+      PORTAL_API_URL: ${PORTAL_API_URL:-http://host.docker.internal:3000}
+      INOO_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO:-secreto-local}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     ports: ["5678:5678"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - ../../n8n/workflows:/workflows:ro
       - datos-n8n:/home/node/.n8n

@@ -20,8 +20,9 @@
  * panel del equipo (GET /panel/clientes(/exportar), GET /panel/piezas, GET /panel/costos-ia, GET /panel/ejecuciones) ·
  * POST /clientes/{id}/piezas · PATCH /piezas/{id} · archivos con URLs prefirmadas de S3 (POST|GET /clientes/{id}/archivos,
  * POST /archivos/{id}/confirmar, PATCH|DELETE /archivos/{id}, GET /archivos/{id}/descarga, GET /piezas/{id}/descarga,
- * GET /clientes/{id}/plan/contrato) · GET /clientes/{id}/reportes/resultados|informe · GET /clientes/{id}/biblioteca-paid.
- * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
+ * GET /clientes/{id}/plan/contrato) · GET /clientes/{id}/reportes/resultados|informe · GET /clientes/{id}/biblioteca-paid ·
+ * correos automáticos (GET /clientes/{id}/correos-automaticos, POST /integraciones/correos/preparar y /{id}/resultado).
+ * Solo InooWork (fase 6) responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
  * tests/api/flujo-piezas.ts corren contra las dos.
@@ -33,6 +34,7 @@ import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { almacen } from "./almacen";
+import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
@@ -2939,6 +2941,143 @@ ruta("GET", "/clientes/:id/biblioteca-paid", async (ctx, p, q) => {
   if (tipos.length) datos = datos.filter((d) => d.tipo && tipos.includes(d.tipo));
   if (etiquetas.length) datos = datos.filter((d) => etiquetas.every((e) => (d.etiquetas ?? []).some((x) => x.toLowerCase() === e)));
   return { datos, paginacion: { siguienteCursor: null, total: datos.length } };
+});
+
+// ───────────────────────────────────────────── correos automáticos (INO-04)
+
+interface FilaRegla { id: string; evento: string; plantilla: string; destinatarios: S<"ReglaCorreo">["destinatarios"]; activa: boolean; descripcion: string }
+
+/** Reglas que aplican a un cliente: la suya si la tiene, si no la global del mismo evento. */
+async function reglasDe(ctx: Ctx, clienteId: string | null): Promise<FilaRegla[]> {
+  const { rows } = await ctx.c.query<FilaRegla>(
+    `SELECT DISTINCT ON (evento) id, evento, plantilla, destinatarios, activa, descripcion FROM regla_correo
+     WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY evento, cliente_id NULLS LAST`,
+    [clienteId],
+  );
+  return rows;
+}
+
+ruta("GET", "/clientes/:id/correos-automaticos", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const ORDEN = Object.keys(PLANTILLAS_CORREO);
+  const reglas = (await reglasDe(ctx, p.id)).sort((a, b) => ORDEN.indexOf(a.evento) - ORDEN.indexOf(b.evento));
+  // El cliente ve los correos que recibió su gente; el equipo, además, los avisos al AM de esta cuenta.
+  const { rows } = await ctx.c.query<{ id: string; para: string; asunto: string; evento: string | null; estado: S<"CorreoEnviado">["estado"]; enviado_en: Date | null; creado_en: Date }>(
+    `SELECT id, para::text AS para, asunto, evento, estado, enviado_en, creado_en FROM correo_enviado c
+     WHERE cliente_id = $1 AND ($2 OR para IN (SELECT u.email FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id WHERE m.cliente_id = $1))
+     ORDER BY creado_en DESC, id LIMIT 20`,
+    [p.id, ctx.esEquipo],
+  );
+  return {
+    reglas: reglas.map((r) => ({ evento: r.evento, descripcion: r.descripcion, destinatarios: r.destinatarios, activa: r.activa })),
+    recientes: rows.map((c) => ({ id: c.id, para: c.para, asunto: c.asunto, evento: c.evento, estado: c.estado, enviadoEn: iso(c.enviado_en), creadoEn: iso(c.creado_en)! })),
+  };
+});
+
+const URL_PORTAL = () => (process.env.PORTAL_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
+ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "correos:write");
+  const ev = (await cuerpo()) as { id?: unknown; tipo?: unknown; clienteId?: unknown; datos?: unknown };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!Number.isInteger(ev.id)) errores.push({ campo: "id", mensaje: "Id del evento del outbox" });
+  if (typeof ev.tipo !== "string") errores.push({ campo: "tipo", mensaje: "Tipo del evento" });
+  if (!ev.datos || typeof ev.datos !== "object") errores.push({ campo: "datos", mensaje: "Datos del evento" });
+  validacion(errores);
+  const datos = ev.datos as Record<string, any>;
+  const regla = reglaDeEvento(ev.tipo as string, datos);
+  const clienteId = esUuid(ev.clienteId) ? ev.clienteId : null;
+  // El evento tiene que existir: así nadie con la llave puede mandar correos arbitrarios.
+  const outbox = (await ctx.c.query<{ id: string }>("SELECT id FROM outbox_evento WHERE id = $1 AND tipo = $2 AND cliente_id IS NOT DISTINCT FROM $3", [ev.id, ev.tipo, clienteId])).rows[0];
+  if (!outbox) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese evento en el outbox");
+  if (!regla || !clienteId) return { correos: [] };
+  const r = (await reglasDe(ctx, clienteId)).find((x) => x.evento === regla);
+  if (!r?.activa) return { correos: [] };
+  const plantilla = PLANTILLAS_CORREO[r.plantilla] ? r.plantilla : regla;
+
+  const cli = (await ctx.c.query<{ nombre: string; am_id: string | null }>("SELECT nombre, account_manager_id AS am_id FROM cliente WHERE id = $1", [clienteId])).rows[0];
+  const usuario = async (id: unknown) => (esUuid(id) ? (await ctx.c.query<{ id: string; nombre: string; email: string; tipo: string }>("SELECT id, nombre, email::text AS email, tipo FROM usuario WHERE id = $1 AND activo", [id])).rows[0] : undefined);
+  const actor = await usuario(regla === "miembro.invitado" ? datos.invitadoPor : datos.usuarioId);
+  const c: ContextoCorreo = { cliente: cli.nombre, actor: actor?.nombre ?? null, numero: datos.numero ?? null, periodo: datos.periodo ?? null, comentario: datos.comentario ?? null, diasAtraso: datos.diasAtraso ?? null, enlace: URL_PORTAL() };
+  let enlaceCliente = "/inicio";
+  let enlaceEquipo = `/equipo/clientes/${clienteId}`;
+  let creadorTicket: string | null = null;
+  if (esUuid(datos.piezaId)) {
+    c.pieza = (await ctx.c.query<{ titulo: string }>("SELECT titulo FROM pieza WHERE id = $1", [datos.piezaId])).rows[0]?.titulo ?? null;
+    enlaceCliente = `/entregables/${datos.piezaId}`;
+    enlaceEquipo = `/equipo/piezas/${datos.piezaId}`;
+  }
+  if (esUuid(datos.requerimientoId)) {
+    const q = (await ctx.c.query<{ titulo: string; fecha_limite: Date }>("SELECT titulo, fecha_limite FROM requerimiento WHERE id = $1", [datos.requerimientoId])).rows[0];
+    c.requerimiento = q?.titulo ?? null;
+    c.fechaLimite = fechaIso(q?.fecha_limite);
+    enlaceCliente = `/requerimientos/${datos.requerimientoId}`;
+  }
+  if (esUuid(datos.ticketId)) {
+    const t = (await ctx.c.query<{ creado_por: string; sla: Date }>("SELECT creado_por, sla_primera_respuesta_en AS sla FROM ticket WHERE id = $1", [datos.ticketId])).rows[0];
+    creadorTicket = t?.creado_por ?? null;
+    if (t?.sla) c.respuestaAntesDe = `${fechaLarga(new Date(t.sla.getTime() - 5 * 3_600_000).toISOString())} a las ${new Date(t.sla.getTime() - 5 * 3_600_000).toISOString().slice(11, 16)}`;
+    enlaceCliente = "/soporte";
+  }
+  if (regla === "miembro.invitado") enlaceCliente = "/ingresar";
+
+  // Destinatarios, sin repetir correo (la persona que actúa puede ser también decisora).
+  const destinos = new Map<string, { nombre: string | null; destino: Destino }>();
+  const agregar = (email: string | undefined | null, nombre: string | null, destino: Destino) => {
+    if (email && !destinos.has(email.toLowerCase())) destinos.set(email.toLowerCase(), { nombre, destino });
+  };
+  for (const d of PLANTILLAS_CORREO[plantilla].destinos) {
+    if (d === "ACTOR" && actor?.tipo === "CLIENTE") agregar(actor.email, actor.nombre, d);
+    if (d === "AM") {
+      const am = await usuario(cli.am_id);
+      agregar(am?.email, am?.nombre ?? null, d);
+    }
+    if (d === "INVITADO") agregar(datos.email, datos.nombre ?? null, d);
+    if (d === "CREADOR_TICKET") {
+      const u = await usuario(creadorTicket);
+      agregar(u?.email, u?.nombre ?? null, d);
+    }
+    if (d === "DECISORES") {
+      const { rows } = await ctx.c.query<{ email: string; nombre: string }>(
+        `SELECT u.email::text AS email, u.nombre FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id
+         WHERE m.cliente_id = $1 AND m.rol IN ('ADMIN_CLIENTE', 'APROBADOR') AND u.activo ORDER BY m.rol, u.nombre`,
+        [clienteId],
+      );
+      rows.forEach((u) => agregar(u.email, u.nombre, d));
+    }
+  }
+
+  const correos: S<"CorreoPreparado">[] = [];
+  for (const [para, { nombre, destino }] of destinos) {
+    const enlace = `${URL_PORTAL()}${destino === "AM" ? enlaceEquipo : enlaceCliente}`;
+    const m = renderizarCorreo(plantilla, { ...c, enlace }, destino, nombre);
+    await ctx.c.query(
+      `INSERT INTO correo_enviado (cliente_id, regla_id, para, nombre, asunto, html, texto, evento, outbox_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (outbox_id, para) WHERE outbox_id IS NOT NULL DO NOTHING`,
+      [clienteId, r.id, para, nombre, m.asunto, m.html, m.texto, regla, ev.id],
+    );
+    // Si n8n reintenta el evento, vuelve solo lo que todavía no salió (con el contenido de la primera vez).
+    const fila = (await ctx.c.query<{ id: string; estado: string; asunto: string; html: string; texto: string }>(
+      "SELECT id, estado, asunto, html, texto FROM correo_enviado WHERE outbox_id = $1 AND para = $2", [ev.id, para],
+    )).rows[0];
+    if (fila.estado !== "ENVIADO") correos.push({ id: fila.id, para, nombre, asunto: fila.asunto, html: fila.html, texto: fila.texto, evento: regla });
+  }
+  return { correos };
+});
+
+ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) => {
+  soloServicio(ctx, "correos:write");
+  const b = (await cuerpo()) as { estado?: unknown; messageId?: unknown; error?: unknown };
+  if (b.estado !== "ENVIADO" && b.estado !== "FALLIDO") validacion([{ campo: "estado", mensaje: "Usa ENVIADO o FALLIDO" }]);
+  const actual = esUuid(p.id) ? (await ctx.c.query<{ estado: string }>("SELECT estado FROM correo_enviado WHERE id = $1", [p.id])).rows[0] : undefined;
+  if (!actual) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese correo");
+  // Un correo que ya salió no vuelve a FALLIDO por un reintento tardío.
+  if (actual.estado === "ENVIADO") return null;
+  await ctx.c.query(
+    `UPDATE correo_enviado SET estado = $2::estado_envio, ses_message_id = $3, error = $4, enviado_en = CASE WHEN $2::text = 'ENVIADO' THEN now() END WHERE id = $1`,
+    [p.id, b.estado, typeof b.messageId === "string" ? b.messageId : null, b.estado === "FALLIDO" && typeof b.error === "string" ? b.error.slice(0, 2000) : null],
+  );
+  return null;
 });
 
 // ───────────────────────────────────────────── despachador
