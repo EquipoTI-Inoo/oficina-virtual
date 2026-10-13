@@ -3140,7 +3140,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */

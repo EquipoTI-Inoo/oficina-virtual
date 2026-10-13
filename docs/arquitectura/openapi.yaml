@@ -3846,6 +3846,8 @@ components:
             - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable
             - responsable.cambio_solicitado # el cliente propuso un sucesor; el AM lo revisa
             - responsable.cambiado       # aprobado: invitación al sucesor y aviso al AM para contactarlo
+            - miembro.invitado           # acceso nuevo al portal: alta en Cognito y correo de bienvenida
+            - miembro.retirado           # el equipo quitó el acceso; deshabilitar en Cognito si no tiene otras cuentas
         ocurridoEn: { type: string, format: date-time }
         clienteId: { type: [string, 'null'], format: uuid }
         datos: { type: object }

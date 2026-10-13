@@ -1547,6 +1547,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     E.miembros.push({ clienteId: c.id, usuarioId: contacto.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
     registrarCorreo(contacto.email, `Te damos la bienvenida al portal de ${c.nombre}`, "miembro.invitado");
   }
+  if (contacto) emitir("miembro.invitado", c.id, { usuarioId: contacto.id, email: contacto.email, nombre: contacto.nombre, rol: "ADMIN_CLIENTE", invitadoPor: ctx.usuario.id });
   emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId, contactoId: contacto?.id ?? null });
   return { __status: 201, ...clienteVista(ctx, c) };
 });
@@ -1661,7 +1662,10 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, req) =>
     }
     const m = E.miembros.find((y) => y.clienteId === c.id && y.usuarioId === u!.id);
     if (m) m.rol = "ADMIN_CLIENTE";
-    else E.miembros.push({ clienteId: c.id, usuarioId: u.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
+    else {
+      E.miembros.push({ clienteId: c.id, usuarioId: u.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
+      emitir("miembro.invitado", c.id, { usuarioId: u.id, email: u.email, nombre: u.nombre, rol: "ADMIN_CLIENTE", invitadoPor: ctx.usuario.id });
+    }
     c.contactoPrincipalId = u.id;
     c.contactoNombre = u.nombre;
     if (x.quitarAccesoAnterior && x.solicitadoPorId !== u.id) E.miembros = E.miembros.filter((y) => !(y.clienteId === c.id && y.usuarioId === x.solicitadoPorId));
@@ -1701,6 +1705,7 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
   const m = { clienteId: p.id, usuarioId: u.id, rol: b.rol!, invitacionPendiente: true };
   E.miembros.push(m);
   registrarCorreo(email, `${ctx.usuario.nombre} te invitó al portal de ${E.clientes.find((c) => c.id === p.id)!.nombre}`, "miembro.invitado");
+  emitir("miembro.invitado", p.id, { usuarioId: u.id, email, nombre: u.nombre, rol: m.rol, invitadoPor: ctx.usuario.id });
   return { __status: 201, ...miembroVista(m) };
 });
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, req) => {
@@ -1719,6 +1724,7 @@ ruta("DELETE", "/clientes/:id/miembros/:usuario", (ctx, p) => {
   buscarMiembro(p.id, p.usuario);
   protegerUltimoAdmin(p.id, p.usuario);
   E.miembros = E.miembros.filter((x) => !(x.clienteId === p.id && x.usuarioId === p.usuario));
+  emitir("miembro.retirado", p.id, { usuarioId: p.usuario, retiradoPor: ctx.usuario.id });
   return null;
 });
 

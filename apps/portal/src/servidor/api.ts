@@ -15,7 +15,8 @@
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
  * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
- * POST /clientes/{id}/pagos · PATCH|DELETE /pagos/{id}.
+ * POST /clientes/{id}/pagos · PATCH|DELETE /pagos/{id} · POST /clientes · PATCH /clientes/{id} (n8n completa driveUrl con
+ * el scope clientes:write) · POST|PATCH|DELETE /clientes/{id}/miembros(/{id}) · GET /clientes/{id}/inicio · GET /clientes/{id}/actividad.
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -26,7 +27,7 @@ import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
-import { diasNoLaborables } from "../dominio/calendario";
+import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
@@ -428,6 +429,10 @@ ruta("GET", "/clientes", async (ctx) => {
 
 ruta("GET", "/clientes/:id", async (ctx, p) => {
   await accesoCliente(ctx, p.id);
+  return clienteVista(ctx, p.id);
+});
+
+async function clienteVista(ctx: Ctx, clienteId: string): Promise<S<"Cliente">> {
   const { rows } = await ctx.c.query<Record<string, any>>(
     `SELECT c.*, cp.nombre AS cp_nombre, cp.cargo AS cp_cargo, cp.email::text AS cp_email,
             am.nombre AS am_nombre, am.cargo AS am_cargo, am.email::text AS am_email,
@@ -439,7 +444,7 @@ ruta("GET", "/clientes/:id", async (ctx, p) => {
      LEFT JOIN usuario am ON am.id = c.account_manager_id
      LEFT JOIN plan_cliente pl ON pl.cliente_id = c.id AND pl.vigente
      WHERE c.id = $1`,
-    [p.id],
+    [clienteId],
   );
   const c = rows[0];
   const fecha = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d as string | null));
@@ -464,7 +469,7 @@ ruta("GET", "/clientes/:id", async (ctx, p) => {
   };
   if (ctx.esEquipo) Object.assign(r, { driveUrl: c.drive_url, driveCarpetaId: c.drive_carpeta_id, limiteGastoIaUsd: Number(c.limite_gasto_ia_usd) });
   return r;
-});
+}
 
 // ───────────────────────────────────────────── tickets (CU-07)
 
@@ -1947,11 +1952,7 @@ const solicitudVista = (x: FilaSolicitud): S<"SolicitudResponsable"> => ({
 ruta("GET", "/clientes/:id/miembros", async (ctx, p) => {
   await accesoCliente(ctx, p.id);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
-  const { rows } = await ctx.c.query<S<"Miembro">>(
-    `SELECT u.id AS "usuarioId", u.nombre, u.email::text AS email, m.rol FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id
-     WHERE m.cliente_id = $1 ORDER BY m.creado_en, u.nombre`,
-    [p.id],
-  );
+  const { rows } = await ctx.c.query<S<"Miembro">>(`${SELECT_MIEMBRO} WHERE m.cliente_id = $1 ORDER BY m.creado_en, m.rol, u.nombre`, [p.id]);
   return { datos: rows };
 });
 
@@ -1999,10 +2000,9 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, cuerpo)
     if (u?.tipo === "EQUIPO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
     // En producción el alta en el pool de clientes de Cognito la hace n8n al recibir responsable.cambiado.
     nuevo = u?.id ?? (await ctx.c.query<{ id: string }>("INSERT INTO usuario (email, nombre, cargo, tipo) VALUES ($1, $2, $3, 'CLIENTE') RETURNING id", [x.email, x.nombre, x.cargo])).rows[0].id;
-    await ctx.c.query(
-      `INSERT INTO miembro_cliente (cliente_id, usuario_id, rol) VALUES ($1, $2, 'ADMIN_CLIENTE')
-       ON CONFLICT (cliente_id, usuario_id) DO UPDATE SET rol = 'ADMIN_CLIENTE'`, [x.cliente_id, nuevo],
-    );
+    const yaEsMiembro = (await ctx.c.query("SELECT 1 FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, nuevo])).rows.length > 0;
+    if (yaEsMiembro) await ctx.c.query("UPDATE miembro_cliente SET rol = 'ADMIN_CLIENTE' WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, nuevo]);
+    else await invitarMiembro(ctx, x.cliente_id, nuevo, "ADMIN_CLIENTE");
     await ctx.c.query("UPDATE cliente SET contacto_principal_id = $2, actualizado_en = now() WHERE id = $1", [x.cliente_id, nuevo]);
     if (x.quitar_acceso_anterior && x.solicitado_por !== nuevo) {
       await ctx.c.query("DELETE FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, x.solicitado_por]);
@@ -2062,6 +2062,323 @@ ruta("DELETE", "/avisos/:id", async (ctx, p) => {
   const { rows } = await ctx.c.query("DELETE FROM aviso WHERE id = $1 RETURNING id", [p.id]);
   if (!rows.length) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese aviso");
   return null;
+});
+
+// ───────────────────────────────────────────── alta y edición de clientes (CU-01)
+
+const CANALES_CLIENTE = ["INSTAGRAM", "FACEBOOK", "LINKEDIN", "TIKTOK", "YOUTUBE", "BLOG", "WEB"];
+const fechaValida = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+const correoValido = (v: unknown): v is string => typeof v === "string" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
+const slugDe = (t: string) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+/** La ficha guarda los canales como se muestran («Instagram»), igual que la API simulada. */
+const canalVisible = (k: string) => k.charAt(0) + k.slice(1).toLowerCase();
+
+async function validarClienteEntrada(ctx: Ctx, b: S<"ClienteEntrada">, alta: boolean) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (alta && !b.nombre?.trim()) errores.push({ campo: "nombre", mensaje: "Escribe el nombre del cliente" });
+  else if (b.nombre !== undefined && !String(b.nombre).trim()) errores.push({ campo: "nombre", mensaje: "El nombre no puede quedar vacío" });
+  if (b.limiteGastoIaUsd !== undefined && !(typeof b.limiteGastoIaUsd === "number" && b.limiteGastoIaUsd > 0)) errores.push({ campo: "limiteGastoIaUsd", mensaje: "El límite de IA debe ser mayor a 0" });
+  if (b.wordpressUrl && !/^https?:\/\//.test(b.wordpressUrl)) errores.push({ campo: "wordpressUrl", mensaje: "El enlace debe empezar con https://" });
+  if (b.fechaAniversario && !fechaValida(b.fechaAniversario)) errores.push({ campo: "fechaAniversario", mensaje: "Usa el formato AAAA-MM-DD" });
+  if (b.canales !== undefined && (!Array.isArray(b.canales) || b.canales.some((k) => !CANALES_CLIENTE.includes(k)))) errores.push({ campo: "canales", mensaje: "Canal desconocido" });
+  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "BAJA"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o BAJA" });
+  for (const [campo, tipo] of [["contactoPrincipalId", "CLIENTE"], ["accountManagerId", "EQUIPO"]] as const) {
+    const id = b[campo];
+    if (!id) continue;
+    const ok = esUuid(id) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = $2 AND activo", [id, tipo])).rows.length > 0;
+    if (!ok) errores.push({ campo, mensaje: tipo === "EQUIPO" ? "Debe ser una persona del equipo" : "Ese usuario no existe" });
+  }
+  validacion(errores);
+}
+
+/** Busca la persona por correo o la crea como usuario CLIENTE (Cognito la invita al recibir miembro.invitado). */
+async function usuarioCliente(ctx: Ctx, email: string, nombre: string, cargo: string | null): Promise<string> {
+  const u = (await ctx.c.query<{ id: string; tipo: string }>("SELECT id, tipo FROM usuario WHERE email = $1", [email])).rows[0];
+  if (u?.tipo === "EQUIPO" || u?.tipo === "SERVICIO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
+  if (u) return u.id;
+  return (await ctx.c.query<{ id: string }>("INSERT INTO usuario (email, nombre, cargo, tipo) VALUES ($1, $2, $3, 'CLIENTE') RETURNING id", [email, nombre, cargo])).rows[0].id;
+}
+
+/** Acceso al portal con invitación pendiente hasta su primer ingreso; n8n envía el correo de bienvenida. */
+async function invitarMiembro(ctx: Ctx, clienteId: string, usuarioId: string, rol: string) {
+  await ctx.c.query("INSERT INTO miembro_cliente (cliente_id, usuario_id, rol, invitacion_pendiente) VALUES ($1, $2, $3::rol_cliente, true)", [clienteId, usuarioId, rol]);
+  const u = (await ctx.c.query<{ email: string; nombre: string }>("SELECT email::text, nombre FROM usuario WHERE id = $1", [usuarioId])).rows[0];
+  await emitirOutbox(ctx, "miembro.invitado", clienteId, { usuarioId, email: u.email, nombre: u.nombre, rol, invitadoPor: ctx.u.usuarioId });
+}
+
+ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as S<"ClienteEntrada">;
+  await validarClienteEntrada(ctx, b, true);
+  const nombre = b.nombre!.trim();
+  const slug = slugDe(nombre);
+  if ((await ctx.c.query("SELECT 1 FROM cliente WHERE slug = $1", [slug])).rows.length) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
+  // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
+  const k = b.contacto;
+  if (k) {
+    const errores = validarSucesor({ nombre: k.nombre, email: k.email, telefono: "000000" });
+    validacion(errores.map((e) => ({ ...e, campo: `contacto.${e.campo}` })));
+  }
+  const contactoId = k ? await usuarioCliente(ctx, k.email.trim().toLowerCase(), k.nombre.trim(), k.cargo?.trim() || null) : b.contactoPrincipalId ?? null;
+  const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" ? ctx.u.usuarioId : null);
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario)
+     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+    [
+      nombre, slug, b.estado ?? "ACTIVO", JSON.stringify(b.marca ?? {}), JSON.stringify(b.tono ?? {}), JSON.stringify(b.publico ?? {}),
+      b.pilaresContenido ?? b.publico?.intereses ?? [], (b.canales ?? []).map(canalVisible), b.wordpressUrl ?? null, am, contactoId,
+      b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null,
+    ],
+  )).rows[0].id;
+  if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
+  // n8n crea las carpetas de Drive al recibir cliente.creado y completa driveUrl con PATCH /clientes/{id}.
+  await emitirOutbox(ctx, "cliente.creado", id, { clienteId: id, nombre, slug, canales: b.canales ?? [], accountManagerId: am, contactoId });
+  return { __status: 201, ...(await clienteVista(ctx, id)) };
+});
+
+ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as S<"ClienteEntrada"> & { driveUrl?: string; driveCarpetaId?: string };
+  await validarClienteEntrada(ctx, b, false);
+  const cambios: [string, unknown, string?][] = [];
+  if (b.nombre !== undefined) cambios.push(["nombre", b.nombre.trim()]);
+  // marca, tono y público se combinan con lo que ya hay (merge parcial, como la API simulada).
+  if (b.marca) cambios.push(["marca", JSON.stringify(b.marca), "marca || $::jsonb"]);
+  if (b.tono) cambios.push(["tono", JSON.stringify(b.tono), "tono || $::jsonb"]);
+  if (b.publico) cambios.push(["publico", JSON.stringify(b.publico), "publico || $::jsonb"]);
+  if (b.pilaresContenido) cambios.push(["pilares_contenido", b.pilaresContenido]);
+  if (b.canales) cambios.push(["canales", b.canales.map(canalVisible)]);
+  if (b.wordpressUrl !== undefined) cambios.push(["wordpress_url", b.wordpressUrl]);
+  if (b.fechaAniversario !== undefined) cambios.push(["fecha_aniversario", b.fechaAniversario, "$::date"]);
+  if (b.contactoPrincipalId !== undefined) cambios.push(["contacto_principal_id", b.contactoPrincipalId]);
+  if (b.accountManagerId !== undefined) cambios.push(["account_manager_id", b.accountManagerId]);
+  if (b.limiteGastoIaUsd !== undefined) cambios.push(["limite_gasto_ia_usd", b.limiteGastoIaUsd]);
+  if (b.estado !== undefined) cambios.push(["estado", b.estado, "$::estado_cliente"]);
+  // driveUrl lo escribe n8n después de crear las carpetas (no es parte de ClienteEntrada para personas).
+  if (ctx.esServicio) {
+    if (!ctx.u.scopes?.includes("clientes:write")) throw new ErrorApi(403, "SIN_PERMISO", "La llave no tiene el scope clientes:write");
+    if (b.driveUrl) cambios.push(["drive_url", b.driveUrl]);
+    if (b.driveCarpetaId) cambios.push(["drive_carpeta_id", b.driveCarpetaId]);
+  }
+  if (cambios.length) {
+    const sets = cambios.map(([col, , expr], i) => `${col} = ${(expr ?? "$").replace("$", `$${i + 2}`)}`);
+    await ctx.c.query(`UPDATE cliente SET ${sets.join(", ")}, actualizado_en = now() WHERE id = $1`, [p.id, ...cambios.map(([, v]) => v)]);
+  }
+  return clienteVista(ctx, p.id);
+});
+
+// ───────────────────────────────────────────── usuarios del cliente (POR-01): los gestiona el equipo
+
+const ROLES_CLIENTE = ["ADMIN_CLIENTE", "APROBADOR", "LECTOR"];
+const SELECT_MIEMBRO = `SELECT u.id AS "usuarioId", u.nombre, u.email::text AS email, m.rol, m.invitacion_pendiente AS "invitacionPendiente"
+  FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id`;
+
+async function buscarMiembro(ctx: Ctx, clienteId: string, usuarioId: string): Promise<S<"Miembro">> {
+  const m = esUuid(usuarioId) ? (await ctx.c.query<S<"Miembro">>(`${SELECT_MIEMBRO} WHERE m.cliente_id = $1 AND m.usuario_id = $2`, [clienteId, usuarioId])).rows[0] : undefined;
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese usuario no tiene acceso a esta cuenta");
+  return m;
+}
+
+/** No dejar a un cliente sin nadie que pueda administrar sus usuarios. */
+async function protegerUltimoAdmin(ctx: Ctx, clienteId: string, usuarioId: string) {
+  const { rows } = await ctx.c.query<{ usuario_id: string }>(
+    "SELECT usuario_id FROM miembro_cliente WHERE cliente_id = $1 AND rol = 'ADMIN_CLIENTE' AND NOT invitacion_pendiente", [clienteId],
+  );
+  if (rows.length === 1 && rows[0].usuario_id === usuarioId) throw new ErrorApi(409, "ULTIMO_ADMINISTRADOR", "La cuenta necesita al menos una persona administradora");
+}
+
+ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { email?: string; nombre?: string; rol?: string };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!correoValido(b.email)) errores.push({ campo: "email", mensaje: "Escribe un correo válido" });
+  if (!b.nombre?.trim()) errores.push({ campo: "nombre", mensaje: "Escribe el nombre" });
+  if (!b.rol || !ROLES_CLIENTE.includes(b.rol)) errores.push({ campo: "rol", mensaje: "Elige un rol" });
+  validacion(errores);
+  const usuarioId = await usuarioCliente(ctx, b.email!.trim().toLowerCase(), b.nombre!.trim(), null);
+  if ((await ctx.c.query("SELECT 1 FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [p.id, usuarioId])).rows.length) {
+    throw new ErrorApi(409, "YA_ES_MIEMBRO", "Esa persona ya tiene acceso a esta cuenta");
+  }
+  await invitarMiembro(ctx, p.id, usuarioId, b.rol!);
+  return { __status: 201, ...(await buscarMiembro(ctx, p.id, usuarioId)) };
+});
+
+ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { rol?: string };
+  if (!b.rol || !ROLES_CLIENTE.includes(b.rol)) validacion([{ campo: "rol", mensaje: "Elige un rol" }]);
+  await buscarMiembro(ctx, p.id, p.usuario);
+  if (b.rol !== "ADMIN_CLIENTE") await protegerUltimoAdmin(ctx, p.id, p.usuario);
+  await ctx.c.query("UPDATE miembro_cliente SET rol = $3::rol_cliente WHERE cliente_id = $1 AND usuario_id = $2", [p.id, p.usuario, b.rol]);
+  return buscarMiembro(ctx, p.id, p.usuario);
+});
+
+ruta("DELETE", "/clientes/:id/miembros/:usuario", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  await buscarMiembro(ctx, p.id, p.usuario);
+  await protegerUltimoAdmin(ctx, p.id, p.usuario);
+  await ctx.c.query("DELETE FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [p.id, p.usuario]);
+  await emitirOutbox(ctx, "miembro.retirado", p.id, { usuarioId: p.usuario, retiradoPor: ctx.u.usuarioId });
+  return null;
+});
+
+// ───────────────────────────────────────────── actividad de la ficha (equipo)
+
+const ETIQUETA_ACTIVIDAD: Partial<Record<Estado, S<"ActividadCuenta">["etiqueta"]>> = {
+  LISTO_REVISION: "POR_REVISAR", APROBADO_CLIENTE: "APROBADA", CAMBIOS_SOLICITADOS: "CAMBIOS_SOLICITADOS",
+};
+const ESTADO_LEGIBLE: Record<Estado, string> = {
+  BORRADOR: "borrador", EN_REVISION_INTERNA: "revisión interna", LISTO_REVISION: "revisión del cliente",
+  APROBADO_CLIENTE: "aprobada", CAMBIOS_SOLICITADOS: "cambios solicitados", PUBLICADO: "publicada",
+};
+
+ruta("GET", "/clientes/:id/actividad", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<{ tipo: "EVENTO" | "VERSION"; fecha: Date; pieza_id: string; titulo: string; version_actual: number; estado: Estado | null; version: number | null; usuario: string | null; usuario_tipo: string | null; agente: string | null }>(
+    `SELECT * FROM (
+       SELECT 'EVENTO' AS tipo, e.creado_en AS fecha, p.id AS pieza_id, p.titulo, p.version_actual, e.a_estado AS estado, e.version,
+              u.nombre AS usuario, u.tipo::text AS usuario_tipo, NULL AS agente
+       FROM evento_pieza e JOIN pieza p ON p.id = e.pieza_id LEFT JOIN usuario u ON u.id = e.usuario_id
+       WHERE p.cliente_id = $1
+       UNION ALL
+       SELECT 'VERSION', v.creado_en, p.id, p.titulo, p.version_actual, NULL, v.numero, u.nombre, u.tipo::text, v.agente
+       FROM version_pieza v JOIN pieza p ON p.id = v.pieza_id LEFT JOIN usuario u ON u.id = v.autor_usuario_id
+       WHERE p.cliente_id = $1
+     ) x WHERE fecha <= now() ORDER BY fecha DESC LIMIT 50`,
+    [p.id],
+  );
+  const datos = rows.map((r): S<"ActividadCuenta"> => {
+    const quien = r.usuario_tipo === "EQUIPO" ? `${r.usuario} · Inoo` : r.usuario_tipo === "SERVICIO" ? null : r.usuario ?? r.agente;
+    const anterior = r.version !== null && r.version < r.version_actual ? " No aplica a la versión actual." : "";
+    if (r.tipo === "VERSION") {
+      return { fecha: iso(r.fecha)!, usuarioNombre: quien, descripcion: `Creó la versión ${r.version} de «${r.titulo}».`, piezaId: r.pieza_id, etiqueta: anterior ? "VERSION_ANTERIOR" : null };
+    }
+    const e = r.estado!;
+    const descripcion =
+      e === "APROBADO_CLIENTE" ? `Aprobó la versión ${r.version} de «${r.titulo}».${anterior}`
+      : e === "CAMBIOS_SOLICITADOS" ? `Pidió cambios en la versión ${r.version} de «${r.titulo}».${anterior}`
+      : e === "LISTO_REVISION" ? `Envió la versión ${r.version} de «${r.titulo}» a revisión del cliente.`
+      : e === "PUBLICADO" ? `Publicó «${r.titulo}».`
+      : `Pasó «${r.titulo}» a ${ESTADO_LEGIBLE[e]}.`;
+    return { fecha: iso(r.fecha)!, usuarioNombre: quien, descripcion, piezaId: r.pieza_id, etiqueta: ETIQUETA_ACTIVIDAD[e] ?? null };
+  });
+  return { datos, paginacion: { siguienteCursor: null } };
+});
+
+// ───────────────────────────────────────────── Inicio del cliente («Tu cuenta»)
+
+/** El perfil de marca solo tiene sentido con servicios de marca o contenido (reunión 12 oct). */
+const SERVICIOS_DE_MARCA = ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA"];
+
+/** Lo que el cliente ve hoy: avisos globales y suyos dentro de su ventana, y su aniversario. */
+async function avisosVisibles(ctx: Ctx, clienteId: string, aniversario: string | null, hoy: string): Promise<S<"Aviso">[]> {
+  const { rows } = await ctx.c.query<FilaAviso>(
+    "SELECT * FROM aviso WHERE (cliente_id IS NULL OR cliente_id = $1) AND visible_desde <= $2::date AND fecha_fin >= $2::date ORDER BY fecha_inicio, titulo",
+    [clienteId, hoy],
+  );
+  const xs = rows.map(avisoVista);
+  const anios = aniversarioHoy(aniversario, hoy);
+  if (anios) {
+    xs.unshift({ id: `aniversario-${clienteId}`, clienteId, tipo: "ANIVERSARIO", titulo: `¡Hoy cumplimos ${anios === 1 ? "un año" : `${anios} años`} trabajando juntos!`, mensaje: "Gracias por confiar en Inoo.", fechaInicio: hoy, fechaFin: hoy, visibleDesde: hoy });
+  }
+  return xs;
+}
+
+/** Aviso de Inicio, sin monto: el pago más urgente si ya venció o vence en 7 días. */
+async function avisoPago(ctx: Ctx, clienteId: string, hoy: string): Promise<S<"InicioCliente">["avisoPago"]> {
+  const { rows } = await ctx.c.query<{ concepto: string; vence: string; vencidos: number }>(
+    `SELECT concepto, to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vence,
+            (SELECT count(*)::int FROM pago_programado WHERE cliente_id = $1 AND estado = 'PENDIENTE' AND fecha_vencimiento < $2::date) AS vencidos
+     FROM pago_programado WHERE cliente_id = $1 AND estado = 'PENDIENTE' ORDER BY fecha_vencimiento LIMIT 1`,
+    [clienteId, hoy],
+  );
+  const x = rows[0];
+  const limite = new Date(Date.parse(`${hoy}T12:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
+  if (!x || x.vence > limite) return null;
+  return { concepto: x.concepto, fechaVencimiento: x.vence, estado: x.vence < hoy ? "VENCIDO" : "POR_VENCER", vencidos: x.vencidos };
+}
+
+/** Actividad reciente, breve: aprobaciones del cliente, publicaciones, etapas terminadas y requerimientos. */
+async function actividadReciente(ctx: Ctx, clienteId: string, limite = 4): Promise<NonNullable<S<"InicioCliente">["actividad"]>> {
+  const { rows } = await ctx.c.query<{ fecha: Date; texto: string; tipo: "APROBACION" | "ETAPA" | "REQUERIMIENTO" | "PUBLICACION" }>(
+    `SELECT * FROM (
+       SELECT e.creado_en AS fecha, CASE e.a_estado WHEN 'PUBLICADO' THEN 'Publicamos «' ELSE 'Aprobaste «' END || p.titulo || '»' AS texto,
+              CASE e.a_estado WHEN 'PUBLICADO' THEN 'PUBLICACION' ELSE 'APROBACION' END AS tipo
+       FROM evento_pieza e JOIN pieza p ON p.id = e.pieza_id
+       WHERE p.cliente_id = $1 AND p.tipo <> 'BLOG' AND ((e.a_estado = 'APROBADO_CLIENTE' AND e.canal = 'PORTAL') OR e.a_estado = 'PUBLICADO')
+       UNION ALL
+       SELECT (ep.fecha_fin + time '17:00') AT TIME ZONE 'America/Lima', 'Terminamos «' || ep.nombre || '» de ' || s.nombre, 'ETAPA'
+       FROM etapa_proyecto ep JOIN servicio_contratado sc ON sc.id = ep.servicio_contratado_id JOIN servicio s ON s.id = sc.servicio_id
+       WHERE ep.cliente_id = $1 AND ep.estado = 'COMPLETADO' AND ep.fecha_fin IS NOT NULL
+       UNION ALL
+       SELECT r.emitido_en, 'Te pedimos «' || r.titulo || '»', 'REQUERIMIENTO' FROM requerimiento r WHERE r.cliente_id = $1
+       UNION ALL
+       SELECT r.enviado_en, 'Enviaste «' || r.titulo || '»', 'REQUERIMIENTO' FROM requerimiento r WHERE r.cliente_id = $1 AND r.enviado_en IS NOT NULL
+     ) x WHERE fecha <= now() ORDER BY fecha DESC LIMIT $2`,
+    [clienteId, limite],
+  );
+  return rows.map((r) => ({ fecha: iso(r.fecha)!, texto: r.texto, tipo: r.tipo }));
+}
+
+ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const hoy = HOY_LIMA();
+  const c = (await ctx.c.query<{ nombre: string; marca: Record<string, any>; tono: Record<string, any>; publico: Record<string, any>; drive_url: string | null; fecha_aniversario: Date | null; cp_id: string | null; cp_nombre: string | null; cp_cargo: string | null; cp_email: string | null; am_id: string | null; am_nombre: string | null; am_cargo: string | null; am_email: string | null }>(
+    `SELECT c.nombre, c.marca, c.tono, c.publico, c.drive_url, c.fecha_aniversario,
+            cp.id AS cp_id, cp.nombre AS cp_nombre, cp.cargo AS cp_cargo, cp.email::text AS cp_email,
+            am.id AS am_id, am.nombre AS am_nombre, am.cargo AS am_cargo, am.email::text AS am_email
+     FROM cliente c LEFT JOIN usuario cp ON cp.id = c.contacto_principal_id LEFT JOIN usuario am ON am.id = c.account_manager_id
+     WHERE c.id = $1`,
+    [p.id],
+  )).rows[0];
+  const servicios = await Promise.all((await serviciosDelCliente(ctx, p.id)).map(async (s) => {
+    const { etapas: _e, ...v } = await servicioVista(ctx, s, periodo);
+    return v;
+  }));
+  const pendientes = (await ctx.c.query<FilaPieza>(
+    `${SELECT_PIEZA} WHERE p.cliente_id = $1 AND p.periodo = $2 AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG' ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
+    [p.id, periodo],
+  )).rows;
+  // Figma: «Próxima publicación» es la siguiente pieza que espera la revisión del cliente.
+  const proxima = pendientes.find((x) => x.fecha_programada && iso(x.fecha_programada)!.slice(0, 10) >= hoy);
+  const abiertos = (await ctx.c.query<{ id: string; numero: string; asunto: string; estado: S<"EstadoTicket"> }>(
+    "SELECT id, numero, asunto, estado FROM ticket WHERE cliente_id = $1 AND estado NOT IN ('RESUELTO', 'CERRADO') ORDER BY numero DESC", [p.id],
+  )).rows;
+  const requerimientos = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM requerimiento WHERE cliente_id = $1 AND estado IN ('PENDIENTE', 'OBSERVADO')", [p.id])).rows[0].n;
+  const plan = (await ctx.c.query<{ id: string; nombre: string; fecha_inicio: Date; fecha_fin: Date | null; contrato_archivo_id: string | null }>(
+    "SELECT id, nombre, fecha_inicio, fecha_fin, contrato_archivo_id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id],
+  )).rows[0];
+  const veePagos = ctx.esEquipo || ctx.u.roles[p.id] === "ADMIN_CLIENTE";
+  const cuota = servicios.reduce((t, s) => t + s.cantidadMensual, 0);
+  const r: S<"InicioCliente"> = {
+    periodo,
+    indicadores: { serviciosActivos: servicios.filter((s) => s.estado === "ACTIVO").length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0, requerimientosPendientes: requerimientos },
+    plan: plan ? { id: plan.id, nombre: plan.nombre, fechaInicio: fechaIso(plan.fecha_inicio)!, fechaFin: fechaIso(plan.fecha_fin), tieneContrato: !!plan.contrato_archivo_id } : null,
+    cuenta: {
+      nombre: c.nombre,
+      contactoPrincipal: c.cp_id ? { id: c.cp_id, nombre: c.cp_nombre!, cargo: c.cp_cargo, email: c.cp_email ?? undefined } : null,
+      responsable: c.am_id ? { id: c.am_id, nombre: c.am_nombre!, cargo: c.am_cargo, email: c.am_email ?? undefined } : null,
+      driveUrl: c.drive_url,
+    },
+    avisoPago: veePagos ? await avisoPago(ctx, p.id, hoy) : null,
+    marca: servicios.some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
+      ? { mensajeCentral: c.marca.mensajeCentral ?? null, campanaActual: c.marca.campanaActual ?? null, descripcion: c.marca.descripcion ?? null, tono: c.tono.etiquetas ?? [], publico: c.publico.descripcion ?? null }
+      : null,
+    avisos: await avisosVisibles(ctx, p.id, fechaIso(c.fecha_aniversario), hoy),
+    actividad: await actividadReciente(ctx, p.id),
+    avanceMes: await progresoPiezas(ctx, null, p.id, periodo, cuota),
+    pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
+    servicios: servicios.map((s) => ({ codigo: s.codigo, nombre: s.nombre, titulo: s.titulo, servicioContratadoId: s.servicioContratadoId, cantidadMensual: s.cantidadMensual, unidad: s.unidad, estado: s.estado, avance: s.avance })),
+    proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha_programada)! } : null,
+    ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado })),
+  };
+  return r;
 });
 
 // ───────────────────────────────────────────── despachador

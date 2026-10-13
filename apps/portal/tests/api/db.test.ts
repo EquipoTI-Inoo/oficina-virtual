@@ -15,6 +15,7 @@ import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
+import { pruebasCuentas } from "./flujo-cuentas";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
@@ -47,6 +48,7 @@ before(async () => {
   await db.exec(sql("migraciones/0010_cambio_responsable.sql"));
   await db.exec(sql("migraciones/0011_avisos.sql"));
   await db.exec(sql("migraciones/0012_blogs_internos.sql"));
+  await db.exec(sql("migraciones/0013_invitaciones.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -63,6 +65,7 @@ pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows;
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 // El backend usa la fecha real de Lima para los atrasos.
 pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 
@@ -148,7 +151,7 @@ describe("solo en Postgres", () => {
   });
 
   test("rutas aún no migradas responden 501 y lo dicen", async () => {
-    const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
+    const r = await llamar("POST", "/integraciones/inoowork/sincronizacion", DIEGO, {});
     assert.equal(r.status, 501);
     assert.equal(r.json.codigo, "RUTA_NO_IMPLEMENTADA");
   });
