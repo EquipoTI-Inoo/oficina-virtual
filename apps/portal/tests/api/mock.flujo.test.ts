@@ -11,5 +11,5 @@ const eventos = async () => (await (await manejar(new Request("http://local/api/
 
 pruebasFlujoPiezas("API simulada", manejar, reiniciarMock);
 pruebasPlanificacion("API simulada", manejar, reiniciarMock, eventos);
-pruebasServicios("API simulada", manejar, reiniciarMock, eventos);
+pruebasServicios("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasRequerimientos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));

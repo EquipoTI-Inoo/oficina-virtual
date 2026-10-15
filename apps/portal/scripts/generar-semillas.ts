@@ -36,12 +36,14 @@ const f = D.FICHA_CASA_OLIVA;
 salida.push(
   insert(
     "cliente",
-    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd", "fecha_aniversario"],
+    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd", "fecha_aniversario",
+      "situacion_pago", "pago_atrasado_desde", "pago_nota", "pago_actualizado_por", "pago_actualizado_en"],
     D.CLIENTES.map((c) => [
       c.id, c.nombre, c.slug,
       c.slug === "casa-oliva" ? f.marca : {}, c.slug === "casa-oliva" ? f.tono : {}, c.slug === "casa-oliva" ? f.publico : {},
       c.slug === "casa-oliva" ? f.publico.intereses : [], c.slug === "casa-oliva" ? f.canales : [],
       DIEGO, c.contactoPrincipalId, c.slug === "casa-oliva" ? "demo-casa-oliva" : null, c.slug === "casa-oliva" ? f.driveUrl : null, c.limiteGastoIaUsd, c.fechaAniversario ?? null,
+      c.pago?.situacion ?? "AL_DIA", c.pago?.atrasadoDesde ?? null, c.pago?.nota ?? null, c.pago?.actualizadoPorId ?? null, c.pago?.actualizadoEn ?? null,
     ]),
   ),
   insert("miembro_cliente", ["cliente_id", "usuario_id", "rol"], D.MIEMBROS.map((m) => [m.clienteId, m.usuarioId, m.rol])),
@@ -60,11 +62,6 @@ LEFT JOIN LATERAL (
 ) pp ON true;
 `,
   insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.flatMap((s) => s.entregables.map((e) => [s.id, e.tipoPieza, e.cantidadMensual]))),
-  insert(
-    "pago_programado",
-    ["id", "cliente_id", "servicio_contratado_id", "concepto", "monto", "moneda", "fecha_vencimiento", "estado", "pagado_en"],
-    D.PAGOS_INICIALES.map((x) => [x.id, x.clienteId, x.servicioContratadoId, x.concepto, x.monto, x.moneda, x.fechaVencimiento, x.estado, x.pagadoEn]),
-  ),
   insert(
     "reunion",
     ["id", "servicio_contratado_id", "cliente_id", "titulo", "fecha", "estado", "con_acuerdos", "resumen"],

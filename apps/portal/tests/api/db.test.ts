@@ -47,6 +47,7 @@ before(async () => {
   await db.exec(sql("migraciones/0010_cambio_responsable.sql"));
   await db.exec(sql("migraciones/0011_avisos.sql"));
   await db.exec(sql("migraciones/0012_blogs_internos.sql"));
+  await db.exec(sql("migraciones/0013_estado_pago.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -62,7 +63,7 @@ before(async () => {
 pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows;
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
-pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 // El backend usa la fecha real de Lima para los atrasos.
 pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 

@@ -202,6 +202,26 @@ test("equipo: nueva pieza, revisión interna y liberación al cliente", async ({
   await expect(page.getByRole("button", { name: "Retirar de revisión" })).toBeVisible();
 });
 
+test("pagos: operaciones solo ve la alerta y Finanzas marca al cliente al día", async ({ browser }) => {
+  const ficha = "/equipo/clientes/00000000-0000-4000-8002-000000000001";
+  const am = await browser.newPage();
+  await entrarComo(am, "equipo");
+  await am.goto(ficha);
+  await expect(am.getByText("Pago atrasado 8 días")).toBeVisible({ timeout: 20_000 });
+  await expect(am.getByRole("heading", { name: "Estado de pago" })).toHaveCount(0);
+  await am.close();
+  const finanzas = await browser.newPage();
+  await entrarComo(finanzas, "finanzas");
+  await finanzas.goto(ficha);
+  await expect(finanzas.getByText("Cuota 2 de 3 de la implementación de CRM (dato de relleno)")).toBeVisible({ timeout: 20_000 });
+  await finanzas.getByRole("button", { name: "Cambiar estado" }).click();
+  const dialogo = finanzas.getByRole("dialog");
+  await dialogo.getByRole("button", { name: "Al día" }).click();
+  await dialogo.getByRole("button", { name: "Guardar" }).click();
+  await expect(finanzas.getByText("Marcado al día")).toBeVisible();
+  await finanzas.close();
+});
+
 test("un cliente no entra al panel interno", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/equipo/panel");
@@ -211,12 +231,12 @@ test("un cliente no entra al panel interno", async ({ page }) => {
 test("mi cuenta: la foto de perfil abre pagos, usuarios y ayuda", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/inicio");
-  await expect(page.getByText(/venció el 02 oct/)).toBeVisible();
-  await expect(page.getByText("S/ 3,200")).toHaveCount(0);
+  await expect(page.getByText(/Tienes un pago con 8 días de atraso/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/S\/ /)).toHaveCount(0);
   await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
   await page.getByRole("menuitem", { name: "Pagos" }).click();
   await expect(page).toHaveURL(/\/cuenta\/pagos$/);
-  await expect(page.getByText("Mensualidad de octubre")).toBeVisible();
+  await expect(page.getByText("Atrasado · 8 días")).toBeVisible();
   await page.getByRole("tab", { name: "Ayuda" }).click();
   await expect(page.getByText("Pagos y facturación")).toBeVisible();
 });

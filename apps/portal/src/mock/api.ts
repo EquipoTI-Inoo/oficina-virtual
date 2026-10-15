@@ -12,6 +12,7 @@
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
+import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
@@ -73,7 +74,6 @@ interface Estado {
   miembros: { clienteId: string; usuarioId: string; rol: D.RolCliente; invitacionPendiente?: boolean }[];
   servicios: D.ServicioContratadoDemo[];
   etapas: D.EtapaDemo[];
-  pagos: D.PagoDemo[];
   avisos: D.AvisoDemo[];
   reuniones: D.ReunionDemo[];
   comentariosProyecto: D.ComentarioProyectoDemo[];
@@ -132,7 +132,6 @@ function estadoInicial(): Estado {
     miembros: structuredClone(D.MIEMBROS),
     servicios: structuredClone(D.SERVICIOS_CONTRATADOS),
     etapas: D.etapasIniciales(),
-    pagos: structuredClone(D.PAGOS_INICIALES),
     avisos: structuredClone(D.AVISOS_INICIALES),
     reuniones: structuredClone(D.REUNIONES_INICIALES),
     comentariosProyecto: structuredClone(D.COMENTARIOS_PROYECTO_INICIALES),
@@ -621,87 +620,48 @@ ruta("DELETE", "/clientes/:id/referencias/:ref", (ctx, p) => {
 /** El perfil de marca solo tiene sentido con servicios de marca o contenido (reunión 12 oct). */
 const SERVICIOS_DE_MARCA = ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA"];
 
-const pagoVista = (x: D.PagoDemo): S<"PagoProgramado"> => ({
-  id: x.id, concepto: x.concepto, servicioContratadoId: x.servicioContratadoId, monto: x.monto, moneda: x.moneda, fechaVencimiento: x.fechaVencimiento,
-  estado: x.estado === "PENDIENTE" && x.fechaVencimiento < D.HOY.slice(0, 10) ? "VENCIDO" : x.estado, pagadoEn: x.pagadoEn,
-});
-const pendientesDe = (clienteId: string) =>
-  E.pagos.filter((x) => x.clienteId === clienteId && x.estado === "PENDIENTE").sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento));
-/** Los pagos (y su aviso en Inicio) solo los ve quien administra la cuenta y el equipo. */
-const veePagos = (ctx: Ctx, clienteId: string) => ctx.esEquipo || rolEn(ctx, clienteId) === "ADMIN_CLIENTE";
+/**
+ * Estado de pago (reunión 15 oct): solo «Al día» o «Atrasado» desde una fecha; sin cuotas ni montos.
+ * ADMIN y FINANZAS lo ven completo y lo cambian; el resto del equipo ve la situación y la alerta; la
+ * persona que administra la cuenta del cliente, solo la situación y los días.
+ */
+const esFinanzas = (ctx: Ctx) => ctx.esEquipo && !ctx.esServicio && ROLES_FINANZAS.includes(ctx.usuario.rolEquipo ?? "");
+const pagoDe = (c: D.ClienteDemo) => c.pago ?? { situacion: "AL_DIA" as const, atrasadoDesde: null, nota: null, actualizadoPorId: null, actualizadoEn: null };
 
-/** Aviso de Inicio, sin monto: el pago más urgente si ya venció o vence en 7 días. */
-function avisoPago(clienteId: string): S<"InicioCliente">["avisoPago"] {
-  const hoy = D.HOY.slice(0, 10);
-  const limite = new Date(Date.parse(`${hoy}T12:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
-  const xs = pendientesDe(clienteId);
-  const vencidos = xs.filter((x) => x.fechaVencimiento < hoy).length;
-  const x = xs[0];
-  if (!x || x.fechaVencimiento > limite) return null;
-  return { concepto: x.concepto, fechaVencimiento: x.fechaVencimiento, estado: x.fechaVencimiento < hoy ? "VENCIDO" : "POR_VENCER", vencidos };
+function estadoPagoVista(ctx: Ctx, c: D.ClienteDemo): S<"EstadoPago"> {
+  const x = pagoDe(c);
+  const diasAtraso = x.situacion === "ATRASADO" ? diasAtrasoPago(x.atrasadoDesde, D.HOY) : 0;
+  const base: S<"EstadoPago"> = { situacion: x.situacion, diasAtraso };
+  if (!ctx.esEquipo) return base;
+  const equipo = { ...base, atrasadoDesde: x.atrasadoDesde, alertaOperaciones: alertaPago(x.situacion, diasAtraso), umbralDias: UMBRAL_ALERTA_PAGO_DIAS };
+  return esFinanzas(ctx) ? { ...equipo, nota: x.nota, actualizadoEn: x.actualizadoEn, actualizadoPor: persona(x.actualizadoPorId) } : equipo;
 }
 
-
-/** Pago nuevo (`parcial` = false) o cambio: concepto, monto > 0, moneda y fecha de vencimiento. */
-function validarPago(b: { concepto?: unknown; monto?: unknown; moneda?: unknown; fechaVencimiento?: unknown; estado?: unknown; pagadoEn?: unknown }, parcial: boolean) {
-  const fecha = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
-  const errores: { campo: string; mensaje: string }[] = [];
-  if ((!parcial || b.concepto !== undefined) && (typeof b.concepto !== "string" || b.concepto.trim().length < 3)) errores.push({ campo: "concepto", mensaje: "Escribe el concepto" });
-  if ((!parcial || b.monto !== undefined) && !(typeof b.monto === "number" && b.monto > 0)) errores.push({ campo: "monto", mensaje: "El monto debe ser mayor a 0" });
-  if (b.moneda !== undefined && !["PEN", "USD"].includes(b.moneda as string)) errores.push({ campo: "moneda", mensaje: "Usa PEN o USD" });
-  if ((!parcial || b.fechaVencimiento !== undefined) && !fecha(b.fechaVencimiento)) errores.push({ campo: "fechaVencimiento", mensaje: "Indica la fecha (AAAA-MM-DD)" });
-  if (b.estado !== undefined && !["PENDIENTE", "PAGADO"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Usa PENDIENTE o PAGADO" });
-  if (b.pagadoEn != null && !fecha(b.pagadoEn)) errores.push({ campo: "pagadoEn", mensaje: "Usa el formato AAAA-MM-DD" });
-  return errores;
+/** Aviso de Inicio, sin montos: solo si está atrasado, y solo para quien administra la cuenta y Finanzas. */
+function avisoPago(ctx: Ctx, c: D.ClienteDemo): S<"InicioCliente">["avisoPago"] {
+  const veePagos = ctx.esEquipo ? esFinanzas(ctx) : rolEn(ctx, c.id) === "ADMIN_CLIENTE";
+  const x = pagoDe(c);
+  if (!veePagos || x.situacion !== "ATRASADO") return null;
+  return { situacion: "ATRASADO", diasAtraso: diasAtrasoPago(x.atrasadoDesde, D.HOY) };
 }
 
-ruta("POST", "/clientes/:id/pagos", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
-  const b = await cuerpo<{ concepto?: string; monto?: number; moneda?: "PEN" | "USD"; fechaVencimiento?: string; servicioContratadoId?: string | null }>(req);
-  const errores = validarPago(b, false);
-  if (b.servicioContratadoId && !E.servicios.some((x) => x.id === b.servicioContratadoId && x.clienteId === c.id)) errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
-  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  const x: D.PagoDemo = { id: nuevoId(22), clienteId: c.id, servicioContratadoId: b.servicioContratadoId ?? null, concepto: b.concepto!.trim(), monto: b.monto!, moneda: b.moneda ?? "PEN", fechaVencimiento: b.fechaVencimiento!, estado: "PENDIENTE", pagadoEn: null };
-  E.pagos.push(x);
-  return { __status: 201, ...pagoVista(x) };
-});
-
-ruta("PATCH", "/pagos/:id", async (ctx, p, _q, req) => {
-  const x = E.pagos.find((y) => y.id === p.id);
-  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
-  accesoCliente(ctx, x.clienteId);
-  exigirRol(ctx, x.clienteId, ["ACCOUNT_MANAGER", "ADMIN"]);
-  const b = await cuerpo<{ concepto?: string; monto?: number; moneda?: "PEN" | "USD"; fechaVencimiento?: string; estado?: "PENDIENTE" | "PAGADO"; pagadoEn?: string | null }>(req);
-  const errores = validarPago(b, true);
-  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  if (b.concepto !== undefined) x.concepto = b.concepto.trim();
-  if (b.monto !== undefined) x.monto = b.monto;
-  if (b.moneda !== undefined) x.moneda = b.moneda;
-  if (b.fechaVencimiento !== undefined) x.fechaVencimiento = b.fechaVencimiento;
-  if (b.estado !== undefined) {
-    x.estado = b.estado;
-    x.pagadoEn = b.estado === "PAGADO" ? b.pagadoEn ?? D.HOY.slice(0, 10) : null;
-  }
-  return pagoVista(x);
-});
-
-ruta("DELETE", "/pagos/:id", (ctx, p) => {
-  const x = E.pagos.find((y) => y.id === p.id);
-  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
-  accesoCliente(ctx, x.clienteId);
-  exigirRol(ctx, x.clienteId, ["ACCOUNT_MANAGER", "ADMIN"]);
-  E.pagos = E.pagos.filter((y) => y.id !== x.id);
-  return null;
-});
-
-ruta("GET", "/clientes/:id/pagos", (ctx, p) => {
+ruta("GET", "/clientes/:id/estado-pago", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
   exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
-  return {
-    pendientes: pendientesDe(c.id).map(pagoVista),
-    pagados: E.pagos.filter((x) => x.clienteId === c.id && x.estado === "PAGADO").sort((a, b) => b.fechaVencimiento.localeCompare(a.fechaVencimiento)).map(pagoVista),
-  };
+  return estadoPagoVista(ctx, c);
+});
+
+ruta("PUT", "/clientes/:id/estado-pago", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ["ADMIN", "FINANZAS"]);
+  const b = await cuerpo<{ situacion?: "AL_DIA" | "ATRASADO"; atrasadoDesde?: string; nota?: string | null }>(req);
+  const errores = validarEstadoPago(b, D.HOY);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const atrasado = b.situacion === "ATRASADO";
+  c.pago = { situacion: b.situacion!, atrasadoDesde: atrasado ? b.atrasadoDesde! : null, nota: b.nota?.trim() || null, actualizadoPorId: ctx.usuario.id, actualizadoEn: new Date().toISOString() };
+  const vista = estadoPagoVista(ctx, c);
+  emitir("pago.situacion_cambiada", c.id, { situacion: vista.situacion, atrasadoDesde: c.pago.atrasadoDesde, diasAtraso: vista.diasAtraso, alertaOperaciones: vista.alertaOperaciones, usuarioId: ctx.usuario.id });
+  return vista;
 });
 
 /** Actividad reciente, breve: aprobaciones del cliente, publicaciones y etapas terminadas. */
@@ -800,7 +760,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
       responsable: persona(c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId),
       driveUrl: fichaDe(c.id).driveUrl ?? null,
     },
-    avisoPago: veePagos(ctx, c.id) ? avisoPago(c.id) : null,
+    avisoPago: avisoPago(ctx, c),
     marca: serviciosDe(c.id).some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
       ? (() => {
           const f = fichaDe(c.id);
@@ -1381,6 +1341,7 @@ ruta("POST", "/tickets/:id/mensajes", async (ctx, p, _q, req) => {
 
 // Panel interno
 function filaPanel(c: D.ClienteDemo): S<"FilaPanelCliente"> {
+  const diasPago = pagoDe(c).situacion === "ATRASADO" ? diasAtrasoPago(pagoDe(c).atrasadoDesde, D.HOY) : 0;
   const ps = piezasDe(c.id);
   const atrasadas = c.resumenFijo?.atrasadas ?? 0;
   const porAprobar = c.resumenFijo?.porAprobar ?? ps.filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length;
@@ -1397,6 +1358,7 @@ function filaPanel(c: D.ClienteDemo): S<"FilaPanelCliente"> {
     ticketsAbiertos: 0,
     ticketsFueraSla: 0,
     gastoIa: { gastoUsd: gastoDe(c), limiteUsd: c.limiteGastoIaUsd, pctLimite: pct, alerta },
+    pagoAtrasadoDias: alertaPago(pagoDe(c).situacion, diasPago) ? diasPago : null,
   };
 }
 ruta("GET", "/panel/clientes", (ctx, _p, q) => {

@@ -190,10 +190,8 @@ function Inicio() {
       />
       <AvisosInicio avisos={d.avisos ?? []} />
       {pago && (
-        <Aviso icono={<LuWallet size={18} />} tono={pago.estado === "VENCIDO" ? "alerta" : undefined}>
-          {pago.estado === "VENCIDO"
-            ? `${pago.vencidos && pago.vencidos > 1 ? `Tienes ${pago.vencidos} pagos vencidos. ` : ""}«${pago.concepto}» venció el ${fDiaMes(pago.fechaVencimiento)}.`
-            : `«${pago.concepto}» vence el ${fDiaMes(pago.fechaVencimiento)}.`}{" "}
+        <Aviso icono={<LuWallet size={18} />} tono="alerta">
+          Tienes un pago con {pago.diasAtraso} {pago.diasAtraso === 1 ? "día" : "días"} de atraso. Si ya pagaste, envíale el comprobante a administración.{" "}
           <Enlace a="/cuenta/pagos" className="enlace">
             Ver mis pagos →
           </Enlace>

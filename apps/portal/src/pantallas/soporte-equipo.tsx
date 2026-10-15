@@ -11,7 +11,7 @@ import {
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
-import { NuevoServicio, PagosDelCliente } from "./proyecto-equipo";
+import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
@@ -425,7 +425,11 @@ function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total
                     <p className="texto-xs texto-muted" style={{ fontSize: 10, marginTop: 5 }}>{f.contactoPrincipalNombre}</p>
                   </td>
                   <td>
-                    <Etiqueta tono={tono}>{et}</Etiqueta>
+                    <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
+                      <Etiqueta tono={tono}>{et}</Etiqueta>
+                      {/* Reunión 15 oct: sin montos; solo avisa que hay que coordinar con Finanzas. */}
+                      {f.pagoAtrasadoDias != null && <Etiqueta tono="rojo">Pago atrasado · {f.pagoAtrasadoDias} días</Etiqueta>}
+                    </div>
                   </td>
                   <td style={{ fontSize: 15, color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
                   <td style={{ fontSize: 15, color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
@@ -725,7 +729,7 @@ function Ficha() {
           </div>
           <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
-          <PagosDelCliente clienteId={id} />
+          <EstadoPagoDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>

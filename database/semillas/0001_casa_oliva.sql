@@ -8,15 +8,16 @@ VALUES
   ('00000000-0000-4000-8001-000000000001', 'valeria@casaoliva.pe', 'Valeria Mendoza', 'Administradora', 'CLIENTE', NULL),
   ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL),
   ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER'),
-  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN');
+  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN'),
+  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS');
 
-INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario)
+INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario, situacion_pago, pago_atrasado_desde, pago_nota, pago_actualizado_por, pago_actualizado_en)
 VALUES
-  ('00000000-0000-4000-8002-000000000001', 'Casa Oliva', 'casa-oliva', '{"descripcion":"Casa Oliva comunica cuidado consciente de la piel y bienestar cotidiano. El contenido acompaña pequeños rituales de limpieza, hidratación y protección.","mensajeCentral":"Cuida tu piel. Vuelve a ti.","campanaActual":"Campaña de octubre: «Tu ritual, tu momento»."}'::jsonb, '{"etiquetas":["Cercano","Consciente","Sereno"],"descripcion":"Invitar a una pausa y usar mensajes simples. Hablar de hábitos sin promesas absolutas.","ejemplo":"«Entre tantos pendientes, regálate una pausa.»"}'::jsonb, '{"descripcion":"Personas interesadas en el cuidado de la piel, el bienestar y los hábitos cotidianos.","intereses":["Rituales diarios","Cuidado consciente","Autocuidado accesible"],"segmentos":null}'::jsonb, ARRAY['Rituales diarios', 'Cuidado consciente', 'Autocuidado accesible']::text[], ARRAY['Instagram', 'Facebook', 'Blog web']::text[], '00000000-0000-4000-8001-000000000003', '00000000-0000-4000-8001-000000000001', 'demo-casa-oliva', 'https://drive.google.com/drive/folders/demo-casa-oliva', 60, '2024-10-06'),
-  ('00000000-0000-4000-8002-000000000002', 'Nativa Café', 'nativa-cafe', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 80, NULL),
-  ('00000000-0000-4000-8002-000000000003', 'Luma Studio', 'luma-studio', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 100, NULL),
-  ('00000000-0000-4000-8002-000000000004', 'Andes Salud', 'andes-salud', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 50, NULL),
-  ('00000000-0000-4000-8002-000000000005', 'Marea Local', 'marea-local', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 60, NULL);
+  ('00000000-0000-4000-8002-000000000001', 'Casa Oliva', 'casa-oliva', '{"descripcion":"Casa Oliva comunica cuidado consciente de la piel y bienestar cotidiano. El contenido acompaña pequeños rituales de limpieza, hidratación y protección.","mensajeCentral":"Cuida tu piel. Vuelve a ti.","campanaActual":"Campaña de octubre: «Tu ritual, tu momento»."}'::jsonb, '{"etiquetas":["Cercano","Consciente","Sereno"],"descripcion":"Invitar a una pausa y usar mensajes simples. Hablar de hábitos sin promesas absolutas.","ejemplo":"«Entre tantos pendientes, regálate una pausa.»"}'::jsonb, '{"descripcion":"Personas interesadas en el cuidado de la piel, el bienestar y los hábitos cotidianos.","intereses":["Rituales diarios","Cuidado consciente","Autocuidado accesible"],"segmentos":null}'::jsonb, ARRAY['Rituales diarios', 'Cuidado consciente', 'Autocuidado accesible']::text[], ARRAY['Instagram', 'Facebook', 'Blog web']::text[], '00000000-0000-4000-8001-000000000003', '00000000-0000-4000-8001-000000000001', 'demo-casa-oliva', 'https://drive.google.com/drive/folders/demo-casa-oliva', 60, '2024-10-06', 'ATRASADO', '2026-09-28', 'Cuota 2 de 3 de la implementación de CRM (dato de relleno)', '00000000-0000-4000-8001-000000000005', '2026-10-01T15:00:00Z'),
+  ('00000000-0000-4000-8002-000000000002', 'Nativa Café', 'nativa-cafe', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 80, NULL, 'AL_DIA', NULL, NULL, NULL, NULL),
+  ('00000000-0000-4000-8002-000000000003', 'Luma Studio', 'luma-studio', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 100, NULL, 'ATRASADO', '2026-10-03', NULL, '00000000-0000-4000-8001-000000000005', '2026-10-05T15:00:00Z'),
+  ('00000000-0000-4000-8002-000000000004', 'Andes Salud', 'andes-salud', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 50, NULL, 'AL_DIA', NULL, NULL, NULL, NULL),
+  ('00000000-0000-4000-8002-000000000005', 'Marea Local', 'marea-local', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 60, NULL, 'AL_DIA', NULL, NULL, NULL, NULL);
 
 INSERT INTO miembro_cliente (cliente_id, usuario_id, rol)
 VALUES
@@ -46,14 +47,6 @@ VALUES
   ('00000000-0000-4000-8004-000000000001', 'BLOG', 4),
   ('00000000-0000-4000-8004-000000000002', 'COPY', 12),
   ('00000000-0000-4000-8004-000000000002', 'ESTATICO', 4);
-
-INSERT INTO pago_programado (id, cliente_id, servicio_contratado_id, concepto, monto, moneda, fecha_vencimiento, estado, pagado_en)
-VALUES
-  ('00000000-0000-4000-8022-000000000001', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de septiembre', 4800, 'PEN', '2026-09-15', 'PAGADO', '2026-09-14'),
-  ('00000000-0000-4000-8022-000000000002', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8004-000000000003', 'Implementación de CRM · cuota 2 de 3', 3200, 'PEN', '2026-10-02', 'PENDIENTE', NULL),
-  ('00000000-0000-4000-8022-000000000003', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de octubre', 4800, 'PEN', '2026-10-15', 'PENDIENTE', NULL),
-  ('00000000-0000-4000-8022-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8004-000000000004', 'Web e-commerce · 2.º hito', 6500, 'PEN', '2026-10-30', 'PENDIENTE', NULL),
-  ('00000000-0000-4000-8022-000000000005', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de noviembre', 4800, 'PEN', '2026-11-15', 'PENDIENTE', NULL);
 
 INSERT INTO reunion (id, servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen)
 VALUES

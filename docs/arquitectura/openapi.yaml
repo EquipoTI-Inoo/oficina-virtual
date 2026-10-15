@@ -253,80 +253,52 @@ paths:
                     unidad: entregas
                     estado: ACTIVO
                     avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO, atrasada: false }, totalEtapas: 4, etapasCompletadas: 1 }
-                avisoPago: { concepto: Mensualidad de octubre, fechaVencimiento: '2026-10-15', estado: POR_VENCER, vencidos: 0 }
+                avisoPago: { situacion: ATRASADO, diasAtraso: 8 }
                 marca: { mensajeCentral: Cuida tu piel. Vuelve a ti., tono: [Cercano, Consciente, Sereno] }
                 actividad:
                   - { fecha: '2026-10-06T15:00:00Z', texto: 'Terminamos la etapa «Sesión de contenido» de Social Media Pro', tipo: ETAPA }
                 ticketsAbiertos: []
 
-  /clientes/{clienteId}/pagos:
+  /clientes/{clienteId}/estado-pago:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
     get:
       tags: [Clientes]
-      operationId: listarPagosCliente
-      summary: '"Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados'
-      description: Solo la persona que administra la cuenta y el equipo; otros roles del cliente reciben 403.
+      operationId: obtenerEstadoPago
+      summary: '«Al día» o «Atrasado X días» (reunión 15 oct). Sin cuotas ni montos: eso vivirá en Cosmic'
+      description: |
+        Cada rol ve lo suyo:
+        - ADMIN y FINANZAS: todo, con la nota y quién lo actualizó.
+        - El resto del equipo: situación, días y si hay alerta (para coordinar antes de seguir con el proyecto).
+        - ADMIN_CLIENTE: solo situación y días. Otros roles del cliente reciben 403.
       x-roles: [EQUIPO, ADMIN_CLIENTE]
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema:
-                type: object
-                required: [pendientes, pagados]
-                properties:
-                  pendientes: { type: array, description: Por fecha de vencimiento, items: { $ref: '#/components/schemas/PagoProgramado' } }
-                  pagados: { type: array, description: Los más recientes primero, items: { $ref: '#/components/schemas/PagoProgramado' } }
+              schema: { $ref: '#/components/schemas/EstadoPago' }
+              example: { situacion: ATRASADO, atrasadoDesde: '2026-09-28', diasAtraso: 8, alertaOperaciones: true, umbralDias: 7, nota: 'Cuota 2 de 3 de la implementación de CRM', actualizadoEn: '2026-10-01T15:00:00Z', actualizadoPor: { id: 8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b, nombre: Rosa Paredes } }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
-    post:
+    put:
       tags: [Clientes]
-      operationId: registrarPago
-      summary: 'El equipo programa un pago del cliente (cuota del plan o de un servicio)'
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      operationId: actualizarEstadoPago
+      summary: 'Administración o Finanzas marca al cliente al día o atrasado desde una fecha'
+      description: Emite `pago.situacion_cambiada`. Si el atraso alcanza el umbral, operaciones ve la alerta en el panel y en la ficha.
+      x-roles: [ADMIN, FINANZAS]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PagoEntrada' }
-      responses:
-        '201':
-          description: Creado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PagoProgramado' }
-        '422': { $ref: '#/components/responses/Validacion' }
-
-  /pagos/{pagoId}:
-    parameters:
-      - { name: pagoId, in: path, required: true, schema: { type: string, format: uuid } }
-    patch:
-      tags: [Clientes]
-      operationId: actualizarPago
-      summary: 'Marcar pagado (estado PAGADO, por defecto hoy) o corregir concepto, monto o vencimiento'
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PagoEntrada' }
+            schema: { $ref: '#/components/schemas/EstadoPagoEntrada' }
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PagoProgramado' }
-        '404': { $ref: '#/components/responses/NoEncontrado' }
+              schema: { $ref: '#/components/schemas/EstadoPago' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
-    delete:
-      tags: [Clientes]
-      operationId: eliminarPago
-      summary: Quitar un pago programado por error
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
-      responses:
-        '204': { description: Eliminado }
-        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /avisos:
     get:
@@ -2395,7 +2367,7 @@ components:
 
     # ---------- enums (mismos valores que la base)
     TipoUsuario: { type: string, enum: [EQUIPO, CLIENTE, SERVICIO] }
-    RolEquipo: { type: string, enum: [ACCOUNT_MANAGER, DISENO, AUDIOVISUAL, PAID_MEDIA, DESARROLLO_WEB, ADMIN] }
+    RolEquipo: { type: string, enum: [ACCOUNT_MANAGER, DISENO, AUDIOVISUAL, PAID_MEDIA, DESARROLLO_WEB, ADMIN, FINANZAS], description: 'FINANZAS (reunión 15 oct): ve y cambia el estado de pago de los clientes, junto con ADMIN' }
     RolCliente:
       type: string
       enum: [ADMIN_CLIENTE, APROBADOR, LECTOR]
@@ -2592,14 +2564,12 @@ components:
             responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable de cuenta en Inoo ("Tu equipo Inoo")' }
             driveUrl: { type: [string, 'null'], format: uri }
         avisoPago:
-          description: 'El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE y el equipo.'
+          description: 'Solo si está atrasado, sin montos (reunión 15 oct). Solo para ADMIN_CLIENTE, ADMIN y FINANZAS; si no, null.'
           type: [object, 'null']
-          required: [concepto, fechaVencimiento, estado]
+          required: [situacion, diasAtraso]
           properties:
-            concepto: { type: string }
-            fechaVencimiento: { type: string, format: date }
-            estado: { type: string, enum: [VENCIDO, POR_VENCER] }
-            vencidos: { type: integer, description: 'Cuántos pagos están vencidos en total' }
+            situacion: { type: string, enum: [ATRASADO] }
+            diasAtraso: { type: integer, minimum: 0 }
         marca:
           description: 'Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null'
           type: [object, 'null']
@@ -2669,29 +2639,26 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: string, format: date }
         visibleDesde: { type: string, format: date }
-    PagoEntrada:
+    SituacionPago: { type: string, enum: [AL_DIA, ATRASADO] }
+    EstadoPago:
       type: object
-      description: 'Al crear: concepto, monto y fechaVencimiento obligatorios'
+      required: [situacion, diasAtraso]
       properties:
-        concepto: { type: string, minLength: 3 }
-        monto: { type: number, exclusiveMinimum: 0 }
-        moneda: { type: string, enum: [PEN, USD], default: PEN }
-        fechaVencimiento: { type: string, format: date }
-        servicioContratadoId: { type: [string, 'null'], format: uuid }
-        estado: { type: string, enum: [PENDIENTE, PAGADO] }
-        pagadoEn: { type: [string, 'null'], format: date }
-    PagoProgramado:
+        situacion: { $ref: '#/components/schemas/SituacionPago' }
+        diasAtraso: { type: integer, minimum: 0, description: 'Días corridos desde atrasadoDesde; 0 si está al día' }
+        atrasadoDesde: { type: [string, 'null'], format: date, description: 'Solo equipo' }
+        alertaOperaciones: { type: boolean, description: 'Solo equipo. Atrasado con diasAtraso ≥ umbralDias: coordinar antes de seguir con el proyecto' }
+        umbralDias: { type: integer, description: 'Solo equipo. Días desde los que se alerta (7, de relleno)' }
+        nota: { type: [string, 'null'], description: 'Solo ADMIN y FINANZAS' }
+        actualizadoEn: { type: [string, 'null'], format: date-time, description: 'Solo ADMIN y FINANZAS' }
+        actualizadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Solo ADMIN y FINANZAS' }
+    EstadoPagoEntrada:
       type: object
-      required: [id, concepto, monto, moneda, fechaVencimiento, estado]
+      required: [situacion]
       properties:
-        id: { type: string, format: uuid }
-        concepto: { type: string, examples: [Mensualidad de octubre] }
-        servicioContratadoId: { type: [string, 'null'], format: uuid }
-        monto: { type: number }
-        moneda: { type: string, enum: [PEN, USD] }
-        fechaVencimiento: { type: string, format: date }
-        estado: { type: string, enum: [PENDIENTE, PAGADO, VENCIDO], description: 'VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)' }
-        pagadoEn: { type: [string, 'null'], format: date }
+        situacion: { $ref: '#/components/schemas/SituacionPago' }
+        atrasadoDesde: { type: string, format: date, description: 'Obligatoria si ATRASADO; no puede ser futura' }
+        nota: { type: [string, 'null'], description: 'Interna: qué cuota o qué se conversó' }
     SolicitudResponsable:
       type: object
       required: [id, nombre, email, telefono, quitarAccesoAnterior, estado, solicitadoPor, creadoEn]
@@ -3650,6 +3617,7 @@ components:
             limiteUsd: { type: number }
             pctLimite: { type: number }
             alerta: { type: boolean, description: 'pctLimite ≥ umbral ("Alerta · Umbral ≥ 80 %")' }
+        pagoAtrasadoDias: { type: [integer, 'null'], description: 'Solo si el pago está atrasado desde el umbral (7 días): operaciones coordina antes de seguir con el proyecto. Sin montos' }
     BandejaProduccion:
       type: object
       required: [columnas, resumen]
@@ -3843,6 +3811,7 @@ components:
             - ticket.mensaje_cliente
             - ticket.estado_cambiado     # correo al cliente
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
+            - pago.situacion_cambiada    # Finanzas marcó al día o atrasado; desde el umbral, alerta a operaciones
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
             - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable

@@ -66,7 +66,7 @@ El texto usa tonos más oscuros (`#1A7F57`, `#9A4F00`, `#B42318`) para cumplir c
 | Ruta | Frame | Notas |
 |---|---|---|
 | `/ingresar` | 02-ingreso | |
-| `/inicio` | 01-inicio | «Tu cuenta» (reunión 12 oct): lo esencial de la ficha del cliente: servicios con avance lineal, equipo Inoo, Drive, aviso de pago sin montos (vencido o en 7 días), «Tu marca» plegable (solo con Social Media Pro, Brandformance o Paid Media) y actividad reciente breve |
+| `/inicio` | 01-inicio | «Tu cuenta» (reunión 12 oct): lo esencial de la ficha del cliente: servicios con avance lineal, equipo Inoo, Drive, aviso de pago sin montos (solo si está atrasado: «Tienes un pago con N días de atraso»), «Tu marca» plegable (solo con Social Media Pro, Brandformance o Paid Media) y actividad reciente breve |
 | `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados, con título «Servicio - Marca», variante o detalle (CRM, licencias) y avance por etapas (reunión 12 oct) |
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |
@@ -77,14 +77,14 @@ El texto usa tonos más oscuros (`#1A7F57`, `#9A4F00`, `#B42318`) para cumplir c
 | `/servicios/{id}` | 13-avance-de-proyectos | Perfil del proyecto (reunión 12 oct): métricas de la plantilla del servicio, etapas, entregables por revisar del servicio, «Así va el mes» si entrega piezas, reuniones y comentarios y consultas. `/avance` redirige a `/servicios` |
 | `/soporte` | 07-soporte | Fuera del menú (reunión 12 oct); solo se llega desde «Contactar a mi equipo» |
 | `/soporte/nuevo` | 09-crear-ticket | |
-| `/equipo/panel` | 14-panel-general | |
-| `/equipo/clientes/{id}` | 15-ficha-de-cliente | Más secciones sin diseño: servicios con «Nuevo servicio», cambio de responsable pendiente, requerimientos al cliente y pagos (registrar y marcar pagado) |
+| `/equipo/panel` | 14-panel-general | Suma la etiqueta roja «Pago atrasado · N días» junto al estado del cliente desde 7 días de atraso (reunión 15 oct), sin montos |
+| `/equipo/clientes/{id}` | 15-ficha-de-cliente | Más secciones sin diseño: servicios con «Nuevo servicio», cambio de responsable pendiente, requerimientos al cliente y estado de pago: Administración y Finanzas lo cambian («Al día» o «Atrasado» desde una fecha, con nota interna); el resto del equipo solo ve la alerta desde 7 días de atraso (reunión 15 oct) |
 | `/equipo/produccion` | 16-bandeja-de-produccion | |
 | `/muestras` | 10-muestras-de-estados | Hoja de estados para QA de diseño |
 | `/equipo/clientes` | — | Sin diseño: reutiliza la tabla del panel; botón «Nuevo cliente» (modal) |
 | `/biblioteca` | — | Retirada del menú: irá dentro del servicio Paid Media. Redirige a `/servicios` |
 | `/requerimientos`, `/requerimientos/{id}` | — | Sin diseño: lo que la agencia le pide al cliente (reunión 12 oct). Lista con plazo y atraso en días hábiles; formulario según la plantilla (texto, lista, enlace, opción, sí/no, archivos) con borrador y envío. El equipo revisa (aprobar u observar) en la misma pantalla y pide requerimientos desde la ficha del cliente |
-| `/cuenta`, `/cuenta/{pagos,usuarios,notificaciones,ayuda}` | — | Sin diseño: «Mi cuenta», desde la foto de perfil (arriba a la derecha). Datos y contrato, pagos (solo ADMIN_CLIENTE), usuarios en solo lectura, correos automáticos y ayuda (WhatsApp por área, números de relleno). `/usuarios` redirige aquí |
+| `/cuenta`, `/cuenta/{pagos,usuarios,notificaciones,ayuda}` | — | Sin diseño: «Mi cuenta», desde la foto de perfil (arriba a la derecha). Datos y contrato, estado de pago («Al día» o «Atrasado · N días», sin montos; solo ADMIN_CLIENTE), usuarios en solo lectura, correos automáticos y ayuda (WhatsApp por área, números de relleno). `/usuarios` redirige aquí |
 | `/equipo/proyectos/{id}` | — | Sin diseño: gestión del proyecto por el equipo: estado, etapas (estado y fin previsto), siguiente paso, reuniones (programar, marcar realizada con o sin acuerdos), métricas que ve el cliente y comentarios con notas internas. Desde la ficha: «Nuevo servicio» contrata desde la plantilla |
 | `/equipo/avisos` | — | Sin diseño: el equipo publica feriados, días no laborables (dejan de contar como días hábiles) y avisos generales. El cliente los ve en «Estamos contigo» y en su Inicio, junto con su aniversario |
 | `/equipo/calendarios` | — | Sin diseño: revisión y aprobación de la propuesta mensual del Jefe de Marketing |

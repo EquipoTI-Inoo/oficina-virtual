@@ -4,13 +4,15 @@
  */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { diasAtrasoPago } from "../../src/dominio/pagos";
 import { uid } from "../../src/mock/datos";
 import { CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
 
 const ADMIN = `demo.${uid(1, 4)}`;
+const FINANZAS = `demo.${uid(1, 5)}`;
 const CRM = uid(4, 3);
 
-export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: () => Promise<void> | void, eventos: () => Promise<{ tipo: string; datos: any }[]>) {
+export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: () => Promise<void> | void, eventos: () => Promise<{ tipo: string; datos: any }[]>, hoy: string) {
   const llamar = crearLlamar(manejar);
 
   describe(`servicios y etapas · ${nombre}`, () => {
@@ -191,31 +193,32 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("PATCH", `/reuniones/${nueva.json.id}`, DIEGO, { estado: "CANCELADA", conAcuerdos: true })).status, 422);
     });
 
-    test("el equipo registra pagos y los marca pagados; el cliente los ve en Mi cuenta", async () => {
+    test("estado de pago: cada rol ve lo suyo y solo Administración y Finanzas lo cambian", async () => {
       await reiniciar();
-      const ruta = `/clientes/${CASA_OLIVA}/pagos`;
-      assert.equal((await llamar("POST", ruta, VALERIA, { concepto: "x", monto: 1, fechaVencimiento: "2026-12-15" })).status, 403);
-      assert.deepEqual((await llamar("POST", ruta, DIEGO, { concepto: "x", monto: 0 })).json.errores.map((e: any) => e.campo).sort(), ["concepto", "fechaVencimiento", "monto"]);
-      const nuevo = await llamar("POST", ruta, DIEGO, { concepto: "Mensualidad de diciembre", monto: 4800, fechaVencimiento: "2026-12-15" });
-      assert.deepEqual([nuevo.status, nuevo.json.estado, nuevo.json.moneda], [201, "PENDIENTE", "PEN"]);
-      const pagado = await llamar("PATCH", `/pagos/${uid(22, 2)}`, DIEGO, { estado: "PAGADO", pagadoEn: "2026-10-05" });
-      assert.deepEqual([pagado.json.estado, pagado.json.pagadoEn], ["PAGADO", "2026-10-05"]);
-      const cliente = (await llamar("GET", ruta, VALERIA)).json;
-      assert.ok(cliente.pendientes.some((x: any) => x.concepto === "Mensualidad de diciembre"));
-      assert.ok(cliente.pagados.some((x: any) => x.id === uid(22, 2)));
-      assert.equal((await llamar("DELETE", `/pagos/${nuevo.json.id}`, VALERIA)).status, 403);
-      assert.equal((await llamar("DELETE", `/pagos/${nuevo.json.id}`, DIEGO)).status, 204);
-    });
-
-    test("Mi cuenta → Pagos: solo quien administra la cuenta y el equipo", async () => {
-      await reiniciar();
-      const r = await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, VALERIA);
-      assert.equal(r.status, 200);
-      assert.deepEqual([r.json.pendientes[0].concepto, r.json.pendientes[0].estado, r.json.pendientes[0].monto], ["Implementación de CRM · cuota 2 de 3", "VENCIDO", 3200]);
-      assert.deepEqual(r.json.pagados.map((x: any) => [x.concepto, x.pagadoEn]), [["Mensualidad de septiembre", "2026-09-14"]]);
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, MARTIN_LECTOR)).status, 403);
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, DIEGO)).status, 200);
-      assert.equal((await llamar("GET", `/clientes/${NATIVA}/pagos`, VALERIA)).status, 404);
+      const ruta = `/clientes/${CASA_OLIVA}/estado-pago`;
+      // Casa Oliva está atrasada desde el 28 de setiembre (datos de relleno).
+      const dias = diasAtrasoPago("2026-09-28", hoy);
+      const finanzas = (await llamar("GET", ruta, FINANZAS)).json;
+      assert.deepEqual([finanzas.situacion, finanzas.diasAtraso, finanzas.atrasadoDesde, finanzas.alertaOperaciones], ["ATRASADO", dias, "2026-09-28", dias >= 7]);
+      assert.match(finanzas.nota, /Cuota 2 de 3/);
+      assert.equal(finanzas.actualizadoPor.nombre, "Rosa Paredes");
+      const operaciones = (await llamar("GET", ruta, DIEGO)).json;
+      assert.deepEqual([operaciones.situacion, operaciones.alertaOperaciones], ["ATRASADO", dias >= 7]);
+      assert.equal(operaciones.nota, undefined, "el equipo operativo no ve la nota de Finanzas");
+      assert.deepEqual((await llamar("GET", ruta, VALERIA)).json, { situacion: "ATRASADO", diasAtraso: dias }, "el cliente solo ve situación y días");
+      assert.equal((await llamar("GET", ruta, MARTIN_LECTOR)).status, 403);
+      assert.equal((await llamar("GET", `/clientes/${NATIVA}/estado-pago`, VALERIA)).status, 404);
+      // Solo ADMIN y FINANZAS lo cambian.
+      assert.equal((await llamar("PUT", ruta, DIEGO, { situacion: "AL_DIA" })).status, 403, "el AM no toca pagos");
+      assert.equal((await llamar("PUT", ruta, VALERIA, { situacion: "AL_DIA" })).status, 403);
+      const malo = await llamar("PUT", ruta, FINANZAS, { situacion: "ATRASADO", atrasadoDesde: "2099-01-01" });
+      assert.deepEqual(malo.json.errores.map((e: any) => e.campo), ["atrasadoDesde"], "no puede ser futura");
+      assert.equal((await llamar("PUT", ruta, FINANZAS, { situacion: "ATRASADO" })).status, 422, "atrasado exige la fecha");
+      const aldia = await llamar("PUT", ruta, FINANZAS, { situacion: "AL_DIA", nota: "Pagó por transferencia" });
+      assert.deepEqual([aldia.status, aldia.json.situacion, aldia.json.diasAtraso, aldia.json.atrasadoDesde, aldia.json.alertaOperaciones], [200, "AL_DIA", 0, null, false]);
+      assert.ok((await eventos()).some((e) => e.tipo === "pago.situacion_cambiada" && e.datos.situacion === "AL_DIA"));
+      const admin = await llamar("PUT", ruta, ADMIN, { situacion: "ATRASADO", atrasadoDesde: hoy });
+      assert.deepEqual([admin.json.situacion, admin.json.diasAtraso, admin.json.alertaOperaciones], ["ATRASADO", 0, false], "recién atrasado: sin alerta todavía");
     });
 
     test("contratar: variante obligatoria donde aplica y etapas desde la plantilla", async () => {

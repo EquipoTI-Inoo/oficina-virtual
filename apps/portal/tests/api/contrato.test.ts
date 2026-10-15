@@ -98,9 +98,13 @@ describe("aprobaciones (CU-06)", () => {
     const r = (await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json;
     assert.equal(r.cuenta.responsable.nombre, "Diego Castro");
     assert.match(r.cuenta.driveUrl, /^https:\/\/drive\.google\.com/);
-    assert.deepEqual(r.avisoPago, { concepto: "Implementación de CRM · cuota 2 de 3", fechaVencimiento: "2026-10-02", estado: "VENCIDO", vencidos: 1 });
+    assert.deepEqual(r.avisoPago, { situacion: "ATRASADO", diasAtraso: 8 }, "atrasada desde el 28 de setiembre; sin montos");
     assert.equal(r.pagos, undefined, "en Inicio no hay montos ni lista de pagos");
     assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, MARTIN_LECTOR)).json.avisoPago, null, "solo quien administra la cuenta ve pagos");
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, DIEGO)).json.avisoPago, null, "el equipo operativo no ve pagos en el Inicio del cliente");
+    // Operaciones ve la alerta en el panel solo desde 7 días de atraso (Luma Studio lleva 3).
+    const panel = (await llamar("GET", "/panel/clientes", DIEGO)).json.datos;
+    assert.deepEqual(panel.map((f: any) => [f.cliente.nombre, f.pagoAtrasadoDias]).filter(([, d]: any) => d !== null), [["Casa Oliva", 8]]);
     assert.equal(r.marca.mensajeCentral, "Cuida tu piel. Vuelve a ti.");
     assert.ok(r.actividad.length <= 4 && r.actividad.every((x: any) => x.fecha <= "2026-10-06T15:00:00Z"), "breve y sin fechas futuras");
     assert.equal(r.indicadores.requerimientosPendientes, 3);

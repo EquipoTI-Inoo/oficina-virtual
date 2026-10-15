@@ -6,9 +6,10 @@
  * nuevos a partir de su plantilla.
  */
 import { useState } from "react";
-import { LuCalendarPlus, LuExternalLink, LuLock, LuPlus } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuLock, LuPlus, LuWallet } from "react-icons/lu";
 import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso } from "../componentes";
+import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { ROLES_FINANZAS } from "../dominio/pagos";
 
 type Perfil = S<"PerfilProyecto">;
 const ESTADOS_ETAPA: [S<"EstadoHito">, string][] = [
@@ -426,103 +427,104 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
   );
 }
 
-// ═════════════════════════════════════════════ Ficha: pagos del cliente (el cliente los ve en Mi cuenta)
+// ═════════════════════════════════════════════ Ficha: estado de pago (reunión 15 oct)
+// Exclusivo de Administración y Finanzas: «Al día» o «Atrasado» desde una fecha, sin cuotas ni montos.
+// El resto del equipo solo ve la alerta cuando el atraso llega al umbral, para coordinar antes de seguir.
 
-const SIMBOLO: Record<string, string> = { PEN: "S/", USD: "US$" };
-
-export function PagosDelCliente({ clienteId }: { clienteId: string }) {
-  const avisar = useAviso();
-  const lista = useConsulta<{ pendientes: S<"PagoProgramado">[]; pagados: S<"PagoProgramado">[] }>(`/clientes/${clienteId}/pagos`);
+export function EstadoPagoDelCliente({ clienteId }: { clienteId: string }) {
+  const { sesion } = usePortal();
+  const esFinanzas = ROLES_FINANZAS.includes(sesion?.usuario.rolEquipo ?? "");
+  const { datos: d, recargar } = useConsulta<S<"EstadoPago">>(`/clientes/${clienteId}/estado-pago`);
   const [abierto, setAbierto] = useState(false);
-  const [f, setF] = useState({ concepto: "", monto: "", moneda: "PEN", fechaVencimiento: "" });
+  if (!d) return null;
+  if (!esFinanzas) {
+    if (!d.alertaOperaciones) return null;
+    return (
+      <Aviso icono={<LuWallet size={18} />} tono="alerta" titulo={`Pago atrasado ${d.diasAtraso} días`}>
+        Coordina con Finanzas antes de seguir con el proyecto.
+      </Aviso>
+    );
+  }
+  const atrasado = d.situacion === "ATRASADO";
+  return (
+    <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 10 }}>
+      <div className="fila entre">
+        <h3 className="tarjeta-titulo">Estado de pago</h3>
+        <button className="boton boton--chico" onClick={() => setAbierto(true)}>
+          Cambiar estado
+        </button>
+      </div>
+      <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+        <Etiqueta tono={atrasado ? "rojo" : "verde"}>{atrasado ? `Atrasado · ${d.diasAtraso} ${d.diasAtraso === 1 ? "día" : "días"}` : "Al día"}</Etiqueta>
+        {d.alertaOperaciones && <span className="texto-xs" style={{ color: "#b42318" }}>Operaciones ve la alerta (desde {d.umbralDias} días)</span>}
+      </div>
+      {atrasado && d.atrasadoDesde && <p className="texto-xs texto-muted">Sin pagar desde el {fCorta(d.atrasadoDesde)}</p>}
+      {d.nota && <p className="texto-sm">{d.nota}</p>}
+      {d.actualizadoPor && d.actualizadoEn && (
+        <p className="texto-xs texto-muted">
+          Actualizado por {d.actualizadoPor.nombre} · {fDiaHora(d.actualizadoEn)}
+        </p>
+      )}
+      <p className="texto-xs texto-muted">El cliente solo ve «Al día» o «Atrasado», sin montos.</p>
+      <CambiarEstadoPago clienteId={clienteId} actual={d} abierto={abierto} alCerrar={() => setAbierto(false)} alGuardar={() => void recargar()} />
+    </div>
+  );
+}
+
+function CambiarEstadoPago({ clienteId, actual, abierto, alCerrar, alGuardar }: { clienteId: string; actual: S<"EstadoPago">; abierto: boolean; alCerrar: () => void; alGuardar: () => void }) {
+  const avisar = useAviso();
+  const [situacion, setSituacion] = useState<S<"SituacionPago">>(actual.situacion);
+  const [desde, setDesde] = useState(actual.atrasadoDesde ?? "");
+  const [nota, setNota] = useState(actual.nota ?? "");
   const [errores, setErrores] = useState<Record<string, string>>({});
-  const accion = async (camino: string, metodo: string, cuerpo?: unknown) => {
-    try {
-      await api(camino, { metodo, cuerpo });
-      void lista.recargar();
-    } catch (e) {
-      avisar({ titulo: "No se pudo guardar el pago", texto: errorDe(e) });
-    }
-  };
-  const crear = async () => {
+  const guardar = async () => {
     setErrores({});
     try {
-      await api(`/clientes/${clienteId}/pagos`, { metodo: "POST", cuerpo: { concepto: f.concepto, monto: f.monto ? Number(f.monto) : undefined, moneda: f.moneda, fechaVencimiento: f.fechaVencimiento || undefined } });
-      setF({ concepto: "", monto: "", moneda: "PEN", fechaVencimiento: "" });
-      setAbierto(false);
-      void lista.recargar();
+      await api(`/clientes/${clienteId}/estado-pago`, { metodo: "PUT", cuerpo: situacion === "ATRASADO" ? { situacion, atrasadoDesde: desde || undefined, nota: nota || null } : { situacion, nota: nota || null } });
+      avisar({ titulo: situacion === "ATRASADO" ? "Marcado como atrasado" : "Marcado al día" });
+      alGuardar();
+      alCerrar();
     } catch (e) {
       setErrores(Object.fromEntries((e as ProblemaApi).errores.map((x) => [x.campo, x.mensaje])));
     }
   };
-  const fila = (x: S<"PagoProgramado">) => (
-    <div key={x.id} className="fila-suave" style={{ padding: "10px 12px" }}>
-      <span style={{ display: "grid", gap: 2 }}>
-        <span className="negrita texto-sm">{x.concepto}</span>
-        <span className="texto-xs" style={{ color: x.estado === "VENCIDO" ? "var(--c-alerta)" : "var(--c-muted)" }}>
-          {x.estado === "PAGADO" && x.pagadoEn ? `Pagado el ${fCorta(x.pagadoEn)}` : `${x.estado === "VENCIDO" ? "Venció" : "Vence"} el ${fCorta(x.fechaVencimiento)}`}
-        </span>
-      </span>
-      <span className="fila" style={{ gap: 10 }}>
-        <span className="negrita texto-sm">
-          {SIMBOLO[x.moneda] ?? x.moneda} {x.monto.toLocaleString("es-PE")}
-        </span>
-        {x.estado !== "PAGADO" && (
-          <button className="boton boton--chico" onClick={() => void accion(`/pagos/${x.id}`, "PATCH", { estado: "PAGADO" })}>
-            Marcar pagado
-          </button>
-        )}
-      </span>
-    </div>
-  );
   return (
-    <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 12 }}>
-      <div className="fila entre">
-        <h3 className="tarjeta-titulo">Pagos</h3>
-        <button className="boton boton--chico" onClick={() => setAbierto(true)}>
-          <LuPlus size={14} /> Nuevo pago
-        </button>
-      </div>
-      {!lista.datos ? (
-        <Cargando />
-      ) : (
-        <>
-          {lista.datos.pendientes.length === 0 && <p className="texto-xs texto-muted">Sin pagos pendientes.</p>}
-          <div className="lista-suave">{lista.datos.pendientes.map(fila)}</div>
-          {lista.datos.pagados.length > 0 && (
-            <>
-              <span className="texto-xs texto-muted negrita">Pagados</span>
-              <div className="lista-suave">{lista.datos.pagados.slice(0, 3).map(fila)}</div>
-            </>
-          )}
-        </>
-      )}
-      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Nuevo pago">
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nuevo pago</h2>
-        {(["concepto", "monto", "fechaVencimiento"] as const).map((k) => (
-          <div className="campo" key={k}>
-            <label htmlFor={`pago-${k}`}>{k === "concepto" ? "Concepto" : k === "monto" ? "Monto" : "Vence el"}</label>
-            <div className="entrada">
-              <input id={`pago-${k}`} type={k === "monto" ? "number" : k === "fechaVencimiento" ? "date" : "text"} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
-            </div>
-            {errores[k] && (
-              <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
-                {errores[k]}
-              </span>
-            )}
-          </div>
-        ))}
-        <div className="campo">
-          <label htmlFor="pago-moneda">Moneda</label>
-          <select id="pago-moneda" className="input" value={f.moneda} onChange={(e) => setF({ ...f, moneda: e.target.value })}>
-            <option value="PEN">Soles (S/)</option>
-            <option value="USD">Dólares (US$)</option>
-          </select>
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Estado de pago">
+      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Estado de pago</h2>
+      <div className="campo">
+        <span className="rotulo" id="pago-situacion">¿Cómo está el cliente?</span>
+        <div className="chips" role="radiogroup" aria-labelledby="pago-situacion">
+          {(
+            [
+              ["AL_DIA", "Al día"],
+              ["ATRASADO", "Atrasado"],
+            ] as const
+          ).map(([v, t]) => (
+            <button key={v} type="button" className="chip" aria-pressed={situacion === v} onClick={() => setSituacion(v)}>
+              {t}
+            </button>
+          ))}
         </div>
-        <button className="boton boton--primario boton--bloque" onClick={() => void crear()}>
-          Guardar pago
-        </button>
-      </Modal>
-    </div>
+        {errores.situacion && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errores.situacion}</span>}
+      </div>
+      {situacion === "ATRASADO" && (
+        <div className="campo">
+          <label htmlFor="pago-desde">Sin pagar desde</label>
+          <div className="entrada">
+            <input id="pago-desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          </div>
+          {errores.atrasadoDesde && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errores.atrasadoDesde}</span>}
+        </div>
+      )}
+      <div className="campo">
+        <label htmlFor="pago-nota">Nota interna (opcional)</label>
+        <div className="entrada">
+          <textarea id="pago-nota" rows={2} placeholder="Qué cuota es o qué se conversó con el cliente" value={nota} onChange={(e) => setNota(e.target.value)} />
+        </div>
+      </div>
+      <button className="boton boton--primario boton--bloque" onClick={() => void guardar()}>
+        Guardar
+      </button>
+    </Modal>
   );
 }

@@ -131,7 +131,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/clientes/{clienteId}/pagos": {
+    "/clientes/{clienteId}/estado-pago": {
         parameters: {
             query?: never;
             header?: never;
@@ -141,37 +141,23 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * "Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados
-         * @description Solo la persona que administra la cuenta y el equipo; otros roles del cliente reciben 403.
+         * «Al día» o «Atrasado X días» (reunión 15 oct). Sin cuotas ni montos: eso vivirá en Cosmic
+         * @description Cada rol ve lo suyo:
+         *     - ADMIN y FINANZAS: todo, con la nota y quién lo actualizó.
+         *     - El resto del equipo: situación, días y si hay alerta (para coordinar antes de seguir con el proyecto).
+         *     - ADMIN_CLIENTE: solo situación y días. Otros roles del cliente reciben 403.
          */
-        get: operations["listarPagosCliente"];
-        put?: never;
-        /** El equipo programa un pago del cliente (cuota del plan o de un servicio) */
-        post: operations["registrarPago"];
+        get: operations["obtenerEstadoPago"];
+        /**
+         * Administración o Finanzas marca al cliente al día o atrasado desde una fecha
+         * @description Emite `pago.situacion_cambiada`. Si el atraso alcanza el umbral, operaciones ve la alerta en el panel y en la ficha.
+         */
+        put: operations["actualizarEstadoPago"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/pagos/{pagoId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pagoId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Quitar un pago programado por error */
-        delete: operations["eliminarPago"];
-        options?: never;
-        head?: never;
-        /** Marcar pagado (estado PAGADO, por defecto hoy) o corregir concepto, monto o vencimiento */
-        patch: operations["actualizarPago"];
         trace?: never;
     };
     "/avisos": {
@@ -1578,8 +1564,11 @@ export interface components {
         };
         /** @enum {string} */
         TipoUsuario: "EQUIPO" | "CLIENTE" | "SERVICIO";
-        /** @enum {string} */
-        RolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN";
+        /**
+         * @description FINANZAS (reunión 15 oct): ve y cambia el estado de pago de los clientes, junto con ADMIN
+         * @enum {string}
+         */
+        RolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN" | "FINANZAS";
         /**
          * @description ADMIN_CLIENTE gestiona usuarios; APROBADOR aprueba, sube y abre tickets; LECTOR solo mira y abre tickets.
          * @enum {string}
@@ -1810,15 +1799,11 @@ export interface components {
                 /** Format: uri */
                 driveUrl?: string | null;
             };
-            /** @description El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE y el equipo. */
+            /** @description Solo si está atrasado, sin montos (reunión 15 oct). Solo para ADMIN_CLIENTE, ADMIN y FINANZAS; si no, null. */
             avisoPago?: {
-                concepto: string;
-                /** Format: date */
-                fechaVencimiento: string;
                 /** @enum {string} */
-                estado: "VENCIDO" | "POR_VENCER";
-                /** @description Cuántos pagos están vencidos en total */
-                vencidos?: number;
+                situacion: "ATRASADO";
+                diasAtraso: number;
             } | null;
             /** @description Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null */
             marca?: {
@@ -1888,43 +1873,40 @@ export interface components {
             /** Format: date */
             visibleDesde?: string;
         };
-        /** @description Al crear: concepto, monto y fechaVencimiento obligatorios */
-        PagoEntrada: {
-            concepto?: string;
-            monto?: number;
+        /** @enum {string} */
+        SituacionPago: "AL_DIA" | "ATRASADO";
+        EstadoPago: {
+            situacion: components["schemas"]["SituacionPago"];
+            /** @description Días corridos desde atrasadoDesde; 0 si está al día */
+            diasAtraso: number;
             /**
-             * @default PEN
-             * @enum {string}
+             * Format: date
+             * @description Solo equipo
              */
-            moneda: "PEN" | "USD";
-            /** Format: date */
-            fechaVencimiento?: string;
-            /** Format: uuid */
-            servicioContratadoId?: string | null;
-            /** @enum {string} */
-            estado?: "PENDIENTE" | "PAGADO";
-            /** Format: date */
-            pagadoEn?: string | null;
+            atrasadoDesde?: string | null;
+            /** @description Solo equipo. Atrasado con diasAtraso ≥ umbralDias: coordinar antes de seguir con el proyecto */
+            alertaOperaciones?: boolean;
+            /** @description Solo equipo. Días desde los que se alerta (7, de relleno) */
+            umbralDias?: number;
+            /** @description Solo ADMIN y FINANZAS */
+            nota?: string | null;
+            /**
+             * Format: date-time
+             * @description Solo ADMIN y FINANZAS
+             */
+            actualizadoEn?: string | null;
+            /** @description Solo ADMIN y FINANZAS */
+            actualizadoPor?: components["schemas"]["PersonaMini"] | null;
         };
-        PagoProgramado: {
-            /** Format: uuid */
-            id: string;
-            /** @example Mensualidad de octubre */
-            concepto: string;
-            /** Format: uuid */
-            servicioContratadoId?: string | null;
-            monto: number;
-            /** @enum {string} */
-            moneda: "PEN" | "USD";
-            /** Format: date */
-            fechaVencimiento: string;
+        EstadoPagoEntrada: {
+            situacion: components["schemas"]["SituacionPago"];
             /**
-             * @description VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)
-             * @enum {string}
+             * Format: date
+             * @description Obligatoria si ATRASADO; no puede ser futura
              */
-            estado: "PENDIENTE" | "PAGADO" | "VENCIDO";
-            /** Format: date */
-            pagadoEn?: string | null;
+            atrasadoDesde?: string;
+            /** @description Interna: qué cuota o qué se conversó */
+            nota?: string | null;
         };
         SolicitudResponsable: {
             /** Format: uuid */
@@ -2992,6 +2974,8 @@ export interface components {
                 /** @description pctLimite ≥ umbral ("Alerta · Umbral ≥ 80 %") */
                 alerta: boolean;
             };
+            /** @description Solo si el pago está atrasado desde el umbral (7 días): operaciones coordina antes de seguir con el proyecto. Sin montos */
+            pagoAtrasadoDias?: number | null;
         };
         BandejaProduccion: {
             resumen: {
@@ -3145,7 +3129,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -3567,10 +3551,8 @@ export interface operations {
                      *         }
                      *       ],
                      *       "avisoPago": {
-                     *         "concepto": "Mensualidad de octubre",
-                     *         "fechaVencimiento": "2026-10-15",
-                     *         "estado": "POR_VENCER",
-                     *         "vencidos": 0
+                     *         "situacion": "ATRASADO",
+                     *         "diasAtraso": 8
                      *       },
                      *       "marca": {
                      *         "mensajeCentral": "Cuida tu piel. Vuelve a ti.",
@@ -3595,7 +3577,7 @@ export interface operations {
             };
         };
     };
-    listarPagosCliente: {
+    obtenerEstadoPago: {
         parameters: {
             query?: never;
             header?: never;
@@ -3612,19 +3594,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @description Por fecha de vencimiento */
-                        pendientes: components["schemas"]["PagoProgramado"][];
-                        /** @description Los más recientes primero */
-                        pagados: components["schemas"]["PagoProgramado"][];
-                    };
+                    /**
+                     * @example {
+                     *       "situacion": "ATRASADO",
+                     *       "atrasadoDesde": "2026-09-28",
+                     *       "diasAtraso": 8,
+                     *       "alertaOperaciones": true,
+                     *       "umbralDias": 7,
+                     *       "nota": "Cuota 2 de 3 de la implementación de CRM",
+                     *       "actualizadoEn": "2026-10-01T15:00:00Z",
+                     *       "actualizadoPor": {
+                     *         "id": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+                     *         "nombre": "Rosa Paredes"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["EstadoPago"];
                 };
             };
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
         };
     };
-    registrarPago: {
+    actualizarEstadoPago: {
         parameters: {
             query?: never;
             header?: never;
@@ -3635,55 +3627,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PagoEntrada"];
-            };
-        };
-        responses: {
-            /** @description Creado */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PagoProgramado"];
-                };
-            };
-            422: components["responses"]["Validacion"];
-        };
-    };
-    eliminarPago: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pagoId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Eliminado */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    actualizarPago: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pagoId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PagoEntrada"];
+                "application/json": components["schemas"]["EstadoPagoEntrada"];
             };
         };
         responses: {
@@ -3693,10 +3637,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PagoProgramado"];
+                    "application/json": components["schemas"]["EstadoPago"];
                 };
             };
-            404: components["responses"]["NoEncontrado"];
+            403: components["responses"]["SinPermiso"];
             422: components["responses"]["Validacion"];
         };
     };

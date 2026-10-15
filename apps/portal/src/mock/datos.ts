@@ -28,7 +28,7 @@ export interface UsuarioDemo {
   cargo: string | null;
   iniciales: string;
   tipo: TipoUsuario;
-  rolEquipo: "ACCOUNT_MANAGER" | "ADMIN" | null;
+  rolEquipo: "ACCOUNT_MANAGER" | "ADMIN" | "FINANZAS" | null;
   /** Solo entorno de pruebas. Nunca existe en producción (Cognito gestiona las contraseñas). */
   claveDemo: string;
 }
@@ -38,6 +38,7 @@ export const USUARIOS: UsuarioDemo[] = [
   { id: uid(1, 2), nombre: "Martín Salas", email: "martin@casaoliva.pe", cargo: "Marketing", iniciales: "MS", tipo: "CLIENTE", rolEquipo: null, claveDemo: "demo1234" },
   { id: uid(1, 3), nombre: "Diego Castro", email: "diego.castro@inoo.pe", cargo: "Equipo de agencia", iniciales: "DC", tipo: "EQUIPO", rolEquipo: "ACCOUNT_MANAGER", claveDemo: "demo1234" },
   { id: uid(1, 4), nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", claveDemo: "demo1234" },
+  { id: uid(1, 5), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", claveDemo: "demo1234" },
 ];
 
 export const MIEMBROS: { clienteId: string; usuarioId: string; rol: RolCliente }[] = [
@@ -65,12 +66,16 @@ export interface ClienteDemo {
   /** Desde cuándo trabajamos juntos: ese día y mes el portal le saluda por el aniversario. */
   fechaAniversario?: string | null;
   accountManagerId?: string | null;
+  /** Estado de pago (reunión 15 oct): lo marca Finanzas; sin cuotas ni montos. */
+  pago?: { situacion: "AL_DIA" | "ATRASADO"; atrasadoDesde: string | null; nota: string | null; actualizadoPorId: string | null; actualizadoEn: string | null };
 }
 
 export const CLIENTES: ClienteDemo[] = [
-  { id: uid(2, 1), nombre: "Casa Oliva", slug: "casa-oliva", iniciales: "CO", contactoPrincipalId: uid(1, 1), contactoNombre: "Valeria Mendoza", limiteGastoIaUsd: 60, gastoIaUsd: 48, fechaAniversario: "2024-10-06" },
+  { id: uid(2, 1), nombre: "Casa Oliva", slug: "casa-oliva", iniciales: "CO", contactoPrincipalId: uid(1, 1), contactoNombre: "Valeria Mendoza", limiteGastoIaUsd: 60, gastoIaUsd: 48, fechaAniversario: "2024-10-06",
+    pago: { situacion: "ATRASADO", atrasadoDesde: "2026-09-28", nota: "Cuota 2 de 3 de la implementación de CRM (dato de relleno)", actualizadoPorId: uid(1, 5), actualizadoEn: "2026-10-01T15:00:00Z" } },
   { id: uid(2, 2), nombre: "Nativa Café", slug: "nativa-cafe", iniciales: "NC", contactoPrincipalId: null, contactoNombre: "Lucía Torres", limiteGastoIaUsd: 80, gastoIaUsd: 36, resumenFijo: { atrasadas: 1, porAprobar: 3 } },
-  { id: uid(2, 3), nombre: "Luma Studio", slug: "luma-studio", iniciales: "LS", contactoPrincipalId: null, contactoNombre: "Andrea Ríos", limiteGastoIaUsd: 100, gastoIaUsd: 84, resumenFijo: { atrasadas: 2, porAprobar: 6 } },
+  { id: uid(2, 3), nombre: "Luma Studio", slug: "luma-studio", iniciales: "LS", contactoPrincipalId: null, contactoNombre: "Andrea Ríos", limiteGastoIaUsd: 100, gastoIaUsd: 84, resumenFijo: { atrasadas: 2, porAprobar: 6 },
+    pago: { situacion: "ATRASADO", atrasadoDesde: "2026-10-03", nota: null, actualizadoPorId: uid(1, 5), actualizadoEn: "2026-10-05T15:00:00Z" } },
   { id: uid(2, 4), nombre: "Andes Salud", slug: "andes-salud", iniciales: "AS", contactoPrincipalId: null, contactoNombre: "Carlos Vega", limiteGastoIaUsd: 50, gastoIaUsd: 22, resumenFijo: { atrasadas: 0, porAprobar: 2 } },
   { id: uid(2, 5), nombre: "Marea Local", slug: "marea-local", iniciales: "ML", contactoPrincipalId: null, contactoNombre: "Sofía León", limiteGastoIaUsd: 60, gastoIaUsd: 18, resumenFijo: { atrasadas: 0, porAprobar: 0 } },
 ];
@@ -544,27 +549,6 @@ export const EJECUCIONES_INICIALES = [
     n8nExecutionUrl: null, iniciadoEn: "2026-10-06T10:00:00Z", finalizadoEn: "2026-10-06T10:02:00Z", n8nExecutionId: "demo-4",
     consumos: [{ modelo: "gpt-6.1-sol", tokensEntrada: 150_000, tokensSalida: 10_000, imagenes: 0, costoUsd: 0.4 }],
   },
-];
-
-/** Pagos programados de Casa Oliva. Montos y fechas de relleno hasta conectar la facturación real. */
-export interface PagoDemo {
-  id: string;
-  clienteId: string;
-  servicioContratadoId: string | null;
-  concepto: string;
-  monto: number;
-  moneda: "PEN" | "USD";
-  fechaVencimiento: string;
-  estado: "PENDIENTE" | "PAGADO";
-  pagadoEn: string | null;
-}
-
-export const PAGOS_INICIALES: PagoDemo[] = [
-  { id: uid(22, 1), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de septiembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-09-15", estado: "PAGADO", pagadoEn: "2026-09-14" },
-  { id: uid(22, 2), clienteId: uid(2, 1), servicioContratadoId: uid(4, 3), concepto: "Implementación de CRM · cuota 2 de 3", monto: 3200, moneda: "PEN", fechaVencimiento: "2026-10-02", estado: "PENDIENTE", pagadoEn: null },
-  { id: uid(22, 3), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de octubre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-10-15", estado: "PENDIENTE", pagadoEn: null },
-  { id: uid(22, 4), clienteId: uid(2, 1), servicioContratadoId: uid(4, 4), concepto: "Web e-commerce · 2.º hito", monto: 6500, moneda: "PEN", fechaVencimiento: "2026-10-30", estado: "PENDIENTE", pagadoEn: null },
-  { id: uid(22, 5), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de noviembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-11-15", estado: "PENDIENTE", pagadoEn: null },
 ];
 
 /** Reuniones de los proyectos de Casa Oliva (para las métricas del perfil). Datos de relleno. */
