@@ -1,0 +1,9 @@
+# Archivos binarios: git no debe tocar sus saltos de línea (core.autocrlf rompería los PDF).
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
