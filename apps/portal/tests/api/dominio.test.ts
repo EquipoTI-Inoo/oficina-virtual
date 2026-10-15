@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { diasParaVencer, semaforoRequerimiento } from "../../src/dominio/requerimientos";
 import { diasAtrasoRevision, revisionVence } from "../../src/dominio/revision";
+import { plantillaAplica, rastroIa } from "../../src/dominio/ia";
 
 const FERIADOS = diasNoLaborables(FERIADOS_PERU_2026.map((f) => ({ tipo: "FERIADO", fechaInicio: f.fecha, fechaFin: f.fecha })));
 
@@ -30,5 +31,17 @@ describe("plazo de revisión del cliente", () => {
     assert.equal(revisionVence("2026-10-05T15:30:00Z", FERIADOS), "2026-10-09", "6, 7 y 9");
     assert.equal(diasAtrasoRevision("2026-10-05T15:30:00Z", "2026-10-09", FERIADOS), 0, "el último día todavía está a tiempo");
     assert.equal(diasAtrasoRevision("2026-10-05T15:30:00Z", "2026-10-13", FERIADOS), 2, "12 y 13");
+  });
+});
+
+describe("rastro de IA (el cliente no debe notarla)", () => {
+  test("detecta las marcas típicas y no confunde palabras comunes", () => {
+    for (const t of ['{"autorTipo":"AGENTE"}', "Lo hizo el Agente Editorial", "Generado con Claude", "Gemini 3.8 Flash", "texto de IA", "workflow de n8n"]) assert.ok(rastroIa(t), t);
+    for (const t of ["Social Media Pro", "Paid Media", "Lo pediste el día 5", "Equipo de agencia", "Diseño y desarrollo web", "La tienda"]) assert.equal(rastroIa(t), null, t);
+  });
+  test("una plantilla sin servicios aplica a todos; con servicios, solo a esos", () => {
+    assert.equal(plantillaAplica([], "WEB"), true);
+    assert.equal(plantillaAplica(["CRM_IMPLEMENTACION", "CRM_INTEGRACION"], "SOCIAL_MEDIA_PRO"), false);
+    assert.equal(plantillaAplica(["CRM_IMPLEMENTACION", "CRM_INTEGRACION"], "CRM_INTEGRACION"), true);
   });
 });

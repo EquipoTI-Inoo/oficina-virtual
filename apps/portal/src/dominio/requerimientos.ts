@@ -93,7 +93,8 @@ export const PLANTILLAS_REQUERIMIENTO: PlantillaRequerimientoDemo[] = [
     ],
   },
   {
-    codigo: "INFO_IA", nombre: "Información de tu empresa para la IA", descripcion: "Con esto entrenamos al asistente que responde por tu marca.", servicios: [], diasHabiles: 3,
+    // Solo CRM (reunión 15 oct): ahí el agente de IA es el producto; en el resto de servicios la IA no se nombra.
+    codigo: "INFO_IA", nombre: "Información para tu agente de IA", descripcion: "Con esto entrenamos al agente de IA que atenderá a tus clientes por WhatsApp.", servicios: ["CRM_IMPLEMENTACION", "CRM_INTEGRACION"], diasHabiles: 3,
     campos: [
       c("empresa", "¿Qué hace tu empresa?", "TEXTO_LARGO"),
       c("preguntas", "Preguntas frecuentes de tus clientes y sus respuestas", "LISTA", true, { ayuda: "Una por línea: pregunta → respuesta." }),

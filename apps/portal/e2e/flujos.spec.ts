@@ -88,7 +88,9 @@ test("perfil del proyecto: desde Mis servicios, métricas, etapas y una consulta
   await entrarComo(page, "cliente");
   await page.goto("/servicios");
   await page.locator(".tarjeta", { hasText: "Implementación de CRM - Casa Oliva" }).getByText("Ver proyecto").click();
-  await expect(page.getByRole("heading", { name: "Implementación de CRM - Casa Oliva" })).toBeVisible({ timeout: 20_000 });
+  // El mismo título está en la tarjeta de Mis servicios: hay que esperar a estar en el proyecto.
+  await expect(page).toHaveURL(/\/servicios\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Implementación de CRM - Casa Oliva", level: 1 })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".kpi", { hasText: "Reuniones con acuerdos" })).toContainText("2 de 3");
   await expect(page.getByText("Capacitación 2")).toBeVisible();
   await expect(page.getByText("Confirmar movilidad")).toHaveCount(0);
@@ -123,13 +125,14 @@ test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", asy
   await page.getByRole("button", { name: "Pedir requerimiento" }).click();
   await page.selectOption("#req-servicio", { label: "Social Media Pro - Casa Oliva" });
   const dialogo = page.getByRole("dialog");
-  // Solo aparecen las plantillas del servicio; el brief web no es de Social Media Pro.
+  // Solo aparecen las plantillas del servicio: ni el brief web ni la de IA (solo CRM) son de Social Media Pro.
   await expect(dialogo.getByRole("radio", { name: /Brief de desarrollo web/ })).toHaveCount(0);
-  await dialogo.getByRole("radio", { name: /Información de tu empresa para la IA/ }).click();
+  await expect(dialogo.getByRole("radio", { name: /agente de IA/ })).toHaveCount(0);
+  await dialogo.getByRole("radio", { name: /Manual de marca y logo/ }).click();
   await expect(dialogo.getByLabel("Vista previa del formulario")).toContainText("Así le llega al cliente");
   await dialogo.getByRole("button", { name: "Pedir al cliente" }).click();
   await expect(page.getByText("Requerimiento enviado")).toBeVisible();
-  await expect(page.getByText("Información de tu empresa para la IA")).toBeVisible();
+  await expect(page.getByText("Manual de marca y logo").first()).toBeVisible();
 });
 
 test("soporte continuo: generar un ticket dentro del servicio", async ({ page }) => {

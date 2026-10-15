@@ -17,6 +17,7 @@ import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { pruebasProyectos } from "./flujo-proyectos";
+import { pruebasSinIa } from "./flujo-sin-ia";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -50,6 +51,7 @@ before(async () => {
   await db.exec(sql("migraciones/0012_blogs_internos.sql"));
   await db.exec(sql("migraciones/0013_estado_pago.sql"));
   await db.exec(sql("migraciones/0014_tareas.sql"));
+  await db.exec(sql("migraciones/0015_ia_solo_crm.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -69,6 +71,7 @@ pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, evento
 // El backend usa la fecha real de Lima para los atrasos.
 pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 pruebasProyectos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
+pruebasSinIa("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {

@@ -61,6 +61,17 @@ El texto usa tonos más oscuros (`#1A7F57`, `#9A4F00`, `#B42318`) para cumplir c
 
 **Requerimientos y tickets no se parecen** (reunión 15 oct): los requerimientos («Inoo te pide · te toca a ti») van con fondo lleno, semáforo y «Completar →»; los tickets («Lo que nos pediste · lo atiende Inoo») van con fondo blanco y borde punteado, sin semáforo ni llamado.
 
+## La IA no se nota
+
+Regla de la reunión del 15 oct: el cliente no debe notar que su trabajo se hace con IA. Nada de lo que ve o recibe nombra agentes, modelos ni herramientas (Claude, GPT, Gemini, Stitch, n8n):
+
+- La API nunca le manda `autorTipo`, `agente`, `autor` ni el origen `AGENTE` de un archivo (le llega como `EQUIPO`). Quien le envía una pieza siempre es una persona del equipo.
+- Los textos de las pantallas del cliente no hablan de IA.
+- **Excepción: CRM.** Ahí Inoo vende agentes de IA y WhatsApp API como producto, así que en esos servicios sí se nombra. Por ejemplo, el requerimiento «Información para tu agente de IA» solo se puede pedir en Implementación o Integración de CRM, y la API rechaza pedirlo en otro servicio.
+- La prueba `tests/api/flujo-sin-ia.ts` recorre todas las lecturas del contrato como usuario cliente (más el detalle de sus piezas, versiones, requerimientos y servicios) y falla si encuentra un rastro de IA fuera de CRM. Corre contra la API simulada y contra Postgres.
+
+Fuera del portal (Drive compartido, WordPress, metadatos de archivos, horario de correos) la regla se cumple en los workflows de n8n (fase 17 del roadmap).
+
 ## Pantallas
 
 | Ruta | Frame | Notas |

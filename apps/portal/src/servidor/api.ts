@@ -29,6 +29,7 @@ import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { diasNoLaborables } from "../dominio/calendario";
 import { diasAtrasoRevision } from "../dominio/revision";
+import { plantillaAplica } from "../dominio/ia";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
@@ -200,7 +201,6 @@ function versionVista(ctx: Ctx, p: FilaPieza, v: FilaVersion): S<"VersionPieza">
   const r: S<"VersionPieza"> = {
     numero: v.numero,
     actual: v.numero === (ctx.esEquipo ? p.version_actual : p.version_cliente),
-    autorTipo: v.autor_tipo,
     contenido: v.contenido as S<"ContenidoPieza">,
     fuentes: (v.fuentes as S<"Fuente">[]) ?? [],
     archivo: null,
@@ -209,7 +209,9 @@ function versionVista(ctx: Ctx, p: FilaPieza, v: FilaVersion): S<"VersionPieza">
     decision: v.decision_estado ? { estado: v.decision_estado, usuarioNombre: v.decision_usuario ?? "", fecha: iso(v.decision_fecha)!, comentario: v.decision_comentario } : null,
     creadoEn: iso(v.creado_en)!,
   };
+  // Quién la hizo (agente o persona) es del equipo: el cliente no debe notar la IA (reunión 15 oct).
   if (ctx.esEquipo) {
+    r.autorTipo = v.autor_tipo;
     r.agente = v.agente;
     r.autor = v.autor_usuario_id ? { id: v.autor_usuario_id, nombre: v.autor_nombre ?? "", email: v.autor_email ?? undefined } : null;
   }
@@ -902,7 +904,7 @@ async function briefVista(ctx: Ctx, clienteId: string, periodo: string): Promise
     estado: b.estado,
     objetivoComunicacion: b.objetivo_comunicacion,
     consideraciones: b.consideraciones,
-    archivos: archivos.rows.map((a) => ({ id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes === null ? null : Number(a.bytes), estado: a.estado, uso: "BRIEF", origen: a.origen, creadoEn: iso(a.creado_en) }) as unknown as S<"Archivo">),
+    archivos: archivos.rows.map((a) => ({ id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes === null ? null : Number(a.bytes), estado: a.estado, uso: "BRIEF", origen: !ctx.esEquipo && a.origen === "AGENTE" ? "EQUIPO" : a.origen, creadoEn: iso(a.creado_en) }) as unknown as S<"Archivo">),
     referencias: refs.rows.map(referenciaVista),
     enviadoPor: persona(b.enviado_por, b.enviado_por_nombre),
     enviadoEn: iso(b.enviado_en),
@@ -2003,14 +2005,18 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const b = (await cuerpo()) as Partial<S<"RequerimientoEntrada">>;
   const pl = typeof b.plantillaCodigo === "string"
-    ? (await ctx.c.query<{ codigo: string; nombre: string; dias_habiles: number; campos: Campo[] }>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [b.plantillaCodigo])).rows[0]
+    ? (await ctx.c.query<{ codigo: string; nombre: string; dias_habiles: number; campos: Campo[]; servicios: string[] }>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [b.plantillaCodigo])).rows[0]
     : undefined;
   const sc = typeof b.servicioContratadoId === "string" && esUuid(b.servicioContratadoId)
-    ? (await ctx.c.query<{ id: string }>("SELECT id FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [b.servicioContratadoId, p.id])).rows[0]
+    ? (await ctx.c.query<{ id: string; codigo: string }>(
+        "SELECT sc.id, s.codigo FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.id = $1 AND sc.cliente_id = $2",
+        [b.servicioContratadoId, p.id],
+      )).rows[0]
     : undefined;
   const errores: { campo: string; mensaje: string }[] = [];
   if (!pl) errores.push({ campo: "plantillaCodigo", mensaje: "Elige qué le pedimos al cliente" });
   if (!sc) errores.push({ campo: "servicioContratadoId", mensaje: "Elige un servicio contratado de este cliente" });
+  if (pl && sc && !plantillaAplica(pl.servicios, sc.codigo)) errores.push({ campo: "plantillaCodigo", mensaje: "Esta plantilla no aplica a ese servicio" });
   if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
   if (b.titulo !== undefined && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
   if (errores.length) validacion(errores);

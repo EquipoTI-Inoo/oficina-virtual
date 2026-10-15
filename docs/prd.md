@@ -1,8 +1,14 @@
 # PRD — Oficina virtual de IA y Portal de clientes
 
-Oct 3, 2026 · @Asesrorias Estrategicas · actualizado el 13 oct 2026
+Oct 3, 2026 · @Asesrorias Estrategicas · actualizado el 15 oct 2026
 
 > **Qué cambió (10–13 oct 2026).** La reunión del 12 oct con el CEO redefinió el portal. El cliente **solo mira** lo que tiene contratado y cómo avanza, y **opera en un solo lugar**: los requerimientos que la agencia le pide. Además aprueba entregables y comenta en sus proyectos. Los servicios siguen el catálogo real de Inoo (8 servicios con subtipos y plantillas de etapas). Plan del mes, blog, biblioteca y generación de estáticos pasan al panel del equipo. La integración con InooWork queda en pausa. Lo dicho en esa reunión manda sobre versiones anteriores de este documento.
+
+> **Reunión del 15 oct 2026.** Dos principios nuevos:
+> - **El proyecto es el eje.** Los posts y blogs quedan acotados a Social Media Pro y Paid Media.
+> - **La IA es interna: el cliente no debe notar que su trabajo se hace con IA.** La única excepción es CRM, donde Inoo vende agentes de IA y WhatsApp API como producto. Esto corrige el planteamiento original de este PRD, que mostraba al cliente qué hacía cada agente.
+>
+> Cómo se aplica la regla de la IA en el portal: `docs/diseno.md`, sección «La IA no se nota».
 
 ## Resumen y objetivos
 

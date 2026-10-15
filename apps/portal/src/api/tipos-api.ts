@@ -2635,8 +2635,11 @@ export interface components {
         VersionPieza: {
             numero: number;
             actual?: boolean;
-            /** @enum {string} */
-            autorTipo: "AGENTE" | "PERSONA";
+            /**
+             * @description Solo equipo: el cliente no debe notar la IA (reunión 15 oct)
+             * @enum {string}
+             */
+            autorTipo?: "AGENTE" | "PERSONA";
             /** @description Solo equipo */
             agente?: string | null;
             /** @description Solo equipo */
@@ -2935,7 +2938,10 @@ export interface components {
             };
         };
         Archivo: components["schemas"]["ArchivoMini"] & {
-            /** @enum {string} */
+            /**
+             * @description El cliente nunca recibe AGENTE: le llega como EQUIPO
+             * @enum {string}
+             */
             origen: "CLIENTE" | "EQUIPO" | "AGENTE";
             categoria?: string | null;
             etiquetas?: string[];

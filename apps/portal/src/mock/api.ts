@@ -12,6 +12,7 @@
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
+import { plantillaAplica } from "../dominio/ia";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
@@ -368,7 +369,6 @@ function versionVista(ctx: Ctx, p: D.PiezaDemo, v: D.VersionDemo): S<"VersionPie
   const base: S<"VersionPieza"> = {
     numero: v.numero,
     actual: v.numero === (ctx.esEquipo ? p.versionActual : p.versionCliente),
-    autorTipo: v.autorTipo,
     contenido: v.contenido as S<"ContenidoPieza">,
     fuentes: [],
     archivo: { id: D.uid(9, Number(p.id.slice(-3)) * 10 + v.numero), nombre: archivoNombre(p, v.numero), mime: "image/png", bytes: 1_800_000, miniaturaUrl: null },
@@ -377,7 +377,9 @@ function versionVista(ctx: Ctx, p: D.PiezaDemo, v: D.VersionDemo): S<"VersionPie
     decision,
     creadoEn: v.creadoEn,
   };
+  // Quién la hizo (agente o persona) es del equipo: el cliente no debe notar la IA (reunión 15 oct).
   if (ctx.esEquipo) {
+    base.autorTipo = v.autorTipo;
     base.agente = v.agente;
     base.autor = persona(v.autorId);
   }
@@ -1163,6 +1165,7 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, req) => {
   const errores: { campo: string; mensaje: string }[] = [];
   if (!pl) errores.push({ campo: "plantillaCodigo", mensaje: "Elige qué le pedimos al cliente" });
   if (!sc) errores.push({ campo: "servicioContratadoId", mensaje: "Elige un servicio contratado de este cliente" });
+  if (pl && sc && !plantillaAplica(pl.servicios, sc.codigo)) errores.push({ campo: "plantillaCodigo", mensaje: "Esta plantilla no aplica a ese servicio" });
   if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
   if (b.titulo !== undefined && b.titulo.trim().length < 3) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);

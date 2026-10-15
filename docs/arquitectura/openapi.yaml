@@ -3349,11 +3349,11 @@ components:
         url: { type: string, format: uri }
     VersionPieza:
       type: object
-      required: [numero, autorTipo, contenido, creadoEn]
+      required: [numero, contenido, creadoEn]
       properties:
         numero: { type: integer }
         actual: { type: boolean }
-        autorTipo: { type: string, enum: [AGENTE, PERSONA] }
+        autorTipo: { type: string, enum: [AGENTE, PERSONA], description: 'Solo equipo: el cliente no debe notar la IA (reunión 15 oct)' }
         agente: { type: [string, 'null'], description: Solo equipo }
         autor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Solo equipo }
         contenido: { $ref: '#/components/schemas/ContenidoPieza' }
@@ -3639,7 +3639,7 @@ components:
         - type: object
           required: [estado, origen, creadoEn]
           properties:
-            origen: { type: string, enum: [CLIENTE, EQUIPO, AGENTE] }
+            origen: { type: string, enum: [CLIENTE, EQUIPO, AGENTE], description: 'El cliente nunca recibe AGENTE: le llega como EQUIPO' }
             categoria: { type: [string, 'null'] }
             etiquetas: { type: array, items: { type: string } }
             uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, ENTREGABLE, CONTRATO, INFORME, REQUERIMIENTO] }
