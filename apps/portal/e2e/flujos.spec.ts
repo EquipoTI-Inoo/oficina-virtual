@@ -222,6 +222,29 @@ test("pagos: operaciones solo ve la alerta y Finanzas marca al cliente al día",
   await finanzas.close();
 });
 
+test("proyectos: del pipeline al proyecto, crear una tarea, moverla y mencionar a alguien", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos");
+  const espera = page.locator(".pipeline-columna", { hasText: "Esperando al cliente" });
+  await expect(espera.getByText("Implementación de CRM - Casa Oliva")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ }).click();
+  await expect(page.getByRole("heading", { name: "Tareas del equipo" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.fill("#nt-titulo", "Subir los 50 productos al catálogo");
+  await page.selectOption("#nt-responsable", { label: "Admin Inoo" });
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+  await expect(page.getByText("Admin Inoo recibe el aviso.")).toBeVisible();
+  await page.getByRole("button", { name: "Kanban" }).click();
+  await page.getByLabel("Estado de «Subir los 50 productos al catálogo»").selectOption("EN_CURSO");
+  await expect(page.locator('.kanban-columna[aria-label^="En curso"]')).toContainText("Subir los 50 productos al catálogo");
+  await page.getByRole("button", { name: "Subir los 50 productos al catálogo" }).click();
+  const dialogo = page.getByRole("dialog");
+  await dialogo.getByRole("button", { name: "Rosa" }).click();
+  await expect(dialogo.locator("#comentario-tarea")).toHaveValue(/@Rosa Paredes/);
+  await dialogo.getByRole("button", { name: "Comentar" }).click();
+  await expect(page.getByText("Avisamos a 1 persona.")).toBeVisible();
+});
+
 test("un cliente no entra al panel interno", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/equipo/panel");

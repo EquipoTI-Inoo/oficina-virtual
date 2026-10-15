@@ -1075,6 +1075,136 @@ a.avatar:hover {
   background: var(--c-fondo);
   border-radius: 12px;
 }
+/* Pipeline de proyectos (reunión 15 oct): una columna por situación, con scroll horizontal propio. */
+.pipeline {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.pipeline-columna {
+  background: var(--c-fondo);
+  border: 1px solid var(--c-borde);
+  border-radius: 16px;
+  padding: 14px 12px;
+  align-self: start;
+}
+.pipeline-columna[data-columna="ESPERA_CLIENTE"] {
+  border-top: 3px solid var(--c-semaforo-naranja);
+}
+.pipeline-columna[data-columna="CON_RETRASO"] {
+  border-top: 3px solid var(--c-semaforo-rojo);
+}
+.pipeline-cab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 2px 4px;
+  font-size: 13px;
+}
+.pipeline-contador {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--c-blanco);
+  border: 1px solid var(--c-borde);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pipeline-tarjeta {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--c-blanco);
+  border: 1px solid var(--c-borde);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--sombra-tarjeta);
+  transition: border-color 0.15s;
+}
+.pipeline-tarjeta:hover,
+.pipeline-tarjeta:focus-visible {
+  border-color: var(--c-primario);
+}
+.pipeline-dato {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--c-neutro-suave);
+  font-size: 11px;
+  color: var(--c-texto);
+}
+.pipeline-dato--rojo {
+  background: var(--c-semaforo-rojo-suave);
+  color: #b42318;
+  font-weight: 600;
+}
+.pipeline-dato--ambar {
+  background: var(--c-alerta-suave);
+  color: var(--c-alerta);
+  font-weight: 600;
+}
+.pipeline-vacio {
+  padding: 14px 4px;
+  text-align: center;
+}
+
+/* Tareas del proyecto: lista y Kanban por estado. */
+.enlace-tarea {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-tinta);
+  text-align: left;
+  cursor: pointer;
+}
+.enlace-tarea:hover {
+  color: var(--c-primario);
+}
+.fila-tarea--hecha .enlace-tarea {
+  color: var(--c-muted);
+  text-decoration: line-through;
+}
+.kanban-tareas {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+}
+.kanban-columna {
+  background: var(--c-fondo);
+  border: 1px dashed transparent;
+  border-radius: 12px;
+  padding: 10px;
+  min-height: 120px;
+}
+.kanban-columna--sobre {
+  border-color: var(--c-primario);
+  background: var(--c-primario-suave);
+}
+.kanban-tarjeta {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  background: var(--c-blanco);
+  border: 1px solid var(--c-borde);
+  border-radius: 10px;
+  cursor: grab;
+}
+
 /* Requerimientos: lo que el cliente nos debe. Fondo lleno, barra de color del semáforo y llamado a completar. */
 .fila-req {
   border-left: 4px solid var(--c-borde);

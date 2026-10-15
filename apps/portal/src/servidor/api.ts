@@ -14,7 +14,9 @@
  * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
- * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id}.
+ * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
+ * proyecto como eje (GET /panel/proyectos, GET /panel/equipo, GET|POST /servicios-contratados/{id}/tareas,
+ * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios).
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -27,6 +29,7 @@ import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { diasNoLaborables } from "../dominio/calendario";
 import { diasAtrasoRevision } from "../dominio/revision";
+import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
@@ -1466,6 +1469,201 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => perfilVista(ctx, await buscarServicio(ctx, p.id), exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL())));
+
+// ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
+
+ruta("GET", "/panel/equipo", async (ctx) => {
+  soloEquipo(ctx);
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null }>(
+    "SELECT id, nombre, cargo, rol_equipo FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre",
+  );
+  const iniciales = (n: string) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  return { datos: rows.map((u) => ({ id: u.id, nombre: u.nombre, iniciales: iniciales(u.nombre), cargo: u.cargo, rolEquipo: u.rol_equipo })) };
+});
+
+ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const periodo = PERIODO_ACTUAL();
+  const hoy = HOY_LIMA();
+  const servicios = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.estado <> 'FINALIZADO' ORDER BY c.nombre, s.orden, sc.fecha_inicio`)).rows;
+  const am = new Map((await ctx.c.query<{ id: string; am_id: string | null; am_nombre: string | null }>(
+    "SELECT c.id, u.id AS am_id, u.nombre AS am_nombre FROM cliente c LEFT JOIN usuario u ON u.id = c.account_manager_id",
+  )).rows.map((r) => [r.id, r.am_id ? { id: r.am_id, nombre: r.am_nombre ?? "" } : null]));
+  const reqs = (await ctx.c.query<{ servicio_contratado_id: string; fecha_limite: Date }>(
+    "SELECT servicio_contratado_id, fecha_limite FROM requerimiento WHERE estado IN ('PENDIENTE', 'OBSERVADO')",
+  )).rows;
+  const tareas = (await ctx.c.query<{ servicio_contratado_id: string; responsable_id: string | null; estado: EstadoTarea; fecha_limite: Date | null }>(
+    "SELECT servicio_contratado_id, responsable_id, estado, fecha_limite FROM tarea WHERE estado <> 'HECHA'",
+  )).rows;
+  const datos: S<"ProyectoPipeline">[] = [];
+  for (const sc of servicios) {
+    const etapas = await etapasDelServicio(ctx, sc, periodo);
+    const avance = calcularAvance(
+      etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) })),
+      hoy, sc.modalidad === "MENSUAL" ? periodo : null,
+    );
+    const actual = etapas.find((e) => e.orden === avance.etapaActual?.orden);
+    const suyos = reqs.filter((r) => r.servicio_contratado_id === sc.id);
+    const atrasados = suyos.filter((r) => diasAtraso(fechaIso(r.fecha_limite)!, hoy, ctx.feriados) > 0).length;
+    const abiertas = tareas.filter((t) => t.servicio_contratado_id === sc.id);
+    datos.push({
+      servicioContratadoId: sc.id, clienteId: sc.cliente_id, clienteNombre: sc.cliente_nombre, titulo: tituloServicio(sc.nombre, sc.marca ?? sc.cliente_nombre),
+      codigo: sc.codigo, estado: sc.estado,
+      columna: columnaProyecto({ estado: sc.estado, avance, esperaCliente: !!actual?.espera_cliente, requerimientosAtrasados: atrasados }),
+      avance, responsable: am.get(sc.cliente_id) ?? null,
+      tareas: { abiertas: abiertas.length, vencidas: abiertas.filter((t) => tareaVencida({ estado: t.estado, fechaLimite: fechaIso(t.fecha_limite) }, hoy)).length },
+      requerimientosPendientes: suyos.length, requerimientosAtrasados: atrasados,
+    });
+  }
+  const quien = q.get("responsableId");
+  const texto = q.get("q")?.toLowerCase();
+  return {
+    columnas: COLUMNAS_PROYECTO,
+    datos: datos
+      .filter((x) => !quien || x.responsable?.id === quien || tareas.some((t) => t.servicio_contratado_id === x.servicioContratadoId && t.responsable_id === quien))
+      .filter((x) => !texto || x.titulo.toLowerCase().includes(texto) || x.clienteNombre.toLowerCase().includes(texto)),
+  };
+});
+
+interface FilaTarea {
+  id: string;
+  servicio_contratado_id: string;
+  cliente_id: string;
+  etapa_id: string | null;
+  etapa_nombre: string | null;
+  titulo: string;
+  descripcion: string | null;
+  estado: EstadoTarea;
+  responsable_id: string | null;
+  responsable_nombre: string | null;
+  fecha_limite: Date | null;
+  completada_en: Date | null;
+  creado_por: string | null;
+  creado_por_nombre: string | null;
+  creado_en: Date;
+  comentarios: number;
+}
+const SELECT_TAREA = `
+  SELECT t.*, e.nombre AS etapa_nombre, r.nombre AS responsable_nombre, cp.nombre AS creado_por_nombre,
+         (SELECT count(*)::int FROM comentario_tarea ct WHERE ct.tarea_id = t.id) AS comentarios
+  FROM tarea t
+  LEFT JOIN etapa_proyecto e ON e.id = t.etapa_id
+  LEFT JOIN usuario r ON r.id = t.responsable_id
+  LEFT JOIN usuario cp ON cp.id = t.creado_por`;
+
+const tareaVistaDb = (t: FilaTarea): S<"Tarea"> => ({
+  id: t.id, servicioContratadoId: t.servicio_contratado_id, etapaId: t.etapa_id, etapaNombre: t.etapa_nombre, titulo: t.titulo, descripcion: t.descripcion,
+  estado: t.estado, responsable: persona(t.responsable_id, t.responsable_nombre), fechaLimite: fechaIso(t.fecha_limite),
+  vencida: tareaVencida({ estado: t.estado, fechaLimite: fechaIso(t.fecha_limite) }, HOY_LIMA()), comentarios: t.comentarios,
+  creadoPor: persona(t.creado_por, t.creado_por_nombre), creadoEn: iso(t.creado_en)!, completadaEn: iso(t.completada_en),
+});
+
+async function buscarTarea(ctx: Ctx, id: string): Promise<FilaTarea> {
+  soloEquipo(ctx);
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  const t = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.id = $1`, [id])).rows[0];
+  if (!t) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  return t;
+}
+
+/** Valida el cuerpo y que el responsable sea del equipo y la etapa, del mismo proyecto. */
+async function revisarTarea(ctx: Ctx, b: Record<string, unknown>, servicioId: string, parcial: boolean) {
+  const errores = validarTarea(b, parcial);
+  if (typeof b.responsableId === "string" && !(esUuid(b.responsableId) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [b.responsableId])).rows.length)) {
+    errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
+  }
+  if (typeof b.etapaId === "string" && !(esUuid(b.etapaId) && (await ctx.c.query("SELECT 1 FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2", [b.etapaId, servicioId])).rows.length)) {
+    errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  }
+  validacion(errores);
+}
+
+type CuerpoTarea = { titulo?: string; descripcion?: string | null; estado?: EstadoTarea; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null };
+
+ruta("GET", "/servicios-contratados/:id/tareas", async (ctx, p) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const vistas = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.servicio_contratado_id = $1`, [sc.id])).rows.map(tareaVistaDb);
+  return { datos: ordenarTareas(vistas) };
+});
+
+ruta("POST", "/servicios-contratados/:id/tareas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as CuerpoTarea;
+  await revisarTarea(ctx, b, sc.id, false);
+  const estado = b.estado ?? "PENDIENTE";
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO tarea (servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, estado, responsable_id, fecha_limite, completada_en, creado_por)
+     VALUES ($1, $2, $3, $4, $5, $6::estado_tarea, $7, $8::date, CASE WHEN $6 = 'HECHA' THEN now() END, $9) RETURNING id`,
+    [sc.id, sc.cliente_id, b.etapaId ?? null, b.titulo!.trim(), b.descripcion?.trim() || null, estado, b.responsableId ?? null, b.fechaLimite ?? null, ctx.esServicio ? null : ctx.u.usuarioId],
+  )).rows[0].id;
+  if (b.responsableId) await emitirOutbox(ctx, "tarea.asignada", sc.cliente_id, { tareaId: id, servicioContratadoId: sc.id, responsableId: b.responsableId, usuarioId: ctx.u.usuarioId });
+  return { __status: 201, ...tareaVistaDb(await buscarTarea(ctx, id)) };
+});
+
+ruta("PATCH", "/tareas/:id", async (ctx, p, _q, cuerpo) => {
+  const t = await buscarTarea(ctx, p.id);
+  const b = (await cuerpo()) as CuerpoTarea;
+  await revisarTarea(ctx, b, t.servicio_contratado_id, true);
+  const estado = b.estado ?? t.estado;
+  const responsable = b.responsableId === undefined ? t.responsable_id : b.responsableId;
+  await ctx.c.query(
+    `UPDATE tarea SET titulo = $2, descripcion = $3, estado = $4::estado_tarea, responsable_id = $5, etapa_id = $6, fecha_limite = $7::date,
+            completada_en = CASE WHEN $4 <> 'HECHA' THEN NULL WHEN estado = 'HECHA' THEN completada_en ELSE now() END, actualizado_en = now()
+     WHERE id = $1`,
+    [
+      t.id, b.titulo !== undefined ? b.titulo.trim() : t.titulo, b.descripcion !== undefined ? b.descripcion?.trim() || null : t.descripcion, estado, responsable,
+      b.etapaId === undefined ? t.etapa_id : b.etapaId, b.fechaLimite === undefined ? fechaIso(t.fecha_limite) : b.fechaLimite,
+    ],
+  );
+  if (responsable && responsable !== t.responsable_id) {
+    await emitirOutbox(ctx, "tarea.asignada", t.cliente_id, { tareaId: t.id, servicioContratadoId: t.servicio_contratado_id, responsableId: responsable, usuarioId: ctx.u.usuarioId });
+  }
+  return tareaVistaDb(await buscarTarea(ctx, t.id));
+});
+
+ruta("DELETE", "/tareas/:id", async (ctx, p) => {
+  const t = await buscarTarea(ctx, p.id);
+  await ctx.c.query("DELETE FROM tarea WHERE id = $1", [t.id]);
+  return null;
+});
+
+interface FilaComentarioTarea { id: string; texto: string; autor_id: string; autor_nombre: string; menciones_personas: { id: string; nombre: string }[]; creado_en: Date }
+const SELECT_COMENTARIO_TAREA = `
+  SELECT ct.id, ct.texto, ct.autor_id, u.nombre AS autor_nombre, ct.creado_en,
+         coalesce((SELECT json_agg(json_build_object('id', m.id, 'nombre', m.nombre) ORDER BY m.nombre) FROM usuario m WHERE m.id = ANY (ct.menciones)), '[]') AS menciones_personas
+  FROM comentario_tarea ct JOIN usuario u ON u.id = ct.autor_id`;
+const comentarioTareaVistaDb = (c: FilaComentarioTarea): S<"ComentarioTarea"> => ({
+  id: c.id, autor: { id: c.autor_id, nombre: c.autor_nombre }, texto: c.texto, menciones: c.menciones_personas, creadoEn: iso(c.creado_en)!,
+});
+
+ruta("GET", "/tareas/:id/comentarios", async (ctx, p) => {
+  const t = await buscarTarea(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaComentarioTarea>(`${SELECT_COMENTARIO_TAREA} WHERE ct.tarea_id = $1 ORDER BY ct.creado_en`, [t.id]);
+  return { datos: rows.map(comentarioTareaVistaDb) };
+});
+
+ruta("POST", "/tareas/:id/comentarios", async (ctx, p, _q, cuerpo) => {
+  const t = await buscarTarea(ctx, p.id);
+  const b = (await cuerpo()) as { texto?: unknown; mencionIds?: unknown };
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (texto.length < 2 || texto.length > 2000) errores.push({ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" });
+  const menciones = Array.isArray(b.mencionIds) ? [...new Set(b.mencionIds as unknown[])] : [];
+  const validos = menciones.every((x) => esUuid(x))
+    ? (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM usuario WHERE id = ANY ($1::uuid[]) AND tipo = 'EQUIPO'", [menciones])).rows[0].n === menciones.length
+    : false;
+  if (!validos) errores.push({ campo: "mencionIds", mensaje: "Solo puedes mencionar a personas del equipo" });
+  validacion(errores);
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO comentario_tarea (tarea_id, cliente_id, autor_id, texto, menciones) VALUES ($1, $2, $3, $4, $5::uuid[]) RETURNING id",
+    [t.id, t.cliente_id, ctx.u.usuarioId, texto, menciones],
+  )).rows[0].id;
+  for (const m of menciones) await emitirOutbox(ctx, "tarea.mencion", t.cliente_id, { tareaId: t.id, comentarioId: id, mencionadoId: m, usuarioId: ctx.u.usuarioId });
+  const c = (await ctx.c.query<FilaComentarioTarea>(`${SELECT_COMENTARIO_TAREA} WHERE ct.id = $1`, [id])).rows[0];
+  return { __status: 201, ...comentarioTareaVistaDb(c) };
+});
 
 async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<S<"PerfilProyecto">> {
   const av = await avanceServicio(ctx, s, periodo);

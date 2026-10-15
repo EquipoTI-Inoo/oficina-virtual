@@ -12,6 +12,7 @@
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
+import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
@@ -77,6 +78,8 @@ interface Estado {
   avisos: D.AvisoDemo[];
   reuniones: D.ReunionDemo[];
   comentariosProyecto: D.ComentarioProyectoDemo[];
+  tareas: D.TareaDemo[];
+  comentariosTarea: D.ComentarioTareaDemo[];
   solicitudesResponsable: {
     id: string; clienteId: string; solicitadoPorId: string; nombre: string; email: string; telefono: string; cargo: string | null; motivo: string | null;
     quitarAccesoAnterior: boolean; estado: "PENDIENTE" | "APROBADA" | "RECHAZADA"; notaEquipo: string | null; decididoEn: string | null; creadoEn: string;
@@ -135,6 +138,8 @@ function estadoInicial(): Estado {
     avisos: structuredClone(D.AVISOS_INICIALES),
     reuniones: structuredClone(D.REUNIONES_INICIALES),
     comentariosProyecto: structuredClone(D.COMENTARIOS_PROYECTO_INICIALES),
+    tareas: structuredClone(D.TAREAS_INICIALES),
+    comentariosTarea: structuredClone(D.COMENTARIOS_TAREA_INICIALES),
     solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
@@ -1789,6 +1794,140 @@ const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => perfilVista(ctx, buscarServicio(ctx, p.id), q.get("periodo") ?? D.PERIODO));
+
+// ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
+
+const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo });
+const esDelEquipo = (id: string) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
+
+ruta("GET", "/panel/equipo", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: E.usuarios.filter((u) => u.tipo === "EQUIPO").map(equipoVista) };
+});
+
+function proyectoPipeline(s: D.ServicioContratadoDemo): S<"ProyectoPipeline"> {
+  const avance = avanceDe(s);
+  const etapaActual = etapasDe(s).find((e) => e.orden === avance.etapaActual?.orden);
+  const reqs = E.requerimientos.filter((r) => r.servicioContratadoId === s.id && pendienteParaCliente(r.estado));
+  const atrasados = reqs.filter((r) => diasAtraso(r.fechaLimite, D.HOY, noHabiles()) > 0).length;
+  const tareas = E.tareas.filter((t) => t.servicioContratadoId === s.id && t.estado !== "HECHA");
+  const c = E.clientes.find((x) => x.id === s.clienteId)!;
+  return {
+    servicioContratadoId: s.id, clienteId: s.clienteId, clienteNombre: c.nombre, titulo: tituloDe(s), codigo: s.codigo as S<"CodigoServicio">, estado: s.estado,
+    columna: columnaProyecto({ estado: s.estado, avance, esperaCliente: !!etapaActual?.esperaCliente, requerimientosAtrasados: atrasados }),
+    avance, responsable: persona(c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId),
+    tareas: { abiertas: tareas.length, vencidas: tareas.filter((t) => tareaVencida(t, D.HOY)).length },
+    requerimientosPendientes: reqs.length, requerimientosAtrasados: atrasados,
+  };
+}
+
+ruta("GET", "/panel/proyectos", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const quien = q.get("responsableId");
+  const texto = q.get("q")?.toLowerCase();
+  const datos = E.servicios
+    .filter((s) => s.estado !== "FINALIZADO")
+    .map(proyectoPipeline)
+    .filter((x) => !quien || x.responsable?.id === quien || E.tareas.some((t) => t.servicioContratadoId === x.servicioContratadoId && t.responsableId === quien && t.estado !== "HECHA"))
+    .filter((x) => !texto || x.titulo.toLowerCase().includes(texto) || x.clienteNombre.toLowerCase().includes(texto));
+  return { columnas: COLUMNAS_PROYECTO, datos };
+});
+
+function tareaVista(t: D.TareaDemo): S<"Tarea"> {
+  return {
+    id: t.id, servicioContratadoId: t.servicioContratadoId, etapaId: t.etapaId, etapaNombre: E.etapas.find((e) => e.id === t.etapaId)?.nombre ?? null,
+    titulo: t.titulo, descripcion: t.descripcion, estado: t.estado, responsable: persona(t.responsableId), fechaLimite: t.fechaLimite,
+    vencida: tareaVencida(t, D.HOY), comentarios: E.comentariosTarea.filter((c) => c.tareaId === t.id).length,
+    creadoPor: persona(t.creadoPorId), creadoEn: t.creadoEn, completadaEn: t.completadaEn,
+  };
+}
+
+function buscarTarea(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const t = E.tareas.find((x) => x.id === id);
+  if (!t) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  return t;
+}
+
+/** Valida el cuerpo y que el responsable sea del equipo y la etapa, del mismo proyecto. */
+function revisarTarea(b: Record<string, unknown>, servicioId: string, parcial: boolean) {
+  const errores = validarTarea(b, parcial);
+  if (typeof b.responsableId === "string" && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
+  if (typeof b.etapaId === "string" && !E.etapas.some((e) => e.id === b.etapaId && e.servicioContratadoId === servicioId)) errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+}
+
+ruta("GET", "/servicios-contratados/:id/tareas", (ctx, p) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  return { datos: ordenarTareas(E.tareas.filter((t) => t.servicioContratadoId === s.id)).map(tareaVista) };
+});
+
+ruta("POST", "/servicios-contratados/:id/tareas", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; estado?: D.TareaDemo["estado"]; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null }>(req);
+  revisarTarea(b, s.id, false);
+  const ahora = new Date().toISOString();
+  const estado = b.estado ?? "PENDIENTE";
+  const t: D.TareaDemo = {
+    id: nuevoId(27), servicioContratadoId: s.id, clienteId: s.clienteId, etapaId: b.etapaId ?? null, titulo: b.titulo!.trim(), descripcion: b.descripcion?.trim() || null,
+    estado, responsableId: b.responsableId ?? null, fechaLimite: b.fechaLimite ?? null, completadaEn: estado === "HECHA" ? ahora : null, creadoPorId: ctx.usuario.id, creadoEn: ahora,
+  };
+  E.tareas.push(t);
+  if (t.responsableId) emitir("tarea.asignada", s.clienteId, { tareaId: t.id, servicioContratadoId: s.id, responsableId: t.responsableId, usuarioId: ctx.usuario.id });
+  return { __status: 201, ...tareaVista(t) };
+});
+
+ruta("PATCH", "/tareas/:id", async (ctx, p, _q, req) => {
+  const t = buscarTarea(ctx, p.id);
+  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; estado?: D.TareaDemo["estado"]; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null }>(req);
+  revisarTarea(b, t.servicioContratadoId, true);
+  if (b.titulo !== undefined) t.titulo = b.titulo.trim();
+  if (b.descripcion !== undefined) t.descripcion = b.descripcion?.trim() || null;
+  if (b.etapaId !== undefined) t.etapaId = b.etapaId;
+  if (b.fechaLimite !== undefined) t.fechaLimite = b.fechaLimite;
+  if (b.estado !== undefined && b.estado !== t.estado) {
+    t.estado = b.estado;
+    t.completadaEn = b.estado === "HECHA" ? new Date().toISOString() : null;
+  }
+  if (b.responsableId !== undefined && b.responsableId !== t.responsableId) {
+    t.responsableId = b.responsableId;
+    if (t.responsableId) emitir("tarea.asignada", t.clienteId, { tareaId: t.id, servicioContratadoId: t.servicioContratadoId, responsableId: t.responsableId, usuarioId: ctx.usuario.id });
+  }
+  return tareaVista(t);
+});
+
+ruta("DELETE", "/tareas/:id", (ctx, p) => {
+  const t = buscarTarea(ctx, p.id);
+  E.tareas = E.tareas.filter((x) => x.id !== t.id);
+  E.comentariosTarea = E.comentariosTarea.filter((c) => c.tareaId !== t.id);
+  return null;
+});
+
+const comentarioTareaVista = (c: D.ComentarioTareaDemo): S<"ComentarioTarea"> => ({
+  id: c.id, autor: persona(c.autorId)!, texto: c.texto, menciones: c.menciones.map((id) => persona(id)!).filter(Boolean), creadoEn: c.creadoEn,
+});
+
+ruta("GET", "/tareas/:id/comentarios", (ctx, p) => {
+  const t = buscarTarea(ctx, p.id);
+  return { datos: E.comentariosTarea.filter((c) => c.tareaId === t.id).sort((a, b) => a.creadoEn.localeCompare(b.creadoEn)).map(comentarioTareaVista) };
+});
+
+ruta("POST", "/tareas/:id/comentarios", async (ctx, p, _q, req) => {
+  const t = buscarTarea(ctx, p.id);
+  const b = await cuerpo<{ texto?: unknown; mencionIds?: unknown }>(req);
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (texto.length < 2 || texto.length > 2000) errores.push({ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" });
+  const menciones = Array.isArray(b.mencionIds) ? [...new Set(b.mencionIds as string[])] : [];
+  if (menciones.some((id) => typeof id !== "string" || !esDelEquipo(id))) errores.push({ campo: "mencionIds", mensaje: "Solo puedes mencionar a personas del equipo" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const c: D.ComentarioTareaDemo = { id: nuevoId(28), tareaId: t.id, clienteId: t.clienteId, autorId: ctx.usuario.id, texto, menciones, creadoEn: new Date().toISOString() };
+  E.comentariosTarea.push(c);
+  for (const id of menciones) emitir("tarea.mencion", t.clienteId, { tareaId: t.id, comentarioId: c.id, mencionadoId: id, usuarioId: ctx.usuario.id });
+  return { __status: 201, ...comentarioTareaVista(c) };
+});
 
 function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<"PerfilProyecto"> {
   const cat = servicioDeCatalogo(s.codigo)!;

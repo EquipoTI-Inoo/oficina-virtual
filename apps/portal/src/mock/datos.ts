@@ -551,6 +551,52 @@ export const EJECUCIONES_INICIALES = [
   },
 ];
 
+/** Tareas internas del equipo en los proyectos de Casa Oliva (reunión 15 oct). Datos de relleno. */
+export interface TareaDemo {
+  id: string;
+  servicioContratadoId: string;
+  clienteId: string;
+  etapaId: string | null;
+  titulo: string;
+  descripcion: string | null;
+  estado: "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
+  responsableId: string | null;
+  fechaLimite: string | null;
+  completadaEn: string | null;
+  creadoPorId: string | null;
+  creadoEn: string;
+}
+
+const WEB = uid(4, 4);
+const CRM = uid(4, 3);
+const tarea = (n: number, sc: string, etapa: number | null, titulo: string, estado: TareaDemo["estado"], responsable: string | null, fecha: string | null, extra: Partial<TareaDemo> = {}): TareaDemo => ({
+  id: uid(27, n), servicioContratadoId: sc, clienteId: uid(2, 1), etapaId: etapa ? uid(20, etapa) : null, titulo, descripcion: null, estado, responsableId: responsable, fechaLimite: fecha,
+  completadaEn: estado === "HECHA" ? "2026-10-02T20:00:00Z" : null, creadoPorId: uid(1, 3), creadoEn: "2026-09-29T14:00:00Z", ...extra,
+});
+
+export const TAREAS_INICIALES: TareaDemo[] = [
+  tarea(1, WEB, 5, "Armar flujograma y benchmark de referencias", "HECHA", uid(1, 3), "2026-10-02"),
+  tarea(2, WEB, 6, "Diseñar el inicio y la ficha de producto", "EN_CURSO", uid(1, 3), "2026-10-09", { descripcion: "Versión web y móvil. Primero en Stitch; luego «Copy to Figma» para revisarlo entre todos." }),
+  tarea(3, WEB, 6, "Revisar las fotos de producto que subió el cliente", "PENDIENTE", uid(1, 3), "2026-10-05"),
+  tarea(4, WEB, 8, "Pedir las credenciales de la pasarela de pago", "PENDIENTE", uid(1, 4), "2026-10-20"),
+  tarea(5, CRM, 2, "Configurar el pipeline de ventas en el CRM", "EN_CURSO", uid(1, 3), "2026-10-14"),
+  tarea(6, CRM, 2, "Crear las licencias de los usuarios", "BLOQUEADA", uid(1, 3), "2026-10-07", { descripcion: "Depende del requerimiento «Usuarios del CRM», que el cliente todavía no envía." }),
+];
+
+export interface ComentarioTareaDemo {
+  id: string;
+  tareaId: string;
+  clienteId: string;
+  autorId: string;
+  texto: string;
+  menciones: string[];
+  creadoEn: string;
+}
+
+export const COMENTARIOS_TAREA_INICIALES: ComentarioTareaDemo[] = [
+  { id: uid(28, 1), tareaId: uid(27, 2), clienteId: uid(2, 1), autorId: uid(1, 4), texto: "@Diego Castro usa la paleta del manual de marca que subieron al Drive.", menciones: [uid(1, 3)], creadoEn: "2026-10-05T16:00:00Z" },
+];
+
 /** Reuniones de los proyectos de Casa Oliva (para las métricas del perfil). Datos de relleno. */
 export interface ReunionDemo {
   id: string;

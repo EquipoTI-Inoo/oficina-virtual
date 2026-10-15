@@ -77,6 +77,17 @@ LEFT JOIN LATERAL (
     ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "fecha_inicio", "fecha_estimada", "fecha_fin"],
     D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.fechaInicio, e.fechaEstimada, e.fechaFin]),
   ),
+  insert(
+    "tarea",
+    ["id", "servicio_contratado_id", "cliente_id", "etapa_id", "titulo", "descripcion", "estado", "responsable_id", "fecha_limite", "completada_en", "creado_por", "creado_en"],
+    D.TAREAS_INICIALES.map((t) => [t.id, t.servicioContratadoId, t.clienteId, t.etapaId, t.titulo, t.descripcion, t.estado, t.responsableId, t.fechaLimite, t.completadaEn, t.creadoPorId, t.creadoEn]),
+  ),
+  insert(
+    "comentario_tarea",
+    ["id", "tarea_id", "cliente_id", "autor_id", "texto", "menciones", "creado_en"],
+    // uuid[] como literal de Postgres (q() convierte los arreglos en text[]).
+    D.COMENTARIOS_TAREA_INICIALES.map((c) => [c.id, c.tareaId, c.clienteId, c.autorId, c.texto, `{${c.menciones.join(",")}}`, c.creadoEn]),
+  ),
   insert("calendario", ["id", "cliente_id", "periodo", "estado", "version", "cupo_ideas_blog", "aprobado_por", "aprobado_en"], [[D.uid(12, 1), D.CLIENTES[0].id, D.PERIODO, "APROBADO_PLAN", 1, 1, DIEGO, "2026-09-28T15:00:00Z"]]),
   insert(
     "pieza",

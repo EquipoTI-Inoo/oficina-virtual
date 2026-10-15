@@ -10,6 +10,7 @@ import { LuCalendarPlus, LuExternalLink, LuLock, LuPlus, LuWallet } from "react-
 import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
+import { TareasDelProyecto } from "./tareas";
 
 type Perfil = S<"PerfilProyecto">;
 const ESTADOS_ETAPA: [S<"EstadoHito">, string][] = [
@@ -132,6 +133,7 @@ function ProyectoEquipo() {
               </div>
             </div>
           </section>
+          <TareasDelProyecto servicioId={d.servicioContratadoId} etapas={d.etapas} />
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
         </div>
         <aside className="pila">

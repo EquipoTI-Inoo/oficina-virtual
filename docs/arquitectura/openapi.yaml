@@ -1985,6 +1985,162 @@ paths:
                   recientes: { type: array, items: { $ref: '#/components/schemas/CorreoEnviado' } }
 
   # ------------------------------------------------------------------ Panel interno
+  /panel/proyectos:
+    get:
+      tags: [Panel interno]
+      operationId: pipelineProyectos
+      summary: 'Pipeline (reunión 15 oct): una tarjeta por proyecto (servicio contratado activo o en pausa), agrupadas por su situación'
+      description: |
+        Columnas calculadas, en este orden de prioridad: EN_PAUSA (servicio pausado) · ESPERA_CLIENTE (requerimientos
+        atrasados, o la etapa actual depende del cliente y está atrasada) · CON_RETRASO (etapa actual atrasada) ·
+        POR_INICIAR (nada avanzado) · POR_CERRAR (avance de 90 % o más) · EN_CURSO.
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: responsableId, in: query, description: 'Solo proyectos cuya cuenta lleva esa persona o donde tiene tareas abiertas', schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: Cliente o servicio, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [columnas, datos]
+                properties:
+                  columnas: { type: array, items: { type: object, required: [clave, titulo], properties: { clave: { $ref: '#/components/schemas/ColumnaProyecto' }, titulo: { type: string } } } }
+                  datos: { type: array, items: { $ref: '#/components/schemas/ProyectoPipeline' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/equipo:
+    get:
+      tags: [Panel interno]
+      operationId: listarEquipo
+      summary: Personas del equipo de Inoo, para asignar tareas y mencionar
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/PersonaEquipo' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /servicios-contratados/{servicioContratadoId}/tareas:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarTareas
+      summary: 'Tareas internas del proyecto (reunión 15 oct). El cliente nunca las ve'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: 'Abiertas primero, por fecha límite; las hechas al final'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Tarea' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: crearTarea
+      summary: 'Nueva tarea; si tiene responsable, emite tarea.asignada'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TareaEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tarea' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tareas/{tareaId}:
+    parameters:
+      - { name: tareaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Servicios]
+      operationId: actualizarTarea
+      summary: 'Cambiar estado, responsable, fecha, etapa o texto. Un responsable nuevo emite tarea.asignada'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TareaEntrada' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tarea' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Servicios]
+      operationId: eliminarTarea
+      summary: Quitar una tarea creada por error
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Eliminada }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /tareas/{tareaId}/comentarios:
+    parameters:
+      - { name: tareaId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarComentariosTarea
+      summary: Conversación interna de la tarea, del más antiguo al más nuevo
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/ComentarioTarea' } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: comentarTarea
+      summary: 'Comentar y mencionar a personas del equipo; cada mención emite tarea.mencion (aviso a esa persona)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, minLength: 2, maxLength: 2000 }
+                mencionIds: { type: array, items: { type: string, format: uuid }, description: Personas del equipo }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComentarioTarea' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /panel/clientes:
     get:
       tags: [Panel interno]
@@ -2640,6 +2796,75 @@ components:
         fechaFin: { type: string, format: date }
         visibleDesde: { type: string, format: date }
     SituacionPago: { type: string, enum: [AL_DIA, ATRASADO] }
+    EstadoTarea: { type: string, enum: [PENDIENTE, EN_CURSO, BLOQUEADA, HECHA] }
+    ColumnaProyecto: { type: string, enum: [POR_INICIAR, EN_CURSO, ESPERA_CLIENTE, CON_RETRASO, POR_CERRAR, EN_PAUSA] }
+    PersonaEquipo:
+      type: object
+      required: [id, nombre, iniciales]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        iniciales: { type: string }
+        cargo: { type: [string, 'null'] }
+        rolEquipo: { oneOf: [ { $ref: '#/components/schemas/RolEquipo' }, { type: 'null' } ] }
+    Tarea:
+      type: object
+      required: [id, servicioContratadoId, titulo, estado, vencida, comentarios, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        servicioContratadoId: { type: string, format: uuid }
+        etapaId: { type: [string, 'null'], format: uuid }
+        etapaNombre: { type: [string, 'null'] }
+        titulo: { type: string }
+        descripcion: { type: [string, 'null'] }
+        estado: { $ref: '#/components/schemas/EstadoTarea' }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        fechaLimite: { type: [string, 'null'], format: date }
+        vencida: { type: boolean, description: 'No está HECHA y su fecha límite ya pasó' }
+        comentarios: { type: integer }
+        creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        creadoEn: { type: string, format: date-time }
+        completadaEn: { type: [string, 'null'], format: date-time }
+    TareaEntrada:
+      type: object
+      description: 'Al crear, titulo es obligatorio. responsableId debe ser del equipo; etapaId, del mismo proyecto'
+      properties:
+        titulo: { type: string, minLength: 3, maxLength: 200 }
+        descripcion: { type: [string, 'null'] }
+        estado: { $ref: '#/components/schemas/EstadoTarea' }
+        responsableId: { type: [string, 'null'], format: uuid }
+        etapaId: { type: [string, 'null'], format: uuid }
+        fechaLimite: { type: [string, 'null'], format: date }
+    ComentarioTarea:
+      type: object
+      required: [id, autor, texto, menciones, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        autor: { $ref: '#/components/schemas/PersonaMini' }
+        texto: { type: string }
+        menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
+        creadoEn: { type: string, format: date-time }
+    ProyectoPipeline:
+      type: object
+      required: [servicioContratadoId, clienteId, clienteNombre, titulo, codigo, estado, columna, avance, tareas, requerimientosPendientes, requerimientosAtrasados]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        clienteNombre: { type: string }
+        titulo: { type: string, examples: [Diseño y desarrollo web - Casa Oliva] }
+        codigo: { $ref: '#/components/schemas/CodigoServicio' }
+        estado: { $ref: '#/components/schemas/EstadoServicio' }
+        columna: { $ref: '#/components/schemas/ColumnaProyecto' }
+        avance: { $ref: '#/components/schemas/AvanceProyecto' }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Quien lleva la cuenta }
+        tareas:
+          type: object
+          required: [abiertas, vencidas]
+          properties:
+            abiertas: { type: integer }
+            vencidas: { type: integer }
+        requerimientosPendientes: { type: integer }
+        requerimientosAtrasados: { type: integer }
     EstadoPago:
       type: object
       required: [situacion, diasAtraso]
@@ -3812,6 +4037,8 @@ components:
             - ticket.estado_cambiado     # correo al cliente
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
             - pago.situacion_cambiada    # Finanzas marcó al día o atrasado; desde el umbral, alerta a operaciones
+            - tarea.asignada             # una tarea interna tiene responsable nuevo; aviso a esa persona
+            - tarea.mencion              # alguien mencionó a una persona en una tarea
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
             - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable

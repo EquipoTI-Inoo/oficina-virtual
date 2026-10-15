@@ -1302,6 +1302,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/panel/proyectos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pipeline (reunión 15 oct): una tarjeta por proyecto (servicio contratado activo o en pausa), agrupadas por su situación
+         * @description Columnas calculadas, en este orden de prioridad: EN_PAUSA (servicio pausado) · ESPERA_CLIENTE (requerimientos
+         *     atrasados, o la etapa actual depende del cliente y está atrasada) · CON_RETRASO (etapa actual atrasada) ·
+         *     POR_INICIAR (nada avanzado) · POR_CERRAR (avance de 90 % o más) · EN_CURSO.
+         */
+        get: operations["pipelineProyectos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/equipo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Personas del equipo de Inoo, para asignar tareas y mencionar */
+        get: operations["listarEquipo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/tareas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Tareas internas del proyecto (reunión 15 oct). El cliente nunca las ve */
+        get: operations["listarTareas"];
+        put?: never;
+        /** Nueva tarea; si tiene responsable, emite tarea.asignada */
+        post: operations["crearTarea"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tareas/{tareaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quitar una tarea creada por error */
+        delete: operations["eliminarTarea"];
+        options?: never;
+        head?: never;
+        /** Cambiar estado, responsable, fecha, etapa o texto. Un responsable nuevo emite tarea.asignada */
+        patch: operations["actualizarTarea"];
+        trace?: never;
+    };
+    "/tareas/{tareaId}/comentarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        /** Conversación interna de la tarea, del más antiguo al más nuevo */
+        get: operations["listarComentariosTarea"];
+        put?: never;
+        /** Comentar y mencionar a personas del equipo; cada mención emite tarea.mencion (aviso a esa persona) */
+        post: operations["comentarTarea"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/panel/clientes": {
         parameters: {
             query?: never;
@@ -1875,6 +1974,83 @@ export interface components {
         };
         /** @enum {string} */
         SituacionPago: "AL_DIA" | "ATRASADO";
+        /** @enum {string} */
+        EstadoTarea: "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
+        /** @enum {string} */
+        ColumnaProyecto: "POR_INICIAR" | "EN_CURSO" | "ESPERA_CLIENTE" | "CON_RETRASO" | "POR_CERRAR" | "EN_PAUSA";
+        PersonaEquipo: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+            iniciales: string;
+            cargo?: string | null;
+            rolEquipo?: components["schemas"]["RolEquipo"] | null;
+        };
+        Tarea: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** Format: uuid */
+            etapaId?: string | null;
+            etapaNombre?: string | null;
+            titulo: string;
+            descripcion?: string | null;
+            estado: components["schemas"]["EstadoTarea"];
+            responsable?: components["schemas"]["PersonaMini"] | null;
+            /** Format: date */
+            fechaLimite?: string | null;
+            /** @description No está HECHA y su fecha límite ya pasó */
+            vencida: boolean;
+            comentarios: number;
+            creadoPor?: components["schemas"]["PersonaMini"] | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            completadaEn?: string | null;
+        };
+        /** @description Al crear, titulo es obligatorio. responsableId debe ser del equipo; etapaId, del mismo proyecto */
+        TareaEntrada: {
+            titulo?: string;
+            descripcion?: string | null;
+            estado?: components["schemas"]["EstadoTarea"];
+            /** Format: uuid */
+            responsableId?: string | null;
+            /** Format: uuid */
+            etapaId?: string | null;
+            /** Format: date */
+            fechaLimite?: string | null;
+        };
+        ComentarioTarea: {
+            /** Format: uuid */
+            id: string;
+            autor: components["schemas"]["PersonaMini"];
+            texto: string;
+            menciones: components["schemas"]["PersonaMini"][];
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        ProyectoPipeline: {
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** Format: uuid */
+            clienteId: string;
+            clienteNombre: string;
+            /** @example Diseño y desarrollo web - Casa Oliva */
+            titulo: string;
+            codigo: components["schemas"]["CodigoServicio"];
+            estado: components["schemas"]["EstadoServicio"];
+            columna: components["schemas"]["ColumnaProyecto"];
+            avance: components["schemas"]["AvanceProyecto"];
+            /** @description Quien lleva la cuenta */
+            responsable?: components["schemas"]["PersonaMini"] | null;
+            tareas: {
+                abiertas: number;
+                vencidas: number;
+            };
+            requerimientosPendientes: number;
+            requerimientosAtrasados: number;
+        };
         EstadoPago: {
             situacion: components["schemas"]["SituacionPago"];
             /** @description Días corridos desde atrasadoDesde; 0 si está al día */
@@ -3129,7 +3305,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "tarea.mencion" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -6057,6 +6233,221 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    pipelineProyectos: {
+        parameters: {
+            query?: {
+                /** @description Solo proyectos cuya cuenta lleva esa persona o donde tiene tareas abiertas */
+                responsableId?: string;
+                /** @description Cliente o servicio */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        columnas: {
+                            clave: components["schemas"]["ColumnaProyecto"];
+                            titulo: string;
+                        }[];
+                        datos: components["schemas"]["ProyectoPipeline"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarEquipo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PersonaEquipo"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarTareas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Abiertas primero, por fecha límite; las hechas al final */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Tarea"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TareaEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tarea"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizarTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TareaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tarea"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarComentariosTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ComentarioTarea"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    comentarTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                    /** @description Personas del equipo */
+                    mencionIds?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentarioTarea"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     panelClientes: {
