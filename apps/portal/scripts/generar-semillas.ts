@@ -83,6 +83,21 @@ LEFT JOIN LATERAL (
     D.TAREAS_INICIALES.map((t) => [t.id, t.servicioContratadoId, t.clienteId, t.etapaId, t.titulo, t.descripcion, t.estado, t.responsableId, t.fechaLimite, t.completadaEn, t.creadoPorId, t.creadoEn]),
   ),
   insert(
+    "entregable",
+    ["id", "servicio_contratado_id", "cliente_id", "etapa_id", "titulo", "descripcion", "formato", "estado", "version_actual", "version_cliente", "rebotes", "aprobado_en", "creado_por", "creado_en"],
+    D.ENTREGABLES_INICIALES.map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.etapaId, e.titulo, e.descripcion, e.formato, e.estado, e.versionActual, e.versionCliente, e.rebotes, e.aprobadoEn, e.creadoPorId, e.creadoEn]),
+  ),
+  insert(
+    "version_entregable",
+    ["entregable_id", "numero", "cliente_id", "url", "nombre_archivo", "nota", "enviada_en", "enviada_por", "creado_por", "creado_en"],
+    D.ENTREGABLES_INICIALES.flatMap((e) => e.versiones.map((v) => [e.id, v.numero, e.clienteId, v.url, v.nombreArchivo, v.nota, v.enviadaEn, v.enviadaPorId, e.creadoPorId, v.creadoEn])),
+  ),
+  insert(
+    "decision_entregable",
+    ["entregable_id", "cliente_id", "version", "decision", "comentario", "usuario_id", "creado_en"],
+    D.ENTREGABLES_INICIALES.flatMap((e) => e.decisiones.map((d) => [e.id, e.clienteId, d.version, d.decision, d.comentario, d.usuarioId, d.fecha])),
+  ),
+  insert(
     "comentario_tarea",
     ["id", "tarea_id", "cliente_id", "autor_id", "texto", "menciones", "creado_en"],
     // uuid[] como literal de Postgres (q() convierte los arreglos en text[]).

@@ -2068,6 +2068,147 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /servicios-contratados/{servicioContratadoId}/entregables:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarEntregables
+      summary: 'Entregables del proyecto (reunión 15 oct): flujograma, propuesta, prototipo, manual… El cliente solo ve los que ya se le enviaron'
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Entregable' } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: crearEntregable
+      summary: 'El equipo carga un entregable con su primera versión (EN_PREPARACION: el cliente todavía no lo ve)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EntregableEntrada' }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntregableDetalle' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/entregables:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [Servicios]
+      operationId: listarEntregablesCliente
+      summary: 'Entregables de todos los proyectos del cliente («Entregables por revisar»); filtra por estado'
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoEntregable' } }
+      responses:
+        '200':
+          description: 'Primero lo que espera revisión, por fecha de envío'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Entregable' } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /entregables/{entregableId}:
+    parameters:
+      - { name: entregableId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: obtenerEntregable
+      summary: 'Detalle con versiones y decisiones. El cliente solo ve las versiones que se le enviaron'
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntregableDetalle' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /entregables/{entregableId}/versiones:
+    parameters:
+      - { name: entregableId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Servicios]
+      operationId: nuevaVersionEntregable
+      summary: 'Nueva versión (por ejemplo, tras los cambios del cliente). Queda EN_PREPARACION hasta enviarla'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VersionEntregableEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntregableDetalle' }
+        '409': { description: 'ENTREGABLE_APROBADO: ya está aprobado', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /entregables/{entregableId}/enviar:
+    parameters:
+      - { name: entregableId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Servicios]
+      operationId: enviarEntregable
+      summary: 'Una persona del equipo envía la versión vigente al cliente (LISTO_REVISION). Emite entregable.listo_revision'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntregableDetalle' }
+        '409': { description: 'VERSION_YA_ENVIADA o ENTREGABLE_APROBADO', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /entregables/{entregableId}/decision:
+    parameters:
+      - { name: entregableId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Servicios]
+      operationId: decidirEntregable
+      summary: 'El cliente aprueba o pide cambios (comentario obligatorio). Cada pedido de cambios suma un rebote. Emite entregable.decidido'
+      x-roles: [ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APROBADO, CAMBIOS_SOLICITADOS] }
+                comentario: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntregableDetalle' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { description: 'ENTREGABLE_NO_ESPERA_REVISION', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /tareas/{tareaId}:
     parameters:
       - { name: tareaId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2706,7 +2847,7 @@ components:
           required: [serviciosActivos, porAprobar, ticketsAbiertos, requerimientosPendientes]
           properties:
             serviciosActivos: { type: integer }
-            porAprobar: { type: integer, description: También es el contador del menú "Entregables por revisar" }
+            porAprobar: { type: integer, description: 'Piezas y entregables que esperan su revisión. También es el contador del menú "Entregables por revisar"' }
             ticketsAbiertos: { type: integer }
             ideasPorElegir: { type: integer }
             requerimientosPendientes: { type: integer, description: 'Lo que la agencia le pidió al cliente y aún no entrega' }
@@ -2796,6 +2937,81 @@ components:
         fechaFin: { type: string, format: date }
         visibleDesde: { type: string, format: date }
     SituacionPago: { type: string, enum: [AL_DIA, ATRASADO] }
+    FormatoEntregable: { type: string, enum: [PDF, IMAGEN, ENLACE, PROTOTIPO, DOCUMENTO] }
+    EstadoEntregable:
+      type: string
+      enum: [EN_PREPARACION, LISTO_REVISION, CAMBIOS_SOLICITADOS, APROBADO]
+      description: 'El cliente nunca ve EN_PREPARACION: si ya se le envió una versión y el equipo prepara otra, le llega CAMBIOS_SOLICITADOS («Revisado»)'
+    Entregable:
+      type: object
+      required: [id, servicioContratadoId, servicioTitulo, titulo, formato, estado, version, rebotes, atrasado, diasAtrasoRevision, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        servicioContratadoId: { type: string, format: uuid }
+        servicioTitulo: { type: string, examples: [Diseño y desarrollo web - Casa Oliva] }
+        etapaId: { type: [string, 'null'], format: uuid }
+        etapaNombre: { type: [string, 'null'] }
+        titulo: { type: string, examples: [Flujograma y benchmark de referencias] }
+        descripcion: { type: [string, 'null'] }
+        formato: { $ref: '#/components/schemas/FormatoEntregable' }
+        estado: { $ref: '#/components/schemas/EstadoEntregable' }
+        version: { type: integer, description: 'Vigente; para el cliente, la última que se le envió' }
+        url: { type: [string, 'null'], description: 'Archivo o enlace de esa versión (PDF, imagen, prototipo)' }
+        nombreArchivo: { type: [string, 'null'] }
+        rebotes: { type: integer, description: 'Veces que el cliente pidió cambios (KPI de la reunión 15 oct)' }
+        atrasado: { type: boolean, description: 'LISTO_REVISION y el cliente no lo revisó en su plazo' }
+        diasAtrasoRevision: { type: integer, minimum: 0 }
+        enviadoEn: { type: [string, 'null'], format: date-time }
+        aprobadoEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
+    EntregableDetalle:
+      allOf:
+        - { $ref: '#/components/schemas/Entregable' }
+        - type: object
+          required: [versiones, decisiones]
+          properties:
+            versiones:
+              type: array
+              items:
+                type: object
+                required: [numero, creadoEn]
+                properties:
+                  numero: { type: integer }
+                  url: { type: [string, 'null'] }
+                  nombreArchivo: { type: [string, 'null'] }
+                  nota: { type: [string, 'null'], description: 'Qué cambió en esta versión' }
+                  enviadaEn: { type: [string, 'null'], format: date-time }
+                  enviadaPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+                  creadoEn: { type: string, format: date-time }
+            decisiones:
+              type: array
+              items:
+                type: object
+                required: [version, decision, usuario, fecha]
+                properties:
+                  version: { type: integer }
+                  decision: { type: string, enum: [APROBADO, CAMBIOS_SOLICITADOS] }
+                  comentario: { type: [string, 'null'] }
+                  usuario: { $ref: '#/components/schemas/PersonaMini' }
+                  fecha: { type: string, format: date-time }
+    EntregableEntrada:
+      type: object
+      required: [titulo, formato, url]
+      properties:
+        titulo: { type: string, minLength: 3, maxLength: 200 }
+        descripcion: { type: [string, 'null'] }
+        etapaId: { type: [string, 'null'], format: uuid }
+        formato: { $ref: '#/components/schemas/FormatoEntregable' }
+        url: { type: string, description: 'https://… o una ruta del portal (/muestras/…)' }
+        nombreArchivo: { type: [string, 'null'] }
+        nota: { type: [string, 'null'] }
+    VersionEntregableEntrada:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string }
+        nombreArchivo: { type: [string, 'null'] }
+        nota: { type: [string, 'null'], description: 'Qué cambió respecto de la anterior' }
     EstadoTarea: { type: string, enum: [PENDIENTE, EN_CURSO, BLOQUEADA, HECHA] }
     ColumnaProyecto: { type: string, enum: [POR_INICIAR, EN_CURSO, ESPERA_CLIENTE, CON_RETRASO, POR_CERRAR, EN_PAUSA] }
     PersonaEquipo:
@@ -3238,7 +3454,8 @@ components:
             fechaFin: { type: [string, 'null'], format: date }
             metricas: { type: array, description: 'Las de la plantilla del servicio, en su orden', items: { $ref: '#/components/schemas/MetricaValor' } }
             reuniones: { type: array, description: 'Próximas primero, luego las realizadas más recientes (máximo 6)', items: { $ref: '#/components/schemas/Reunion' } }
-            porRevisar: { type: array, description: 'Entregables de este servicio en LISTO_REVISION', items: { $ref: '#/components/schemas/PiezaResumen' } }
+            porRevisar: { type: array, description: 'Piezas de contenido de este servicio en LISTO_REVISION', items: { $ref: '#/components/schemas/PiezaResumen' } }
+            entregables: { type: array, description: 'Entregables del proyecto (flujograma, prototipo, manual…); el cliente ve solo los enviados', items: { $ref: '#/components/schemas/Entregable' } }
     ComentarioProyecto:
       type: object
       required: [id, texto, autor, deEquipo, creadoEn]
@@ -4038,6 +4255,8 @@ components:
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
             - pago.situacion_cambiada    # Finanzas marcó al día o atrasado; desde el umbral, alerta a operaciones
             - tarea.asignada             # una tarea interna tiene responsable nuevo; aviso a esa persona
+            - entregable.listo_revision  # el equipo envió un entregable (flujograma, prototipo…); correo al cliente
+            - entregable.decidido        # el cliente aprobó o pidió cambios; aviso al responsable
             - tarea.mencion              # alguien mencionó a una persona en una tarea
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia

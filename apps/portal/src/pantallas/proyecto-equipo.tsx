@@ -11,6 +11,7 @@ import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavega
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
 import { TareasDelProyecto } from "./tareas";
+import { EntregablesEquipo } from "./entregables";
 
 type Perfil = S<"PerfilProyecto">;
 const ESTADOS_ETAPA: [S<"EstadoHito">, string][] = [
@@ -134,6 +135,7 @@ function ProyectoEquipo() {
             </div>
           </section>
           <TareasDelProyecto servicioId={d.servicioContratadoId} etapas={d.etapas} />
+          <EntregablesEquipo servicioId={d.servicioContratadoId} etapas={d.etapas} />
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
         </div>
         <aside className="pila">

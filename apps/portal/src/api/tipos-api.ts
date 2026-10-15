@@ -1361,6 +1361,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/entregables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Entregables del proyecto (reunión 15 oct): flujograma, propuesta, prototipo, manual… El cliente solo ve los que ya se le enviaron */
+        get: operations["listarEntregables"];
+        put?: never;
+        /** El equipo carga un entregable con su primera versión (EN_PREPARACION: el cliente todavía no lo ve) */
+        post: operations["crearEntregable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/entregables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Entregables de todos los proyectos del cliente («Entregables por revisar»); filtra por estado */
+        get: operations["listarEntregablesCliente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/entregables/{entregableId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        /** Detalle con versiones y decisiones. El cliente solo ve las versiones que se le enviaron */
+        get: operations["obtenerEntregable"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/entregables/{entregableId}/versiones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Nueva versión (por ejemplo, tras los cambios del cliente). Queda EN_PREPARACION hasta enviarla */
+        post: operations["nuevaVersionEntregable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/entregables/{entregableId}/enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Una persona del equipo envía la versión vigente al cliente (LISTO_REVISION). Emite entregable.listo_revision */
+        post: operations["enviarEntregable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/entregables/{entregableId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** El cliente aprueba o pide cambios (comentario obligatorio). Cada pedido de cambios suma un rebote. Emite entregable.decidido */
+        post: operations["decidirEntregable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tareas/{tareaId}": {
         parameters: {
             query?: never;
@@ -1882,7 +1997,7 @@ export interface components {
             periodo: components["schemas"]["Periodo"];
             indicadores: {
                 serviciosActivos: number;
-                /** @description También es el contador del menú "Entregables por revisar" */
+                /** @description Piezas y entregables que esperan su revisión. También es el contador del menú "Entregables por revisar" */
                 porAprobar: number;
                 ticketsAbiertos: number;
                 ideasPorElegir?: number;
@@ -1974,6 +2089,85 @@ export interface components {
         };
         /** @enum {string} */
         SituacionPago: "AL_DIA" | "ATRASADO";
+        /** @enum {string} */
+        FormatoEntregable: "PDF" | "IMAGEN" | "ENLACE" | "PROTOTIPO" | "DOCUMENTO";
+        /**
+         * @description El cliente nunca ve EN_PREPARACION: si ya se le envió una versión y el equipo prepara otra, le llega CAMBIOS_SOLICITADOS («Revisado»)
+         * @enum {string}
+         */
+        EstadoEntregable: "EN_PREPARACION" | "LISTO_REVISION" | "CAMBIOS_SOLICITADOS" | "APROBADO";
+        Entregable: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** @example Diseño y desarrollo web - Casa Oliva */
+            servicioTitulo: string;
+            /** Format: uuid */
+            etapaId?: string | null;
+            etapaNombre?: string | null;
+            /** @example Flujograma y benchmark de referencias */
+            titulo: string;
+            descripcion?: string | null;
+            formato: components["schemas"]["FormatoEntregable"];
+            estado: components["schemas"]["EstadoEntregable"];
+            /** @description Vigente; para el cliente, la última que se le envió */
+            version: number;
+            /** @description Archivo o enlace de esa versión (PDF, imagen, prototipo) */
+            url?: string | null;
+            nombreArchivo?: string | null;
+            /** @description Veces que el cliente pidió cambios (KPI de la reunión 15 oct) */
+            rebotes: number;
+            /** @description LISTO_REVISION y el cliente no lo revisó en su plazo */
+            atrasado: boolean;
+            diasAtrasoRevision: number;
+            /** Format: date-time */
+            enviadoEn?: string | null;
+            /** Format: date-time */
+            aprobadoEn?: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        EntregableDetalle: components["schemas"]["Entregable"] & {
+            versiones: {
+                numero: number;
+                url?: string | null;
+                nombreArchivo?: string | null;
+                /** @description Qué cambió en esta versión */
+                nota?: string | null;
+                /** Format: date-time */
+                enviadaEn?: string | null;
+                enviadaPor?: components["schemas"]["PersonaMini"] | null;
+                /** Format: date-time */
+                creadoEn: string;
+            }[];
+            decisiones: {
+                version: number;
+                /** @enum {string} */
+                decision: "APROBADO" | "CAMBIOS_SOLICITADOS";
+                comentario?: string | null;
+                usuario: components["schemas"]["PersonaMini"];
+                /** Format: date-time */
+                fecha: string;
+            }[];
+        };
+        EntregableEntrada: {
+            titulo: string;
+            descripcion?: string | null;
+            /** Format: uuid */
+            etapaId?: string | null;
+            formato: components["schemas"]["FormatoEntregable"];
+            /** @description https://… o una ruta del portal (/muestras/…) */
+            url: string;
+            nombreArchivo?: string | null;
+            nota?: string | null;
+        };
+        VersionEntregableEntrada: {
+            url: string;
+            nombreArchivo?: string | null;
+            /** @description Qué cambió respecto de la anterior */
+            nota?: string | null;
+        };
         /** @enum {string} */
         EstadoTarea: "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
         /** @enum {string} */
@@ -2507,8 +2701,10 @@ export interface components {
             metricas: components["schemas"]["MetricaValor"][];
             /** @description Próximas primero, luego las realizadas más recientes (máximo 6) */
             reuniones: components["schemas"]["Reunion"][];
-            /** @description Entregables de este servicio en LISTO_REVISION */
+            /** @description Piezas de contenido de este servicio en LISTO_REVISION */
             porRevisar: components["schemas"]["PiezaResumen"][];
+            /** @description Entregables del proyecto (flujograma, prototipo, manual…); el cliente ve solo los enviados */
+            entregables?: components["schemas"]["Entregable"][];
         };
         ComentarioProyecto: {
             /** Format: uuid */
@@ -3311,7 +3507,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "tarea.mencion" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -6347,6 +6543,217 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarEntregables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Entregable"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntregableEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntregableDetalle"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarEntregablesCliente: {
+        parameters: {
+            query?: {
+                estado?: components["schemas"]["EstadoEntregable"];
+            };
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Primero lo que espera revisión, por fecha de envío */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Entregable"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    obtenerEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntregableDetalle"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    nuevaVersionEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionEntregableEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntregableDetalle"];
+                };
+            };
+            /** @description ENTREGABLE_APROBADO: ya está aprobado */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    enviarEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntregableDetalle"];
+                };
+            };
+            /** @description VERSION_YA_ENVIADA o ENTREGABLE_APROBADO */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    decidirEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "APROBADO" | "CAMBIOS_SOLICITADOS";
+                    comentario?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntregableDetalle"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description ENTREGABLE_NO_ESPERA_REVISION */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             422: components["responses"]["Validacion"];
         };
     };

@@ -1159,6 +1159,26 @@ a.avatar:hover {
   text-align: center;
 }
 
+/* Entregables genéricos del proyecto (reunión 15 oct). */
+.icono-entregable {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--c-primario-suave);
+  color: var(--c-primario);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.visor-pdf {
+  width: 100%;
+  height: min(72vh, 680px);
+  border: 1px solid var(--c-borde);
+  border-radius: 12px;
+  background: var(--c-fondo);
+}
+
 /* Tareas del proyecto: lista y Kanban por estado. */
 .enlace-tarea {
   background: none;

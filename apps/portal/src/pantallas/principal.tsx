@@ -14,6 +14,7 @@ import {
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
+import { DocumentosPorRevisar } from "./entregables";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
 
@@ -524,13 +525,21 @@ function Entregables() {
     return `/clientes/${clienteActivo()}/piezas?${p}`;
   }, [q, canal]);
   const { datos, error, recargar } = useConsulta<{ datos: PiezaUI[]; paginacion: { total: number } }>(consulta);
+  // Reunión 15 oct: además de las piezas de contenido, los documentos y prototipos de los proyectos.
+  const documentos = useConsulta<{ datos: S<"Entregable">[] }>(`/clientes/${clienteActivo()}/entregables?estado=LISTO_REVISION`);
+  const docs = documentos.datos?.datos ?? [];
   const total = datos?.paginacion.total ?? 0;
+  const pendientes = total + docs.length;
   return (
     <>
-      <Cabecera antetitulo="Contenido de Casa Oliva" titulo="Entregables por revisar" bajada="El siguiente paso es tuyo. Revisa cada pieza y cuéntanos qué te parece." />
-      <Aviso icono={<LuCircleCheck size={18} />} titulo={`Tienes ${total} piezas listas para revisión`} elevado>
-        Aprueba la versión actual o pide cambios. Publicaremos solo el contenido aprobado.
+      <Cabecera antetitulo="Tus proyectos con Inoo" titulo="Entregables por revisar" bajada="El siguiente paso es tuyo. Revisa cada entregable y cuéntanos qué te parece." />
+      <Aviso icono={<LuCircleCheck size={18} />} titulo={pendientes === 1 ? "Tienes 1 entregable listo para revisar" : `Tienes ${pendientes} entregables listos para revisar`} elevado>
+        Aprueba la versión actual o pide cambios. Avanzamos solo con lo que apruebas.
       </Aviso>
+      <div style={{ marginTop: 20 }}>
+        <DocumentosPorRevisar entregables={docs} />
+      </div>
+      {(total > 0 || q || canal) && <h2 className="seccion-titulo" style={{ marginTop: 8 }}>Contenido para redes y blog</h2>}
       <div className="fila fila-filtros" style={{ margin: "24px 0 22px", gap: 12 }}>
         <div className="entrada" style={{ flex: 1 }}>
           <span className="icono-inicio">
@@ -561,7 +570,7 @@ function Entregables() {
       ) : !datos ? (
         <Cargando />
       ) : datos.datos.length === 0 ? (
-        q || canal ? <p className="vacio">No hay piezas que coincidan con tu búsqueda.</p> : <TodoAlDia />
+        q || canal ? <p className="vacio">No hay piezas que coincidan con tu búsqueda.</p> : docs.length ? null : <TodoAlDia />
       ) : (
         <div className="grid-2" style={{ gap: 18 }}>
           {datos.datos.map((p) => (

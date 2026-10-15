@@ -6,6 +6,7 @@ import { pruebasServicios } from "./flujo-servicios";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { pruebasProyectos } from "./flujo-proyectos";
 import { pruebasSinIa } from "./flujo-sin-ia";
+import { pruebasEntregables } from "./flujo-entregables";
 import { HOY } from "../../src/mock/datos";
 
 const manejar = (req: Request) => manejarSolicitud(req);
@@ -17,3 +18,4 @@ pruebasServicios("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 1
 pruebasRequerimientos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasProyectos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasSinIa("API simulada", manejar, reiniciarMock);
+pruebasEntregables("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));

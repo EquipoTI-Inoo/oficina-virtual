@@ -18,7 +18,8 @@ test("ingreso: rechaza la clave incorrecta y entra con la correcta", async ({ pa
 test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/entregables");
-  await expect(page.getByText("Tienes 3 piezas listas para revisión")).toBeVisible();
+  // 3 piezas de contenido + el flujograma de la web (entregables genéricos, reunión 15 oct).
+  await expect(page.getByText("Tienes 4 entregables listos para revisar")).toBeVisible({ timeout: 20_000 });
   await page.fill("input[aria-label='Buscar una pieza']", "minuto");
   await expect(page.getByText("1 entregables")).toBeVisible();
   await page.fill("input[aria-label='Buscar una pieza']", "");
@@ -31,7 +32,7 @@ test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
   await expect(page.getByText("Versión 2 aprobada")).toBeVisible();
   await expect(page.getByText("Aprobaste la versión 2")).toBeVisible();
   await page.goto("/inicio");
-  await expect(page.locator(".nav-item", { hasText: "Entregables" }).locator(".nav-contador")).toHaveText("2");
+  await expect(page.locator(".nav-item", { hasText: "Entregables" }).locator(".nav-contador")).toHaveText("3");
 });
 
 test("CU-06: pedir cambios con comentario", async ({ page }) => {
@@ -248,6 +249,28 @@ test("proyectos: del pipeline al proyecto, crear una tarea, moverla y mencionar 
   await expect(page.getByText("Avisamos a 1 persona.")).toBeVisible();
 });
 
+test("entregables: el cliente revisa el flujograma en el visor y pide cambios; el equipo envía el prototipo", async ({ browser }) => {
+  const cliente = await browser.newPage();
+  await entrarComo(cliente, "cliente");
+  await cliente.goto("/entregables");
+  const docs = cliente.getByRole("region", { name: "Documentos y prototipos por revisar" });
+  await docs.getByRole("link", { name: /Flujograma y benchmark de referencias/ }).click({ timeout: 30_000 });
+  await expect(cliente.locator("iframe.visor-pdf")).toHaveAttribute("src", "/muestras/flujograma-casa-oliva.pdf", { timeout: 30_000 });
+  await cliente.fill("#comentario-entregable", "Agreguen una página de preguntas frecuentes.");
+  await cliente.getByRole("button", { name: "Pedir cambios" }).click();
+  await expect(cliente.getByText("Cambios enviados")).toBeVisible();
+  await expect(cliente.getByText(/Pidió cambios por Valeria Mendoza/)).toBeVisible();
+  await cliente.close();
+  const equipo = await browser.newPage();
+  await entrarComo(equipo, "equipo");
+  await equipo.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004");
+  const seccion = equipo.getByRole("region", { name: "Entregables del proyecto" });
+  await seccion.getByRole("link", { name: /Prototipo del inicio y la ficha de producto/ }).click({ timeout: 30_000 });
+  await equipo.getByRole("button", { name: "Enviar al cliente" }).click({ timeout: 30_000 });
+  await expect(equipo.getByText("Enviado al cliente")).toBeVisible();
+  await equipo.close();
+});
+
 test("un cliente no entra al panel interno", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/equipo/panel");
@@ -264,6 +287,7 @@ test("mi cuenta: la foto de perfil abre pagos, usuarios y ayuda", async ({ page 
   await expect(page).toHaveURL(/\/cuenta\/pagos$/);
   await expect(page.getByText("Atrasado · 8 días")).toBeVisible();
   await page.getByRole("tab", { name: "Ayuda" }).click();
+  await expect(page).toHaveURL(/\/cuenta\/ayuda$/);
   await expect(page.getByText("Pagos y facturación")).toBeVisible();
 });
 

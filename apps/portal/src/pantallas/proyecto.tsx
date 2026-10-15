@@ -11,6 +11,7 @@ import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIO
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
+import { EntregablesDelProyecto } from "./entregables";
 
 const ESTADO_AVANCE: Record<string, [string, "verde" | "azul" | "gris"]> = {
   SIN_INICIAR: ["Por iniciar", "gris"],
@@ -80,6 +81,8 @@ function Proyecto() {
               </div>
             )}
           </section>
+
+          <EntregablesDelProyecto entregables={d.entregables ?? []} />
 
           {d.porRevisar.length > 0 && (
             <section>

@@ -89,7 +89,8 @@ describe("aislamiento por cliente y permisos", () => {
 describe("aprobaciones (CU-06)", () => {
   test("los números de Inicio coinciden con Figma", async () => {
     const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
-    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 3, ticketsAbiertos: 3, ideasPorElegir: 0, requerimientosPendientes: 3 });
+    // porAprobar: 3 piezas + el flujograma de la web (entregables genéricos, reunión 15 oct).
+    assert.deepEqual(r.json.indicadores, { serviciosActivos: 4, porAprobar: 4, ticketsAbiertos: 3, ideasPorElegir: 0, requerimientosPendientes: 3 });
     assert.equal(r.json.avanceMes.porcentaje, 60);
     assert.equal(r.json.avanceMes.aprobadas, 12);
     assert.equal(r.json.proximaPublicacion.titulo, "Tu ritual, tu momento");
@@ -125,7 +126,7 @@ describe("aprobaciones (CU-06)", () => {
     assert.deepEqual(r.json.acciones, ["COMENTAR", "DESCARGAR"]);
     const vs = (await llamar("GET", `/piezas/${TU_RITUAL}/versiones`, VALERIA)).json;
     assert.equal(vs[0].decision.usuarioNombre, "Valeria Mendoza");
-    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json.indicadores.porAprobar, 2);
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json.indicadores.porAprobar, 3, "2 piezas + el flujograma");
   });
   test("pedir cambios sin comentario responde 422 COMENTARIO_REQUERIDO", async () => {
     const r = await llamar("POST", `/piezas/${TU_RITUAL}/solicitar-cambios`, VALERIA, { version: 2, comentario: "  " });

@@ -13,6 +13,7 @@ import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
+import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
@@ -80,6 +81,7 @@ interface Estado {
   reuniones: D.ReunionDemo[];
   comentariosProyecto: D.ComentarioProyectoDemo[];
   tareas: D.TareaDemo[];
+  entregables: D.EntregableDemo[];
   comentariosTarea: D.ComentarioTareaDemo[];
   solicitudesResponsable: {
     id: string; clienteId: string; solicitadoPorId: string; nombre: string; email: string; telefono: string; cargo: string | null; motivo: string | null;
@@ -140,6 +142,7 @@ function estadoInicial(): Estado {
     reuniones: structuredClone(D.REUNIONES_INICIALES),
     comentariosProyecto: structuredClone(D.COMENTARIOS_PROYECTO_INICIALES),
     tareas: structuredClone(D.TAREAS_INICIALES),
+    entregables: structuredClone(D.ENTREGABLES_INICIALES),
     comentariosTarea: structuredClone(D.COMENTARIOS_TAREA_INICIALES),
     solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
@@ -757,7 +760,9 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
   const r: S<"InicioCliente"> = {
     periodo: D.PERIODO,
     indicadores: {
-      serviciosActivos: serviciosDe(c.id).length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0,
+      serviciosActivos: serviciosDe(c.id).length,
+      porAprobar: pendientes.length + E.entregables.filter((e) => e.clienteId === c.id && e.estado === "LISTO_REVISION").length,
+      ticketsAbiertos: abiertos.length, ideasPorElegir: 0,
       requerimientosPendientes: E.requerimientos.filter((r) => r.clienteId === c.id && pendienteParaCliente(r.estado)).length,
     },
     plan: fichaDe(c.id).plan,
@@ -1798,6 +1803,127 @@ const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => perfilVista(ctx, buscarServicio(ctx, p.id), q.get("periodo") ?? D.PERIODO));
 
+// ───────────────────────────────────────────── entregables genéricos del proyecto (reunión 15 oct)
+
+/** El cliente solo ve los entregables que ya se le enviaron. */
+function entregablesVisibles(ctx: Ctx, filtro: (e: D.EntregableDemo) => boolean) {
+  return E.entregables.filter((e) => filtro(e) && (ctx.esEquipo || e.versionCliente !== null));
+}
+
+function entregableVista(ctx: Ctx, e: D.EntregableDemo): S<"Entregable"> {
+  const numero = ctx.esEquipo ? e.versionActual : e.versionCliente!;
+  const v = e.versiones.find((x) => x.numero === numero);
+  const enviada = e.versiones.filter((x) => x.enviadaEn).at(-1)?.enviadaEn ?? null;
+  const atraso = e.estado === "LISTO_REVISION" && enviada ? diasAtrasoRevision(enviada, D.HOY, noHabiles()) : 0;
+  const sc = E.servicios.find((x) => x.id === e.servicioContratadoId)!;
+  return {
+    id: e.id, servicioContratadoId: e.servicioContratadoId, servicioTitulo: tituloDe(sc), etapaId: e.etapaId,
+    etapaNombre: E.etapas.find((x) => x.id === e.etapaId)?.nombre ?? null, titulo: e.titulo, descripcion: e.descripcion, formato: e.formato,
+    estado: ctx.esEquipo ? e.estado : estadoEntregableCliente(e.estado), version: numero, url: v?.url ?? null, nombreArchivo: v?.nombreArchivo ?? null,
+    rebotes: e.rebotes, atrasado: atraso > 0, diasAtrasoRevision: atraso, enviadoEn: enviada, aprobadoEn: e.aprobadoEn, creadoEn: e.creadoEn,
+  };
+}
+
+function entregableDetalle(ctx: Ctx, e: D.EntregableDemo): S<"EntregableDetalle"> {
+  return {
+    ...entregableVista(ctx, e),
+    versiones: e.versiones.filter((v) => ctx.esEquipo || v.enviadaEn).map((v) => ({
+      numero: v.numero, url: v.url, nombreArchivo: v.nombreArchivo, nota: v.nota, enviadaEn: v.enviadaEn, enviadaPor: persona(v.enviadaPorId), creadoEn: v.creadoEn,
+    })),
+    decisiones: e.decisiones.map((d) => ({ version: d.version, decision: d.decision, comentario: d.comentario, usuario: persona(d.usuarioId)!, fecha: d.fecha })),
+  };
+}
+
+function buscarEntregable(ctx: Ctx, id: string) {
+  const e = E.entregables.find((x) => x.id === id);
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
+  accesoCliente(ctx, e.clienteId);
+  if (!ctx.esEquipo && e.versionCliente === null) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
+  return e;
+}
+
+ruta("GET", "/servicios-contratados/:id/entregables", (ctx, p) => {
+  const s = buscarServicio(ctx, p.id);
+  return { datos: ordenarEntregables(entregablesVisibles(ctx, (e) => e.servicioContratadoId === s.id).map((e) => entregableVista(ctx, e))) };
+});
+
+ruta("GET", "/clientes/:id/entregables", (ctx, p, q) => {
+  const c = accesoCliente(ctx, p.id);
+  const estado = q.get("estado");
+  const xs = entregablesVisibles(ctx, (e) => e.clienteId === c.id).map((e) => entregableVista(ctx, e)).filter((e) => !estado || e.estado === estado);
+  return { datos: ordenarEntregables(xs) };
+});
+
+ruta("GET", "/entregables/:id", (ctx, p) => entregableDetalle(ctx, buscarEntregable(ctx, p.id)));
+
+ruta("POST", "/servicios-contratados/:id/entregables", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; etapaId?: string | null; formato?: D.EntregableDemo["formato"]; url?: string; nombreArchivo?: string | null; nota?: string | null }>(req);
+  const errores = validarEntregable(b);
+  if (typeof b.etapaId === "string" && !E.etapas.some((x) => x.id === b.etapaId && x.servicioContratadoId === s.id)) errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const ahora = new Date().toISOString();
+  const e: D.EntregableDemo = {
+    id: nuevoId(29), servicioContratadoId: s.id, clienteId: s.clienteId, etapaId: b.etapaId ?? null, titulo: b.titulo!.trim(), descripcion: b.descripcion?.trim() || null,
+    formato: b.formato!, estado: "EN_PREPARACION", versionActual: 1, versionCliente: null, rebotes: 0, aprobadoEn: null, creadoPorId: ctx.usuario.id, creadoEn: ahora,
+    versiones: [{ numero: 1, url: b.url!, nombreArchivo: b.nombreArchivo?.trim() || null, nota: b.nota?.trim() || null, enviadaEn: null, enviadaPorId: null, creadoEn: ahora }],
+    decisiones: [],
+  };
+  E.entregables.push(e);
+  return { __status: 201, ...entregableDetalle(ctx, e) };
+});
+
+ruta("POST", "/entregables/:id/versiones", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const e = buscarEntregable(ctx, p.id);
+  if (e.estado === "APROBADO") throw new ErrorApi(409, "ENTREGABLE_APROBADO", "Ya está aprobado: no se le suben versiones");
+  const b = await cuerpo<{ url?: string; nombreArchivo?: string | null; nota?: string | null }>(req);
+  const errores = validarVersionEntregable(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  e.versionActual += 1;
+  e.versiones.push({ numero: e.versionActual, url: b.url!, nombreArchivo: b.nombreArchivo?.trim() || null, nota: b.nota?.trim() || null, enviadaEn: null, enviadaPorId: null, creadoEn: new Date().toISOString() });
+  e.estado = "EN_PREPARACION";
+  return { __status: 201, ...entregableDetalle(ctx, e) };
+});
+
+ruta("POST", "/entregables/:id/enviar", (ctx, p) => {
+  soloEquipo(ctx);
+  const e = buscarEntregable(ctx, p.id);
+  if (e.estado === "APROBADO") throw new ErrorApi(409, "ENTREGABLE_APROBADO", "Ya está aprobado");
+  const v = e.versiones.find((x) => x.numero === e.versionActual)!;
+  if (v.enviadaEn) throw new ErrorApi(409, "VERSION_YA_ENVIADA", "Esa versión ya se le envió al cliente");
+  v.enviadaEn = new Date().toISOString();
+  v.enviadaPorId = ctx.usuario.id;
+  e.versionCliente = e.versionActual;
+  e.estado = "LISTO_REVISION";
+  emitir("entregable.listo_revision", e.clienteId, { entregableId: e.id, servicioContratadoId: e.servicioContratadoId, version: v.numero, usuarioId: ctx.usuario.id });
+  return entregableDetalle(ctx, e);
+});
+
+ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, req) => {
+  const e = buscarEntregable(ctx, p.id);
+  exigirRol(ctx, e.clienteId, ["ADMIN_CLIENTE", "APROBADOR"]);
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "La decisión es del cliente");
+  const b = await cuerpo<{ decision?: string; comentario?: string }>(req);
+  if (b.decision !== "APROBADO" && b.decision !== "CAMBIOS_SOLICITADOS") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "decision", mensaje: "Aprueba o pide cambios" }]);
+  if (b.decision === "CAMBIOS_SOLICITADOS" && !b.comentario?.trim()) {
+    throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Cuéntanos qué cambiar", undefined, [{ campo: "comentario", mensaje: "Escribe qué te gustaría cambiar" }]);
+  }
+  if (e.estado !== "LISTO_REVISION") throw new ErrorApi(409, "ENTREGABLE_NO_ESPERA_REVISION", "Este entregable no espera tu revisión");
+  const ahora = new Date().toISOString();
+  e.decisiones.push({ version: e.versionCliente!, decision: b.decision, comentario: b.comentario?.trim() || null, usuarioId: ctx.usuario.id, fecha: ahora });
+  if (b.decision === "APROBADO") {
+    e.estado = "APROBADO";
+    e.aprobadoEn = ahora;
+  } else {
+    e.estado = "CAMBIOS_SOLICITADOS";
+    e.rebotes += 1;
+  }
+  emitir("entregable.decidido", e.clienteId, { entregableId: e.id, decision: b.decision, version: e.versionCliente, rebotes: e.rebotes, usuarioId: ctx.usuario.id });
+  return entregableDetalle(ctx, e);
+});
+
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
 const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo });
@@ -1954,6 +2080,7 @@ function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<
     }),
     reuniones: [...proximas, ...pasadas].slice(0, 6).map(reunionVista),
     porRevisar: piezasDe(s.clienteId).filter((x) => x.servicioId === s.id && x.estado === "LISTO_REVISION" && paraCliente(x)).sort((a, b) => a.fecha.localeCompare(b.fecha)).map((x) => resumenPieza(ctx, x)),
+    entregables: ordenarEntregables(entregablesVisibles(ctx, (e) => e.servicioContratadoId === s.id).map((e) => entregableVista(ctx, e))),
   };
   return r;
 }

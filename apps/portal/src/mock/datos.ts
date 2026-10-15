@@ -597,6 +597,56 @@ export const COMENTARIOS_TAREA_INICIALES: ComentarioTareaDemo[] = [
   { id: uid(28, 1), tareaId: uid(27, 2), clienteId: uid(2, 1), autorId: uid(1, 4), texto: "@Diego Castro usa la paleta del manual de marca que subieron al Drive.", menciones: [uid(1, 3)], creadoEn: "2026-10-05T16:00:00Z" },
 ];
 
+/** Entregables genéricos de los proyectos de Casa Oliva (reunión 15 oct). Datos de relleno. */
+export interface EntregableDemo {
+  id: string;
+  servicioContratadoId: string;
+  clienteId: string;
+  etapaId: string | null;
+  titulo: string;
+  descripcion: string | null;
+  formato: "PDF" | "IMAGEN" | "ENLACE" | "PROTOTIPO" | "DOCUMENTO";
+  estado: "EN_PREPARACION" | "LISTO_REVISION" | "CAMBIOS_SOLICITADOS" | "APROBADO";
+  versionActual: number;
+  versionCliente: number | null;
+  rebotes: number;
+  aprobadoEn: string | null;
+  creadoPorId: string | null;
+  creadoEn: string;
+  versiones: { numero: number; url: string; nombreArchivo: string | null; nota: string | null; enviadaEn: string | null; enviadaPorId: string | null; creadoEn: string }[];
+  decisiones: { version: number; decision: "APROBADO" | "CAMBIOS_SOLICITADOS"; comentario: string | null; usuarioId: string; fecha: string }[];
+}
+
+export const ENTREGABLES_INICIALES: EntregableDemo[] = [
+  {
+    id: uid(29, 1), servicioContratadoId: WEB, clienteId: uid(2, 1), etapaId: uid(20, 5), titulo: "Flujograma y benchmark de referencias",
+    descripcion: "Las páginas y funciones de tu tienda, y las referencias que tomamos. Revísalo antes de que diseñemos.", formato: "PDF",
+    estado: "LISTO_REVISION", versionActual: 1, versionCliente: 1, rebotes: 0, aprobadoEn: null, creadoPorId: uid(1, 3), creadoEn: "2026-10-05T14:00:00Z",
+    versiones: [{ numero: 1, url: "/muestras/flujograma-casa-oliva.pdf", nombreArchivo: "flujograma-casa-oliva.pdf", nota: null, enviadaEn: "2026-10-05T16:00:00Z", enviadaPorId: uid(1, 3), creadoEn: "2026-10-05T14:00:00Z" }],
+    decisiones: [],
+  },
+  {
+    id: uid(29, 2), servicioContratadoId: WEB, clienteId: uid(2, 1), etapaId: uid(20, 6), titulo: "Prototipo del inicio y la ficha de producto",
+    descripcion: "Versión web y móvil, con textos reales.", formato: "PROTOTIPO",
+    estado: "EN_PREPARACION", versionActual: 1, versionCliente: null, rebotes: 0, aprobadoEn: null, creadoPorId: uid(1, 3), creadoEn: "2026-10-06T13:00:00Z",
+    versiones: [{ numero: 1, url: "https://demos.inoo.pe/casa-oliva", nombreArchivo: null, nota: null, enviadaEn: null, enviadaPorId: null, creadoEn: "2026-10-06T13:00:00Z" }],
+    decisiones: [],
+  },
+  {
+    id: uid(29, 3), servicioContratadoId: CRM, clienteId: uid(2, 1), etapaId: uid(20, 1), titulo: "Mapa de procesos de venta",
+    descripcion: "Cómo queda tu proceso de venta dentro del CRM.", formato: "PDF",
+    estado: "APROBADO", versionActual: 2, versionCliente: 2, rebotes: 1, aprobadoEn: "2026-09-30T18:00:00Z", creadoPorId: uid(1, 3), creadoEn: "2026-09-23T15:00:00Z",
+    versiones: [
+      { numero: 1, url: "/muestras/mapa-procesos-crm.pdf", nombreArchivo: "mapa-procesos-crm-v1.pdf", nota: null, enviadaEn: "2026-09-24T15:00:00Z", enviadaPorId: uid(1, 3), creadoEn: "2026-09-23T15:00:00Z" },
+      { numero: 2, url: "/muestras/mapa-procesos-crm.pdf", nombreArchivo: "mapa-procesos-crm-v2.pdf", nota: "Agregamos la etapa de negociación y quién aprueba cada cotización.", enviadaEn: "2026-09-29T15:00:00Z", enviadaPorId: uid(1, 3), creadoEn: "2026-09-29T14:00:00Z" },
+    ],
+    decisiones: [
+      { version: 1, decision: "CAMBIOS_SOLICITADOS", comentario: "Falta la etapa de negociación antes de ganar la venta.", usuarioId: uid(1, 1), fecha: "2026-09-25T17:00:00Z" },
+      { version: 2, decision: "APROBADO", comentario: null, usuarioId: uid(1, 1), fecha: "2026-09-30T18:00:00Z" },
+    ],
+  },
+];
+
 /** Reuniones de los proyectos de Casa Oliva (para las métricas del perfil). Datos de relleno. */
 export interface ReunionDemo {
   id: string;

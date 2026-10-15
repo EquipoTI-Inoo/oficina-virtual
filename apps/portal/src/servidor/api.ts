@@ -16,7 +16,8 @@
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
  * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
  * proyecto como eje (GET /panel/proyectos, GET /panel/equipo, GET|POST /servicios-contratados/{id}/tareas,
- * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios).
+ * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios) · entregables (GET|POST /servicios-contratados/{id}/entregables,
+ * GET /clientes/{id}/entregables, GET /entregables/{id}, POST /entregables/{id}/versiones|enviar|decision).
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -30,6 +31,7 @@ import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { diasNoLaborables } from "../dominio/calendario";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
+import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
@@ -1472,6 +1474,168 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => perfilVista(ctx, await buscarServicio(ctx, p.id), exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL())));
 
+// ───────────────────────────────────────────── entregables genéricos del proyecto (reunión 15 oct)
+// RLS: el cliente solo ve los entregables que ya se le enviaron y solo las versiones enviadas.
+
+interface FilaEntregable {
+  id: string;
+  servicio_contratado_id: string;
+  cliente_id: string;
+  etapa_id: string | null;
+  etapa_nombre: string | null;
+  servicio_nombre: string;
+  servicio_marca: string;
+  titulo: string;
+  descripcion: string | null;
+  formato: FormatoEntregable;
+  estado: EstadoEntregable;
+  version_actual: number;
+  version_cliente: number | null;
+  rebotes: number;
+  aprobado_en: Date | null;
+  creado_en: Date;
+  enviado_en: Date | null;
+  url_actual: string | null;
+  archivo_actual: string | null;
+  url_cliente: string | null;
+  archivo_cliente: string | null;
+}
+const SELECT_ENTREGABLE = `
+  SELECT e.*, ep.nombre AS etapa_nombre, s.nombre AS servicio_nombre, coalesce(sc.marca, c.nombre) AS servicio_marca,
+         (SELECT max(v.enviada_en) FROM version_entregable v WHERE v.entregable_id = e.id) AS enviado_en,
+         va.url AS url_actual, va.nombre_archivo AS archivo_actual, vc.url AS url_cliente, vc.nombre_archivo AS archivo_cliente
+  FROM entregable e
+  JOIN servicio_contratado sc ON sc.id = e.servicio_contratado_id
+  JOIN servicio s ON s.id = sc.servicio_id
+  JOIN cliente c ON c.id = e.cliente_id
+  LEFT JOIN etapa_proyecto ep ON ep.id = e.etapa_id
+  LEFT JOIN version_entregable va ON va.entregable_id = e.id AND va.numero = e.version_actual
+  LEFT JOIN version_entregable vc ON vc.entregable_id = e.id AND vc.numero = e.version_cliente`;
+
+function entregableVistaDb(ctx: Ctx, e: FilaEntregable): S<"Entregable"> {
+  const enviado = iso(e.enviado_en);
+  const atraso = e.estado === "LISTO_REVISION" && enviado ? diasAtrasoRevision(enviado, HOY_LIMA(), ctx.feriados) : 0;
+  return {
+    id: e.id, servicioContratadoId: e.servicio_contratado_id, servicioTitulo: tituloServicio(e.servicio_nombre, e.servicio_marca), etapaId: e.etapa_id, etapaNombre: e.etapa_nombre,
+    titulo: e.titulo, descripcion: e.descripcion, formato: e.formato, estado: ctx.esEquipo ? e.estado : estadoEntregableCliente(e.estado),
+    version: ctx.esEquipo ? e.version_actual : e.version_cliente!, url: ctx.esEquipo ? e.url_actual : e.url_cliente,
+    nombreArchivo: ctx.esEquipo ? e.archivo_actual : e.archivo_cliente, rebotes: e.rebotes, atrasado: atraso > 0, diasAtrasoRevision: atraso,
+    enviadoEn: enviado, aprobadoEn: iso(e.aprobado_en), creadoEn: iso(e.creado_en)!,
+  };
+}
+
+async function buscarEntregable(ctx: Ctx, id: string): Promise<FilaEntregable> {
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
+  const e = (await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.id = $1`, [id])).rows[0];
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
+  await accesoCliente(ctx, e.cliente_id);
+  return e;
+}
+
+async function entregableDetalleDb(ctx: Ctx, id: string): Promise<S<"EntregableDetalle">> {
+  const e = await buscarEntregable(ctx, id);
+  const versiones = (await ctx.c.query<{ numero: number; url: string; nombre_archivo: string | null; nota: string | null; enviada_en: Date | null; enviada_por: string | null; enviada_por_nombre: string | null; creado_en: Date }>(
+    `SELECT v.*, u.nombre AS enviada_por_nombre FROM version_entregable v LEFT JOIN usuario u ON u.id = v.enviada_por WHERE v.entregable_id = $1 ORDER BY v.numero`,
+    [id],
+  )).rows;
+  const decisiones = (await ctx.c.query<{ version: number; decision: "APROBADO" | "CAMBIOS_SOLICITADOS"; comentario: string | null; usuario_id: string; usuario_nombre: string; creado_en: Date }>(
+    `SELECT d.*, u.nombre AS usuario_nombre FROM decision_entregable d JOIN usuario u ON u.id = d.usuario_id WHERE d.entregable_id = $1 ORDER BY d.creado_en`,
+    [id],
+  )).rows;
+  return {
+    ...entregableVistaDb(ctx, e),
+    versiones: versiones.map((v) => ({ numero: v.numero, url: v.url, nombreArchivo: v.nombre_archivo, nota: v.nota, enviadaEn: iso(v.enviada_en), enviadaPor: persona(v.enviada_por, v.enviada_por_nombre), creadoEn: iso(v.creado_en)! })),
+    decisiones: decisiones.map((d) => ({ version: d.version, decision: d.decision, comentario: d.comentario, usuario: { id: d.usuario_id, nombre: d.usuario_nombre }, fecha: iso(d.creado_en)! })),
+  };
+}
+
+ruta("GET", "/servicios-contratados/:id/entregables", async (ctx, p) => {
+  const sc = await buscarServicio(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.servicio_contratado_id = $1`, [sc.id]);
+  return { datos: ordenarEntregables(rows.map((e) => entregableVistaDb(ctx, e))) };
+});
+
+ruta("GET", "/clientes/:id/entregables", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.cliente_id = $1`, [p.id]);
+  const estado = q.get("estado");
+  return { datos: ordenarEntregables(rows.map((e) => entregableVistaDb(ctx, e)).filter((e) => !estado || e.estado === estado)) };
+});
+
+ruta("GET", "/entregables/:id", async (ctx, p) => entregableDetalleDb(ctx, p.id));
+
+ruta("POST", "/servicios-contratados/:id/entregables", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { titulo?: string; descripcion?: string | null; etapaId?: string | null; formato?: FormatoEntregable; url?: string; nombreArchivo?: string | null; nota?: string | null };
+  const errores = validarEntregable(b);
+  if (typeof b.etapaId === "string" && !(esUuid(b.etapaId) && (await ctx.c.query("SELECT 1 FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2", [b.etapaId, sc.id])).rows.length)) {
+    errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  }
+  validacion(errores);
+  const autor = ctx.esServicio ? null : ctx.u.usuarioId;
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO entregable (servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, formato, creado_por)
+     VALUES ($1, $2, $3, $4, $5, $6::formato_entregable, $7) RETURNING id`,
+    [sc.id, sc.cliente_id, b.etapaId ?? null, b.titulo!.trim(), b.descripcion?.trim() || null, b.formato, autor],
+  )).rows[0].id;
+  await ctx.c.query(
+    "INSERT INTO version_entregable (entregable_id, numero, cliente_id, url, nombre_archivo, nota, creado_por) VALUES ($1, 1, $2, $3, $4, $5, $6)",
+    [id, sc.cliente_id, b.url, b.nombreArchivo?.trim() || null, b.nota?.trim() || null, autor],
+  );
+  return { __status: 201, ...(await entregableDetalleDb(ctx, id)) };
+});
+
+ruta("POST", "/entregables/:id/versiones", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const e = await buscarEntregable(ctx, p.id);
+  if (e.estado === "APROBADO") throw new ErrorApi(409, "ENTREGABLE_APROBADO", "Ya está aprobado: no se le suben versiones");
+  const b = (await cuerpo()) as { url?: string; nombreArchivo?: string | null; nota?: string | null };
+  validacion(validarVersionEntregable(b));
+  const numero = e.version_actual + 1;
+  await ctx.c.query(
+    "INSERT INTO version_entregable (entregable_id, numero, cliente_id, url, nombre_archivo, nota, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    [e.id, numero, e.cliente_id, b.url, b.nombreArchivo?.trim() || null, b.nota?.trim() || null, ctx.esServicio ? null : ctx.u.usuarioId],
+  );
+  await ctx.c.query("UPDATE entregable SET version_actual = $2, estado = 'EN_PREPARACION', actualizado_en = now() WHERE id = $1", [e.id, numero]);
+  return { __status: 201, ...(await entregableDetalleDb(ctx, e.id)) };
+});
+
+ruta("POST", "/entregables/:id/enviar", async (ctx, p) => {
+  soloEquipo(ctx);
+  const e = await buscarEntregable(ctx, p.id);
+  if (e.estado === "APROBADO") throw new ErrorApi(409, "ENTREGABLE_APROBADO", "Ya está aprobado");
+  if (e.version_cliente === e.version_actual) throw new ErrorApi(409, "VERSION_YA_ENVIADA", "Esa versión ya se le envió al cliente");
+  await ctx.c.query("UPDATE version_entregable SET enviada_en = now(), enviada_por = $3 WHERE entregable_id = $1 AND numero = $2", [e.id, e.version_actual, ctx.u.usuarioId]);
+  await ctx.c.query("UPDATE entregable SET version_cliente = version_actual, estado = 'LISTO_REVISION', actualizado_en = now() WHERE id = $1", [e.id]);
+  await emitirOutbox(ctx, "entregable.listo_revision", e.cliente_id, { entregableId: e.id, servicioContratadoId: e.servicio_contratado_id, version: e.version_actual, usuarioId: ctx.u.usuarioId });
+  return entregableDetalleDb(ctx, e.id);
+});
+
+ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, cuerpo) => {
+  const e = await buscarEntregable(ctx, p.id);
+  exigirRol(ctx, e.cliente_id, ["ADMIN_CLIENTE", "APROBADOR"]);
+  if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "La decisión es del cliente");
+  const b = (await cuerpo()) as { decision?: string; comentario?: string };
+  if (b.decision !== "APROBADO" && b.decision !== "CAMBIOS_SOLICITADOS") validacion([{ campo: "decision", mensaje: "Aprueba o pide cambios" }]);
+  if (b.decision === "CAMBIOS_SOLICITADOS" && !(typeof b.comentario === "string" && b.comentario.trim())) {
+    throw new ErrorApi(422, "COMENTARIO_REQUERIDO", "Cuéntanos qué cambiar", undefined, [{ campo: "comentario", mensaje: "Escribe qué te gustaría cambiar" }]);
+  }
+  if (e.estado !== "LISTO_REVISION") throw new ErrorApi(409, "ENTREGABLE_NO_ESPERA_REVISION", "Este entregable no espera tu revisión");
+  await ctx.c.query(
+    "INSERT INTO decision_entregable (entregable_id, cliente_id, version, decision, comentario, usuario_id) VALUES ($1, $2, $3, $4, $5, $6)",
+    [e.id, e.cliente_id, e.version_cliente, b.decision, b.comentario?.trim() || null, ctx.u.usuarioId],
+  );
+  const { rows } = await ctx.c.query<{ rebotes: number }>(
+    b.decision === "APROBADO"
+      ? "UPDATE entregable SET estado = 'APROBADO', aprobado_en = now(), actualizado_en = now() WHERE id = $1 RETURNING rebotes"
+      : "UPDATE entregable SET estado = 'CAMBIOS_SOLICITADOS', rebotes = rebotes + 1, actualizado_en = now() WHERE id = $1 RETURNING rebotes",
+    [e.id],
+  );
+  await emitirOutbox(ctx, "entregable.decidido", e.cliente_id, { entregableId: e.id, decision: b.decision, version: e.version_cliente, rebotes: rows[0].rebotes, usuarioId: ctx.u.usuarioId });
+  return entregableDetalleDb(ctx, e.id);
+});
+
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
 ruta("GET", "/panel/equipo", async (ctx) => {
@@ -1697,6 +1861,7 @@ async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<
     }),
     reuniones: [...reuniones.filter((x) => x.estado === "PROGRAMADA"), ...reuniones.filter((x) => x.estado === "REALIZADA").reverse()].slice(0, 6).map(vista),
     porRevisar: piezas.map((x) => resumenPieza(ctx, x)),
+    entregables: ordenarEntregables((await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.servicio_contratado_id = $1`, [s.id])).rows.map((e) => entregableVistaDb(ctx, e))),
   };
   return r;
 }
