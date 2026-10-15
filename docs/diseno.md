@@ -36,6 +36,31 @@ aprobadas de las pruebas visuales.
 | `PUBLICADO` | Publicado | azul |
 | Ticket `ABIERTO` / `EN_PROCESO` / `RESUELTO` | Abierto / En curso / Resuelto | ámbar / azul / verde |
 
+Esa tabla es la vista del **equipo**. El **cliente** ve menos estados (reunión 15 oct, `ESTADO_PIEZA_CLIENTE`):
+
+| Estado (API) | Lo que ve el cliente | Significa |
+|---|---|---|
+| `EN_PRODUCCION` | En producción | Inoo la está haciendo; todavía no le toca revisar |
+| `LISTO_REVISION` | Listo para revisar | Le toca revisarla: aprobar o pedir cambios |
+| `LISTO_REVISION` con `atrasada` | Atrasado · N días hábiles (rojo) | No la revisó en 3 días hábiles desde que se le envió (`DIAS_REVISION_CLIENTE`, de relleno). El equipo ve «Cliente atrasado · N días» |
+| `CAMBIOS_SOLICITADOS` | Revisado | La revisó y pidió cambios; Inoo los está aplicando |
+| `APROBADO_CLIENTE` | Aprobado | La aprobó |
+| `PUBLICADO` | Publicado | Ya está en sus canales |
+
+## Semáforo de requerimientos
+
+Lo que el cliente debe entregar lleva una luz y una barra de color a la izquierda (reunión 15 oct, `semaforoRequerimiento`):
+
+| Color | Cuándo | Texto |
+|---|---|---|
+| Verde `#1F9D6B` | Quedan 2 o más días hábiles | «A tiempo · vence el 9 oct» |
+| Naranja `#E8820C` | Vence hoy o el siguiente día hábil | «Vence hoy a las 23:59» / «Vence el próximo día hábil» |
+| Rojo `#D92D20` (intenso `#9B1C12` desde 5 días) | Atrasado; la luz parpadea (sin animación si el sistema pide menos movimiento) | «Atrasado 2 días hábiles» |
+
+El texto usa tonos más oscuros (`#1A7F57`, `#9A4F00`, `#B42318`) para cumplir contraste AA. Lo enviado o aprobado no lleva semáforo.
+
+**Requerimientos y tickets no se parecen** (reunión 15 oct): los requerimientos («Inoo te pide · te toca a ti») van con fondo lleno, semáforo y «Completar →»; los tickets («Lo que nos pediste · lo atiende Inoo») van con fondo blanco y borde punteado, sin semáforo ni llamado.
+
 ## Pantallas
 
 | Ruta | Frame | Notas |
@@ -45,7 +70,7 @@ aprobadas de las pruebas visuales.
 | `/servicios` | 03-servicios-contratados | «Mis servicios»: solo los contratados, con título «Servicio - Marca», variante o detalle (CRM, licencias) y avance por etapas (reunión 12 oct) |
 | `/entregables` | 04-entregables-por-revisar | |
 | `/entregables/{id}` | 06-detalle-de-pieza | Modal «¿Aprobar esta versión?» y avisos del frame 10 |
-| `/equipo/blog` | 05-blog | Pasó al equipo (reunión 12 oct): el cliente no elige ni aprueba blogs. `/blog` redirige a `/servicios` |
+| `/equipo/blog` | 05-blog | Salió del panel (reunión 15 oct): el blog es parte del servicio de soporte web y sus artículos se revisan en la bandeja. Redirige a `/equipo/produccion`; `/blog` redirige a `/servicios` |
 | `/equipo/plan` | 08-calendario-del-mes | «Plan del mes» (tablero por estado). Pasó al equipo (reunión 12 oct); `/plan` y `/calendario` redirigen a `/servicios` |
 | `/brief` | 11-brief-y-referencias | Retirado (reunión 12 oct): lo reemplaza Requerimientos (de la agencia al cliente). Redirige a `/servicios` |
 | `/resultados` | 12-resultados | Redirige a `/inicio`; los resultados irán dentro de cada servicio |

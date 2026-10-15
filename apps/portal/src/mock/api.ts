@@ -11,7 +11,8 @@
  */
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
-import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
+import { diasAtrasoRevision } from "../dominio/revision";
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
 
@@ -324,6 +325,9 @@ function iso(fecha: string) {
 
 function resumenPieza(ctx: Ctx, p: D.PiezaDemo, conCliente = false): S<"PiezaResumen"> & Record<string, unknown> {
   const v = p.versiones[p.versiones.length - 1] as D.VersionDemo | undefined;
+  // Si el cliente no la revisa a tiempo, aparece «Atrasado» (reunión 15 oct).
+  const enviada = p.estado === "LISTO_REVISION" ? p.versiones.find((x) => x.numero === p.versionCliente)?.enviadaEn : null;
+  const atrasoRevision = enviada ? diasAtrasoRevision(enviada, D.HOY, noHabiles()) : 0;
   const r: S<"PiezaResumen"> & Record<string, unknown> = {
     id: p.id,
     clienteId: p.clienteId,
@@ -338,7 +342,8 @@ function resumenPieza(ctx: Ctx, p: D.PiezaDemo, conCliente = false): S<"PiezaRes
     miniaturaUrl: p.diseno.foto ? "/muestras/serum.jpg" : null,
     servicioContratadoId: p.servicioId,
     ideaSeleccionada: !!p.ideaSeleccionada,
-    atrasada: false,
+    atrasada: atrasoRevision > 0,
+    diasAtrasoRevision: atrasoRevision,
     actualizadoEn: v?.creadoEn ?? iso(p.fecha),
     // Extensión del entorno de pruebas: datos para dibujar la miniatura como en Figma.
     formato: p.formato,
@@ -1141,7 +1146,8 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
   return {
     id: r.id, servicioContratadoId: r.servicioContratadoId, servicioTitulo: tituloDe(sc), plantillaCodigo: r.plantillaCodigo, titulo: r.titulo,
     descripcion: pl?.descripcion ?? null, mensaje: r.mensaje, estado: r.estado, emitidoEn: r.emitidoEn, fechaLimite: r.fechaLimite,
-    diasAtraso: diasAtraso(r.fechaLimite, hasta, noHabiles()), diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
+    diasAtraso: diasAtraso(r.fechaLimite, hasta, noHabiles()), diasParaVencer: diasParaVencer(r.fechaLimite, D.HOY, noHabiles()),
+    diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
     notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: persona(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
   };
 }

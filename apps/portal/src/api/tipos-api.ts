@@ -2058,6 +2058,8 @@ export interface components {
             fechaLimite: string;
             /** @description Días hábiles de atraso (hasta hoy o hasta que se envió) */
             diasAtraso: number;
+            /** @description Días hábiles que quedan hasta la fecha límite (0 = vence hoy o ya venció). Con diasAtraso arma el semáforo: rojo si hay atraso, naranja si quedan 0 o 1, verde si hay más */
+            diasParaVencer: number;
             /** @description Días hábiles que ya se corrió el cronograma por este atraso */
             diasCorridos?: number;
             campos: components["schemas"]["CampoFormulario"][];
@@ -2408,7 +2410,10 @@ export interface components {
             };
             /** @description Solo equipo. "Lista para programar", "Esperando al cliente" */
             notaEstado?: string | null;
+            /** @description LISTO_REVISION y el cliente no la revisó en su plazo (3 días hábiles desde que se le envió). El cliente ve «Atrasado» */
             atrasada?: boolean;
+            /** @description Días hábiles de atraso en la revisión del cliente; 0 si está a tiempo o no espera revisión */
+            diasAtrasoRevision?: number;
             /** Format: date-time */
             actualizadoEn?: string;
         };

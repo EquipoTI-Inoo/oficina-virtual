@@ -7,7 +7,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuTriangleAlert, LuUpload } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
-import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, Modal, useAviso, usePortal } from "../componentes";
+import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
 
 const usd = (n: number) => `US$ ${n.toFixed(2).replace(".", ",")}`;
 const errores = (x: unknown) => Object.fromEntries((x as ProblemaApi).errores.map((e) => [e.campo, e.mensaje]));
@@ -272,7 +272,7 @@ function CalendarioEquipo() {
                         <p className="texto-xs texto-muted" style={{ marginTop: 4 }}>{(p as { formato?: string }).formato} · {p.canal}</p>
                       </td>
                       <td>
-                        <EtiquetaEstado estado={p.estado} />
+                        <EtiquetaPieza p={p} />
                       </td>
                       <td>
                         <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: 11 }}>

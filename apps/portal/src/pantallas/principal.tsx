@@ -10,7 +10,7 @@ import {
   useConsulta, useNavegacion, type S,
 } from "../base";
 import {
-  AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, Modal,
+  AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
@@ -706,7 +706,7 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
         {p.formato} · {p.canal} · Publicación prevista: {p.fechaProgramada ? fCorta(p.fechaProgramada) : "—"}
       </p>
       <div className="fila" style={{ margin: "20px 0 24px" }}>
-        <EtiquetaEstado estado={p.estado} />
+        <EtiquetaPieza p={p} />
         {v && (
           <span className="texto-xs texto-muted">
             Versión {v.numero} · Actualizada el {fDiaMes(v.enviadaEn ?? v.creadoEn)}

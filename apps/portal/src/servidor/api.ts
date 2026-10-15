@@ -27,7 +27,8 @@ import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { diasNoLaborables } from "../dominio/calendario";
-import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
+import { diasAtrasoRevision } from "../dominio/revision";
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -38,6 +39,8 @@ interface Ctx {
   c: Consultor;
   esEquipo: boolean;
   esServicio: boolean;
+  /** Feriados y días no laborables, para los plazos en días hábiles (se cargan una vez por solicitud). */
+  feriados: ReadonlySet<string>;
 }
 
 // ───────────────────────────────────────────── utilidades
@@ -101,18 +104,24 @@ interface FilaPieza {
   ultima_autor_tipo: "AGENTE" | "PERSONA" | null;
   ultima_agente: string | null;
   ultima_autor_nombre: string | null;
+  revision_enviada_en: Date | null;
 }
 
 // La última versión se lee con RLS: el cliente solo «ve» las que se le enviaron.
 const SELECT_PIEZA = `
   SELECT p.*, r.nombre AS responsable_nombre,
-         lv.autor_tipo AS ultima_autor_tipo, lv.agente AS ultima_agente, au.nombre AS ultima_autor_nombre
+         lv.autor_tipo AS ultima_autor_tipo, lv.agente AS ultima_agente, au.nombre AS ultima_autor_nombre,
+         vc.enviada_cliente_en AS revision_enviada_en
   FROM pieza p
+  LEFT JOIN version_pieza vc ON vc.pieza_id = p.id AND vc.numero = p.version_cliente
   LEFT JOIN usuario r ON r.id = p.responsable_id
   LEFT JOIN LATERAL (SELECT v.autor_tipo, v.agente, v.autor_usuario_id FROM version_pieza v WHERE v.pieza_id = p.id ORDER BY v.numero DESC LIMIT 1) lv ON true
   LEFT JOIN usuario au ON au.id = lv.autor_usuario_id`;
 
 function resumenPieza(ctx: Ctx, p: FilaPieza): S<"PiezaResumen"> & Record<string, unknown> {
+  // Si el cliente no la revisa a tiempo, aparece «Atrasado» (reunión 15 oct).
+  const enviada = p.estado === "LISTO_REVISION" ? iso(p.revision_enviada_en) : null;
+  const atrasoRevision = enviada ? diasAtrasoRevision(enviada, HOY_LIMA(), ctx.feriados) : 0;
   const r: S<"PiezaResumen"> & Record<string, unknown> = {
     id: p.id,
     clienteId: p.cliente_id,
@@ -127,7 +136,8 @@ function resumenPieza(ctx: Ctx, p: FilaPieza): S<"PiezaResumen"> & Record<string
     miniaturaUrl: null,
     servicioContratadoId: p.servicio_contratado_id,
     ideaSeleccionada: false,
-    atrasada: false,
+    atrasada: atrasoRevision > 0,
+    diasAtrasoRevision: atrasoRevision,
     actualizadoEn: iso(p.actualizado_en)!,
     formato: FORMATO[p.tipo] ?? "Pieza",
   };
@@ -1784,7 +1794,7 @@ function reqVista(r: FilaReq, dias: ReadonlySet<string>): S<"Requerimiento"> {
   return {
     id: r.id, servicioContratadoId: r.servicio_contratado_id, servicioTitulo: tituloServicio(r.servicio_nombre, r.servicio_marca ?? r.cliente_nombre),
     plantillaCodigo: r.plantilla_codigo, titulo: r.titulo, descripcion: r.plantilla_descripcion, mensaje: r.mensaje, estado: r.estado,
-    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta, dias), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
+    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta, dias), diasParaVencer: diasParaVencer(limite, HOY_LIMA(), dias), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
     notaEquipo: r.nota_equipo, enviadoEn: iso(r.enviado_en), enviadoPor: persona(r.enviado_por, r.enviado_por_nombre), revisadoEn: iso(r.revisado_en),
     creadoPor: persona(r.creado_por, r.creado_por_nombre),
   };
@@ -2117,7 +2127,9 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
         const previa = await idempotencia(c, u.usuarioId, clave, hash);
         if (previa) return previa;
       }
-      const resultado = await encontrada.fn({ u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO" }, encontrada.params!, url.searchParams, cuerpo);
+      const ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
+      ctx.feriados = await noHabilesDb(ctx);
+      const resultado = await encontrada.fn(ctx, encontrada.params!, url.searchParams, cuerpo);
       let status = 200;
       let datos = resultado;
       if (resultado && typeof resultado === "object" && !Array.isArray(resultado) && "__status" in resultado) {

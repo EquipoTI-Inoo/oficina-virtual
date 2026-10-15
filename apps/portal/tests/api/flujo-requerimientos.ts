@@ -7,7 +7,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
-import { correrFecha as correrSinFeriados, diasAtraso as atrasoSinFeriados, fechaLimite as limiteSinFeriados } from "../../src/dominio/requerimientos";
+import { correrFecha as correrSinFeriados, diasAtraso as atrasoSinFeriados, diasParaVencer as paraVencerSinFeriados, fechaLimite as limiteSinFeriados, semaforoRequerimiento } from "../../src/dominio/requerimientos";
+import { diasAtrasoRevision as atrasoRevisionSinFeriados } from "../../src/dominio/revision";
 import { uid } from "../../src/mock/datos";
 import { CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, VALERIA, type Manejador } from "./flujo-piezas";
 
@@ -20,6 +21,8 @@ const FERIADOS = diasNoLaborables(FERIADOS_PERU_2026.map((f) => ({ tipo: "FERIAD
 const diasAtraso = (limite: string, hasta: string) => atrasoSinFeriados(limite, hasta, FERIADOS);
 const fechaLimite = (desde: string, dias: number) => limiteSinFeriados(desde, dias, FERIADOS);
 const correrFecha = (fecha: string, n: number) => correrSinFeriados(fecha, n, FERIADOS);
+const diasParaVencer = (limite: string, hoy: string) => paraVencerSinFeriados(limite, hoy, FERIADOS);
+const diasAtrasoRevision = (enviada: string, hoy: string) => atrasoRevisionSinFeriados(enviada, hoy, FERIADOS);
 
 export function pruebasRequerimientos(nombre: string, manejar: Manejador, reiniciar: () => Promise<void> | void, eventos: () => Promise<{ tipo: string; datos: any }[]>, hoy: string) {
   const llamar = crearLlamar(manejar);
@@ -39,6 +42,9 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal(crm.servicioTitulo, "Implementación de CRM - Casa Oliva");
       assert.equal(crm.fechaLimite, "2026-10-05", "emitido el jueves 1 con 2 días hábiles: lunes 5");
       assert.equal(crm.diasAtraso, diasAtraso("2026-10-05", hoy));
+      // Semáforo (reunión 15 oct): cada pendiente trae los días hábiles que le quedan.
+      for (const x of r.datos.filter((y: any) => y.estado === "PENDIENTE")) assert.equal(x.diasParaVencer, diasParaVencer(x.fechaLimite, hoy), x.titulo);
+      assert.equal(semaforoRequerimiento(crm), crm.diasAtraso > 0 ? "ROJO" : diasParaVencer("2026-10-05", hoy) <= 1 ? "NARANJA" : "VERDE");
       assert.deepEqual(crm.campos.map((c: any) => c.clave), ["usuarios", "administrador"]);
       assert.deepEqual(crm.respuestas, { administrador: "Valeria Mendoza" }, "borrador guardado");
       assert.equal(r.pendientes, 3);
@@ -48,6 +54,16 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.deepEqual(soloWeb.map((x: any) => x.plantillaCodigo), ["CATALOGO_PRODUCTOS", "BRIEF_WEB"]);
       assert.equal((await llamar("GET", `/clientes/${NATIVA}/requerimientos`, VALERIA)).status, 404);
       assert.equal((await llamar("GET", `/requerimientos/${USUARIOS_CRM}`, VALERIA)).json.titulo, "Usuarios del CRM");
+    });
+
+    test("entregables: si el cliente no revisa en 3 días hábiles, la pieza aparece atrasada", async () => {
+      await reiniciar();
+      // «Tu ritual, tu momento» se le envió el 5 de octubre (versión 2).
+      const atraso = diasAtrasoRevision("2026-10-05T15:30:00Z", hoy);
+      const p = (await llamar("GET", `/piezas/${uid(5, 5)}`, VALERIA)).json;
+      assert.deepEqual([p.estado, p.atrasada, p.diasAtrasoRevision], ["LISTO_REVISION", atraso > 0, atraso]);
+      const aprobada = (await llamar("GET", `/clientes/${CASA_OLIVA}/piezas?estado=APROBADO_CLIENTE`, VALERIA)).json.datos;
+      assert.ok(aprobada.length > 0 && aprobada.every((x: any) => x.atrasada === false && x.diasAtrasoRevision === 0), "solo lo que espera revisión puede atrasarse");
     });
 
     test("plantillas: solo el equipo", async () => {

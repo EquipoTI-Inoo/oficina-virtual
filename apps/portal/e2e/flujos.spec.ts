@@ -121,10 +121,13 @@ test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", asy
   await entrarComo(page, "equipo");
   await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
   await page.getByRole("button", { name: "Pedir requerimiento" }).click();
-  await page.selectOption("#req-plantilla", "INFO_IA");
-  await expect(page.getByText("Plazo sugerido: 3 días hábiles")).toBeVisible();
   await page.selectOption("#req-servicio", { label: "Social Media Pro - Casa Oliva" });
-  await page.getByRole("button", { name: "Pedir al cliente" }).click();
+  const dialogo = page.getByRole("dialog");
+  // Solo aparecen las plantillas del servicio; el brief web no es de Social Media Pro.
+  await expect(dialogo.getByRole("radio", { name: /Brief de desarrollo web/ })).toHaveCount(0);
+  await dialogo.getByRole("radio", { name: /Información de tu empresa para la IA/ }).click();
+  await expect(dialogo.getByLabel("Vista previa del formulario")).toContainText("Así le llega al cliente");
+  await dialogo.getByRole("button", { name: "Pedir al cliente" }).click();
   await expect(page.getByText("Requerimiento enviado")).toBeVisible();
   await expect(page.getByText("Información de tu empresa para la IA")).toBeVisible();
 });
@@ -182,14 +185,6 @@ test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuev
   await page.getByRole("button", { name: "Contratar" }).click();
   await expect(page.getByText("Servicio contratado")).toBeVisible();
   await expect(page.getByRole("link", { name: "Diseño y desarrollo web - Casa Oliva", exact: true })).toHaveCount(2);
-});
-
-test("blog (equipo): elegir otra idea", async ({ page }) => {
-  await entrarComo(page, "equipo");
-  await page.goto("/equipo/blog");
-  await page.getByRole("button", { name: /Cómo leer la etiqueta/ }).click();
-  await page.getByRole("button", { name: "Confirmar selección" }).click();
-  await expect(page.getByText("Selección confirmada")).toBeVisible();
 });
 
 test("equipo: nueva pieza, revisión interna y liberación al cliente", async ({ page }) => {

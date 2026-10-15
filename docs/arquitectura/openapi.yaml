@@ -2786,7 +2786,7 @@ components:
         diasHabiles: { type: integer, minimum: 1, maximum: 30, description: 'Plazo; por defecto el de la plantilla' }
     Requerimiento:
       type: object
-      required: [id, servicioContratadoId, servicioTitulo, titulo, estado, emitidoEn, fechaLimite, diasAtraso, campos, respuestas]
+      required: [id, servicioContratadoId, servicioTitulo, titulo, estado, emitidoEn, fechaLimite, diasAtraso, diasParaVencer, campos, respuestas]
       properties:
         id: { type: string, format: uuid }
         servicioContratadoId: { type: string, format: uuid }
@@ -2799,6 +2799,7 @@ components:
         emitidoEn: { type: string, format: date-time }
         fechaLimite: { type: string, format: date, description: 'Vence a las 23:59 de Lima de ese día' }
         diasAtraso: { type: integer, description: 'Días hábiles de atraso (hasta hoy o hasta que se envió)' }
+        diasParaVencer: { type: integer, minimum: 0, description: 'Días hábiles que quedan hasta la fecha límite (0 = vence hoy o ya venció). Con diasAtraso arma el semáforo: rojo si hay atraso, naranja si quedan 0 o 1, verde si hay más' }
         diasCorridos: { type: integer, description: 'Días hábiles que ya se corrió el cronograma por este atraso' }
         campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
         respuestas: { type: object, additionalProperties: true }
@@ -3097,7 +3098,8 @@ components:
             tipo: { type: string, enum: [AGENTE, PERSONA] }
             nombre: { type: string }
         notaEstado: { type: [string, 'null'], description: 'Solo equipo. "Lista para programar", "Esperando al cliente"' }
-        atrasada: { type: boolean }
+        atrasada: { type: boolean, description: 'LISTO_REVISION y el cliente no la revisó en su plazo (3 días hábiles desde que se le envió). El cliente ve «Atrasado»' }
+        diasAtrasoRevision: { type: integer, minimum: 0, description: 'Días hábiles de atraso en la revisión del cliente; 0 si está a tiempo o no espera revisión' }
         actualizadoEn: { type: string, format: date-time }
     PiezaEntrada:
       type: object

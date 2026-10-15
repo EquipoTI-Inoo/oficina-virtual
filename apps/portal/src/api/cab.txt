@@ -1,0 +1,2 @@
+// Generado desde openapi.yaml (v1.2) con openapi-typescript 7. No editar a mano: regenerar con
+//   npx openapi-typescript openapi.yaml -o tipos-api.ts

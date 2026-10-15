@@ -7,7 +7,7 @@
  * En Next.js cada ruta tiene además su archivo en app/ (mismo componente).
  */
 import type { ComponentType } from "react";
-import { PantallaBlog, PantallaPlanMes } from "./pantallas/planificacion";
+import { PantallaPlanMes } from "./pantallas/planificacion";
 import { PantallaProyecto } from "./pantallas/proyecto";
 import { PantallaRequerimiento, PantallaRequerimientos } from "./pantallas/requerimientos";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
@@ -50,7 +50,6 @@ export const RUTAS: Ruta[] = [
   { patron: "/cuenta/notificaciones", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/equipo/plan", pantalla: PantallaPlanMes, figma: null, espacio: "equipo" },
-  { patron: "/equipo/blog", pantalla: PantallaBlog, figma: "05-blog", espacio: "equipo" },
   { patron: "/equipo/proyectos/:id", pantalla: PantallaProyectoEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/avisos", pantalla: PantallaAvisosEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },
