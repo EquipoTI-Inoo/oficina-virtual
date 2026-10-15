@@ -623,7 +623,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** El equipo actualiza el proyecto: siguiente paso, estado, marca o detalle (CRM, licencias, usuarios) */
+        /** El equipo actualiza el proyecto: siguiente paso, estado, marca, detalle, responsable o alcance */
         patch: operations["actualizarServicioContratado"];
         trace?: never;
     };
@@ -2427,7 +2427,7 @@ export interface components {
             revisadoEn?: string | null;
             creadoPor?: components["schemas"]["PersonaMini"] | null;
         };
-        /** @description Crea el proyecto con las etapas de la plantilla del servicio (y variante). Las fechas previstas se calculan en días hábiles desde `fechaInicio`. */
+        /** @description Crea el proyecto con las etapas de la plantilla del servicio (y variante), escaladas por el tamaño, o con etapas personalizadas. Las fechas previstas se calculan en días hábiles desde `fechaInicio`. Se le piden al cliente los requerimientos de la plantilla (reunión 15 oct: todo al inicio). */
         ServicioContratadoEntrada: {
             servicioCodigo: components["schemas"]["CodigoServicio"];
             /** @description Obligatoria si el servicio tiene variantes (p. ej. WEB → LANDING) */
@@ -2443,6 +2443,19 @@ export interface components {
             /** Format: date */
             fechaFin?: string | null;
             inooworkProyectoId?: string;
+            /**
+             * Format: uuid
+             * @description Responsable del proyecto en Inoo (persona del equipo)
+             */
+            responsableId?: string | null;
+            /** @description Proyecto personalizado: estas etapas reemplazan las de la plantilla. El % acumulado crece y termina en 100 */
+            etapas?: {
+                nombre: string;
+                avancePct: number;
+                diasHabiles: number;
+                esperaCliente?: boolean;
+                reunionClave?: string | null;
+            }[];
             entregables?: {
                 tipoPieza: components["schemas"]["TipoPieza"];
                 cantidadMensual: number;
@@ -2474,8 +2487,27 @@ export interface components {
             /** @example Landing page */
             nombre: string;
         };
-        /** @description Datos propios del servicio. CRM: qué CRM, tipo y número de licencias, usuarios y plataformas que se integran. */
+        /** @description Datos propios del servicio (reunión 15 oct). Web: tamaño, páginas, productos, CMS y si incluye el panel de administración. CRM: qué CRM, licencias, usuarios, plataformas, y si incluye agente de IA o WhatsApp API (ahí la IA es el producto). */
         DetalleServicio: {
+            /**
+             * @description Escala los días de las etapas (factores de relleno)
+             * @enum {string}
+             */
+            tamano?: "CHICO" | "MEDIANO" | "GRANDE";
+            paginas?: number;
+            /** @description Productos que nos comprometimos a cargar */
+            productos?: number;
+            /** @enum {string} */
+            cms?: "WORDPRESS" | "SHOPIFY" | "CODIGO";
+            /**
+             * @description ¿Solo el sitio, o también el panel de administración?
+             * @enum {string}
+             */
+            alcanceWeb?: "SOLO_WEB" | "WEB_Y_CMS";
+            /** @description CRM: incluye un agente de IA */
+            agenteIa?: boolean;
+            /** @description CRM: incluye la configuración de WhatsApp API */
+            whatsappApi?: boolean;
             /** @example HubSpot */
             crm?: string;
             /** @example Sales Hub Professional */
@@ -2495,6 +2527,11 @@ export interface components {
             avancePct: number;
             diasHabiles: number;
             esperaCliente: boolean;
+            /**
+             * @description La reunión que cierra la etapa (reunión 15 oct: cada reunión tiene un objetivo)
+             * @example Aprobación del flujograma
+             */
+            reunionClave?: string | null;
         };
         PlantillaProyecto: {
             /** Format: uuid */
@@ -2504,6 +2541,17 @@ export interface components {
             nombre: string;
             metricas: components["schemas"]["MetricaProyecto"][];
             etapas: components["schemas"]["EtapaPlantilla"][];
+            /**
+             * @description Plantillas de requerimiento que se le piden al cliente al crear el proyecto
+             * @example [
+             *       "BRIEF_WEB",
+             *       "ACCESOS_WEB",
+             *       "MANUAL_MARCA"
+             *     ]
+             */
+            requerimientos?: string[];
+            /** @description Etapas con reunión clave: la cantidad de reuniones que debería tener el proyecto */
+            reunionesOptimas?: number;
         };
         EtapaProyecto: {
             /** Format: uuid */
@@ -2515,6 +2563,8 @@ export interface components {
             avancePct: number;
             estado: components["schemas"]["EstadoHito"];
             esperaCliente: boolean;
+            /** @description La reunión que cierra la etapa */
+            reunionClave?: string | null;
             /** Format: date */
             fechaInicio?: string | null;
             /** Format: date */
@@ -2676,8 +2726,13 @@ export interface components {
             conAcuerdos?: boolean | null;
             /** @description Lo que se acordó; lo ve el cliente */
             resumen?: string | null;
+            /** @description Solo en la respuesta al marcarla REALIZADA con pendientes */
+            pendientesCreados?: {
+                requerimientos?: number;
+                tareas?: number;
+            };
         };
-        /** @description Al crear: titulo y fecha obligatorios. conAcuerdos solo con estado REALIZADA. */
+        /** @description Al crear: titulo y fecha obligatorios. conAcuerdos solo con estado REALIZADA. Al marcarla REALIZADA el resumen es obligatorio (reunión 15 oct) y los pendientes se convierten en requerimientos (del cliente) o tareas (de Inoo). */
         ReunionEntrada: {
             titulo?: string;
             /** Format: date-time */
@@ -2685,7 +2740,24 @@ export interface components {
             /** @enum {string} */
             estado?: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
             conAcuerdos?: boolean | null;
+            /** @description Obligatorio al marcarla REALIZADA (al menos 10 caracteres) */
             resumen?: string | null;
+            /** @description Solo al marcarla REALIZADA */
+            pendientes?: {
+                texto: string;
+                /**
+                 * @description CLIENTE crea un requerimiento «Pendiente de la reunión»; INOO crea una tarea
+                 * @enum {string}
+                 */
+                de: "CLIENTE" | "INOO";
+                /**
+                 * Format: uuid
+                 * @description Solo INOO: a quién se le asigna la tarea
+                 */
+                responsableId?: string | null;
+                /** @description Plazo del pendiente (por defecto 2 días hábiles) */
+                diasHabiles?: number;
+            }[];
         };
         /** @description Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión */
         PerfilProyecto: components["schemas"]["AvanceServicio"] & {
@@ -2697,6 +2769,10 @@ export interface components {
             fechaInicio?: string | null;
             /** Format: date */
             fechaFin?: string | null;
+            /** @description Responsable del proyecto en Inoo */
+            responsable?: components["schemas"]["PersonaMini"] | null;
+            /** @description Alcance prometido */
+            alcance?: string | null;
             /** @description Las de la plantilla del servicio, en su orden */
             metricas: components["schemas"]["MetricaValor"][];
             /** @description Próximas primero, luego las realizadas más recientes (máximo 6) */
@@ -4976,6 +5052,13 @@ export interface operations {
                     detalle?: components["schemas"]["DetalleServicio"];
                     /** Format: date */
                     fechaFin?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Responsable del proyecto en Inoo
+                     */
+                    responsableId?: string | null;
+                    /** @description Alcance prometido por Comercial (lo ve el cliente) */
+                    alcance?: string | null;
                 };
             };
         };

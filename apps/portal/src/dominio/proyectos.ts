@@ -39,6 +39,44 @@ export function columnaProyecto(p: DatosColumna): ColumnaProyecto {
 
 export const ESTADOS_TAREA: EstadoTarea[] = ["PENDIENTE", "EN_CURSO", "BLOQUEADA", "HECHA"];
 
+// ───────────────────────────── cierre de reuniones (reunión 15 oct)
+
+/** Plazo por defecto de un pendiente que sale de una reunión. */
+export const DIAS_PENDIENTE_REUNION = 2;
+export const RESUMEN_MINIMO = 10;
+export interface PendienteReunion { texto: string; de: "CLIENTE" | "INOO"; responsableId: string | null; diasHabiles: number }
+
+/**
+ * Al marcar una reunión como realizada el resumen es obligatorio (cada reunión tiene un objetivo y se
+ * documenta). Los pendientes solo se aceptan en ese momento: los del cliente se vuelven requerimientos
+ * y los de Inoo, tareas. `resumenActual` es el que ya tenía la reunión (al editar).
+ */
+export function validarCierreReunion(
+  b: { estado?: unknown; resumen?: unknown; pendientes?: unknown },
+  resumenActual: string | null = null,
+): { pendientes: PendienteReunion[]; errores: Errores } {
+  const errores: Errores = [];
+  const cerrando = b.estado === "REALIZADA";
+  const resumen = b.resumen !== undefined ? b.resumen : resumenActual;
+  if (cerrando && !(typeof resumen === "string" && resumen.trim().length >= RESUMEN_MINIMO)) {
+    errores.push({ campo: "resumen", mensaje: "Escribe el resumen de la reunión: qué se vio y qué se acordó" });
+  }
+  if (b.pendientes === undefined) return { pendientes: [], errores };
+  if (!cerrando) return { pendientes: [], errores: [...errores, { campo: "pendientes", mensaje: "Los pendientes se cargan al marcar la reunión como realizada" }] };
+  if (!Array.isArray(b.pendientes) || b.pendientes.length > 20) return { pendientes: [], errores: [...errores, { campo: "pendientes", mensaje: "Hasta 20 pendientes" }] };
+  const pendientes: PendienteReunion[] = [];
+  b.pendientes.forEach((x: Record<string, unknown>, i) => {
+    const texto = typeof x?.texto === "string" ? x.texto.trim() : "";
+    if (texto.length < 3 || texto.length > 200) errores.push({ campo: `pendientes.${i}.texto`, mensaje: "Describe el pendiente (3 a 200 caracteres)" });
+    if (x?.de !== "CLIENTE" && x?.de !== "INOO") errores.push({ campo: `pendientes.${i}.de`, mensaje: "¿Es del cliente o de Inoo?" });
+    const dias = x?.diasHabiles ?? DIAS_PENDIENTE_REUNION;
+    if (!(Number.isInteger(dias) && (dias as number) >= 1 && (dias as number) <= 30)) errores.push({ campo: `pendientes.${i}.diasHabiles`, mensaje: "Entre 1 y 30 días hábiles" });
+    const responsableId = x?.de === "INOO" && typeof x?.responsableId === "string" ? x.responsableId : null;
+    pendientes.push({ texto, de: x?.de as PendienteReunion["de"], responsableId, diasHabiles: dias as number });
+  });
+  return { pendientes, errores };
+}
+
 /** Vencida: no está hecha y la fecha límite ya pasó (el mismo día todavía está a tiempo). */
 export const tareaVencida = (t: { estado: string; fechaLimite: string | null }, hoy: string) => t.estado !== "HECHA" && !!t.fechaLimite && t.fechaLimite < hoy.slice(0, 10);
 

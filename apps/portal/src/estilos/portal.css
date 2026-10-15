@@ -1159,6 +1159,16 @@ a.avatar:hover {
   text-align: center;
 }
 
+/* Reunión clave de cada etapa (reunión 15 oct). */
+.hito-reunion {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--c-muted);
+}
+
 /* Entregables genéricos del proyecto (reunión 15 oct). */
 .icono-entregable {
   flex: none;

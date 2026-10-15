@@ -25,7 +25,7 @@ export function pruebasEntregables(nombre: string, manejar: Manejador, reiniciar
       const cliente = (await llamar("GET", `/servicios-contratados/${WEB}/entregables`, VALERIA)).json.datos;
       assert.deepEqual(cliente.map((e: any) => e.titulo), ["Flujograma y benchmark de referencias"]);
       const flujo = cliente[0];
-      assert.deepEqual([flujo.estado, flujo.formato, flujo.url, flujo.etapaNombre, flujo.servicioTitulo], ["LISTO_REVISION", "PDF", "/muestras/flujograma-casa-oliva.pdf", "Brief y arquitectura de la tienda", "Diseño y desarrollo web - Casa Oliva"]);
+      assert.deepEqual([flujo.estado, flujo.formato, flujo.url, flujo.etapaNombre, flujo.servicioTitulo], ["LISTO_REVISION", "PDF", "/muestras/flujograma-casa-oliva.pdf", "Arquitectura y benchmark", "Diseño y desarrollo web - Casa Oliva"]);
       const atraso = diasAtrasoRevision("2026-10-05T16:00:00Z", hoy, FERIADOS);
       assert.deepEqual([flujo.atrasado, flujo.diasAtrasoRevision], [atraso > 0, atraso]);
       const equipo = (await llamar("GET", `/servicios-contratados/${WEB}/entregables`, DIEGO)).json.datos;
@@ -52,8 +52,8 @@ export function pruebasEntregables(nombre: string, manejar: Manejador, reiniciar
       assert.equal((await llamar("POST", ruta, VALERIA, { titulo: "x", formato: "PDF", url: "https://x.pe/a.pdf" })).status, 403, "el cliente no sube entregables");
       const malo = await llamar("POST", ruta, DIEGO, { titulo: "ab", formato: "VIDEO", url: "no es un enlace", etapaId: uid(20, 1) });
       assert.deepEqual(malo.json.errores.map((e: any) => e.campo).sort(), ["etapaId", "formato", "titulo", "url"]);
-      const nuevo = await llamar("POST", ruta, DIEGO, { titulo: "Wireframes en baja", formato: "PDF", url: "https://drive.google.com/file/d/demo/view", etapaId: uid(20, 6) });
-      assert.deepEqual([nuevo.status, nuevo.json.estado, nuevo.json.version, nuevo.json.etapaNombre], [201, "EN_PREPARACION", 1, "Diseño"]);
+      const nuevo = await llamar("POST", ruta, DIEGO, { titulo: "Wireframes en baja", formato: "PDF", url: "https://drive.google.com/file/d/demo/view", etapaId: uid(20, 8) });
+      assert.deepEqual([nuevo.status, nuevo.json.estado, nuevo.json.version, nuevo.json.etapaNombre], [201, "EN_PREPARACION", 1, "Prototipo"]);
       const id = nuevo.json.id;
       assert.equal((await llamar("GET", `/entregables/${id}`, VALERIA)).status, 404, "todavía no se le envía");
 

@@ -34,7 +34,7 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.deepEqual([crm.avance.porcentaje, crm.avance.etapaActual.nombre, crm.avance.totalEtapas], [20, "Procesos e implementación", 4]);
       assert.equal(crm.progreso, null, "un proyecto de CRM no entrega piezas mensuales");
       const web = r.servicios.find((s: any) => s.codigo === "WEB");
-      assert.deepEqual([web.variante.nombre, web.avance.porcentaje], ["E-commerce", 10]);
+      assert.deepEqual([web.variante.nombre, web.avance.porcentaje], ["E-commerce", 5]);
       const smp = r.servicios.find((s: any) => s.codigo === "SOCIAL_MEDIA_PRO");
       assert.deepEqual([smp.cantidadMensual, smp.avance.porcentaje, smp.avance.periodo], [16, 50, "2026-10"]);
       assert.equal((await llamar("GET", `/clientes/${NATIVA}/servicios`, VALERIA)).status, 404);

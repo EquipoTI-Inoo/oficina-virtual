@@ -178,14 +178,20 @@ test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuev
   await page.getByRole("button", { name: "Guardar reunión" }).click();
   await expect(page.getByText("Revisión del pipeline")).toBeVisible();
   await page.getByRole("button", { name: "Marcar realizada" }).first().click();
-  await page.fill("#cerrar-resumen", "Pipeline aprobado.");
-  await page.getByRole("dialog", { name: "Marcar reunión realizada" }).getByRole("button", { name: "Guardar" }).click();
+  const cerrar = page.getByRole("dialog", { name: "Marcar reunión realizada" });
+  await cerrar.locator("#cerrar-resumen").fill("Pipeline aprobado.");
+  await cerrar.getByRole("button", { name: "+ Agregar pendiente" }).click();
+  await cerrar.getByLabel("Pendiente 1", { exact: true }).fill("Enviar la lista de vendedores");
+  await cerrar.getByRole("button", { name: "Cerrar reunión" }).click();
+  await expect(page.getByText("Pendientes: 1 para el cliente y 0 para Inoo.")).toBeVisible();
   await expect(page.locator(".kpi, .tarjeta").filter({ hasText: "Reuniones realizadas" }).first()).toContainText("4");
   await page.getByText("← Ficha del cliente").click();
   await page.getByRole("button", { name: "Nuevo servicio" }).click();
   await page.selectOption("#ns-servicio", "WEB");
   await page.selectOption("#ns-variante", "LANDING");
   await page.fill("#ns-fechaInicio", "2026-10-19");
+  await page.getByRole("radio", { name: "Grande" }).or(page.getByRole("button", { name: "Grande" })).first().click();
+  await expect(page.getByText(/Se le pedirá al cliente: Brief de desarrollo web/)).toBeVisible();
   await page.getByRole("button", { name: "Contratar" }).click();
   await expect(page.getByText("Servicio contratado")).toBeVisible();
   await expect(page.getByRole("link", { name: "Diseño y desarrollo web - Casa Oliva", exact: true })).toHaveCount(2);
@@ -250,6 +256,7 @@ test("proyectos: del pipeline al proyecto, crear una tarea, moverla y mencionar 
 });
 
 test("entregables: el cliente revisa el flujograma en el visor y pide cambios; el equipo envía el prototipo", async ({ browser }) => {
+  test.setTimeout(90_000); // dos sesiones (cliente y equipo) en el mismo flujo
   const cliente = await browser.newPage();
   await entrarComo(cliente, "cliente");
   await cliente.goto("/entregables");

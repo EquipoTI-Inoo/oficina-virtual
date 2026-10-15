@@ -954,7 +954,7 @@ paths:
     patch:
       tags: [Servicios]
       operationId: actualizarServicioContratado
-      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca o detalle (CRM, licencias, usuarios)'
+      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca, detalle, responsable o alcance'
       x-roles: [EQUIPO]
       requestBody:
         required: true
@@ -969,6 +969,8 @@ paths:
                 marca: { type: [string, 'null'] }
                 detalle: { $ref: '#/components/schemas/DetalleServicio' }
                 fechaFin: { type: [string, 'null'], format: date }
+                responsableId: { type: [string, 'null'], format: uuid, description: 'Responsable del proyecto en Inoo' }
+                alcance: { type: [string, 'null'], description: 'Alcance prometido por Comercial (lo ve el cliente)' }
       responses:
         '200':
           description: OK
@@ -3218,7 +3220,7 @@ components:
         creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
     ServicioContratadoEntrada:
       type: object
-      description: Crea el proyecto con las etapas de la plantilla del servicio (y variante). Las fechas previstas se calculan en días hábiles desde `fechaInicio`.
+      description: 'Crea el proyecto con las etapas de la plantilla del servicio (y variante), escaladas por el tamaño, o con etapas personalizadas. Las fechas previstas se calculan en días hábiles desde `fechaInicio`. Se le piden al cliente los requerimientos de la plantilla (reunión 15 oct: todo al inicio).'
       required: [servicioCodigo, fechaInicio]
       properties:
         servicioCodigo: { $ref: '#/components/schemas/CodigoServicio' }
@@ -3230,6 +3232,19 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: [string, 'null'], format: date }
         inooworkProyectoId: { type: string }
+        responsableId: { type: [string, 'null'], format: uuid, description: 'Responsable del proyecto en Inoo (persona del equipo)' }
+        etapas:
+          type: array
+          description: 'Proyecto personalizado: estas etapas reemplazan las de la plantilla. El % acumulado crece y termina en 100'
+          items:
+            type: object
+            required: [nombre, avancePct, diasHabiles]
+            properties:
+              nombre: { type: string, minLength: 3 }
+              avancePct: { type: integer, minimum: 1, maximum: 100 }
+              diasHabiles: { type: integer, minimum: 1, maximum: 120 }
+              esperaCliente: { type: boolean }
+              reunionClave: { type: [string, 'null'] }
         entregables:
           type: array
           items:
@@ -3256,8 +3271,15 @@ components:
         nombre: { type: string, examples: [Landing page] }
     DetalleServicio:
       type: object
-      description: 'Datos propios del servicio. CRM: qué CRM, tipo y número de licencias, usuarios y plataformas que se integran.'
+      description: 'Datos propios del servicio (reunión 15 oct). Web: tamaño, páginas, productos, CMS y si incluye el panel de administración. CRM: qué CRM, licencias, usuarios, plataformas, y si incluye agente de IA o WhatsApp API (ahí la IA es el producto).'
       properties:
+        tamano: { type: string, enum: [CHICO, MEDIANO, GRANDE], description: 'Escala los días de las etapas (factores de relleno)' }
+        paginas: { type: integer, minimum: 0 }
+        productos: { type: integer, minimum: 0, description: 'Productos que nos comprometimos a cargar' }
+        cms: { type: string, enum: [WORDPRESS, SHOPIFY, CODIGO] }
+        alcanceWeb: { type: string, enum: [SOLO_WEB, WEB_Y_CMS], description: '¿Solo el sitio, o también el panel de administración?' }
+        agenteIa: { type: boolean, description: 'CRM: incluye un agente de IA' }
+        whatsappApi: { type: boolean, description: 'CRM: incluye la configuración de WhatsApp API' }
         crm: { type: string, examples: [HubSpot] }
         tipoLicencia: { type: string, examples: [Sales Hub Professional] }
         licencias: { type: integer, minimum: 0 }
@@ -3274,6 +3296,7 @@ components:
         avancePct: { type: integer, minimum: 1, maximum: 100, description: '% acumulado del proyecto al terminar la etapa' }
         diasHabiles: { type: integer }
         esperaCliente: { type: boolean }
+        reunionClave: { type: [string, 'null'], description: 'La reunión que cierra la etapa (reunión 15 oct: cada reunión tiene un objetivo)', examples: [Aprobación del flujograma] }
     PlantillaProyecto:
       type: object
       required: [id, servicioCodigo, nombre, etapas, metricas]
@@ -3284,6 +3307,8 @@ components:
         nombre: { type: string }
         metricas: { type: array, items: { $ref: '#/components/schemas/MetricaProyecto' } }
         etapas: { type: array, items: { $ref: '#/components/schemas/EtapaPlantilla' } }
+        requerimientos: { type: array, description: 'Plantillas de requerimiento que se le piden al cliente al crear el proyecto', items: { type: string }, examples: [[BRIEF_WEB, ACCESOS_WEB, MANUAL_MARCA]] }
+        reunionesOptimas: { type: integer, description: 'Etapas con reunión clave: la cantidad de reuniones que debería tener el proyecto' }
     EtapaProyecto:
       type: object
       required: [id, orden, nombre, avancePct, estado, esperaCliente, atrasada]
@@ -3296,6 +3321,7 @@ components:
         avancePct: { type: integer }
         estado: { $ref: '#/components/schemas/EstadoHito' }
         esperaCliente: { type: boolean }
+        reunionClave: { type: [string, 'null'], description: 'La reunión que cierra la etapa' }
         fechaInicio: { type: [string, 'null'], format: date }
         fechaEstimada: { type: [string, 'null'], format: date }
         fechaFin: { type: [string, 'null'], format: date }
@@ -3431,15 +3457,32 @@ components:
         estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
         conAcuerdos: { type: [boolean, 'null'], description: 'REALIZADA: si terminó con acuerdos (cuenta como exitosa)' }
         resumen: { type: [string, 'null'], description: 'Lo que se acordó; lo ve el cliente' }
+        pendientesCreados:
+          type: object
+          description: 'Solo en la respuesta al marcarla REALIZADA con pendientes'
+          properties:
+            requerimientos: { type: integer }
+            tareas: { type: integer }
     ReunionEntrada:
       type: object
-      description: 'Al crear: titulo y fecha obligatorios. conAcuerdos solo con estado REALIZADA.'
+      description: 'Al crear: titulo y fecha obligatorios. conAcuerdos solo con estado REALIZADA. Al marcarla REALIZADA el resumen es obligatorio (reunión 15 oct) y los pendientes se convierten en requerimientos (del cliente) o tareas (de Inoo).'
       properties:
         titulo: { type: string, minLength: 3 }
         fecha: { type: string, format: date-time }
         estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
         conAcuerdos: { type: [boolean, 'null'] }
-        resumen: { type: [string, 'null'] }
+        resumen: { type: [string, 'null'], description: 'Obligatorio al marcarla REALIZADA (al menos 10 caracteres)' }
+        pendientes:
+          type: array
+          description: 'Solo al marcarla REALIZADA'
+          items:
+            type: object
+            required: [texto, de]
+            properties:
+              texto: { type: string, minLength: 3 }
+              de: { type: string, enum: [CLIENTE, INOO], description: 'CLIENTE crea un requerimiento «Pendiente de la reunión»; INOO crea una tarea' }
+              responsableId: { type: [string, 'null'], format: uuid, description: 'Solo INOO: a quién se le asigna la tarea' }
+              diasHabiles: { type: integer, minimum: 1, maximum: 30, description: 'Plazo del pendiente (por defecto 2 días hábiles)' }
     PerfilProyecto:
       description: 'Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión'
       allOf:
@@ -3452,6 +3495,8 @@ components:
             modalidad: { $ref: '#/components/schemas/ModalidadServicio' }
             fechaInicio: { type: [string, 'null'], format: date }
             fechaFin: { type: [string, 'null'], format: date }
+            responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable del proyecto en Inoo' }
+            alcance: { type: [string, 'null'], description: 'Alcance prometido' }
             metricas: { type: array, description: 'Las de la plantilla del servicio, en su orden', items: { $ref: '#/components/schemas/MetricaValor' } }
             reuniones: { type: array, description: 'Próximas primero, luego las realizadas más recientes (máximo 6)', items: { $ref: '#/components/schemas/Reunion' } }
             porRevisar: { type: array, description: 'Piezas de contenido de este servicio en LISTO_REVISION', items: { $ref: '#/components/schemas/PiezaResumen' } }

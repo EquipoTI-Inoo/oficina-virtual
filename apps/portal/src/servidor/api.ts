@@ -32,10 +32,10 @@ import { diasNoLaborables } from "../dominio/calendario";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
+import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
-import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, validarContratacion, validarDetalle, validarEtapasPersonalizadas } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Estado = "BORRADOR" | "EN_REVISION_INTERNA" | "LISTO_REVISION" | "APROBADO_CLIENTE" | "CAMBIOS_SOLICITADOS" | "PUBLICADO";
@@ -1285,6 +1285,10 @@ interface FilaServicio {
   paso_email: string | null;
   entregables: { tipoPieza: S<"TipoPieza">; cantidadMensual: number }[];
   plantilla_id: string | null;
+  responsable_id: string | null;
+  resp_nombre: string | null;
+  resp_cargo: string | null;
+  resp_email: string | null;
 }
 interface FilaEtapa {
   id: string;
@@ -1296,6 +1300,7 @@ interface FilaEtapa {
   avance_pct: number;
   estado: S<"EstadoHito">;
   espera_cliente: boolean;
+  reunion_clave: string | null;
   fecha_inicio: Date | null;
   fecha_estimada: Date | null;
   fecha_fin: Date | null;
@@ -1304,12 +1309,14 @@ interface FilaEtapa {
 const SELECT_SERVICIO = `
   SELECT sc.*, c.nombre AS cliente_nombre, s.codigo, s.nombre, s.descripcion, s.modalidad::text AS modalidad, s.unidad, s.variantes,
          u.id AS paso_id, u.nombre AS paso_nombre, u.cargo AS paso_cargo, u.email::text AS paso_email,
+         ur.nombre AS resp_nombre, ur.cargo AS resp_cargo, ur.email::text AS resp_email,
          coalesce((SELECT json_agg(json_build_object('tipoPieza', ei.tipo_pieza, 'cantidadMensual', ei.cantidad_mensual) ORDER BY ei.tipo_pieza)
                    FROM entregable_incluido ei WHERE ei.servicio_contratado_id = sc.id), '[]') AS entregables
   FROM servicio_contratado sc
   JOIN servicio s ON s.id = sc.servicio_id
   JOIN cliente c ON c.id = sc.cliente_id
-  LEFT JOIN usuario u ON u.id = sc.siguiente_paso_responsable_id`;
+  LEFT JOIN usuario u ON u.id = sc.siguiente_paso_responsable_id
+  LEFT JOIN usuario ur ON ur.id = sc.responsable_id`;
 
 async function serviciosDelCliente(ctx: Ctx, clienteId: string): Promise<FilaServicio[]> {
   return (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.cliente_id = $1 ORDER BY s.orden, sc.fecha_inicio`, [clienteId])).rows;
@@ -1334,7 +1341,7 @@ async function etapasDelServicio(ctx: Ctx, s: FilaServicio, periodo: string): Pr
 
 const etapaVista = (e: FilaEtapa, hoy: string): S<"EtapaProyecto"> => ({
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: e.descripcion, periodo: e.periodo, avancePct: e.avance_pct, estado: e.estado, esperaCliente: e.espera_cliente,
-  fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin),
+  reunionClave: e.reunion_clave, fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin),
   atrasada: etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy),
 });
 
@@ -1432,6 +1439,9 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as Partial<S<"ServicioContratadoEntrada">>;
   const { cat, errores } = validarContratacion(b);
+  const personalizadas = b.etapas !== undefined ? validarEtapasPersonalizadas(b.etapas) : null;
+  if (personalizadas) errores.push(...personalizadas.errores);
+  if (b.responsableId != null && !(await esDelEquipoDb(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (errores.length) validacion(errores);
   const variante = b.variante ?? null;
   const ya = await ctx.c.query(
@@ -1439,17 +1449,17 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
     [p.id, cat!.codigo, variante],
   );
   if (ya.rows.length) throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
-  const plantilla = (await ctx.c.query<{ id: string; servicio_id: string }>(
-    `SELECT pp.id, s.id AS servicio_id FROM servicio s
+  const plantilla = (await ctx.c.query<{ id: string; servicio_id: string; requerimientos: string[] | null }>(
+    `SELECT pp.id, s.id AS servicio_id, pp.requerimientos FROM servicio s
      LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND (pp.variante = $2 OR pp.variante IS NULL)
      WHERE s.codigo = $1 ORDER BY pp.variante NULLS LAST LIMIT 1`,
     [cat!.codigo, variante],
   )).rows[0];
   const plan = (await ctx.c.query<{ id: string }>("SELECT id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id])).rows[0];
   const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO servicio_contratado (cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, alcance, fecha_inicio, fecha_fin, inoowork_proyecto_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-    [p.id, plantilla.servicio_id, b.planId ?? plan?.id ?? null, variante, JSON.stringify(b.detalle ?? {}), b.marca?.trim() || null, plantilla.id, b.alcance ?? null, b.fechaInicio, b.fechaFin ?? null, b.inooworkProyectoId ?? null],
+    `INSERT INTO servicio_contratado (cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, alcance, fecha_inicio, fecha_fin, inoowork_proyecto_id, responsable_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+    [p.id, plantilla.servicio_id, b.planId ?? plan?.id ?? null, variante, JSON.stringify(b.detalle ?? {}), b.marca?.trim() || null, plantilla.id, b.alcance?.trim() || null, b.fechaInicio, b.fechaFin ?? null, b.inooworkProyectoId ?? null, b.responsableId ?? null],
   )).rows[0].id;
   for (const e of b.entregables ?? []) {
     await ctx.c.query("INSERT INTO entregable_incluido (servicio_contratado_id, tipo_pieza, cantidad_mensual) VALUES ($1, $2, $3)", [id, e.tipoPieza, e.cantidadMensual]);
@@ -1459,12 +1469,18 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   const periodo = cat!.modalidad === "MENSUAL" ? (mesInicio > PERIODO_ACTUAL() ? mesInicio : PERIODO_ACTUAL()) : null;
   const inicio = periodo && periodo !== mesInicio ? `${periodo}-01` : b.fechaInicio!;
   const etapasPlantilla = (await ctx.c.query<{ id: string; orden: number }>("SELECT id, orden FROM etapa_plantilla WHERE plantilla_id = $1", [plantilla.id])).rows;
-  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio, await noHabilesDb(ctx))) {
+  const feriados = await noHabilesDb(ctx);
+  for (const e of etapasDelProyectoNuevo(plantillaPara(cat!.codigo, variante)!, personalizadas?.etapas ?? null, inicio, feriados, b.detalle ?? {})) {
     await ctx.c.query(
-      `INSERT INTO etapa_proyecto (servicio_contratado_id, cliente_id, etapa_plantilla_id, periodo, orden, nombre, avance_pct, espera_cliente, fecha_inicio, fecha_estimada, actualizado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [id, p.id, etapasPlantilla.find((x) => x.orden === e.orden)?.id ?? null, periodo, e.orden, e.nombre, e.avancePct, e.esperaCliente, e.fechaInicio, e.fechaEstimada, ctx.u.usuarioId],
+      `INSERT INTO etapa_proyecto (servicio_contratado_id, cliente_id, etapa_plantilla_id, periodo, orden, nombre, avance_pct, espera_cliente, reunion_clave, fecha_inicio, fecha_estimada, actualizado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [id, p.id, personalizadas ? null : etapasPlantilla.find((x) => x.orden === e.orden)?.id ?? null, periodo, e.orden, e.nombre, e.avancePct, e.esperaCliente, e.reunionClave, e.fechaInicio, e.fechaEstimada, ctx.u.usuarioId],
     );
+  }
+  // Reunión 15 oct: todo lo que necesitamos del cliente se pide al inicio.
+  for (const codigo of plantilla.requerimientos ?? []) {
+    const pl = (await ctx.c.query<FilaPlantillaReq>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [codigo])).rows[0];
+    if (pl && plantillaAplica(pl.servicios, cat!.codigo)) await pedirAlClienteDb(ctx, id, p.id, pl, null, null, undefined, feriados);
   }
   await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, usuarioId: ctx.u.usuarioId });
   const { etapas: _e, ...v } = await servicioVista(ctx, await buscarServicio(ctx, id), PERIODO_ACTUAL());
@@ -1853,6 +1869,8 @@ async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<
     modalidad: s.modalidad,
     fechaInicio: fechaIso(s.fecha_inicio),
     fechaFin: fechaIso(s.fecha_fin),
+    responsable: s.responsable_id ? { id: s.responsable_id, nombre: s.resp_nombre ?? "", cargo: s.resp_cargo, email: s.resp_email } : null,
+    alcance: s.alcance,
     metricas: calcularMetricas(metricas, {
       reuniones: reuniones.map((x) => ({ estado: x.estado, conAcuerdos: x.con_acuerdos })),
       etapas: etapas.map((e) => ({ estado: e.estado, fechaFin: fechaIso(e.fecha_fin), fechaEstimada: fechaIso(e.fecha_estimada) })),
@@ -1883,10 +1901,11 @@ const reunionVistaDb = (r: FilaReunion): S<"Reunion"> => ({ id: r.id, titulo: r.
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
-  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: unknown; fechaFin?: string | null };
+  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: unknown; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null };
   const errores: { campo: string; mensaje: string }[] = [];
   if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
-  if (b.detalle !== undefined && (typeof b.detalle !== "object" || b.detalle === null || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
+  if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle));
+  if (b.responsableId != null && !(await esDelEquipoDb(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   validacion(errores);
   const cambios: [string, unknown][] = [];
@@ -1895,6 +1914,8 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   if (b.marca !== undefined) cambios.push(["marca", b.marca?.trim() || null]);
   if (b.detalle !== undefined) cambios.push(["detalle", JSON.stringify(b.detalle)]);
   if (b.fechaFin !== undefined) cambios.push(["fecha_fin", b.fechaFin]);
+  if (b.responsableId !== undefined) cambios.push(["responsable_id", b.responsableId]);
+  if (b.alcance !== undefined) cambios.push(["alcance", b.alcance?.trim() || null]);
   if (cambios.length) {
     await ctx.c.query(`UPDATE servicio_contratado SET ${cambios.map(([k], i) => `${k} = $${i + 2}${k === "estado" ? "::estado_servicio" : k === "detalle" ? "::jsonb" : ""}`).join(", ")} WHERE id = $1`, [s.id, ...cambios.map(([, v]) => v)]);
   }
@@ -1910,15 +1931,16 @@ ruta("GET", "/servicios-contratados/:id/reuniones", async (ctx, p) => {
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
-  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null };
+  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown };
   const estado = b.estado ?? "PROGRAMADA";
-  validacion(validarReunion(b, false, estado));
+  const cierre = validarCierreReunion(b);
+  validacion([...validarReunion(b, false, estado), ...cierre.errores, ...(await responsablesDePendientesDb(ctx, cierre.pendientes))]);
   const { rows } = await ctx.c.query<FilaReunion>(
     `INSERT INTO reunion (servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen, creado_por)
      VALUES ($1, $2, $3, $4, $5::estado_reunion, $6, $7, $8) RETURNING *`,
     [s.id, s.cliente_id, b.titulo!.trim(), b.fecha, estado, estado === "REALIZADA" ? b.conAcuerdos ?? null : null, b.resumen?.trim() || null, ctx.u.usuarioId],
   );
-  return { __status: 201, ...reunionVistaDb(rows[0]) };
+  return { __status: 201, ...reunionVistaDb(rows[0]), ...(await crearPendientesDb(ctx, s.id, s.cliente_id, rows[0].titulo, cierre.pendientes)) };
 });
 
 ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, cuerpo) => {
@@ -1926,17 +1948,49 @@ ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, cuerpo) => {
   if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
   const r = (await ctx.c.query<FilaReunion>("SELECT * FROM reunion WHERE id = $1 FOR UPDATE", [p.id])).rows[0];
   if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
-  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null };
+  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown };
   const estado = b.estado ?? r.estado;
-  validacion(validarReunion(b, true, estado));
+  const cierre = validarCierreReunion(b, r.resumen);
+  validacion([...validarReunion(b, true, estado), ...cierre.errores, ...(await responsablesDePendientesDb(ctx, cierre.pendientes))]);
   const acuerdos = estado !== "REALIZADA" ? null : b.conAcuerdos !== undefined ? b.conAcuerdos : r.con_acuerdos;
   const { rows } = await ctx.c.query<FilaReunion>(
     `UPDATE reunion SET titulo = coalesce($2, titulo), fecha = coalesce($3::timestamptz, fecha), estado = $4::estado_reunion, con_acuerdos = $5,
             resumen = CASE WHEN $6::boolean THEN $7 ELSE resumen END WHERE id = $1 RETURNING *`,
     [r.id, b.titulo?.trim() ?? null, b.fecha ?? null, estado, acuerdos, b.resumen !== undefined, b.resumen?.trim() || null],
   );
-  return reunionVistaDb(rows[0]);
+  const sc = (await ctx.c.query<{ servicio_contratado_id: string; cliente_id: string }>("SELECT servicio_contratado_id, cliente_id FROM reunion WHERE id = $1", [r.id])).rows[0];
+  return { ...reunionVistaDb(rows[0]), ...(await crearPendientesDb(ctx, sc.servicio_contratado_id, sc.cliente_id, rows[0].titulo, cierre.pendientes)) };
 });
+
+const esDelEquipoDb = async (ctx: Ctx, id: unknown) =>
+  typeof id === "string" && esUuid(id) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [id])).rows.length > 0;
+
+async function responsablesDePendientesDb(ctx: Ctx, xs: PendienteReunion[]) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  for (const [i, x] of xs.entries()) if (x.responsableId && !(await esDelEquipoDb(ctx, x.responsableId))) errores.push({ campo: `pendientes.${i}.responsableId`, mensaje: "Elige a alguien del equipo" });
+  return errores;
+}
+
+/** Lo que quedó pendiente en la reunión: del cliente → requerimiento; de Inoo → tarea. */
+async function crearPendientesDb(ctx: Ctx, servicioId: string, clienteId: string, titulo: string, xs: PendienteReunion[]) {
+  if (!xs.length) return {};
+  const feriados = await noHabilesDb(ctx);
+  const pl = (await ctx.c.query<FilaPlantillaReq>("SELECT * FROM plantilla_requerimiento WHERE codigo = 'PENDIENTE_REUNION'")).rows[0];
+  let tareas = 0;
+  for (const x of xs) {
+    if (x.de === "CLIENTE") {
+      await pedirAlClienteDb(ctx, servicioId, clienteId, pl, x.texto, `Quedó pendiente en la reunión «${titulo}».`, x.diasHabiles, feriados);
+      continue;
+    }
+    await ctx.c.query(
+      `INSERT INTO tarea (servicio_contratado_id, cliente_id, titulo, descripcion, estado, responsable_id, fecha_limite, creado_por)
+       VALUES ($1, $2, $3, $4, 'PENDIENTE', $5, $6::date, $7)`,
+      [servicioId, clienteId, x.texto, `Pendiente de la reunión «${titulo}».`, x.responsableId, sumarDiasHabiles(HOY_LIMA(), x.diasHabiles, feriados), ctx.esServicio ? null : ctx.u.usuarioId],
+    );
+    tareas++;
+  }
+  return { pendientesCreados: { requerimientos: xs.length - tareas, tareas } };
+}
 
 interface FilaComentarioProyecto {
   id: string;
@@ -2027,8 +2081,10 @@ ruta("GET", "/plantillas", async (ctx, _p, q) => {
   const { rows } = await ctx.c.query<S<"PlantillaProyecto">>(
     `SELECT pp.id, s.codigo AS "servicioCodigo", pp.variante, pp.nombre, pp.metricas,
             (SELECT json_agg(json_build_object('orden', e.orden, 'nombre', e.nombre, 'descripcion', e.descripcion, 'avancePct', e.avance_pct,
-                                               'diasHabiles', e.dias_habiles, 'esperaCliente', e.espera_cliente) ORDER BY e.orden)
-             FROM etapa_plantilla e WHERE e.plantilla_id = pp.id) AS etapas
+                                               'diasHabiles', e.dias_habiles, 'esperaCliente', e.espera_cliente, 'reunionClave', e.reunion_clave) ORDER BY e.orden)
+             FROM etapa_plantilla e WHERE e.plantilla_id = pp.id) AS etapas,
+            pp.requerimientos,
+            (SELECT count(*)::int FROM etapa_plantilla e WHERE e.plantilla_id = pp.id AND e.reunion_clave IS NOT NULL) AS "reunionesOptimas"
      FROM plantilla_proyecto pp JOIN servicio s ON s.id = pp.servicio_id
      WHERE pp.activa AND ($1::text IS NULL OR s.codigo = $1)
      ORDER BY s.orden, pp.variante NULLS FIRST`,
@@ -2170,7 +2226,7 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const b = (await cuerpo()) as Partial<S<"RequerimientoEntrada">>;
   const pl = typeof b.plantillaCodigo === "string"
-    ? (await ctx.c.query<{ codigo: string; nombre: string; dias_habiles: number; campos: Campo[]; servicios: string[] }>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [b.plantillaCodigo])).rows[0]
+    ? (await ctx.c.query<FilaPlantillaReq>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [b.plantillaCodigo])).rows[0]
     : undefined;
   const sc = typeof b.servicioContratadoId === "string" && esUuid(b.servicioContratadoId)
     ? (await ctx.c.query<{ id: string; codigo: string }>(
@@ -2185,17 +2241,24 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, cuerpo) => {
   if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
   if (b.titulo !== undefined && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
   if (errores.length) validacion(errores);
-  const hoy = HOY_LIMA();
   const dias = await noHabilesDb(ctx);
+  const id = await pedirAlClienteDb(ctx, sc!.id, p.id, pl!, b.titulo, b.mensaje, b.diasHabiles, dias);
+  return { __status: 201, ...reqVista(await buscarReq(ctx, id), dias) };
+});
+
+interface FilaPlantillaReq { codigo: string; nombre: string; dias_habiles: number; campos: Campo[]; servicios: string[] }
+
+/** Crea un requerimiento para el cliente: a mano, al contratar (los de la plantilla) o desde una reunión. */
+async function pedirAlClienteDb(ctx: Ctx, servicioId: string, clienteId: string, pl: FilaPlantillaReq, titulo: string | null | undefined, mensaje: string | null | undefined, dias: number | undefined, feriados: ReadonlySet<string>) {
+  const limite = fechaLimite(HOY_LIMA(), dias ?? pl.dias_habiles, feriados);
   const id = (await ctx.c.query<{ id: string }>(
     `INSERT INTO requerimiento (servicio_contratado_id, cliente_id, plantilla_codigo, titulo, mensaje, campos, fecha_limite, creado_por)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [sc!.id, p.id, pl!.codigo, b.titulo?.trim() || pl!.nombre, b.mensaje?.trim() || null, JSON.stringify(pl!.campos), fechaLimite(hoy, b.diasHabiles ?? pl!.dias_habiles, dias), ctx.u.usuarioId],
+    [servicioId, clienteId, pl.codigo, titulo?.trim() || pl.nombre, mensaje?.trim() || null, JSON.stringify(pl.campos), limite, ctx.esServicio ? null : ctx.u.usuarioId],
   )).rows[0].id;
-  const r = await buscarReq(ctx, id);
-  await emitirOutbox(ctx, "requerimiento.creado", p.id, { requerimientoId: id, servicioContratadoId: sc!.id, fechaLimite: fechaIso(r.fecha_limite), usuarioId: ctx.u.usuarioId });
-  return { __status: 201, ...reqVista(r, dias) };
-});
+  await emitirOutbox(ctx, "requerimiento.creado", clienteId, { requerimientoId: id, servicioContratadoId: servicioId, fechaLimite: limite, usuarioId: ctx.u.usuarioId });
+  return id;
+}
 
 ruta("GET", "/requerimientos/:id", async (ctx, p) => reqVista(await buscarReq(ctx, p.id), await noHabilesDb(ctx)));
 

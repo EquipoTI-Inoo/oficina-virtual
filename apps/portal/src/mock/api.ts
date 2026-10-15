@@ -14,11 +14,11 @@ import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
+import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
-import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, PLANTILLAS, plantillaPara, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, validarContratacion, validarDetalle, validarEtapasPersonalizadas } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Json = Record<string, unknown> | unknown[];
@@ -451,7 +451,7 @@ function etapasDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
 }
 const etapaVista = (e: D.EtapaDemo): S<"EtapaProyecto"> => ({
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: null, periodo: e.periodo, avancePct: e.avancePct, estado: e.estado, esperaCliente: e.esperaCliente,
-  fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: e.fechaFin, atrasada: etapaAtrasada(e, D.HOY),
+  reunionClave: e.reunionClave ?? null, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: e.fechaFin, atrasada: etapaAtrasada(e, D.HOY),
 });
 function avanceDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
   const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
@@ -465,7 +465,7 @@ function servicioVista(s: D.ServicioContratadoDemo, periodo = D.PERIODO): S<"Ser
   const cantidad = cantidadDe(s);
   return {
     codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), descripcion: cat.descripcion, modalidad: cat.modalidad, variante: varianteDe(s), detalle: s.detalle,
-    servicioContratadoId: s.id, estado: s.estado, alcance: null, fechaInicio: s.fechaInicio, fechaFin: s.fechaFin, unidad: cat.unidad, cantidadMensual: cantidad,
+    servicioContratadoId: s.id, estado: s.estado, alcance: s.alcance ?? null, fechaInicio: s.fechaInicio, fechaFin: s.fechaFin, unidad: cat.unidad, cantidadMensual: cantidad,
     progreso: cantidad ? progreso(piezasDelMes(s.clienteId, periodo).filter((x) => x.servicioId === s.id), cantidad) : null,
     avance: avanceDe(s, periodo),
     entregables: s.entregables.map((e) => ({ tipoPieza: e.tipoPieza as S<"TipoPieza">, cantidadMensual: e.cantidadMensual })),
@@ -1174,17 +1174,23 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, req) => {
   if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
   if (b.titulo !== undefined && b.titulo.trim().length < 3) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  return { __status: 201, ...requerimientoVista(pedirAlCliente(ctx, sc!, pl!.codigo, b.titulo, b.mensaje, b.diasHabiles)) };
+});
+
+/** Crea un requerimiento para el cliente: a mano, al contratar (los de la plantilla) o desde una reunión. */
+function pedirAlCliente(ctx: Ctx, sc: D.ServicioContratadoDemo, codigo: string, titulo?: string | null, mensaje?: string | null, dias?: number): D.RequerimientoDemo {
+  const pl = plantillaRequerimiento(codigo)!;
   const emitidoEn = D.HOY;
   const r: D.RequerimientoDemo = {
-    id: nuevoId(19), servicioContratadoId: sc!.id, clienteId: c.id, plantillaCodigo: pl!.codigo, titulo: b.titulo?.trim() || pl!.nombre, mensaje: b.mensaje?.trim() || null,
-    respuestas: {}, estado: "PENDIENTE", emitidoEn, fechaLimite: fechaLimite(emitidoEn, b.diasHabiles ?? pl!.diasHabiles, noHabiles()), diasCorridos: 0, notaEquipo: null,
+    id: nuevoId(19), servicioContratadoId: sc.id, clienteId: sc.clienteId, plantillaCodigo: pl.codigo, titulo: titulo?.trim() || pl.nombre, mensaje: mensaje?.trim() || null,
+    respuestas: {}, estado: "PENDIENTE", emitidoEn, fechaLimite: fechaLimite(emitidoEn, dias ?? pl.diasHabiles, noHabiles()), diasCorridos: 0, notaEquipo: null,
     enviadoEn: null, enviadoPorId: null, revisadoEn: null, creadoPorId: ctx.usuario.id,
   };
   E.requerimientos.push(r);
-  emitir("requerimiento.creado", c.id, { requerimientoId: r.id, servicioContratadoId: sc!.id, fechaLimite: r.fechaLimite, usuarioId: ctx.usuario.id });
+  emitir("requerimiento.creado", sc.clienteId, { requerimientoId: r.id, servicioContratadoId: sc.id, fechaLimite: r.fechaLimite, usuarioId: ctx.usuario.id });
   registrarCorreo(E.usuarios[0].email, `Te pedimos: ${r.titulo} (hasta el ${fechaCorta(r.fechaLimite)})`, "requerimiento.creado");
-  return { __status: 201, ...requerimientoVista(r) };
-});
+  return r;
+}
 
 ruta("GET", "/requerimientos/:id", (ctx, p) => requerimientoVista(buscarRequerimiento(ctx, p.id)));
 
@@ -1730,6 +1736,9 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ServicioContratadoEntrada">>(req);
   const { cat, errores } = validarContratacion(b);
+  const personalizadas = b.etapas !== undefined ? validarEtapasPersonalizadas(b.etapas) : null;
+  if (personalizadas) errores.push(...personalizadas.errores);
+  if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const variante = b.variante ?? null;
   if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && s.estado === "ACTIVO")) {
@@ -1738,14 +1747,20 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   const sc: D.ServicioContratadoDemo = {
     id: nuevoId(4), clienteId: c.id, codigo: cat!.codigo, variante, detalle: (b.detalle ?? {}) as Record<string, unknown>, marca: b.marca?.trim() || null,
     entregables: (b.entregables ?? []).map((e) => ({ tipoPieza: e.tipoPieza, cantidadMensual: e.cantidadMensual })), siguientePaso: "",
-    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO",
+    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO", responsableId: b.responsableId ?? null, alcance: b.alcance?.trim() || null,
   };
   E.servicios.push(sc);
   // Etapas desde la plantilla: el proyecto entero, o el mes en curso si el servicio es mensual.
   const periodo = cat!.modalidad === "MENSUAL" ? (b.fechaInicio.slice(0, 7) > D.PERIODO ? b.fechaInicio.slice(0, 7) : D.PERIODO) : null;
   const inicio = periodo && periodo !== b.fechaInicio.slice(0, 7) ? `${periodo}-01` : b.fechaInicio;
-  for (const e of etapasDesdePlantilla(plantillaPara(cat!.codigo, variante)!, inicio, noHabiles())) {
-    E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
+  const plantilla = plantillaPara(cat!.codigo, variante)!;
+  for (const e of etapasDelProyectoNuevo(plantilla, personalizadas?.etapas ?? null, inicio, noHabiles(), sc.detalle)) {
+    E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, reunionClave: e.reunionClave, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
+  }
+  // Reunión 15 oct: todo lo que necesitamos del cliente se pide al inicio.
+  for (const codigo of plantilla.requerimientos) {
+    const pl = plantillaRequerimiento(codigo);
+    if (pl && plantillaAplica(pl.servicios, sc.codigo)) pedirAlCliente(ctx, sc, codigo);
   }
   if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;
   emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, usuarioId: ctx.usuario.id });
@@ -1760,7 +1775,8 @@ ruta("GET", "/plantillas", (ctx, _p, q) => {
       .filter(({ pl }) => !servicio || pl.servicio === servicio)
       .map(({ pl, i }): S<"PlantillaProyecto"> => ({
         id: D.uid(21, i + 1), servicioCodigo: pl.servicio, variante: pl.variante, nombre: pl.nombre, metricas: pl.metricas,
-        etapas: pl.etapas.map(([nombre, avancePct, diasHabiles, esperaCliente], j) => ({ orden: j + 1, nombre, descripcion: null, avancePct, diasHabiles, esperaCliente })),
+        etapas: pl.etapas.map(([nombre, avancePct, diasHabiles, esperaCliente, reunionClave], j) => ({ orden: j + 1, nombre, descripcion: null, avancePct, diasHabiles, esperaCliente, reunionClave })),
+        requerimientos: pl.requerimientos, reunionesOptimas: reunionesOptimas(pl),
       })),
   };
 });
@@ -2072,6 +2088,8 @@ function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<
     modalidad: cat.modalidad,
     fechaInicio: s.fechaInicio,
     fechaFin: s.fechaFin,
+    responsable: persona(s.responsableId ?? null),
+    alcance: s.alcance ?? null,
     metricas: calcularMetricas(plantillaPara(s.codigo, s.variante)?.metricas ?? [], {
       reuniones,
       etapas: E.etapas.filter((e) => e.servicioContratadoId === s.id),
@@ -2099,10 +2117,11 @@ function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
-  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null }>(req);
+  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null }>(req);
   const errores: { campo: string; mensaje: string }[] = [];
   if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
-  if (b.detalle !== undefined && (typeof b.detalle !== "object" || b.detalle === null || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
+  if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle));
+  if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   if (b.siguientePaso !== undefined) s.siguientePaso = b.siguientePaso?.trim() ?? "";
@@ -2110,6 +2129,8 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   if (b.marca !== undefined) s.marca = b.marca?.trim() || null;
   if (b.detalle !== undefined) s.detalle = b.detalle;
   if (b.fechaFin !== undefined) s.fechaFin = b.fechaFin;
+  if (b.responsableId !== undefined) s.responsableId = b.responsableId;
+  if (b.alcance !== undefined) s.alcance = b.alcance?.trim() || null;
   return perfilVista(ctx, s, D.PERIODO);
 });
 
@@ -2121,25 +2142,27 @@ ruta("GET", "/servicios-contratados/:id/reuniones", (ctx, p) => {
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
-  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null }>(req);
+  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown }>(req);
   const estado = b.estado ?? "PROGRAMADA";
-  const errores = validarReunion(b, false, estado);
+  const cierre = validarCierreReunion(b);
+  const errores = [...validarReunion(b, false, estado), ...cierre.errores, ...responsablesDePendientes(cierre.pendientes)];
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const r: D.ReunionDemo = {
     id: nuevoId(23), servicioContratadoId: s.id, clienteId: s.clienteId, titulo: b.titulo!.trim(), fecha: new Date(b.fecha!).toISOString(), estado,
     conAcuerdos: estado === "REALIZADA" ? b.conAcuerdos ?? null : null, resumen: b.resumen?.trim() || null,
   };
   E.reuniones.push(r);
-  return { __status: 201, ...reunionVista(r) };
+  return { __status: 201, ...reunionVista(r), ...crearPendientes(ctx, s, r, cierre.pendientes) };
 });
 
 ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const r = E.reuniones.find((x) => x.id === p.id);
   if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
-  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null }>(req);
+  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown }>(req);
   const estado = b.estado ?? r.estado;
-  const errores = validarReunion(b, true, estado);
+  const cierre = validarCierreReunion(b, r.resumen);
+  const errores = [...validarReunion(b, true, estado), ...cierre.errores, ...responsablesDePendientes(cierre.pendientes)];
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   if (b.titulo !== undefined) r.titulo = b.titulo.trim();
   if (b.fecha !== undefined) r.fecha = new Date(b.fecha).toISOString();
@@ -2147,8 +2170,30 @@ ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
   if (b.conAcuerdos !== undefined) r.conAcuerdos = b.conAcuerdos;
   if (estado !== "REALIZADA") r.conAcuerdos = null;
   if (b.resumen !== undefined) r.resumen = b.resumen?.trim() || null;
-  return reunionVista(r);
+  return { ...reunionVista(r), ...crearPendientes(ctx, E.servicios.find((x) => x.id === r.servicioContratadoId)!, r, cierre.pendientes) };
 });
+
+const responsablesDePendientes = (xs: PendienteReunion[]) =>
+  xs.flatMap((x, i) => (x.responsableId && !esDelEquipo(x.responsableId) ? [{ campo: `pendientes.${i}.responsableId`, mensaje: "Elige a alguien del equipo" }] : []));
+
+/** Lo que quedó pendiente en la reunión: del cliente → requerimiento; de Inoo → tarea. */
+function crearPendientes(ctx: Ctx, s: D.ServicioContratadoDemo, r: D.ReunionDemo, xs: PendienteReunion[]) {
+  if (!xs.length) return {};
+  let tareas = 0;
+  for (const x of xs) {
+    if (x.de === "CLIENTE") {
+      pedirAlCliente(ctx, s, "PENDIENTE_REUNION", x.texto, `Quedó pendiente en la reunión «${r.titulo}».`, x.diasHabiles);
+      continue;
+    }
+    const ahora = new Date().toISOString();
+    E.tareas.push({
+      id: nuevoId(27), servicioContratadoId: s.id, clienteId: s.clienteId, etapaId: null, titulo: x.texto, descripcion: `Pendiente de la reunión «${r.titulo}».`, estado: "PENDIENTE",
+      responsableId: x.responsableId, fechaLimite: sumarDiasHabiles(D.HOY.slice(0, 10), x.diasHabiles, noHabiles()), completadaEn: null, creadoPorId: ctx.usuario.id, creadoEn: ahora,
+    });
+    tareas++;
+  }
+  return { pendientesCreados: { requerimientos: xs.length - tareas, tareas } };
+}
 
 const comentarioProyectoVista = (ctx: Ctx, c: D.ComentarioProyectoDemo): S<"ComentarioProyecto"> => {
   const autor = E.usuarios.find((u) => u.id === c.autorId)!;

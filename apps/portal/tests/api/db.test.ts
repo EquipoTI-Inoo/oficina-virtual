@@ -19,6 +19,7 @@ import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { pruebasProyectos } from "./flujo-proyectos";
 import { pruebasSinIa } from "./flujo-sin-ia";
 import { pruebasEntregables } from "./flujo-entregables";
+import { pruebasEstructura } from "./flujo-estructura";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -54,6 +55,7 @@ before(async () => {
   await db.exec(sql("migraciones/0014_tareas.sql"));
   await db.exec(sql("migraciones/0015_ia_solo_crm.sql"));
   await db.exec(sql("migraciones/0016_entregables.sql"));
+  await db.exec(sql("migraciones/0017_estructura_servicios.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -75,6 +77,7 @@ pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, e
 pruebasProyectos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 pruebasSinIa("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasEntregables("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
+pruebasEstructura("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {
@@ -93,13 +96,14 @@ describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mism
     assert.deepEqual(rows, [...PLANTILLAS_REQUERIMIENTO].sort((a, b) => (a.codigo < b.codigo ? -1 : 1)));
   });
   test("plantillas y etapas", async () => {
-    const { rows } = await db.query<{ servicio: string; variante: string | null; nombre: string; metricas: string[]; etapas: unknown }>(
+    const { rows } = await db.query<{ servicio: string; variante: string | null; nombre: string; metricas: string[]; requerimientos: string[]; etapas: unknown }>(
       `SELECT s.codigo AS servicio, pp.variante, pp.nombre, pp.metricas,
-              (SELECT json_agg(json_build_array(e.nombre, e.avance_pct, e.dias_habiles, e.espera_cliente) ORDER BY e.orden) FROM etapa_plantilla e WHERE e.plantilla_id = pp.id) AS etapas
+              pp.requerimientos,
+              (SELECT json_agg(json_build_array(e.nombre, e.avance_pct, e.dias_habiles, e.espera_cliente, e.reunion_clave) ORDER BY e.orden) FROM etapa_plantilla e WHERE e.plantilla_id = pp.id) AS etapas
        FROM plantilla_proyecto pp JOIN servicio s ON s.id = pp.servicio_id WHERE pp.activa ORDER BY pp.nombre`,
     );
     const ts = [...PLANTILLAS].sort((a, b) => (a.nombre < b.nombre ? -1 : 1));
-    assert.deepEqual(rows, ts.map((p) => ({ servicio: p.servicio, variante: p.variante, nombre: p.nombre, metricas: p.metricas, etapas: p.etapas })));
+    assert.deepEqual(rows, ts.map((p) => ({ servicio: p.servicio, variante: p.variante, nombre: p.nombre, metricas: p.metricas, requerimientos: p.requerimientos, etapas: p.etapas })));
   });
 });
 

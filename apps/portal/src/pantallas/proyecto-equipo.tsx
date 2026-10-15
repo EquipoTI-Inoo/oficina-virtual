@@ -6,11 +6,12 @@
  * nuevos a partir de su plantilla.
  */
 import { useState } from "react";
-import { LuCalendarPlus, LuExternalLink, LuLock, LuPlus, LuWallet } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuLock, LuPlus, LuTrash2, LuWallet } from "react-icons/lu";
 import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
 import { TareasDelProyecto } from "./tareas";
+import { CMS, TAMANO } from "./proyecto";
 import { EntregablesEquipo } from "./entregables";
 
 type Perfil = S<"PerfilProyecto">;
@@ -103,6 +104,7 @@ function ProyectoEquipo() {
                           {e.avancePct} %{e.esperaCliente ? " · depende del cliente" : ""}
                           {e.atrasada ? " · con retraso" : ""}
                         </span>
+                        {e.reunionClave && <span className="texto-xs texto-primario" style={{ display: "block" }}>Reunión clave: {e.reunionClave}</span>}
                       </td>
                       <td>
                         <select className="input" aria-label={`Estado de ${e.nombre}`} value={e.estado} onChange={(x) => void moverEtapa(e, { estado: x.target.value })}>
@@ -148,6 +150,7 @@ function ProyectoEquipo() {
               </div>
             ))}
           </div>
+          <DetallesDelProyecto d={d} alGuardar={(cuerpo) => actualizar(cuerpo, "Detalles del proyecto guardados")} />
           <ReunionesEquipo servicioId={d.servicioContratadoId} alCambiar={() => void perfil.recargar()} />
         </aside>
       </div>
@@ -182,9 +185,11 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
   };
   const marcar = async (r: S<"Reunion">, cuerpo: Record<string, unknown>) => {
     try {
-      await api(`/reuniones/${r.id}`, { metodo: "PATCH", cuerpo });
+      const hecha = await api<S<"Reunion">>(`/reuniones/${r.id}`, { metodo: "PATCH", cuerpo });
       setCerrar(null);
       recargar();
+      const p = hecha.pendientesCreados;
+      if (p) avisar({ titulo: "Reunión cerrada", texto: `Pendientes: ${p.requerimientos} para el cliente y ${p.tareas} para Inoo.` });
     } catch (e) {
       avisar({ titulo: "No se pudo guardar la reunión", texto: errorDe(e) });
     }
@@ -262,14 +267,32 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
           Guardar reunión
         </button>
       </Modal>
-      <CerrarReunion reunion={cerrar} alCerrar={() => setCerrar(null)} alGuardar={(acuerdos, resumen) => cerrar && void marcar(cerrar, { estado: "REALIZADA", conAcuerdos: acuerdos, resumen })} />
+      <CerrarReunion reunion={cerrar} alCerrar={() => setCerrar(null)} alGuardar={(cuerpo) => (cerrar ? marcar(cerrar, { estado: "REALIZADA", ...cuerpo }) : Promise.resolve())} />
     </div>
   );
 }
 
-function CerrarReunion({ reunion, alCerrar, alGuardar }: { reunion: S<"Reunion"> | null; alCerrar: () => void; alGuardar: (conAcuerdos: boolean, resumen: string) => void }) {
+type FilaPendiente = { texto: string; de: "CLIENTE" | "INOO"; responsableId: string };
+
+/**
+ * Cerrar una reunión (reunión 15 oct): cada reunión tiene un objetivo y se documenta. El resumen es
+ * obligatorio; lo que quedó pendiente se le pide al cliente (requerimiento) o se asigna en Inoo (tarea).
+ */
+function CerrarReunion({ reunion, alCerrar, alGuardar }: { reunion: S<"Reunion"> | null; alCerrar: () => void; alGuardar: (cuerpo: Record<string, unknown>) => Promise<void> }) {
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(reunion ? "/panel/equipo" : null);
   const [acuerdos, setAcuerdos] = useState(true);
   const [resumen, setResumen] = useState("");
+  const [pendientes, setPendientes] = useState<FilaPendiente[]>([]);
+  const cambiar = (i: number, x: Partial<FilaPendiente>) => setPendientes(pendientes.map((p, j) => (j === i ? { ...p, ...x } : p)));
+  const corto = resumen.trim().length < 10;
+  const guardar = async () => {
+    await alGuardar({
+      conAcuerdos: acuerdos, resumen,
+      pendientes: pendientes.filter((p) => p.texto.trim()).map((p) => (p.de === "INOO" ? { texto: p.texto, de: p.de, responsableId: p.responsableId || null } : { texto: p.texto, de: p.de })),
+    });
+    setResumen("");
+    setPendientes([]);
+  };
   return (
     <Modal abierto={!!reunion} alCerrar={alCerrar} etiqueta="Marcar reunión realizada">
       <h2 style={{ fontSize: 18, fontWeight: 600 }}>{reunion?.titulo}</h2>
@@ -277,15 +300,160 @@ function CerrarReunion({ reunion, alCerrar, alGuardar }: { reunion: S<"Reunion">
         <input type="checkbox" checked={acuerdos} onChange={(e) => setAcuerdos(e.target.checked)} /> Terminó con acuerdos
       </label>
       <div className="campo">
-        <label htmlFor="cerrar-resumen">Resumen (lo ve el cliente)</label>
+        <label htmlFor="cerrar-resumen">Resumen (obligatorio, lo ve el cliente)</label>
         <div className="entrada">
-          <textarea id="cerrar-resumen" rows={3} value={resumen} onChange={(e) => setResumen(e.target.value)} />
+          <textarea id="cerrar-resumen" rows={3} value={resumen} placeholder="Qué se vio y qué se acordó" onChange={(e) => setResumen(e.target.value)} />
         </div>
       </div>
-      <button className="boton boton--primario boton--bloque" onClick={() => alGuardar(acuerdos, resumen)}>
-        Guardar
+      <div className="campo">
+        <span className="rotulo">Pendientes</span>
+        {pendientes.map((p, i) => (
+          <div key={i} className="fila" style={{ gap: 6, alignItems: "center" }}>
+            <div className="entrada" style={{ flex: 1 }}>
+              <input aria-label={`Pendiente ${i + 1}`} value={p.texto} placeholder="Qué falta" onChange={(e) => cambiar(i, { texto: e.target.value })} />
+            </div>
+            <select className="input" aria-label={`De quién es el pendiente ${i + 1}`} style={{ width: 110 }} value={p.de} onChange={(e) => cambiar(i, { de: e.target.value as FilaPendiente["de"] })}>
+              <option value="CLIENTE">Cliente</option>
+              <option value="INOO">Inoo</option>
+            </select>
+            {p.de === "INOO" && (
+              <select className="input" aria-label={`Responsable del pendiente ${i + 1}`} style={{ width: 130 }} value={p.responsableId} onChange={(e) => cambiar(i, { responsableId: e.target.value })}>
+                <option value="">Sin asignar</option>
+                {equipo.datos?.datos.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button className="boton boton--chico" aria-label={`Quitar pendiente ${i + 1}`} onClick={() => setPendientes(pendientes.filter((_, j) => j !== i))}>
+              <LuTrash2 size={13} />
+            </button>
+          </div>
+        ))}
+        <button className="enlace texto-xs" style={{ justifySelf: "start" }} onClick={() => setPendientes([...pendientes, { texto: "", de: "CLIENTE", responsableId: "" }])}>
+          + Agregar pendiente
+        </button>
+        <span className="ayuda-campo">Los del cliente le llegan como requerimiento; los de Inoo, como tareas del proyecto.</span>
+      </div>
+      <button className="boton boton--primario boton--bloque" disabled={corto} onClick={() => void guardar()}>
+        Cerrar reunión
       </button>
     </Modal>
+  );
+}
+
+/** Detalles del proyecto (reunión 15 oct): responsable, alcance y lo propio de cada servicio. */
+function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: Record<string, unknown>) => Promise<void> }) {
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>("/panel/equipo");
+  const [editando, setEditando] = useState(false);
+  const inicial = () => ({
+    responsableId: d.responsable?.id ?? "", alcance: d.alcance ?? "", tamano: d.detalle?.tamano ?? "", cms: d.detalle?.cms ?? "", alcanceWeb: d.detalle?.alcanceWeb ?? "",
+    paginas: d.detalle?.paginas?.toString() ?? "", productos: d.detalle?.productos?.toString() ?? "", agenteIa: !!d.detalle?.agenteIa, whatsappApi: !!d.detalle?.whatsappApi,
+  });
+  const [f, setF] = useState(inicial);
+  const esWeb = d.codigo === "WEB";
+  const esCrm = d.codigo === "CRM_IMPLEMENTACION" || d.codigo === "CRM_INTEGRACION";
+  const guardar = async () => {
+    const detalle: Record<string, unknown> = { ...d.detalle };
+    const poner = (k: string, v: unknown) => (v === "" || v === undefined ? delete detalle[k] : (detalle[k] = v));
+    poner("tamano", f.tamano);
+    if (esWeb) {
+      poner("cms", f.cms);
+      poner("alcanceWeb", f.alcanceWeb);
+      poner("paginas", f.paginas === "" ? "" : Number(f.paginas));
+      poner("productos", f.productos === "" ? "" : Number(f.productos));
+    }
+    if (esCrm) {
+      detalle.agenteIa = f.agenteIa;
+      detalle.whatsappApi = f.whatsappApi;
+    }
+    await alGuardar({ responsableId: f.responsableId || null, alcance: f.alcance || null, detalle });
+    setEditando(false);
+  };
+  const opciones = (id: string, etiqueta: string, valor: string, cambiar: (v: string) => void, xs: Record<string, string>) => (
+    <div className="campo">
+      <label htmlFor={id}>{etiqueta}</label>
+      <select id={id} className="input" value={valor} onChange={(e) => cambiar(e.target.value)}>
+        <option value="">—</option>
+        {Object.entries(xs).map(([v, t]) => (
+          <option key={v} value={v}>
+            {t}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  return (
+    <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
+      <div className="fila entre">
+        <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Detalles del proyecto</h3>
+        <button className="boton boton--chico" onClick={() => { setF(inicial()); setEditando(true); }}>
+          Editar
+        </button>
+      </div>
+      <div className="fila entre texto-sm">
+        <span className="texto-muted">Responsable</span>
+        <span className="negrita">{d.responsable?.nombre ?? "Sin asignar"}</span>
+      </div>
+      {d.detalle?.tamano && (
+        <div className="fila entre texto-sm">
+          <span className="texto-muted">Tamaño</span>
+          <span className="negrita">{TAMANO[d.detalle.tamano]}</span>
+        </div>
+      )}
+      {d.detalle?.cms && (
+        <div className="fila entre texto-sm">
+          <span className="texto-muted">Plataforma</span>
+          <span className="negrita">{CMS[d.detalle.cms]}</span>
+        </div>
+      )}
+      {d.alcance && <p className="texto-xs texto-muted">{d.alcance}</p>}
+      <Modal abierto={editando} alCerrar={() => setEditando(false)} etiqueta="Detalles del proyecto">
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Detalles del proyecto</h2>
+        {opciones("dp-responsable", "Responsable en Inoo", f.responsableId, (v) => setF({ ...f, responsableId: v }), Object.fromEntries((equipo.datos?.datos ?? []).map((u) => [u.id, u.nombre])))}
+        {opciones("dp-tamano", "Tamaño", f.tamano, (v) => setF({ ...f, tamano: v }), TAMANO)}
+        {esWeb && (
+          <>
+            {opciones("dp-cms", "Plataforma", f.cms, (v) => setF({ ...f, cms: v }), CMS)}
+            {opciones("dp-alcance-web", "¿Qué incluye?", f.alcanceWeb, (v) => setF({ ...f, alcanceWeb: v }), { SOLO_WEB: "Solo el sitio", WEB_Y_CMS: "Sitio y panel de administración" })}
+            <div className="fila" style={{ gap: 8 }}>
+              <div className="campo" style={{ flex: 1 }}>
+                <label htmlFor="dp-paginas">Páginas</label>
+                <div className="entrada">
+                  <input id="dp-paginas" type="number" min={0} value={f.paginas} onChange={(e) => setF({ ...f, paginas: e.target.value })} />
+                </div>
+              </div>
+              <div className="campo" style={{ flex: 1 }}>
+                <label htmlFor="dp-productos">Productos</label>
+                <div className="entrada">
+                  <input id="dp-productos" type="number" min={0} value={f.productos} onChange={(e) => setF({ ...f, productos: e.target.value })} />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+        {esCrm && (
+          <>
+            <label className="fila texto-sm" style={{ gap: 8 }}>
+              <input type="checkbox" checked={f.agenteIa} onChange={(e) => setF({ ...f, agenteIa: e.target.checked })} /> Incluye agente de IA
+            </label>
+            <label className="fila texto-sm" style={{ gap: 8 }}>
+              <input type="checkbox" checked={f.whatsappApi} onChange={(e) => setF({ ...f, whatsappApi: e.target.checked })} /> Incluye WhatsApp API
+            </label>
+          </>
+        )}
+        <div className="campo">
+          <label htmlFor="dp-alcance">Alcance prometido (lo ve el cliente)</label>
+          <div className="entrada">
+            <textarea id="dp-alcance" rows={3} value={f.alcance} onChange={(e) => setF({ ...f, alcance: e.target.value })} />
+          </div>
+        </div>
+        <button className="boton boton--primario boton--bloque" onClick={() => void guardar()}>
+          Guardar
+        </button>
+      </Modal>
+    </div>
   );
 }
 
@@ -342,26 +510,39 @@ function ComentariosEquipo({ servicioId }: { servicioId: string }) {
 export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clienteId: string; abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
   const avisar = useAviso();
   const catalogo = useConsulta<{ datos: S<"ServicioCatalogo">[] }>(abierto ? "/servicios" : null);
-  const [f, setF] = useState({ servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "" });
+  const vacio = { servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "", tamano: "MEDIANO", responsableId: "", alcance: "" };
+  const [f, setF] = useState(vacio);
+  const [personalizado, setPersonalizado] = useState(false);
+  const [etapas, setEtapas] = useState([{ nombre: "", avancePct: "", diasHabiles: "", reunionClave: "" }]);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const cat = catalogo.datos?.datos.find((c) => c.codigo === f.servicio);
+  const plantillas = useConsulta<{ datos: S<"PlantillaProyecto">[] }>(abierto && f.servicio ? `/plantillas?servicio=${f.servicio}` : null);
+  const reqs = useConsulta<{ datos: S<"PlantillaRequerimiento">[] }>(abierto ? "/plantillas-requerimiento" : null);
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(abierto ? "/panel/equipo" : null);
+  const plantilla = plantillas.datos?.datos.find((p) => p.variante === (f.variante || null)) ?? plantillas.datos?.datos.find((p) => p.variante === null);
+  const aPedir = (plantilla?.requerimientos ?? []).map((c) => reqs.datos?.datos.find((r) => r.codigo === c)?.nombre ?? c);
   const esCrm = f.servicio === "CRM_IMPLEMENTACION" || f.servicio === "CRM_INTEGRACION";
+  const esProyecto = cat?.modalidad === "PROYECTO";
   const contratar = async () => {
     setErrores({});
     const detalle: Record<string, unknown> = {};
     if (esCrm && f.crm) detalle.crm = f.crm;
     if (esCrm && f.licencias) detalle.licencias = Number(f.licencias);
     if (esCrm && f.usuarios) detalle.usuarios = Number(f.usuarios);
+    if (esProyecto && !personalizado) detalle.tamano = f.tamano;
     try {
       await api(`/clientes/${clienteId}/servicios`, {
         metodo: "POST",
         cuerpo: {
           servicioCodigo: f.servicio || undefined, variante: f.variante || null, fechaInicio: f.fechaInicio || undefined, marca: f.marca || null, detalle,
+          responsableId: f.responsableId || null, alcance: f.alcance || null,
+          etapas: personalizado ? etapas.map((e) => ({ nombre: e.nombre, avancePct: Number(e.avancePct), diasHabiles: Number(e.diasHabiles), reunionClave: e.reunionClave || null })) : undefined,
           entregables: f.servicio === "SOCIAL_MEDIA_PRO" && f.piezas ? [{ tipoPieza: "COPY", cantidadMensual: Number(f.piezas) }] : undefined,
         },
       });
-      avisar({ titulo: "Servicio contratado", texto: "Se creó con las etapas de su plantilla. El cliente ya lo ve en su portal." });
-      setF({ servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "" });
+      avisar({ titulo: "Servicio contratado", texto: aPedir.length ? `Se le pidió al cliente: ${aPedir.join(", ")}.` : "El cliente ya lo ve en su portal." });
+      setF(vacio);
+      setPersonalizado(false);
       alCrear();
       alCerrar();
     } catch (e) {
@@ -424,6 +605,77 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
         </>
       )}
       {f.servicio === "SOCIAL_MEDIA_PRO" && campo("piezas", "Piezas al mes", "number")}
+      <div className="campo">
+        <label htmlFor="ns-responsable">Responsable en Inoo</label>
+        <select id="ns-responsable" className="input" value={f.responsableId} onChange={(e) => setF({ ...f, responsableId: e.target.value })}>
+          <option value="">Sin asignar</option>
+          {equipo.datos?.datos.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nombre}
+            </option>
+          ))}
+        </select>
+        {err("responsableId")}
+      </div>
+      <div className="campo">
+        <label htmlFor="ns-alcance">Alcance prometido (opcional, lo ve el cliente)</label>
+        <div className="entrada">
+          <textarea id="ns-alcance" rows={2} value={f.alcance} placeholder="Ej.: e-commerce mediano, 15 páginas y 50 productos" onChange={(e) => setF({ ...f, alcance: e.target.value })} />
+        </div>
+      </div>
+      {esProyecto && (
+        <label className="fila texto-sm" style={{ gap: 8 }}>
+          <input type="checkbox" checked={personalizado} onChange={(e) => setPersonalizado(e.target.checked)} /> Proyecto personalizado (etapas propias)
+        </label>
+      )}
+      {esProyecto && !personalizado && (
+        <div className="campo">
+          <span className="rotulo" id="ns-tamano">Tamaño</span>
+          <div className="chips" role="radiogroup" aria-labelledby="ns-tamano">
+            {Object.entries(TAMANO).map(([v, t]) => (
+              <button key={v} type="button" className="chip" aria-pressed={f.tamano === v} onClick={() => setF({ ...f, tamano: v })}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <span className="ayuda-campo">Ajusta los días de cada etapa de la plantilla.</span>
+        </div>
+      )}
+      {personalizado && (
+        <div className="campo">
+          <span className="rotulo">Etapas (el % acumulado termina en 100)</span>
+          {etapas.map((e, i) => (
+            <div key={i} className="fila" style={{ gap: 6 }}>
+              <div className="entrada" style={{ flex: 2 }}>
+                <input aria-label={`Nombre de la etapa ${i + 1}`} placeholder="Nombre" value={e.nombre} onChange={(x) => setEtapas(etapas.map((y, j) => (j === i ? { ...y, nombre: x.target.value } : y)))} />
+              </div>
+              <div className="entrada" style={{ width: 70 }}>
+                <input aria-label={`% de la etapa ${i + 1}`} placeholder="%" type="number" value={e.avancePct} onChange={(x) => setEtapas(etapas.map((y, j) => (j === i ? { ...y, avancePct: x.target.value } : y)))} />
+              </div>
+              <div className="entrada" style={{ width: 70 }}>
+                <input aria-label={`Días de la etapa ${i + 1}`} placeholder="días" type="number" value={e.diasHabiles} onChange={(x) => setEtapas(etapas.map((y, j) => (j === i ? { ...y, diasHabiles: x.target.value } : y)))} />
+              </div>
+              <div className="entrada" style={{ flex: 2 }}>
+                <input aria-label={`Reunión clave de la etapa ${i + 1}`} placeholder="Reunión clave (opcional)" value={e.reunionClave} onChange={(x) => setEtapas(etapas.map((y, j) => (j === i ? { ...y, reunionClave: x.target.value } : y)))} />
+              </div>
+            </div>
+          ))}
+          <button className="enlace texto-xs" style={{ justifySelf: "start" }} onClick={() => setEtapas([...etapas, { nombre: "", avancePct: "", diasHabiles: "", reunionClave: "" }])}>
+            + Agregar etapa
+          </button>
+          {Object.entries(errores).filter(([k]) => k.startsWith("etapas")).slice(0, 1).map(([k, m]) => (
+            <span key={k} className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
+              {m}
+            </span>
+          ))}
+        </div>
+      )}
+      {plantilla && !personalizado && (
+        <p className="texto-xs texto-muted">
+          {plantilla.etapas.length} etapas · {plantilla.reunionesOptimas} reuniones clave
+          {aPedir.length > 0 && <> · Se le pedirá al cliente: {aPedir.join(", ")}</>}
+        </p>
+      )}
       <button className="boton boton--primario boton--bloque" onClick={() => void contratar()}>
         <LuPlus size={16} /> Contratar
       </button>

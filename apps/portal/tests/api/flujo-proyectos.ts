@@ -32,7 +32,7 @@ export function pruebasProyectos(nombre: string, manejar: Manejador, reiniciar: 
       const web = r.datos.find((x: any) => x.servicioContratadoId === WEB);
       const fechas = ["2026-10-09", "2026-10-05", "2026-10-20"];
       assert.deepEqual(web.tareas, { abiertas: 3, vencidas: fechas.filter((f) => tareaVencida({ estado: "PENDIENTE", fechaLimite: f }, hoy)).length });
-      assert.equal(web.avance.etapaActual.nombre, "Diseño");
+      assert.equal(web.avance.etapaActual.nombre, "Arquitectura y benchmark");
       // Filtros: «Admin Inoo» solo tiene una tarea abierta, en la web; la búsqueda mira cliente y servicio.
       assert.deepEqual((await llamar("GET", `/panel/proyectos?responsableId=${uid(1, 4)}`, DIEGO)).json.datos.map((x: any) => x.servicioContratadoId), [WEB]);
       assert.deepEqual((await llamar("GET", "/panel/proyectos?q=crm", DIEGO)).json.datos.map((x: any) => x.servicioContratadoId), [CRM]);
@@ -60,7 +60,7 @@ export function pruebasProyectos(nombre: string, manejar: Manejador, reiniciar: 
         "Armar flujograma y benchmark de referencias",
       ]);
       const disenar = xs.find((t: any) => t.id === DISENAR);
-      assert.deepEqual([disenar.etapaNombre, disenar.responsable.nombre, disenar.comentarios, disenar.estado], ["Diseño", "Diego Castro", 1, "EN_CURSO"]);
+      assert.deepEqual([disenar.etapaNombre, disenar.responsable.nombre, disenar.comentarios, disenar.estado], ["Prototipo", "Diego Castro", 1, "EN_CURSO"]);
       assert.equal(xs[0].vencida, tareaVencida({ estado: "PENDIENTE", fechaLimite: "2026-10-05" }, hoy));
       assert.equal(xs[3].vencida, false, "lo hecho nunca está vencido");
     });
@@ -70,7 +70,7 @@ export function pruebasProyectos(nombre: string, manejar: Manejador, reiniciar: 
       const ruta = `/servicios-contratados/${WEB}/tareas`;
       const malo = await llamar("POST", ruta, DIEGO, { titulo: "x", responsableId: uid(1, 1), etapaId: uid(20, 1), fechaLimite: "15/10" });
       assert.deepEqual(malo.json.errores.map((e: any) => e.campo).sort(), ["etapaId", "fechaLimite", "responsableId", "titulo"], "la etapa 1 es del CRM y Valeria es cliente");
-      const nueva = await llamar("POST", ruta, DIEGO, { titulo: "Subir los 50 productos al catálogo", etapaId: uid(20, 8), responsableId: uid(1, 4), fechaLimite: "2026-11-02" });
+      const nueva = await llamar("POST", ruta, DIEGO, { titulo: "Subir los 50 productos al catálogo", etapaId: uid(20, 10), responsableId: uid(1, 4), fechaLimite: "2026-11-02" });
       assert.deepEqual([nueva.status, nueva.json.estado, nueva.json.etapaNombre, nueva.json.responsable.nombre, nueva.json.creadoPor.nombre], [201, "PENDIENTE", "Carga de productos y pasarela de pago", "Admin Inoo", "Diego Castro"]);
       assert.ok((await eventos()).some((e) => e.tipo === "tarea.asignada" && e.datos.tareaId === nueva.json.id && e.datos.responsableId === uid(1, 4)));
       const hecha = await llamar("PATCH", `/tareas/${nueva.json.id}`, ADMIN, { estado: "HECHA" });

@@ -13,6 +13,9 @@ import { AsiVaElMes } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
 
+export const TAMANO: Record<string, string> = { CHICO: "Chico", MEDIANO: "Mediano", GRANDE: "Grande" };
+export const CMS: Record<string, string> = { WORDPRESS: "WordPress", SHOPIFY: "Shopify", CODIGO: "Desarrollo a medida" };
+
 const ESTADO_AVANCE: Record<string, [string, "verde" | "azul" | "gris"]> = {
   SIN_INICIAR: ["Por iniciar", "gris"],
   EN_CURSO: ["En curso", "azul"],
@@ -117,11 +120,20 @@ function Proyecto() {
           <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Detalle</h3>
             {d.variante && <Fila etiqueta="Tipo">{d.variante.nombre}</Fila>}
+            {d.detalle?.tamano && <Fila etiqueta="Tamaño">{TAMANO[d.detalle.tamano]}</Fila>}
+            {d.detalle?.cms && <Fila etiqueta="Plataforma">{CMS[d.detalle.cms]}</Fila>}
+            {typeof d.detalle?.paginas === "number" && <Fila etiqueta="Páginas">{d.detalle.paginas}</Fila>}
+            {typeof d.detalle?.productos === "number" && <Fila etiqueta="Productos">{d.detalle.productos}</Fila>}
+            {d.detalle?.alcanceWeb && <Fila etiqueta="Incluye">{d.detalle.alcanceWeb === "WEB_Y_CMS" ? "Sitio y panel de administración" : "Solo el sitio"}</Fila>}
             {d.detalle?.crm && <Fila etiqueta="CRM">{[d.detalle.crm, d.detalle.tipoLicencia].filter(Boolean).join(" ")}</Fila>}
             {typeof d.detalle?.licencias === "number" && <Fila etiqueta="Licencias">{d.detalle.licencias}</Fila>}
             {typeof d.detalle?.usuarios === "number" && <Fila etiqueta="Usuarios">{d.detalle.usuarios}</Fila>}
+            {d.detalle?.agenteIa && <Fila etiqueta="Agente de IA">Incluido</Fila>}
+            {d.detalle?.whatsappApi && <Fila etiqueta="WhatsApp API">Incluido</Fila>}
+            {d.responsable && <Fila etiqueta="Responsable">{d.responsable.nombre} · Inoo</Fila>}
             {d.fechaInicio && <Fila etiqueta="Inicio">{fCorta(d.fechaInicio)}</Fila>}
             {d.fechaFin && <Fila etiqueta={d.modalidad === "MENSUAL" ? "Contrato hasta" : "Fin previsto"}>{fCorta(d.fechaFin)}</Fila>}
+            {d.alcance && <p className="texto-xs texto-muted" style={{ marginTop: 4 }}>{d.alcance}</p>}
           </div>
         </aside>
       </div>
@@ -268,6 +280,11 @@ export function LineaEtapas({ etapas, actual }: { etapas: S<"EtapaProyecto">[]; 
             {esActual && (
               <span style={{ display: "block", marginTop: 2, color: e.atrasada ? "var(--c-alerta)" : "var(--c-primario)" }}>
                 {e.atrasada ? "Con retraso" : e.esperaCliente ? "Necesita algo de ti" : "En curso"}
+              </span>
+            )}
+            {e.reunionClave && (
+              <span className="hito-reunion">
+                <LuCalendarClock size={11} /> {e.reunionClave}
               </span>
             )}
           </div>

@@ -133,14 +133,18 @@ export interface ServicioContratadoDemo {
   fechaInicio: string;
   fechaFin: string | null;
   estado: "ACTIVO" | "PAUSADO" | "FINALIZADO";
+  /** Responsable del proyecto en Inoo (reunión 15 oct). */
+  responsableId?: string | null;
+  /** Alcance prometido por Comercial. */
+  alcance?: string | null;
 }
 
 // Blog (antes un servicio) es parte del soporte continuo web; los estáticos, de Social Media Pro.
 export const SERVICIOS_CONTRATADOS: ServicioContratadoDemo[] = [
   { id: uid(4, 1), clienteId: uid(2, 1), codigo: "SOPORTE_CONTINUO", variante: "WEB", detalle: {}, marca: null, entregables: [{ tipoPieza: "BLOG", cantidadMensual: 4 }], siguientePaso: "revisar «5 hábitos para una piel saludable».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO" },
   { id: uid(4, 2), clienteId: uid(2, 1), codigo: "SOCIAL_MEDIA_PRO", variante: null, detalle: {}, marca: null, entregables: [{ tipoPieza: "COPY", cantidadMensual: 12 }, { tipoPieza: "ESTATICO", cantidadMensual: 4 }], siguientePaso: "revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO" },
-  { id: uid(4, 3), clienteId: uid(2, 1), codigo: "CRM_IMPLEMENTACION", variante: null, detalle: { crm: "HubSpot", tipoLicencia: "Sales Hub Starter", licencias: 3, usuarios: 5 }, marca: null, entregables: [], siguientePaso: "validar el mapa de procesos de venta que enviamos el viernes.", fechaInicio: "2026-09-01", fechaFin: null, estado: "ACTIVO" },
-  { id: uid(4, 4), clienteId: uid(2, 1), codigo: "WEB", variante: "ECOMMERCE", detalle: {}, marca: null, entregables: [], siguientePaso: "aprobar el diseño de la página de producto.", fechaInicio: "2026-09-21", fechaFin: null, estado: "ACTIVO" },
+  { id: uid(4, 3), clienteId: uid(2, 1), codigo: "CRM_IMPLEMENTACION", variante: null, detalle: { crm: "HubSpot", tipoLicencia: "Sales Hub Starter", licencias: 3, usuarios: 5, agenteIa: true, whatsappApi: true }, marca: null, entregables: [], siguientePaso: "validar el mapa de procesos de venta que enviamos el viernes.", fechaInicio: "2026-09-01", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 3), alcance: "HubSpot Sales Hub con 3 licencias, pipeline de ventas, agente de IA en WhatsApp y 2 capacitaciones." },
+  { id: uid(4, 4), clienteId: uid(2, 1), codigo: "WEB", variante: "ECOMMERCE", detalle: { tamano: "MEDIANO", paginas: 15, productos: 50, cms: "SHOPIFY", alcanceWeb: "WEB_Y_CMS" }, marca: null, entregables: [], siguientePaso: "aprobar el flujograma del sitio.", fechaInicio: "2026-09-21", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 3), alcance: "E-commerce mediano en Shopify: 15 páginas, 50 productos cargados y pasarela de pago." },
 ];
 
 export interface EtapaDemo {
@@ -152,6 +156,7 @@ export interface EtapaDemo {
   nombre: string;
   avancePct: number;
   esperaCliente: boolean;
+  reunionClave?: string | null;
   estado: EstadoEtapa;
   fechaInicio: string | null;
   fechaEstimada: string | null;
@@ -166,7 +171,7 @@ export function etapasIniciales(): EtapaDemo[] {
   const hoy = HOY.slice(0, 10);
   const plan: [string, string | null, number][] = [
     [uid(4, 3), null, 1], // CRM: levantamiento listo → 20 %
-    [uid(4, 4), null, 1], // web e-commerce: brief listo, diseño en curso → 10 %
+    [uid(4, 4), null, 1], // web e-commerce: brief listo, arquitectura y benchmark en curso → 5 %
     [uid(4, 2), PERIODO, 2], // Social Media Pro de octubre: plan y sesión listos → 50 %
     [uid(4, 1), PERIODO, 1], // soporte web de octubre: plan listo → 20 %
   ];
@@ -178,7 +183,7 @@ export function etapasIniciales(): EtapaDemo[] {
       const estado: EstadoEtapa = e.orden <= completas ? "COMPLETADO" : e.orden === completas + 1 ? "EN_PROGRESO" : "SIN_INICIAR";
       return {
         id: uid(20, ++n), servicioContratadoId: sc.id, clienteId: sc.clienteId, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct,
-        esperaCliente: e.esperaCliente, estado, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada,
+        esperaCliente: e.esperaCliente, reunionClave: e.reunionClave, estado, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada,
         fechaFin: estado === "COMPLETADO" ? (e.fechaEstimada < hoy ? e.fechaEstimada : hoy) : null,
       };
     });
@@ -575,10 +580,10 @@ const tarea = (n: number, sc: string, etapa: number | null, titulo: string, esta
 });
 
 export const TAREAS_INICIALES: TareaDemo[] = [
-  tarea(1, WEB, 5, "Armar flujograma y benchmark de referencias", "HECHA", uid(1, 3), "2026-10-02"),
-  tarea(2, WEB, 6, "Diseñar el inicio y la ficha de producto", "EN_CURSO", uid(1, 3), "2026-10-09", { descripcion: "Versión web y móvil. Primero en Stitch; luego «Copy to Figma» para revisarlo entre todos." }),
-  tarea(3, WEB, 6, "Revisar las fotos de producto que subió el cliente", "PENDIENTE", uid(1, 3), "2026-10-05"),
-  tarea(4, WEB, 8, "Pedir las credenciales de la pasarela de pago", "PENDIENTE", uid(1, 4), "2026-10-20"),
+  tarea(1, WEB, 6, "Armar flujograma y benchmark de referencias", "HECHA", uid(1, 3), "2026-10-02"),
+  tarea(2, WEB, 8, "Diseñar el inicio y la ficha de producto", "EN_CURSO", uid(1, 3), "2026-10-09", { descripcion: "Versión web y móvil. Primero en Stitch; luego «Copy to Figma» para revisarlo entre todos." }),
+  tarea(3, WEB, 8, "Revisar las fotos de producto que subió el cliente", "PENDIENTE", uid(1, 3), "2026-10-05"),
+  tarea(4, WEB, 10, "Pedir las credenciales de la pasarela de pago", "PENDIENTE", uid(1, 4), "2026-10-20"),
   tarea(5, CRM, 2, "Configurar el pipeline de ventas en el CRM", "EN_CURSO", uid(1, 3), "2026-10-14"),
   tarea(6, CRM, 2, "Crear las licencias de los usuarios", "BLOQUEADA", uid(1, 3), "2026-10-07", { descripcion: "Depende del requerimiento «Usuarios del CRM», que el cliente todavía no envía." }),
 ];
@@ -619,14 +624,14 @@ export interface EntregableDemo {
 
 export const ENTREGABLES_INICIALES: EntregableDemo[] = [
   {
-    id: uid(29, 1), servicioContratadoId: WEB, clienteId: uid(2, 1), etapaId: uid(20, 5), titulo: "Flujograma y benchmark de referencias",
+    id: uid(29, 1), servicioContratadoId: WEB, clienteId: uid(2, 1), etapaId: uid(20, 6), titulo: "Flujograma y benchmark de referencias",
     descripcion: "Las páginas y funciones de tu tienda, y las referencias que tomamos. Revísalo antes de que diseñemos.", formato: "PDF",
     estado: "LISTO_REVISION", versionActual: 1, versionCliente: 1, rebotes: 0, aprobadoEn: null, creadoPorId: uid(1, 3), creadoEn: "2026-10-05T14:00:00Z",
     versiones: [{ numero: 1, url: "/muestras/flujograma-casa-oliva.pdf", nombreArchivo: "flujograma-casa-oliva.pdf", nota: null, enviadaEn: "2026-10-05T16:00:00Z", enviadaPorId: uid(1, 3), creadoEn: "2026-10-05T14:00:00Z" }],
     decisiones: [],
   },
   {
-    id: uid(29, 2), servicioContratadoId: WEB, clienteId: uid(2, 1), etapaId: uid(20, 6), titulo: "Prototipo del inicio y la ficha de producto",
+    id: uid(29, 2), servicioContratadoId: WEB, clienteId: uid(2, 1), etapaId: uid(20, 8), titulo: "Prototipo del inicio y la ficha de producto",
     descripcion: "Versión web y móvil, con textos reales.", formato: "PROTOTIPO",
     estado: "EN_PREPARACION", versionActual: 1, versionCliente: null, rebotes: 0, aprobadoEn: null, creadoPorId: uid(1, 3), creadoEn: "2026-10-06T13:00:00Z",
     versiones: [{ numero: 1, url: "https://demos.inoo.pe/casa-oliva", nombreArchivo: null, nota: null, enviadaEn: null, enviadaPorId: null, creadoEn: "2026-10-06T13:00:00Z" }],

@@ -50,11 +50,11 @@ salida.push(
   insert("plan_cliente", ["id", "cliente_id", "nombre", "fecha_inicio", "fecha_fin"], [[f.plan.id, D.CLIENTES[0].id, f.plan.nombre, f.plan.fechaInicio, f.plan.fechaFin]]),
 );
 salida.push(
-  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin)
-SELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, ${q(DIEGO)}::uuid, v.inicio::date, v.fin::date
+  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin, responsable_id, alcance)
+SELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, ${q(DIEGO)}::uuid, v.inicio::date, v.fin::date, v.responsable::uuid, v.alcance
 FROM (VALUES
-${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.codigo, s.variante, JSON.stringify(s.detalle), s.marca, s.estado, s.siguientePaso, s.fechaInicio, s.fechaFin])).join(",\n")}
-) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin)
+${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.codigo, s.variante, JSON.stringify(s.detalle), s.marca, s.estado, s.siguientePaso, s.fechaInicio, s.fechaFin, s.responsableId ?? null, s.alcance ?? null])).join(",\n")}
+) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin, responsable, alcance)
 JOIN servicio s ON s.codigo = v.codigo
 LEFT JOIN LATERAL (
   SELECT id FROM plantilla_proyecto x WHERE x.servicio_id = s.id AND x.activa AND (x.variante = v.variante OR x.variante IS NULL)
@@ -74,8 +74,8 @@ LEFT JOIN LATERAL (
   ),
   insert(
     "etapa_proyecto",
-    ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "fecha_inicio", "fecha_estimada", "fecha_fin"],
-    D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.fechaInicio, e.fechaEstimada, e.fechaFin]),
+    ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "reunion_clave", "fecha_inicio", "fecha_estimada", "fecha_fin"],
+    D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.reunionClave ?? null, e.fechaInicio, e.fechaEstimada, e.fechaFin]),
   ),
   insert(
     "tarea",

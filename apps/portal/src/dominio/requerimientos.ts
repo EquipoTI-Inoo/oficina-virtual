@@ -4,7 +4,7 @@
  * formulario, tiene fecha límite en días hábiles (hasta las 23:59 de Lima) y, si se atrasa, corre
  * el cronograma del servicio y avisa al cliente por correo.
  *
- * Las plantillas también están en database/migraciones/0008_requerimientos_agencia.sql;
+ * Las plantillas también están en database/migraciones/0008_requerimientos_agencia.sql (y 0017);
  * tests/api/db.test.ts comprueba que coinciden. Las preguntas son de relleno hasta que el equipo
  * pase las de sus briefs reales.
  */
@@ -108,6 +108,12 @@ export const PLANTILLAS_REQUERIMIENTO: PlantillaRequerimientoDemo[] = [
       c("url", "Dirección de tu sitio", "URL"),
       c("usuario", "¿Creaste un usuario administrador para Inoo?", "SI_NO", true, { ayuda: "Usa el correo accesos@inoo.pe. No nos envíes contraseñas." }),
     ],
+  },
+  // Lo que quedó pendiente del lado del cliente en una reunión (reunión 15 oct). Lo crea la API al
+  // marcar la reunión como realizada; el título del requerimiento dice qué falta.
+  {
+    codigo: "PENDIENTE_REUNION", nombre: "Pendiente de la reunión", descripcion: "Lo que quedó pendiente de tu lado en la última reunión.", servicios: [], diasHabiles: 2,
+    campos: [c("respuesta", "Tu respuesta", "TEXTO_LARGO"), c("archivos", "Archivos", "ARCHIVOS", false)],
   },
 ];
 

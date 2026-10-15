@@ -69,6 +69,16 @@ Cada servicio contratado es un **proyecto** con su perfil propio. Se crea desde 
 | Producción audiovisual | Proyecto | Fotografía; foto y video en crudo; producción y postproducción; cobertura completa | La IA asiste con guiones y storyboards y no genera video |
 | Soporte continuo | Mensual | CRM, web | Los tickets viven dentro de este servicio. El blog del cliente es parte del soporte web |
 
+**Estructura real de cada servicio (15 oct, instructivos de proceso).** Las plantillas siguen los instructivos de Web, Branding y Marketing:
+- **Reunión clave por etapa.** Cada etapa cierra con su reunión (brief, aprobación del flujograma, presentación del prototipo, presentación final…). Las etapas con reunión clave son las «reuniones óptimas» del proyecto.
+- **Web.** Brief y kickoff → arquitectura y benchmark (flujograma) → accesos y hosting → prototipo → implementación → presentación → entrega.
+- **Branding.** Tres reuniones obligatorias: brief, propuestas y presentación final.
+- **Todo al inicio.** Al crear el proyecto se le piden al cliente los requerimientos de su plantilla (brief, accesos, manual de marca, catálogo…).
+- **Tamaño.** Chico, mediano o grande escala los días de cada etapa. Los factores son de relleno.
+- **Proyecto personalizado.** Comercial puede definir etapas propias, siempre que el % acumulado termine en 100.
+- **Responsable y detalle.** El proyecto tiene un responsable de Inoo. Su detalle registra páginas, productos, CMS (WordPress, Shopify o desarrollo a medida) y si incluye el panel de administración; en CRM, además, si incluye agente de IA o WhatsApp API.
+- **Cierre de reuniones.** Para marcar una reunión como realizada hace falta escribir un resumen. Los pendientes que quedan se convierten en requerimientos (si son del cliente) o en tareas (si son de Inoo).
+
 Los servicios mensuales generan sus etapas mes a mes. El perfil de marca del cliente (tono, público, referencias) solo se muestra si tiene Social Media Pro, Brandformance o Paid Media.
 
 ## Vista del cliente vs vista interna
@@ -232,6 +242,12 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 4 | Tickets dentro del servicio, cambio de responsable, avisos y feriados | Hecha |
 | 5 | Panel del equipo: proyectos desde plantilla, alta de cliente, blogs internos, pagos | Hecha |
 | 6 | Integración con InooWork | En pausa |
+| 7 | Semáforo de requerimientos, estados del cliente, tickets distintos | Hecha |
+| 8 | Estado de pago solo para Finanzas (al día / atrasado) | Hecha |
+| 9a | Pipeline de proyectos y tareas (lista y Kanban) | Hecha |
+| 10 | La IA no se nota (salvo CRM) | Hecha |
+| 11 | Entregables genéricos con versiones, aprobación y rebotes | Hecha |
+| 12 | Estructura real de cada servicio: reunión clave, requerimientos al inicio, tamaño, personalizado, responsable, cierre de reuniones | Hecha |
 
 **Pendientes:**
 - Responder tickets desde el panel.
