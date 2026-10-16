@@ -1,5 +1,5 @@
 {
-  "name": "Portal · atrasos de requerimientos (diario)",
+  "name": "Portal · tareas diarias (atrasos de requerimientos e inactividad de clientes)",
   "nodes": [
     {
       "id": "79211237-6209-5964-a499-04d411c080ca",
@@ -51,6 +51,57 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "id": "3b1f6c2e-9d4a-5e7b-8c1d-2f6a9b0e4d71",
+      "name": "Todos los días 8:05",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        520
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a7c2e9d4-1b3f-5a6c-9e8d-0f2b4c6d8e13",
+      "name": "Revisar inactividad (standby)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/servicios/inactividad",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -59,6 +110,17 @@
         [
           {
             "node": "Correr atrasos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Todos los días 8:05": {
+      "main": [
+        [
+          {
+            "node": "Revisar inactividad (standby)",
             "type": "main",
             "index": 0
           }
@@ -81,6 +143,9 @@
     },
     {
       "name": "requerimientos"
+    },
+    {
+      "name": "standby"
     }
   ],
   "pinData": {}

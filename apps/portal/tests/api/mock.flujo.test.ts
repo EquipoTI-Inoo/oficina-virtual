@@ -7,6 +7,7 @@ import { pruebasCuentas } from "./flujo-cuentas";
 import { pruebasPanel } from "./flujo-panel";
 import { pruebasArchivos } from "./flujo-archivos";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
+import { pruebasEquipo } from "./flujo-equipo";
 import { HOY } from "../../src/mock/datos";
 
 const manejar = (req: Request) => manejarSolicitud(req);
@@ -21,3 +22,4 @@ pruebasArchivos("API simulada", manejar, reiniciarMock, async (url) => {
   await manejar(new Request(`http://local${url}`, { method: "PUT", body: "x" }));
 });
 pruebasRequerimientos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
+pruebasEquipo("API simulada", manejar, reiniciarMock, eventos);

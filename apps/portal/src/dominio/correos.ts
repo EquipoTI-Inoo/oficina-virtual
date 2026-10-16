@@ -4,7 +4,8 @@
  * textos se revisan en el repo y se prueban. Las reglas activas viven en `regla_correo` (migración 0015).
  */
 
-/** A quién va: decisores del cliente (ADMIN_CLIENTE y APROBADOR), quien hizo la acción, el AM de la cuenta,
+/** A quién va: decisores del cliente (ADMIN_CLIENTE y APROBADOR), quien hizo la acción, el equipo Inoo
+ * («AM»: el responsable de cada servicio del evento, o el AM de la cuenta si el evento no es de un servicio),
  * la persona invitada o quien abrió el ticket. */
 export type Destino = "DECISORES" | "ACTOR" | "AM" | "INVITADO" | "CREADOR_TICKET";
 
@@ -19,6 +20,10 @@ export interface ContextoCorreo {
   diasAtraso?: number | null;
   respuestaAntesDe?: string | null;
   comentario?: string | null;
+  /** Títulos de los servicios del evento (standby). */
+  servicios?: string[] | null;
+  fechaStandby?: string | null;
+  diasSinActividad?: number | null;
   /** Enlace al lugar del portal donde se ve el detalle. */
   enlace: string;
 }
@@ -116,6 +121,32 @@ export const PLANTILLAS_CORREO: Record<string, Plantilla> = {
     parrafos: (c) => [`${c.cliente} respondió «${c.requerimiento}».`, "Revísalo y apruébalo u obsérvalo."],
     boton: "Revisar",
   },
+  "servicio.standby_proximo": {
+    destinos: ["DECISORES", "AM"],
+    asunto: (c, d) => (d === "AM" ? `${c.cliente} lleva ${c.diasSinActividad} días sin entrar al portal` : `Tus servicios pasarán a standby el ${fechaLarga(c.fechaStandby)}`),
+    parrafos: (c, d) => (d === "AM"
+      ? [`Nadie de ${c.cliente} usa el portal hace ${c.diasSinActividad} días.`, `Si no entran hasta el ${fechaLarga(c.fechaStandby)}, pasan a standby: ${lista(c.servicios)}.`, "Es un buen momento para contactarlos."]
+      : [
+          `Hace ${c.diasSinActividad} días que nadie de ${c.cliente} entra al portal.`,
+          `Si no hay actividad hasta el ${fechaLarga(c.fechaStandby)}, pondremos en standby ${lista(c.servicios)} y dejaremos de avanzar hasta que vuelvas.`,
+          "Para mantenerlos activos basta con entrar al portal.",
+        ]),
+    boton: "Entrar al portal",
+  },
+  "servicio.standby": {
+    destinos: ["DECISORES", "AM"],
+    asunto: (c, d) => (d === "AM" ? `Los servicios de ${c.cliente} pasaron a standby` : "Tus servicios están en standby"),
+    parrafos: (c, d) => (d === "AM"
+      ? [`${c.cliente} cumplió ${c.diasSinActividad} días sin entrar al portal y pasaron a standby: ${lista(c.servicios)}.`, "Se reactivan solos cuando alguien del cliente vuelva a usar el portal."]
+      : [`Como nadie de ${c.cliente} entró al portal en ${c.diasSinActividad} días, pusimos en standby ${lista(c.servicios)}.`, "Entra al portal cuando quieras retomar: tus servicios se reactivan solos."]),
+    boton: "Entrar al portal",
+  },
+};
+
+/** "A", "A y B", "A, B y C". */
+const lista = (xs: string[] | null | undefined) => {
+  const v = (xs ?? []).map((x) => `«${x}»`);
+  return v.length <= 1 ? v.join("") || "tus servicios" : `${v.slice(0, -1).join(", ")} y ${v[v.length - 1]}`;
 };
 
 /** Qué regla de correo corresponde a un evento del outbox (null = ese evento no manda correo). */

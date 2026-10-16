@@ -146,6 +146,24 @@ paths:
                 required: [datos]
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/ServicioCatalogo' } }
+  /equipo/usuarios:
+    get:
+      tags: [Clientes]
+      operationId: listarEquipo
+      summary: 'Personas del equipo activas, para elegir responsables de cuenta y de servicio'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/PersonaEquipo' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /clientes:
     get:
       tags: [Clientes]
@@ -265,8 +283,8 @@ paths:
       tags: [Clientes]
       operationId: listarPagosCliente
       summary: '"Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados'
-      description: Solo la persona que administra la cuenta y el equipo; otros roles del cliente reciben 403.
-      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      description: 'Solo la persona que administra la cuenta y gestión (AM y ADMIN); otros roles del cliente y el equipo operativo reciben 403. El equipo operativo ve solo `estadoPagos` en la ficha del cliente.'
+      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
       responses:
         '200':
           description: OK
@@ -893,6 +911,40 @@ paths:
                   revisados: { type: integer, description: Requerimientos vencidos revisados }
                   corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
 
+  /integraciones/servicios/inactividad:
+    post:
+      tags: [Integraciones]
+      operationId: aplicarInactividadClientes
+      summary: 'n8n, una vez al día: avisa y pone en standby los servicios de clientes que no usan el portal'
+      description: |
+        Si nadie del cliente usa el portal en 30 días, sus servicios ACTIVO pasan a STANDBY y se emite
+        `servicio.standby`. 7 días antes se emite una sola vez `servicio.standby_proximo` (correo al cliente y a
+        los responsables). Cuando alguien del cliente vuelve a usar el portal, los servicios se reactivan solos
+        (`servicio.reactivado`). Idempotente en el día. Scope `servicios:write`.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      x-scopes: [servicios:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fecha: { type: string, format: date, description: 'Simula otro día (pruebas); por defecto hoy' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revisados, avisados, enStandby]
+                properties:
+                  revisados: { type: integer, description: Clientes con servicios activos revisados }
+                  avisados: { type: integer, description: Clientes avisados hoy de que pasarán a standby }
+                  enStandby: { type: integer, description: Clientes cuyos servicios pasaron hoy a standby }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /integraciones/correos/preparar:
     post:
       tags: [Integraciones]
@@ -1035,7 +1087,8 @@ paths:
     patch:
       tags: [Servicios]
       operationId: actualizarServicioContratado
-      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca o detalle (CRM, licencias, usuarios)'
+      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca, detalle (CRM, licencias, usuarios) o responsable'
+      description: 'Cambiar `responsableId` es solo para ACCOUNT_MANAGER y ADMIN (403 para el resto del equipo).'
       x-roles: [EQUIPO]
       requestBody:
         required: true
@@ -1050,6 +1103,7 @@ paths:
                 marca: { type: [string, 'null'] }
                 detalle: { $ref: '#/components/schemas/DetalleServicio' }
                 fechaFin: { type: [string, 'null'], format: date }
+                responsableId: { type: string, format: uuid, description: 'Responsable del servicio en Inoo (persona del equipo)' }
       responses:
         '200':
           description: OK
@@ -1660,7 +1714,8 @@ paths:
       tags: [Planificación]
       operationId: listarIdeasBlog
       summary: Ideas propuestas del mes y cuántas puede elegir el cliente (POR-04)
-      x-roles: [EQUIPO, CLIENTE]
+      description: El blog interno es de gestión; el equipo operativo (diseño, audiovisual, paid media, web) recibe 403.
+      x-roles: [ACCOUNT_MANAGER, ADMIN, CLIENTE]
       parameters:
         - { name: periodo, in: query, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
       responses:
@@ -2465,7 +2520,7 @@ components:
       description: Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
       enum: [SOCIAL_MEDIA_PRO, BRANDFORMANCE, PAID_MEDIA, WEB, CRM_IMPLEMENTACION, CRM_INTEGRACION, AUDIOVISUAL, SOPORTE_CONTINUO]
     ModalidadServicio: { type: string, enum: [MENSUAL, PROYECTO], description: 'MENSUAL repite sus etapas cada mes; PROYECTO las recorre una vez' }
-    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, FINALIZADO] }
+    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, STANDBY, FINALIZADO], description: 'STANDBY: el cliente no usó el portal en 30 días; vuelve a ACTIVO solo cuando lo usa' }
     MetricaProyecto: { type: string, enum: [REUNIONES_REALIZADAS, REUNIONES_EXITOSAS, DOCUMENTOS_A_TIEMPO, PIEZAS_APROBADAS, TICKETS_RESUELTOS, RESULTADOS_CAMPANA] }
     EstadoOperativo:
       type: string
@@ -2512,6 +2567,25 @@ components:
         nombre: { type: string }
         cargo: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email }
+    PersonaEquipo:
+      type: object
+      required: [id, nombre, email, rolEquipo]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        cargo: { type: [string, 'null'] }
+        email: { type: string, format: email }
+        rolEquipo: { $ref: '#/components/schemas/RolEquipo' }
+    InactividadCliente:
+      type: object
+      description: 'Actividad del cliente en el portal y standby (solo equipo)'
+      required: [ultimaActividad, diasSinActividad, fechaStandby, estado, serviciosEnStandby]
+      properties:
+        ultimaActividad: { type: string, format: date-time }
+        diasSinActividad: { type: integer }
+        fechaStandby: { type: string, format: date, description: 'Cuándo pasarían sus servicios a standby si nadie entra' }
+        estado: { type: string, enum: [ACTIVO, POR_ENTRAR, STANDBY], description: 'POR_ENTRAR: faltan 7 días o menos (ya se avisó)' }
+        serviciosEnStandby: { type: integer }
     Sesion:
       type: object
       required: [usuario, clientes, notificacionesSinLeer]
@@ -2620,6 +2694,8 @@ components:
             driveUrl: { type: [string, 'null'], format: uri, description: Solo equipo }
             driveCarpetaId: { type: [string, 'null'], description: Solo equipo }
             limiteGastoIaUsd: { type: number, description: Solo equipo }
+            estadoPagos: { type: string, enum: [AL_DIA, ATRASADO], description: 'Solo equipo: ATRASADO si hay un pago pendiente vencido. Es lo único de pagos que ve el equipo operativo.' }
+            inactividad: { $ref: '#/components/schemas/InactividadCliente' }
             creadoEn: { type: string, format: date-time }
     InicioCliente:
       type: object
@@ -2645,7 +2721,7 @@ components:
             responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable de cuenta en Inoo ("Tu equipo Inoo")' }
             driveUrl: { type: [string, 'null'], format: uri }
         avisoPago:
-          description: 'El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE y el equipo.'
+          description: 'El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE, ACCOUNT_MANAGER y ADMIN.'
           type: [object, 'null']
           required: [concepto, fechaVencimiento, estado]
           properties:
@@ -2694,6 +2770,7 @@ components:
               unidad: { type: string }
               estado: { $ref: '#/components/schemas/EstadoServicio' }
               avance: { $ref: '#/components/schemas/AvanceProyecto' }
+              responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Responsable del servicio en Inoo }
         proximaPublicacion:
           type: [object, 'null']
           properties:
@@ -2874,6 +2951,7 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: [string, 'null'], format: date }
         inooworkProyectoId: { type: string }
+        responsableId: { type: string, format: uuid, description: 'Responsable del servicio en Inoo (persona del equipo); por defecto el AM de la cuenta' }
         entregables:
           type: array
           items:
@@ -3005,6 +3083,7 @@ components:
         cantidadMensual: { type: integer, description: 'Suma de los entregables incluidos (0 si el servicio no entrega piezas mensuales)' }
         progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ], description: 'Piezas del mes; null si no entrega piezas' }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable del servicio en Inoo: cada servicio puede ser de un área distinta' }
         entregables:
           type: array
           description: Detalle por tipo de pieza
@@ -3045,7 +3124,8 @@ components:
         titulo: { type: string }
         variante: { oneOf: [ { $ref: '#/components/schemas/VarianteServicio' }, { type: 'null' } ] }
         detalle: { $ref: '#/components/schemas/DetalleServicio' }
-        estado: { type: string, enum: [SIN_INICIAR, EN_CURSO, COMPLETADO, PAUSADO] }
+        estado: { type: string, enum: [SIN_INICIAR, EN_CURSO, COMPLETADO, PAUSADO, STANDBY] }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Responsable del servicio en Inoo }
         progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ] }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
         etapas: { type: array, description: 'Etapas del proyecto, o del mes en curso en servicios mensuales', items: { $ref: '#/components/schemas/EtapaProyecto' } }
@@ -3907,6 +3987,9 @@ components:
             - ticket.estado_cambiado     # correo al cliente
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
+            - servicio.standby_proximo   # faltan 7 días para el standby por inactividad (correo al cliente y responsables)
+            - servicio.standby           # 30 días sin actividad del cliente: sus servicios activos pasan a STANDBY
+            - servicio.reactivado        # el cliente volvió a usar el portal y sus servicios en standby vuelven a ACTIVO
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
             - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable
             - responsable.cambio_solicitado # el cliente propuso un sucesor; el AM lo revisa

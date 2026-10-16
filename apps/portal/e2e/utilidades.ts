@@ -4,6 +4,7 @@ export const USUARIOS = {
   cliente: { email: "valeria@casaoliva.pe", clave: "demo1234" },
   lector: { email: "martin@casaoliva.pe", clave: "demo1234" },
   equipo: { email: "diego.castro@inoo.pe", clave: "demo1234" },
+  operativo: { email: "camila.paredes@inoo.pe", clave: "demo1234" },
 } as const;
 
 /** Vuelve la API simulada a los datos de Figma. */

@@ -20,6 +20,7 @@ import { pruebasPanel } from "./flujo-panel";
 import { pruebasArchivos } from "./flujo-archivos";
 import { prefirmar, usarAlmacen, type Almacen } from "../../src/servidor/almacen";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
+import { pruebasEquipo } from "./flujo-equipo";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -56,6 +57,7 @@ before(async () => {
   await db.exec(sql("migraciones/0013_invitaciones.sql"));
   await db.exec(sql("migraciones/0014_paid_media_por_tipo.sql"));
   await db.exec(sql("migraciones/0015_correos.sql"));
+  await db.exec(sql("migraciones/0016_responsables_y_standby.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -77,6 +79,7 @@ pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, ev
 pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasPanel("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasEquipo("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 
 // Almacén falso: el "bucket" es un mapa clave → bytes; las URLs llevan la clave para poder subir.
 const bucket = new Map<string, number>();
@@ -542,7 +545,7 @@ describe("correos automáticos con n8n · solo backend real", () => {
     assert.deepEqual((await preparar(ev)).json.correos, [], "lo enviado no vuelve");
     assert.equal((await llamar("POST", `/integraciones/correos/${r.json.correos[0].id}/resultado`, undefined, { estado: "FALLIDO", error: "tarde" }, LLAVE)).status, 204);
     const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json;
-    assert.equal(vista.reglas.length, 10);
+    assert.equal(vista.reglas.length, 12);
     assert.equal(vista.reglas[0].evento, "pieza.lista_revision");
     assert.deepEqual(vista.recientes.map((c: any) => [c.asunto, c.estado, c.evento]), [["Recibimos tu ticket #1043", "ENVIADO", "ticket.creado"]]);
     assert.ok(vista.recientes[0].enviadoEn);
@@ -573,6 +576,30 @@ describe("correos automáticos con n8n · solo backend real", () => {
     assert.match(c.html, /Diego Castro te dio acceso/);
     assert.match(c.html, /Hola, Rosa:/);
     assert.ok(!c.html.includes("<b>"));
+  });
+
+  test("los avisos al equipo van al responsable del servicio; sin servicio, al AM de la cuenta", async () => {
+    await reiniciar();
+    const web = uid(4, 4);
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES
+      ('brief.enviado', '${CASA_OLIVA}', '{"periodo":"2026-10","usuarioId":"${uid(1, 1)}","servicioContratadoId":"${web}"}'),
+      ('brief.enviado', '${CASA_OLIVA}', '{"periodo":"2026-10","usuarioId":"${uid(1, 1)}"}')`);
+    const [delWeb, general] = (await db.query<{ id: number; tipo: string; clienteId: string; datos: any }>(`SELECT id, tipo, cliente_id AS "clienteId", payload AS datos FROM outbox_evento WHERE tipo = 'brief.enviado' ORDER BY id`)).rows;
+    assert.deepEqual((await preparar(delWeb)).json.correos.map((c: any) => c.para), ["camila.paredes@inoo.pe"]);
+    assert.deepEqual((await preparar(general)).json.correos.map((c: any) => c.para), ["diego.castro@inoo.pe"]);
+  });
+
+  test("standby: el aviso previo va a los decisores del cliente y a los responsables de sus servicios", async () => {
+    await reiniciar();
+    const base = (await db.query<{ d: string }>(`SELECT to_char(ultima_actividad_cliente_en, 'YYYY-MM-DD') AS d FROM cliente WHERE id = '${CASA_OLIVA}'`)).rows[0].d;
+    const fecha = new Date(Date.parse(`${base}T12:00:00Z`) + 25 * 86_400_000).toISOString().slice(0, 10);
+    assert.equal((await llamar("POST", "/integraciones/servicios/inactividad", undefined, { fecha }, LLAVE)).json.avisados, 1);
+    const correos = (await preparar(await ultimoEvento("servicio.standby_proximo"))).json.correos;
+    assert.deepEqual(correos.map((c: any) => c.para), ["valeria@casaoliva.pe", "diego.castro@inoo.pe", "camila.paredes@inoo.pe"]);
+    assert.match(correos[0].asunto, /^Tus servicios pasarán a standby el \d+ de \w+$/);
+    assert.match(correos[0].texto, /«Social Media Pro - Casa Oliva», «Diseño y desarrollo web - Casa Oliva»/);
+    assert.equal(correos[2].asunto, "Casa Oliva lleva 25 días sin entrar al portal");
+    assert.match(correos[2].texto, /\/equipo\/clientes\//);
   });
 
   test("reglas: la del cliente reemplaza a la global; solo eventos reales y solo con la llave", async () => {

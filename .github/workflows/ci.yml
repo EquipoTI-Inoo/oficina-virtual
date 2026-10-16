@@ -54,6 +54,7 @@ jobs:
           psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0013_invitaciones.sql
           psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0014_paid_media_por_tipo.sql
           psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0015_correos.sql
+          psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0016_responsables_y_standby.sql
       - name: Semillas
         run: psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/semillas/0001_casa_oliva.sql
       - name: Comprobaciones

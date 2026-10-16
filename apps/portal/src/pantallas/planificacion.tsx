@@ -23,6 +23,9 @@ function Blog() {
   const articulos = useConsulta<{ datos: PiezaUI[] }>(`/clientes/${clienteActivo()}/piezas?tipo=BLOG&periodo=${PERIODO_DEMO}`);
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  if (ideas.error?.status === 403) {
+    return <Aviso icono={<LuFileText size={18} />} titulo="El blog es de gestión">Lo ven los account managers y administración. Si necesitas algo de un artículo, pídelo a tu AM.</Aviso>;
+  }
   if (ideas.error) return <ErrorCarga error={ideas.error} reintentar={ideas.recargar} />;
   if (!ideas.datos || !articulos.datos) return <Cargando />;
   const elegida = seleccion ?? ideas.datos.datos.find((i) => i.estado === "ELEGIDA")?.id ?? null;

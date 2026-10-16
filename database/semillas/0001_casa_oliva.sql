@@ -8,7 +8,8 @@ VALUES
   ('00000000-0000-4000-8001-000000000001', 'valeria@casaoliva.pe', 'Valeria Mendoza', 'Administradora', 'CLIENTE', NULL),
   ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL),
   ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER'),
-  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN');
+  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN'),
+  ('00000000-0000-4000-8001-000000000005', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB');
 
 INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario)
 VALUES
@@ -27,14 +28,14 @@ INSERT INTO plan_cliente (id, cliente_id, nombre, fecha_inicio, fecha_fin)
 VALUES
   ('00000000-0000-4000-8003-000000000001', '00000000-0000-4000-8002-000000000001', 'Plan Crecimiento', '2026-01-01', '2026-12-31');
 
-INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin)
-SELECT v.id::uuid, v.cliente_id::uuid, s.id, '00000000-0000-4000-8003-000000000001'::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, '00000000-0000-4000-8001-000000000003'::uuid, v.inicio::date, v.fin::date
+INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin, responsable_id)
+SELECT v.id::uuid, v.cliente_id::uuid, s.id, '00000000-0000-4000-8003-000000000001'::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, '00000000-0000-4000-8001-000000000003'::uuid, v.inicio::date, v.fin::date, v.responsable::uuid
 FROM (VALUES
-  ('00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', 'SOPORTE_CONTINUO', 'WEB', '{}', NULL, 'ACTIVO', 'revisar «5 hábitos para una piel saludable».', '2026-01-01', '2026-12-31'),
-  ('00000000-0000-4000-8004-000000000002', '00000000-0000-4000-8002-000000000001', 'SOCIAL_MEDIA_PRO', NULL, '{}', NULL, 'ACTIVO', 'revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».', '2026-01-01', '2026-12-31'),
-  ('00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'CRM_IMPLEMENTACION', NULL, '{"crm":"HubSpot","tipoLicencia":"Sales Hub Starter","licencias":3,"usuarios":5}', NULL, 'ACTIVO', 'validar el mapa de procesos de venta que enviamos el viernes.', '2026-09-01', NULL),
-  ('00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'WEB', 'ECOMMERCE', '{}', NULL, 'ACTIVO', 'aprobar el diseño de la página de producto.', '2026-09-21', NULL)
-) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin)
+  ('00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', 'SOPORTE_CONTINUO', 'WEB', '{}', NULL, 'ACTIVO', 'revisar «5 hábitos para una piel saludable».', '2026-01-01', '2026-12-31', '00000000-0000-4000-8001-000000000003'),
+  ('00000000-0000-4000-8004-000000000002', '00000000-0000-4000-8002-000000000001', 'SOCIAL_MEDIA_PRO', NULL, '{}', NULL, 'ACTIVO', 'revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».', '2026-01-01', '2026-12-31', '00000000-0000-4000-8001-000000000003'),
+  ('00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'CRM_IMPLEMENTACION', NULL, '{"crm":"HubSpot","tipoLicencia":"Sales Hub Starter","licencias":3,"usuarios":5}', NULL, 'ACTIVO', 'validar el mapa de procesos de venta que enviamos el viernes.', '2026-09-01', NULL, '00000000-0000-4000-8001-000000000003'),
+  ('00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'WEB', 'ECOMMERCE', '{}', NULL, 'ACTIVO', 'aprobar el diseño de la página de producto.', '2026-09-21', NULL, '00000000-0000-4000-8001-000000000005')
+) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin, responsable)
 JOIN servicio s ON s.codigo = v.codigo
 LEFT JOIN LATERAL (
   SELECT id FROM plantilla_proyecto x WHERE x.servicio_id = s.id AND x.activa AND (x.variante = v.variante OR x.variante IS NULL)

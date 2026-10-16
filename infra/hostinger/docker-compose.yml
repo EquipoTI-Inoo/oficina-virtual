@@ -39,6 +39,7 @@ services:
       - ../../database/migraciones/0013_invitaciones.sql:/docker-entrypoint-initdb.d/01m_invitaciones.sql:ro
       - ../../database/migraciones/0014_paid_media_por_tipo.sql:/docker-entrypoint-initdb.d/01n_paid_media_por_tipo.sql:ro
       - ../../database/migraciones/0015_correos.sql:/docker-entrypoint-initdb.d/01o_correos.sql:ro
+      - ../../database/migraciones/0016_responsables_y_standby.sql:/docker-entrypoint-initdb.d/01p_responsables_y_standby.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

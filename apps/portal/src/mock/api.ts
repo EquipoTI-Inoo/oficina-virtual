@@ -13,6 +13,7 @@ import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
+import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, esGestion, estadoPagos, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, PLANTILLAS, plantillaPara, servicioDeCatalogo, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -455,6 +456,7 @@ function servicioVista(s: D.ServicioContratadoDemo, periodo = D.PERIODO): S<"Ser
     progreso: cantidad ? progreso(piezasDelMes(s.clienteId, periodo).filter((x) => x.servicioId === s.id), cantidad) : null,
     avance: avanceDe(s, periodo),
     entregables: s.entregables.map((e) => ({ tipoPieza: e.tipoPieza as S<"TipoPieza">, cantidadMensual: e.cantidadMensual })),
+    responsable: persona(s.responsableId),
   };
 }
 /** Los clientes de prueba sin ficha propia muestran la de Casa Oliva (como en el panel de Figma). */
@@ -563,14 +565,56 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
     plan: f.plan,
     contactoPrincipal: persona(c.contactoPrincipalId),
     accountManager: persona(c.accountManagerId ?? E.usuarios[2].id),
-    conteos: { serviciosActivos: serviciosDe(c.id).length, aprobacionesPendientes: piezasDe(c.id).filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length },
+    conteos: { serviciosActivos: serviciosDe(c.id).filter((s) => s.estado === "ACTIVO").length, aprobacionesPendientes: piezasDe(c.id).filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length },
     estado: c.estado ?? "ACTIVO",
     creadoEn: c.creadoEn ?? "2026-01-02T15:00:00Z",
   } as S<"Cliente"> & Record<string, unknown>;
-  if (ctx.esEquipo) Object.assign(r, { driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd });
+  if (ctx.esEquipo) {
+    const hoy = D.HOY.slice(0, 10);
+    Object.assign(r, {
+      driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd,
+      estadoPagos: estadoPagos(pendientesDe(c.id), hoy),
+      inactividad: inactividadVista(c),
+    });
+  }
   return r;
 }
+
+/** Bloque «Actividad del cliente» de la ficha (solo equipo). */
+function inactividadVista(c: D.ClienteDemo): S<"InactividadCliente"> {
+  const ultima = c.ultimaActividad ?? D.HOY;
+  const dias = diasInactivo(ultima, D.HOY);
+  const enStandby = serviciosDe(c.id).filter((s) => s.estado === "STANDBY").length;
+  return {
+    ultimaActividad: ultima, diasSinActividad: dias, fechaStandby: fechaStandby(ultima), serviciosEnStandby: enStandby,
+    estado: enStandby ? "STANDBY" : c.avisoInactividadEn || dias >= DIAS_STANDBY - DIAS_AVISO_STANDBY ? "POR_ENTRAR" : "ACTIVO",
+  };
+}
+
+/** Cualquier uso del portal por el cliente cuenta como actividad y saca sus servicios del standby. */
+function registrarActividad(clienteIds: string[]) {
+  for (const c of E.clientes.filter((x) => clienteIds.includes(x.id))) {
+    c.ultimaActividad = D.HOY;
+    c.avisoInactividadEn = null;
+    const ids = serviciosDe(c.id).filter((s) => s.estado === "STANDBY").map((s) => s.id).sort();
+    if (!ids.length) continue;
+    for (const s of serviciosDe(c.id).filter((x) => ids.includes(x.id))) {
+      s.estado = "ACTIVO";
+      s.standbyDesde = null;
+    }
+    emitir("servicio.reactivado", c.id, { servicioIds: ids });
+  }
+}
 ruta("GET", "/clientes/:id", (ctx, p) => clienteVista(ctx, accesoCliente(ctx, p.id)));
+// Personas del equipo, para elegir responsables (de cuenta y de cada servicio).
+ruta("GET", "/equipo/usuarios", (ctx) => {
+  soloEquipo(ctx);
+  const datos = E.usuarios
+    .filter((u) => u.tipo === "EQUIPO")
+    .sort((a, b) => a.nombre.localeCompare(b.nombre))
+    .map((u): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, cargo: u.cargo, email: u.email, rolEquipo: u.rolEquipo! }));
+  return { datos };
+});
 ruta("GET", "/clientes/:id/actividad", (ctx, p) => {
   soloEquipo(ctx);
   accesoCliente(ctx, p.id);
@@ -622,8 +666,8 @@ const pagoVista = (x: D.PagoDemo): S<"PagoProgramado"> => ({
 });
 const pendientesDe = (clienteId: string) =>
   E.pagos.filter((x) => x.clienteId === clienteId && x.estado === "PENDIENTE").sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento));
-/** Los pagos (y su aviso en Inicio) solo los ve quien administra la cuenta y el equipo. */
-const veePagos = (ctx: Ctx, clienteId: string) => ctx.esEquipo || rolEn(ctx, clienteId) === "ADMIN_CLIENTE";
+/** Los pagos (y su aviso en Inicio) solo los ve quien administra la cuenta y gestión (AM y ADMIN). */
+const veePagos = (ctx: Ctx, clienteId: string) => (ctx.esEquipo ? esGestion(ctx.usuario.rolEquipo) : rolEn(ctx, clienteId) === "ADMIN_CLIENTE");
 
 /** Aviso de Inicio, sin monto: el pago más urgente si ya venció o vence en 7 días. */
 function avisoPago(clienteId: string): S<"InicioCliente">["avisoPago"] {
@@ -692,7 +736,7 @@ ruta("DELETE", "/pagos/:id", (ctx, p) => {
 
 ruta("GET", "/clientes/:id/pagos", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  exigirRol(ctx, c.id, [...ROLES_GESTION, "ADMIN_CLIENTE"]);
   return {
     pendientes: pendientesDe(c.id).map(pagoVista),
     pagados: E.pagos.filter((x) => x.clienteId === c.id && x.estado === "PAGADO").sort((a, b) => b.fechaVencimiento.localeCompare(a.fechaVencimiento)).map(pagoVista),
@@ -808,7 +852,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
     servicios: ordenados(serviciosDe(c.id)).map((s) => {
       const cat = servicioDeCatalogo(s.codigo)!;
-      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s) };
+      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s), responsable: persona(s.responsableId) };
     }),
     proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha) } : null,
     ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado as S<"EstadoTicket"> })),
@@ -1014,6 +1058,8 @@ ruta("GET", "/clientes/:id/tablero", (ctx, p, q) => {
 // Blog
 ruta("GET", "/clientes/:id/ideas-blog", (ctx, p) => {
   accesoCliente(ctx, p.id);
+  // El blog interno es de gestión (16 oct): el equipo operativo no lo ve.
+  if (ctx.esEquipo) exigirRol(ctx, p.id, ROLES_GESTION);
   const elegidas = E.ideas.filter((i) => i.estado === "ELEGIDA").length;
   return {
     datos: E.ideas.map((i): S<"IdeaBlog"> => ({ id: i.id, periodo: D.PERIODO, titulo: i.titulo, palabraClave: i.palabraClave, angulo: i.angulo, resumen: null, fuentes: [], estado: i.estado, piezaId: i.estado === "ELEGIDA" ? D.uid(5, 19) : null, decididoEn: null })),
@@ -1262,6 +1308,40 @@ ruta("POST", "/integraciones/requerimientos/atrasos", (ctx) => {
   return { revisados, corridos };
 });
 
+// Standby por inactividad (16 oct): igual que el backend real. `fecha` simula otro día.
+ruta("POST", "/integraciones/servicios/inactividad", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpo<{ fecha?: unknown }>(req);
+  if (b.fecha !== undefined && !(typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha))) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "fecha", mensaje: "Usa el formato AAAA-MM-DD" }]);
+  }
+  const ahora = typeof b.fecha === "string" ? `${b.fecha}T17:00:00Z` : D.HOY;
+  let revisados = 0;
+  let avisados = 0;
+  let enStandby = 0;
+  for (const c of E.clientes.filter((x) => (x.estado ?? "ACTIVO") !== "BAJA")) {
+    const activos = serviciosDe(c.id).filter((s) => s.estado === "ACTIVO");
+    if (!activos.length) continue;
+    revisados++;
+    const ultima = c.ultimaActividad ?? D.HOY;
+    const ids = activos.map((s) => s.id).sort();
+    const decision = decisionInactividad(ultima, ahora, !!c.avisoInactividadEn);
+    if (decision === "AVISAR") {
+      avisados++;
+      c.avisoInactividadEn = new Date().toISOString();
+      emitir("servicio.standby_proximo", c.id, { servicioIds: ids, fechaStandby: fechaStandby(ultima), diasSinActividad: diasInactivo(ultima, ahora) });
+    } else if (decision === "STANDBY") {
+      enStandby++;
+      for (const s of activos) {
+        s.estado = "STANDBY";
+        s.standbyDesde = new Date().toISOString();
+      }
+      emitir("servicio.standby", c.id, { servicioIds: ids, diasSinActividad: diasInactivo(ultima, ahora) });
+    }
+  }
+  return { revisados, avisados, enStandby };
+});
+
 // Resultados y avance
 ruta("GET", "/clientes/:id/reportes/resultados", (ctx, p) => {
   accesoCliente(ctx, p.id);
@@ -1296,7 +1376,8 @@ function avanceServicio(s: D.ServicioContratadoDemo): S<"AvanceServicio"> {
     titulo: v.titulo,
     variante: v.variante,
     detalle: s.detalle,
-    estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
+    responsable: v.responsable,
+    estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" || s.estado === "STANDBY" ? s.estado : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
     progreso: v.progreso,
     avance: a,
     etapas: etapasDe(s).map(etapaVista),
@@ -1755,15 +1836,16 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ServicioContratadoEntrada">>(req);
   const { cat, errores } = validarContratacion(b);
+  if (b.responsableId !== undefined && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Debe ser una persona del equipo" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const variante = b.variante ?? null;
-  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && s.estado === "ACTIVO")) {
+  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && (s.estado === "ACTIVO" || s.estado === "STANDBY"))) {
     throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
   }
   const sc: D.ServicioContratadoDemo = {
     id: nuevoId(4), clienteId: c.id, codigo: cat!.codigo, variante, detalle: (b.detalle ?? {}) as Record<string, unknown>, marca: b.marca?.trim() || null,
     entregables: (b.entregables ?? []).map((e) => ({ tipoPieza: e.tipoPieza, cantidadMensual: e.cantidadMensual })), siguientePaso: "",
-    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO",
+    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO", responsableId: b.responsableId ?? c.accountManagerId ?? E.usuarios[2].id,
   };
   E.servicios.push(sc);
   // Etapas desde la plantilla: el proyecto entero, o el mes en curso si el servicio es mensual.
@@ -1773,7 +1855,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
     E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
   }
   if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;
-  emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, usuarioId: ctx.usuario.id });
+  emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, responsableId: sc.responsableId, usuarioId: ctx.usuario.id });
   return { __status: 201, ...servicioVista(sc) };
 });
 
@@ -1865,17 +1947,24 @@ function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown
   return errores;
 }
 
+const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
+
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
-  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null }>(req);
+  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null; responsableId?: string }>(req);
+  // Cambiar el responsable es de gestión (AM y ADMIN).
+  if (b.responsableId !== undefined) exigirRol(ctx, s.clienteId, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
-  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
+  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "STANDBY", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO, STANDBY o FINALIZADO" });
+  if (b.responsableId !== undefined && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Debe ser una persona del equipo" });
   if (b.detalle !== undefined && (typeof b.detalle !== "object" || b.detalle === null || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   if (b.siguientePaso !== undefined) s.siguientePaso = b.siguientePaso?.trim() ?? "";
+  if (b.estado !== undefined && b.estado !== s.estado) s.standbyDesde = b.estado === "STANDBY" ? new Date().toISOString() : null;
   if (b.estado !== undefined) s.estado = b.estado as D.ServicioContratadoDemo["estado"];
+  if (b.responsableId !== undefined) s.responsableId = b.responsableId;
   if (b.marca !== undefined) s.marca = b.marca?.trim() || null;
   if (b.detalle !== undefined) s.detalle = b.detalle;
   if (b.fechaFin !== undefined) s.fechaFin = b.fechaFin;
@@ -2513,6 +2602,7 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       return new Response(null, { status: 200 });
     }
     const ctx = autenticar(req);
+    if (ctx.usuario.tipo === "CLIENTE") registrarActividad(E.miembros.filter((m) => m.usuarioId === ctx.usuario.id).map((m) => m.clienteId));
     const clave = req.headers.get("idempotency-key");
     if (clave && req.method === "POST") {
       const previa = E.idempotencia.get(`${ctx.usuario.id}:${clave}`);

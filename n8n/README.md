@@ -19,7 +19,7 @@ en la tabla `regla_correo`); n8n solo los envía y devuelve el resultado.
 | Workflow | Disparo | Qué hace |
 |---|---|---|
 | `correos-por-evento.json` | Webhook `POST /webhook/inoo-eventos` (destino de `N8N_WEBHOOK_URL`) | Verifica la firma → `POST /api/v1/integraciones/correos/preparar` → responde 200 al despachador → manda cada correo por SMTP → `POST /api/v1/integraciones/correos/{id}/resultado` (ENVIADO o FALLIDO) |
-| `atrasos-requerimientos.json` | Lunes a viernes 8:00 (Lima) | `POST /api/v1/integraciones/requerimientos/atrasos`: corre el cronograma de los pedidos vencidos; los correos de atraso salen solos por el workflow anterior |
+| `atrasos-requerimientos.json` | Lunes a viernes 8:00 y todos los días 8:05 (Lima) | `POST /api/v1/integraciones/requerimientos/atrasos`: corre el cronograma de los pedidos vencidos. `POST /api/v1/integraciones/servicios/inactividad`: si nadie del cliente usa el portal en 30 días, sus servicios pasan a standby (7 días antes se avisa una vez). Los correos salen solos por el workflow anterior |
 
 Si la firma no cuadra, el webhook responde 401 y el despachador reintenta con espera exponencial; si
 `preparar` falla, n8n responde error y también se reintenta. `preparar` es idempotente por evento y
@@ -35,6 +35,6 @@ destinatario, así que un reintento no duplica correos.
    - `NODE_FUNCTION_ALLOW_BUILTIN=crypto` y `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` (la verificación de firma los usa).
 3. Credenciales en n8n:
    - **Portal Inoo · X-Api-Key** (Header Auth): nombre `X-Api-Key`, valor = una llave creada con
-     `npm run api-key` con los scopes `correos:write` y `requerimientos:write`.
+     `npm run api-key` con los scopes `correos:write`, `requerimientos:write` y `servicios:write`.
    - **SMTP Inoo** (SMTP): servidor de correo de Inoo. En local, Mailpit (`mailpit:1025`, sin TLS ni usuario).
 4. Activar los dos workflows. En el portal, `N8N_WEBHOOK_URL=https://<n8n>/webhook/inoo-eventos`.

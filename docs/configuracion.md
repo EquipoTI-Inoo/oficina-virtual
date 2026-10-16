@@ -68,7 +68,7 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 | n8n (perfil `fase1`) | http://localhost:5678 | se crea al primer ingreso | n8n en VPS/ECS |
 | NocoDB (perfil `fase1`) | http://localhost:8080 | se crea al primer ingreso | Panel interno Fase 1 |
 
-Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0015) y luego `database/semillas/0001_casa_oliva.sql`
+Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0016) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
 
 ### Probar el backend real en local (base, archivos, correos y n8n)
@@ -140,7 +140,7 @@ aplica las migraciones en un Postgres real.
 **Correos automáticos.** El despachador entrega cada evento a n8n (`n8n/workflows/comunes/correos-por-evento.json`),
 que pide al portal los correos ya armados (`POST /integraciones/correos/preparar`), los manda por SMTP y devuelve
 el resultado. Reglas en `regla_correo` (una fila con `cliente_id` reemplaza a la global), textos en
-`src/dominio/correos.ts`. La llave de n8n necesita los scopes `correos:write` y `requerimientos:write`.
+`src/dominio/correos.ts`. La llave de n8n necesita los scopes `correos:write`, `requerimientos:write` y `servicios:write`.
 
 **Pendiente para producción:** el ingreso con Cognito en `PantallaIngreso` (hoy `POST /api/v1/__pruebas/ingresar`;
 el backend ya valida los JWT con `AUTH_MODO=cognito`), un servicio del portal y del despachador en

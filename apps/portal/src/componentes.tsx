@@ -7,6 +7,7 @@ import {
   LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
+import { esGestion } from "./dominio/equipo";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -277,14 +278,16 @@ const NAV_EQUIPO = [
   { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 /> },
   { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks /> },
   { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
-  { a: "/equipo/blog", texto: "Blog", icono: <LuFileText /> },
+  // El blog interno es de gestión (16 oct): el equipo operativo no lo ve.
+  { a: "/equipo/blog", texto: "Blog", icono: <LuFileText />, gestion: true },
   { a: "/equipo/avisos", texto: "Avisos", icono: <LuMegaphone /> },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
 function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
-  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
+  const rol = sesion?.usuario.rolEquipo;
+  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => (!("soloAdmin" in n) || rol === "ADMIN") && (!("gestion" in n) || esGestion(rol)));
   const u = sesion?.usuario;
   const salir = () => {
     cerrarSesion();
