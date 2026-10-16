@@ -865,6 +865,93 @@ paths:
                   revisados: { type: integer, description: Requerimientos vencidos revisados }
                   corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
 
+  /integraciones/servicios/inactividad:
+    post:
+      tags: [Integraciones]
+      operationId: aplicarInactividadClientes
+      summary: 'n8n, una vez al día: avisa y pone en standby los servicios de clientes que no usan el portal'
+      description: |
+        Si nadie del cliente usa el portal en 30 días, sus servicios ACTIVO pasan a STANDBY y se emite
+        `servicio.standby`. 7 días antes se emite una sola vez `servicio.standby_proximo` (correo al cliente y a
+        los responsables). Cuando alguien del cliente vuelve a usar el portal, los servicios se reactivan solos
+        (`servicio.reactivado`). Idempotente en el día. Scope `servicios:write`.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      x-scopes: [servicios:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fecha: { type: string, format: date, description: 'Simula otro día (pruebas); por defecto hoy' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revisados, avisados, enStandby]
+                properties:
+                  revisados: { type: integer, description: Clientes con servicios activos revisados }
+                  avisados: { type: integer, description: Clientes avisados hoy de que pasarán a standby }
+                  enStandby: { type: integer, description: Clientes cuyos servicios pasaron hoy a standby }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /integraciones/correos/preparar:
+    post:
+      tags: [Integraciones]
+      operationId: prepararCorreos
+      summary: 'n8n, por cada evento del outbox: qué correos mandar, a quién y con qué contenido (INO-04)'
+      description: |
+        n8n recibe el evento firmado del outbox y lo reenvía tal cual. La API aplica las reglas de
+        `regla_correo` (la del cliente si existe, si no la global), resuelve los destinatarios, arma el asunto
+        y el HTML y deja cada correo en PENDIENTE. Idempotente por evento y destinatario: si n8n reintenta,
+        vuelven solo los que aún no se enviaron. Un evento sin regla activa devuelve una lista vacía.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventoSaliente' }
+      responses:
+        '200':
+          description: Correos por enviar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [correos]
+                properties:
+                  correos: { type: array, items: { $ref: '#/components/schemas/CorreoPreparado' } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /integraciones/correos/{correoId}/resultado:
+    post:
+      tags: [Integraciones]
+      operationId: registrarResultadoCorreo
+      summary: n8n informa si el correo salió por SMTP o falló
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      parameters:
+        - { name: correoId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado: { type: string, enum: [ENVIADO, FALLIDO] }
+                messageId: { type: string, description: Message-ID que devolvió el servidor SMTP }
+                error: { type: string, maxLength: 2000 }
+      responses:
+        '204': { description: Registrado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /clientes/{clienteId}/servicios:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
     get:
@@ -954,7 +1041,8 @@ paths:
     patch:
       tags: [Servicios]
       operationId: actualizarServicioContratado
-      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca o detalle (CRM, licencias, usuarios)'
+      summary: 'El equipo actualiza el proyecto: siguiente paso, estado, marca, detalle (CRM, licencias, usuarios) o responsable'
+      description: 'Cambiar `responsableId` es solo para ACCOUNT_MANAGER y ADMIN (403 para el resto del equipo).'
       x-roles: [EQUIPO]
       requestBody:
         required: true
@@ -969,6 +1057,7 @@ paths:
                 marca: { type: [string, 'null'] }
                 detalle: { $ref: '#/components/schemas/DetalleServicio' }
                 fechaFin: { type: [string, 'null'], format: date }
+                responsableId: { type: string, format: uuid, description: 'Responsable del servicio en Inoo (persona del equipo)' }
       responses:
         '200':
           description: OK
@@ -1579,7 +1668,8 @@ paths:
       tags: [Planificación]
       operationId: listarIdeasBlog
       summary: Ideas propuestas del mes y cuántas puede elegir el cliente (POR-04)
-      x-roles: [EQUIPO, CLIENTE]
+      description: El blog interno es de gestión; el equipo operativo (diseño, audiovisual, paid media, web) recibe 403.
+      x-roles: [ACCOUNT_MANAGER, ADMIN, CLIENTE]
       parameters:
         - { name: periodo, in: query, required: true, schema: { $ref: '#/components/schemas/Periodo' } }
       responses:
@@ -2540,7 +2630,7 @@ components:
       description: Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
       enum: [SOCIAL_MEDIA_PRO, BRANDFORMANCE, PAID_MEDIA, WEB, CRM_IMPLEMENTACION, CRM_INTEGRACION, AUDIOVISUAL, SOPORTE_CONTINUO]
     ModalidadServicio: { type: string, enum: [MENSUAL, PROYECTO], description: 'MENSUAL repite sus etapas cada mes; PROYECTO las recorre una vez' }
-    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, FINALIZADO] }
+    EstadoServicio: { type: string, enum: [ACTIVO, PAUSADO, STANDBY, FINALIZADO], description: 'STANDBY: el cliente no usó el portal en 30 días; vuelve a ACTIVO solo cuando lo usa' }
     MetricaProyecto: { type: string, enum: [REUNIONES_REALIZADAS, REUNIONES_EXITOSAS, DOCUMENTOS_A_TIEMPO, PIEZAS_APROBADAS, TICKETS_RESUELTOS, RESULTADOS_CAMPANA] }
     EstadoOperativo:
       type: string
@@ -2587,6 +2677,16 @@ components:
         nombre: { type: string }
         cargo: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email }
+    InactividadCliente:
+      type: object
+      description: 'Actividad del cliente en el portal y standby (solo equipo)'
+      required: [ultimaActividad, diasSinActividad, fechaStandby, estado, serviciosEnStandby]
+      properties:
+        ultimaActividad: { type: string, format: date-time }
+        diasSinActividad: { type: integer }
+        fechaStandby: { type: string, format: date, description: 'Cuándo pasarían sus servicios a standby si nadie entra' }
+        estado: { type: string, enum: [ACTIVO, POR_ENTRAR, STANDBY], description: 'POR_ENTRAR: faltan 7 días o menos (ya se avisó)' }
+        serviciosEnStandby: { type: integer }
     Sesion:
       type: object
       required: [usuario, clientes, notificacionesSinLeer]
@@ -2695,6 +2795,7 @@ components:
             driveUrl: { type: [string, 'null'], format: uri, description: Solo equipo }
             driveCarpetaId: { type: [string, 'null'], description: Solo equipo }
             limiteGastoIaUsd: { type: number, description: Solo equipo }
+            inactividad: { $ref: '#/components/schemas/InactividadCliente' }
             creadoEn: { type: string, format: date-time }
     InicioCliente:
       type: object
@@ -2767,6 +2868,7 @@ components:
               unidad: { type: string }
               estado: { $ref: '#/components/schemas/EstadoServicio' }
               avance: { $ref: '#/components/schemas/AvanceProyecto' }
+              responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Responsable del servicio en Inoo }
         proximaPublicacion:
           type: [object, 'null']
           properties:
@@ -3014,6 +3116,7 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: [string, 'null'], format: date }
         inooworkProyectoId: { type: string }
+        responsableId: { type: string, format: uuid, description: 'Responsable del servicio en Inoo (persona del equipo); por defecto el AM de la cuenta' }
         entregables:
           type: array
           items:
@@ -3145,6 +3248,7 @@ components:
         cantidadMensual: { type: integer, description: 'Suma de los entregables incluidos (0 si el servicio no entrega piezas mensuales)' }
         progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ], description: 'Piezas del mes; null si no entrega piezas' }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable del servicio en Inoo: cada servicio puede ser de un área distinta' }
         entregables:
           type: array
           description: Detalle por tipo de pieza
@@ -3185,7 +3289,8 @@ components:
         titulo: { type: string }
         variante: { oneOf: [ { $ref: '#/components/schemas/VarianteServicio' }, { type: 'null' } ] }
         detalle: { $ref: '#/components/schemas/DetalleServicio' }
-        estado: { type: string, enum: [SIN_INICIAR, EN_CURSO, COMPLETADO, PAUSADO] }
+        estado: { type: string, enum: [SIN_INICIAR, EN_CURSO, COMPLETADO, PAUSADO, STANDBY] }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Responsable del servicio en Inoo }
         progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ] }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
         etapas: { type: array, description: 'Etapas del proyecto, o del mes en curso en servicios mensuales', items: { $ref: '#/components/schemas/EtapaProyecto' } }
@@ -3613,13 +3718,14 @@ components:
       required: [nombre, mime, bytes, uso]
       properties:
         nombre: { type: string, maxLength: 255 }
-        mime: { type: string, enum: [image/jpeg, image/png, video/mp4, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document] }
-        bytes: { type: integer, minimum: 1, maximum: 104857600 }
+        mime: { type: string, enum: [image/jpeg, image/png, video/mp4, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet] }
+        bytes: { type: integer, minimum: 1, maximum: 104857600, description: 'Máximo 10 MB para ADJUNTO_TICKET (413 ARCHIVO_DEMASIADO_GRANDE)' }
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
         uso: { type: string, enum: [BRIEF, ADJUNTO_TICKET, BIBLIOTECA, REQUERIMIENTO] }
         briefPeriodo: { $ref: '#/components/schemas/Periodo' }
         categoria: { type: string, enum: [FOTO, VIDEO, DOCUMENTO, LOGO, OTRO] }
         etiquetas: { type: array, items: { type: string } }
+        declaraDerechos: { type: boolean, description: 'Obligatorio en true para BIBLIOTECA (422 DERECHOS_REQUERIDOS)' }
     SubidaIniciada:
       type: object
       required: [archivo, subida]
@@ -3783,6 +3889,17 @@ components:
         descripcion: { type: string, examples: ['Te avisamos cuando una pieza está lista para tu revisión'] }
         destinatarios: { type: string, enum: [MIEMBROS_CLIENTE, ACCOUNT_MANAGER, AMBOS] }
         activa: { type: boolean }
+    CorreoPreparado:
+      type: object
+      required: [id, para, asunto, html, texto, evento]
+      properties:
+        id: { type: string, format: uuid }
+        para: { type: string, format: email }
+        nombre: { type: ['string', 'null'] }
+        asunto: { type: string }
+        html: { type: string }
+        texto: { type: string, description: Versión en texto plano del mismo correo }
+        evento: { type: string, examples: [pieza.lista_revision] }
     CorreoEnviado:
       type: object
       required: [id, para, asunto, estado, creadoEn]
@@ -4040,10 +4157,15 @@ components:
             - tarea.asignada             # una tarea interna tiene responsable nuevo; aviso a esa persona
             - tarea.mencion              # alguien mencionó a una persona en una tarea
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
+            - servicio.standby_proximo   # faltan 7 días para el standby por inactividad (correo al cliente y responsables)
+            - servicio.standby           # 30 días sin actividad del cliente: sus servicios activos pasan a STANDBY
+            - servicio.reactivado        # el cliente volvió a usar el portal y sus servicios en standby vuelven a ACTIVO
             - etapa.actualizada          # el equipo movió una etapa; el avance del cliente cambia
             - comentario_proyecto.creado # comentario o consulta en el perfil del proyecto; aviso al responsable
             - responsable.cambio_solicitado # el cliente propuso un sucesor; el AM lo revisa
             - responsable.cambiado       # aprobado: invitación al sucesor y aviso al AM para contactarlo
+            - miembro.invitado           # acceso nuevo al portal: alta en Cognito y correo de bienvenida
+            - miembro.retirado           # el equipo quitó el acceso; deshabilitar en Cognito si no tiene otras cuentas
         ocurridoEn: { type: string, format: date-time }
         clienteId: { type: [string, 'null'], format: uuid }
         datos: { type: object }

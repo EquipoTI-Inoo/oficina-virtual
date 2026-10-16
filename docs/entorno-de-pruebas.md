@@ -47,6 +47,7 @@ reciben los mismos eventos que en producción (`cliente.creado`, `brief.confirma
 | Tickets | #1042 En curso, #1041 Abierto, #1038 Resuelto |
 | Otros clientes (panel) | Nativa Café, Luma Studio, Andes Salud, Marea Local |
 | Administración | admin@inoo.pe / demo1234 (ve «Costos de IA» y contrata servicios) |
+| Equipo operativo (desarrollo web) | camila.paredes@inoo.pe / demo1234 (no ve el blog ni el detalle de pagos; responsable del e-commerce de Casa Oliva) |
 | Ejecuciones de agentes | 3 de Casa Oliva (suman US$ 48) y 1 con error en Luma |
 | Consumo de IA | Casa Oliva US$ 48/60 y Luma US$ 84/100 en alerta (≥ 80 %) |
 

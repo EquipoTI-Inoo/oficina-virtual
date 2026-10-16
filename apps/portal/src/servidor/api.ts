@@ -15,9 +15,17 @@
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
  * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
+ * GET|PUT /clientes/{id}/estado-pago · POST /clientes · PATCH /clientes/{id} (n8n completa driveUrl con
+ * el scope clientes:write) · POST|PATCH|DELETE /clientes/{id}/miembros(/{id}) · GET /clientes/{id}/inicio · GET /clientes/{id}/actividad ·
+ * panel del equipo (GET /panel/clientes(/exportar), GET /panel/piezas, GET /panel/costos-ia, GET /panel/ejecuciones) ·
+ * POST /clientes/{id}/piezas · PATCH /piezas/{id} · archivos con URLs prefirmadas de S3 (POST|GET /clientes/{id}/archivos,
+ * POST /archivos/{id}/confirmar, PATCH|DELETE /archivos/{id}, GET /archivos/{id}/descarga, GET /piezas/{id}/descarga,
+ * GET /clientes/{id}/plan/contrato) · GET /clientes/{id}/reportes/resultados|informe · GET /clientes/{id}/biblioteca-paid ·
+ * correos automáticos (GET /clientes/{id}/correos-automaticos, POST /integraciones/correos/preparar y /{id}/resultado).
  * proyecto como eje (GET /panel/proyectos, GET /panel/equipo, GET|POST /servicios-contratados/{id}/tareas,
- * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios).
- * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
+ * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios) ·
+ * standby por inactividad (POST /integraciones/servicios/inactividad).
+ * Solo InooWork (fase 6) responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
  * tests/api/flujo-piezas.ts corren contra las dos.
@@ -27,11 +35,14 @@ import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
-import { diasNoLaborables } from "../dominio/calendario";
+import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
+import { almacen } from "./almacen";
+import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
+import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -100,7 +111,7 @@ interface FilaPieza {
   responsable_nombre: string | null;
   nota_estado: string | null;
   etiquetas: string[];
-  apta_paid_media: boolean;
+  apta_paid_media: boolean | null;
   publicado_url: string | null;
   publicado_en: Date | null;
   actualizado_en: Date;
@@ -224,7 +235,7 @@ async function piezaCompleta(ctx: Ctx, p: FilaPieza): Promise<S<"Pieza">> {
     calendarioId: p.calendario_id,
     versionCliente: p.version_cliente,
     etiquetas: p.etiquetas,
-    aptaPaidMedia: p.apta_paid_media,
+    aptaPaidMedia: p.apta_paid_media ?? (p.tipo !== "BLOG" && p.tipo !== "GUION"),
     publicadoUrl: p.publicado_url,
     publicadoEn: iso(p.publicado_en),
     acciones: accionesPara(ctx, p),
@@ -441,6 +452,10 @@ ruta("GET", "/clientes", async (ctx) => {
 
 ruta("GET", "/clientes/:id", async (ctx, p) => {
   await accesoCliente(ctx, p.id);
+  return clienteVista(ctx, p.id);
+});
+
+async function clienteVista(ctx: Ctx, clienteId: string): Promise<S<"Cliente">> {
   const { rows } = await ctx.c.query<Record<string, any>>(
     `SELECT c.*, cp.nombre AS cp_nombre, cp.cargo AS cp_cargo, cp.email::text AS cp_email,
             am.nombre AS am_nombre, am.cargo AS am_cargo, am.email::text AS am_email,
@@ -452,7 +467,7 @@ ruta("GET", "/clientes/:id", async (ctx, p) => {
      LEFT JOIN usuario am ON am.id = c.account_manager_id
      LEFT JOIN plan_cliente pl ON pl.cliente_id = c.id AND pl.vigente
      WHERE c.id = $1`,
-    [p.id],
+    [clienteId],
   );
   const c = rows[0];
   const fecha = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d as string | null));
@@ -475,9 +490,29 @@ ruta("GET", "/clientes/:id", async (ctx, p) => {
     conteos: { serviciosActivos: c.servicios_activos, aprobacionesPendientes: c.pendientes },
     creadoEn: iso(c.creado_en)!,
   };
-  if (ctx.esEquipo) Object.assign(r, { driveUrl: c.drive_url, driveCarpetaId: c.drive_carpeta_id, limiteGastoIaUsd: Number(c.limite_gasto_ia_usd) });
+  if (ctx.esEquipo) {
+    const standby = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM servicio_contratado WHERE cliente_id = $1 AND estado::text = 'STANDBY'", [clienteId])).rows[0].n;
+    Object.assign(r, {
+      driveUrl: c.drive_url,
+      driveCarpetaId: c.drive_carpeta_id,
+      limiteGastoIaUsd: Number(c.limite_gasto_ia_usd),
+      inactividad: inactividadVista(c.ultima_actividad_cliente_en, c.aviso_inactividad_en, standby, new Date()),
+    });
+  }
   return r;
-});
+}
+
+/** Bloque «Actividad del cliente» de la ficha (solo equipo). */
+function inactividadVista(ultima: Date, avisado: Date | null, serviciosEnStandby: number, ahora: Date): S<"InactividadCliente"> {
+  const dias = diasInactivo(ultima, ahora);
+  return {
+    ultimaActividad: iso(ultima)!,
+    diasSinActividad: dias,
+    fechaStandby: fechaStandby(ultima),
+    estado: serviciosEnStandby > 0 ? "STANDBY" : avisado || dias >= DIAS_STANDBY - DIAS_AVISO_STANDBY ? "POR_ENTRAR" : "ACTIVO",
+    serviciosEnStandby,
+  };
+}
 
 // ───────────────────────────────────────────── tickets (CU-07)
 
@@ -1156,8 +1191,10 @@ async function ideasDelMes(ctx: Ctx, clienteId: string, periodo: string) {
   return { datos: ideas.map(ideaVista), cupo: { total: cal?.cupo_ideas_blog ?? 0, elegidas, confirmada: elegidas > 0 } };
 }
 
+// El blog interno es de gestión (pedido del 16 oct): el equipo operativo no lo ve.
 ruta("GET", "/clientes/:id/ideas-blog", async (ctx, p, q) => {
   await accesoCliente(ctx, p.id);
+  if (ctx.esEquipo) exigirRol(ctx, p.id, ROLES_GESTION);
   return ideasDelMes(ctx, p.id, exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL()));
 });
 
@@ -1279,6 +1316,10 @@ interface FilaServicio {
   paso_nombre: string | null;
   paso_cargo: string | null;
   paso_email: string | null;
+  responsable_id: string | null;
+  resp_nombre: string | null;
+  resp_cargo: string | null;
+  resp_email: string | null;
   entregables: { tipoPieza: S<"TipoPieza">; cantidadMensual: number }[];
   plantilla_id: string | null;
 }
@@ -1300,12 +1341,18 @@ interface FilaEtapa {
 const SELECT_SERVICIO = `
   SELECT sc.*, c.nombre AS cliente_nombre, s.codigo, s.nombre, s.descripcion, s.modalidad::text AS modalidad, s.unidad, s.variantes,
          u.id AS paso_id, u.nombre AS paso_nombre, u.cargo AS paso_cargo, u.email::text AS paso_email,
+         r.nombre AS resp_nombre, r.cargo AS resp_cargo, r.email::text AS resp_email,
          coalesce((SELECT json_agg(json_build_object('tipoPieza', ei.tipo_pieza, 'cantidadMensual', ei.cantidad_mensual) ORDER BY ei.tipo_pieza)
                    FROM entregable_incluido ei WHERE ei.servicio_contratado_id = sc.id), '[]') AS entregables
   FROM servicio_contratado sc
   JOIN servicio s ON s.id = sc.servicio_id
   JOIN cliente c ON c.id = sc.cliente_id
-  LEFT JOIN usuario u ON u.id = sc.siguiente_paso_responsable_id`;
+  LEFT JOIN usuario u ON u.id = sc.siguiente_paso_responsable_id
+  LEFT JOIN usuario r ON r.id = sc.responsable_id`;
+
+/** Responsable del servicio en Inoo (16 oct): cada servicio lo lleva alguien de su área. */
+const responsableServicio = (s: FilaServicio): S<"PersonaMini"> | null =>
+  s.responsable_id ? { id: s.responsable_id, nombre: s.resp_nombre ?? "", cargo: s.resp_cargo, email: s.resp_email } : null;
 
 async function serviciosDelCliente(ctx: Ctx, clienteId: string): Promise<FilaServicio[]> {
   return (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.cliente_id = $1 ORDER BY s.orden, sc.fecha_inicio`, [clienteId])).rows;
@@ -1357,6 +1404,7 @@ async function servicioVista(ctx: Ctx, s: FilaServicio, periodo: string): Promis
     progreso: cantidad ? await progresoPiezas(ctx, s.id, s.cliente_id, periodo, cantidad) : null,
     avance: calcularAvance(etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) })), hoy, s.modalidad === "MENSUAL" ? periodo : null),
     entregables: s.entregables,
+    responsable: responsableServicio(s),
     etapas,
   };
 }
@@ -1368,8 +1416,8 @@ async function avanceServicio(ctx: Ctx, s: FilaServicio, periodo: string): Promi
     "SELECT * FROM hito_proyecto WHERE servicio_contratado_id = $1 AND visible_cliente ORDER BY orden", [s.id],
   )).rows;
   return {
-    servicioContratadoId: s.id, codigo: s.codigo, nombre: v.nombre, titulo: v.titulo, variante: v.variante, detalle: s.detalle,
-    estado: a.totalEtapas > 0 && a.etapasCompletadas === a.totalEtapas ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
+    servicioContratadoId: s.id, codigo: s.codigo, nombre: v.nombre, titulo: v.titulo, variante: v.variante, detalle: s.detalle, responsable: v.responsable,
+    estado: a.totalEtapas > 0 && a.etapasCompletadas === a.totalEtapas ? "COMPLETADO" : s.estado === "PAUSADO" || s.estado === "STANDBY" ? s.estado : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
     progreso: v.progreso, avance: a, etapas: etapas.map((e) => etapaVista(e, HOY_LIMA())),
     hitos: hitos.map((h) => ({ id: h.id, grupo: h.grupo, titulo: h.titulo, estado: h.estado, fechaInicio: fechaIso(h.fecha_inicio), fechaFin: fechaIso(h.fecha_estimada), esperaCliente: h.espera_cliente, nota: h.nota_cliente, responsableNombre: h.responsable_nombre })),
     siguientePaso: s.siguiente_paso ? { texto: `Siguiente paso: ${s.siguiente_paso}`, responsable: s.paso_id ? { id: s.paso_id, nombre: s.paso_nombre ?? "", cargo: s.paso_cargo, email: s.paso_email ?? undefined } : (undefined as never) } : null,
@@ -1428,10 +1476,12 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as Partial<S<"ServicioContratadoEntrada">>;
   const { cat, errores } = validarContratacion(b);
+  const responsable = b.responsableId ?? (await ctx.c.query<{ am: string | null }>("SELECT account_manager_id AS am FROM cliente WHERE id = $1", [p.id])).rows[0].am;
+  if (b.responsableId !== undefined && !(await esDelEquipo(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Debe ser una persona del equipo" });
   if (errores.length) validacion(errores);
   const variante = b.variante ?? null;
   const ya = await ctx.c.query(
-    "SELECT 1 FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.codigo = $2 AND sc.variante IS NOT DISTINCT FROM $3 AND sc.estado = 'ACTIVO'",
+    "SELECT 1 FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.codigo = $2 AND sc.variante IS NOT DISTINCT FROM $3 AND sc.estado::text IN ('ACTIVO', 'STANDBY')",
     [p.id, cat!.codigo, variante],
   );
   if (ya.rows.length) throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
@@ -1443,9 +1493,9 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   )).rows[0];
   const plan = (await ctx.c.query<{ id: string }>("SELECT id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id])).rows[0];
   const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO servicio_contratado (cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, alcance, fecha_inicio, fecha_fin, inoowork_proyecto_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-    [p.id, plantilla.servicio_id, b.planId ?? plan?.id ?? null, variante, JSON.stringify(b.detalle ?? {}), b.marca?.trim() || null, plantilla.id, b.alcance ?? null, b.fechaInicio, b.fechaFin ?? null, b.inooworkProyectoId ?? null],
+    `INSERT INTO servicio_contratado (cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, alcance, fecha_inicio, fecha_fin, inoowork_proyecto_id, responsable_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+    [p.id, plantilla.servicio_id, b.planId ?? plan?.id ?? null, variante, JSON.stringify(b.detalle ?? {}), b.marca?.trim() || null, plantilla.id, b.alcance ?? null, b.fechaInicio, b.fechaFin ?? null, b.inooworkProyectoId ?? null, responsable],
   )).rows[0].id;
   for (const e of b.entregables ?? []) {
     await ctx.c.query("INSERT INTO entregable_incluido (servicio_contratado_id, tipo_pieza, cantidad_mensual) VALUES ($1, $2, $3)", [id, e.tipoPieza, e.cantidadMensual]);
@@ -1462,7 +1512,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
       [id, p.id, etapasPlantilla.find((x) => x.orden === e.orden)?.id ?? null, periodo, e.orden, e.nombre, e.avancePct, e.esperaCliente, e.fechaInicio, e.fechaEstimada, ctx.u.usuarioId],
     );
   }
-  await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, usuarioId: ctx.u.usuarioId });
+  await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, responsableId: responsable, usuarioId: ctx.u.usuarioId });
   const { etapas: _e, ...v } = await servicioVista(ctx, await buscarServicio(ctx, id), PERIODO_ACTUAL());
   return { __status: 201, ...v };
 });
@@ -1713,12 +1763,19 @@ function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown
 interface FilaReunion { id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null }
 const reunionVistaDb = (r: FilaReunion): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen });
 
+const ESTADOS_SERVICIO = ["ACTIVO", "PAUSADO", "STANDBY", "FINALIZADO"];
+const esDelEquipo = async (ctx: Ctx, id: unknown) =>
+  esUuid(id) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO' AND activo", [id])).rows.length > 0;
+
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
-  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: unknown; fechaFin?: string | null };
+  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: unknown; fechaFin?: string | null; responsableId?: string };
+  // Cambiar el responsable es de gestión (AM y ADMIN).
+  if (b.responsableId !== undefined) exigirRol(ctx, s.cliente_id, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
-  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
+  if (b.estado !== undefined && !ESTADOS_SERVICIO.includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO, STANDBY o FINALIZADO" });
+  if (b.responsableId !== undefined && !(await esDelEquipo(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Debe ser una persona del equipo" });
   if (b.detalle !== undefined && (typeof b.detalle !== "object" || b.detalle === null || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   validacion(errores);
@@ -1728,6 +1785,9 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   if (b.marca !== undefined) cambios.push(["marca", b.marca?.trim() || null]);
   if (b.detalle !== undefined) cambios.push(["detalle", JSON.stringify(b.detalle)]);
   if (b.fechaFin !== undefined) cambios.push(["fecha_fin", b.fechaFin]);
+  if (b.responsableId !== undefined) cambios.push(["responsable_id", b.responsableId]);
+  // Sacarlo de STANDBY a mano también limpia la marca; ponerlo a mano la deja con la fecha de hoy.
+  if (b.estado !== undefined && b.estado !== s.estado) cambios.push(["standby_desde", b.estado === "STANDBY" ? new Date().toISOString() : null]);
   if (cambios.length) {
     await ctx.c.query(`UPDATE servicio_contratado SET ${cambios.map(([k], i) => `${k} = $${i + 2}${k === "estado" ? "::estado_servicio" : k === "detalle" ? "::jsonb" : ""}`).join(", ")} WHERE id = $1`, [s.id, ...cambios.map(([, v]) => v)]);
   }
@@ -2084,6 +2144,36 @@ ruta("POST", "/integraciones/requerimientos/atrasos", async (ctx) => {
   return { revisados: rows.length, corridos };
 });
 
+// Standby por inactividad (16 oct): n8n la llama una vez al día. Si nadie del cliente usa el portal en
+// DIAS_STANDBY días, sus servicios activos pasan a STANDBY; una semana antes se avisa una sola vez. Al
+// volver a usar el portal se reactivan solos (registrar_actividad_cliente). `fecha` simula otro día.
+ruta("POST", "/integraciones/servicios/inactividad", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "servicios:write");
+  const b = (await cuerpo()) as { fecha?: unknown };
+  if (b.fecha !== undefined && !(typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha))) validacion([{ campo: "fecha", mensaje: "Usa el formato AAAA-MM-DD" }]);
+  const ahora = typeof b.fecha === "string" ? new Date(`${b.fecha}T17:00:00Z`) : new Date();
+  const { rows } = await ctx.c.query<{ id: string; ultima: Date; avisado: Date | null; ids: string[] }>(
+    `SELECT c.id, c.ultima_actividad_cliente_en AS ultima, c.aviso_inactividad_en AS avisado, array_agg(sc.id ORDER BY sc.id) AS ids
+     FROM cliente c JOIN servicio_contratado sc ON sc.cliente_id = c.id AND sc.estado = 'ACTIVO'
+     WHERE c.estado <> 'BAJA' GROUP BY c.id`,
+  );
+  let avisados = 0;
+  let enStandby = 0;
+  for (const c of rows) {
+    const decision = decisionInactividad(c.ultima, ahora, !!c.avisado);
+    if (decision === "AVISAR") {
+      avisados++;
+      await ctx.c.query("UPDATE cliente SET aviso_inactividad_en = now() WHERE id = $1", [c.id]);
+      await emitirOutbox(ctx, "servicio.standby_proximo", c.id, { servicioIds: c.ids, fechaStandby: fechaStandby(c.ultima), diasSinActividad: diasInactivo(c.ultima, ahora) });
+    } else if (decision === "STANDBY") {
+      enStandby++;
+      await ctx.c.query("UPDATE servicio_contratado SET estado = 'STANDBY', standby_desde = now() WHERE id = ANY($1::uuid[])", [c.ids]);
+      await emitirOutbox(ctx, "servicio.standby", c.id, { servicioIds: c.ids, diasSinActividad: diasInactivo(c.ultima, ahora) });
+    }
+  }
+  return { revisados: rows.length, avisados, enStandby };
+});
+
 
 /** Datos del sucesor: nombre, correo y teléfono obligatorios. */
 function validarSucesor(b: { nombre?: unknown; email?: unknown; telefono?: unknown }) {
@@ -2110,11 +2200,7 @@ const solicitudVista = (x: FilaSolicitud): S<"SolicitudResponsable"> => ({
 ruta("GET", "/clientes/:id/miembros", async (ctx, p) => {
   await accesoCliente(ctx, p.id);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
-  const { rows } = await ctx.c.query<S<"Miembro">>(
-    `SELECT u.id AS "usuarioId", u.nombre, u.email::text AS email, m.rol FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id
-     WHERE m.cliente_id = $1 ORDER BY m.creado_en, u.nombre`,
-    [p.id],
-  );
+  const { rows } = await ctx.c.query<S<"Miembro">>(`${SELECT_MIEMBRO} WHERE m.cliente_id = $1 ORDER BY m.creado_en, m.rol, u.nombre`, [p.id]);
   return { datos: rows };
 });
 
@@ -2162,10 +2248,9 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, cuerpo)
     if (u?.tipo === "EQUIPO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
     // En producción el alta en el pool de clientes de Cognito la hace n8n al recibir responsable.cambiado.
     nuevo = u?.id ?? (await ctx.c.query<{ id: string }>("INSERT INTO usuario (email, nombre, cargo, tipo) VALUES ($1, $2, $3, 'CLIENTE') RETURNING id", [x.email, x.nombre, x.cargo])).rows[0].id;
-    await ctx.c.query(
-      `INSERT INTO miembro_cliente (cliente_id, usuario_id, rol) VALUES ($1, $2, 'ADMIN_CLIENTE')
-       ON CONFLICT (cliente_id, usuario_id) DO UPDATE SET rol = 'ADMIN_CLIENTE'`, [x.cliente_id, nuevo],
-    );
+    const yaEsMiembro = (await ctx.c.query("SELECT 1 FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, nuevo])).rows.length > 0;
+    if (yaEsMiembro) await ctx.c.query("UPDATE miembro_cliente SET rol = 'ADMIN_CLIENTE' WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, nuevo]);
+    else await invitarMiembro(ctx, x.cliente_id, nuevo, "ADMIN_CLIENTE");
     await ctx.c.query("UPDATE cliente SET contacto_principal_id = $2, actualizado_en = now() WHERE id = $1", [x.cliente_id, nuevo]);
     if (x.quitar_acceso_anterior && x.solicitado_por !== nuevo) {
       await ctx.c.query("DELETE FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [x.cliente_id, x.solicitado_por]);
@@ -2227,6 +2312,1021 @@ ruta("DELETE", "/avisos/:id", async (ctx, p) => {
   return null;
 });
 
+// ───────────────────────────────────────────── alta y edición de clientes (CU-01)
+
+const CANALES_CLIENTE = ["INSTAGRAM", "FACEBOOK", "LINKEDIN", "TIKTOK", "YOUTUBE", "BLOG", "WEB"];
+const fechaValida = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+const correoValido = (v: unknown): v is string => typeof v === "string" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
+const slugDe = (t: string) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+/** La ficha guarda los canales como se muestran («Instagram»), igual que la API simulada. */
+const canalVisible = (k: string) => k.charAt(0) + k.slice(1).toLowerCase();
+
+async function validarClienteEntrada(ctx: Ctx, b: S<"ClienteEntrada">, alta: boolean) {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (alta && !b.nombre?.trim()) errores.push({ campo: "nombre", mensaje: "Escribe el nombre del cliente" });
+  else if (b.nombre !== undefined && !String(b.nombre).trim()) errores.push({ campo: "nombre", mensaje: "El nombre no puede quedar vacío" });
+  if (b.limiteGastoIaUsd !== undefined && !(typeof b.limiteGastoIaUsd === "number" && b.limiteGastoIaUsd > 0)) errores.push({ campo: "limiteGastoIaUsd", mensaje: "El límite de IA debe ser mayor a 0" });
+  if (b.wordpressUrl && !/^https?:\/\//.test(b.wordpressUrl)) errores.push({ campo: "wordpressUrl", mensaje: "El enlace debe empezar con https://" });
+  if (b.fechaAniversario && !fechaValida(b.fechaAniversario)) errores.push({ campo: "fechaAniversario", mensaje: "Usa el formato AAAA-MM-DD" });
+  if (b.canales !== undefined && (!Array.isArray(b.canales) || b.canales.some((k) => !CANALES_CLIENTE.includes(k)))) errores.push({ campo: "canales", mensaje: "Canal desconocido" });
+  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "BAJA"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o BAJA" });
+  for (const [campo, tipo] of [["contactoPrincipalId", "CLIENTE"], ["accountManagerId", "EQUIPO"]] as const) {
+    const id = b[campo];
+    if (!id) continue;
+    const ok = esUuid(id) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = $2 AND activo", [id, tipo])).rows.length > 0;
+    if (!ok) errores.push({ campo, mensaje: tipo === "EQUIPO" ? "Debe ser una persona del equipo" : "Ese usuario no existe" });
+  }
+  validacion(errores);
+}
+
+/** Busca la persona por correo o la crea como usuario CLIENTE (Cognito la invita al recibir miembro.invitado). */
+async function usuarioCliente(ctx: Ctx, email: string, nombre: string, cargo: string | null): Promise<string> {
+  const u = (await ctx.c.query<{ id: string; tipo: string }>("SELECT id, tipo FROM usuario WHERE email = $1", [email])).rows[0];
+  if (u?.tipo === "EQUIPO" || u?.tipo === "SERVICIO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
+  if (u) return u.id;
+  return (await ctx.c.query<{ id: string }>("INSERT INTO usuario (email, nombre, cargo, tipo) VALUES ($1, $2, $3, 'CLIENTE') RETURNING id", [email, nombre, cargo])).rows[0].id;
+}
+
+/** Acceso al portal con invitación pendiente hasta su primer ingreso; n8n envía el correo de bienvenida. */
+async function invitarMiembro(ctx: Ctx, clienteId: string, usuarioId: string, rol: string) {
+  await ctx.c.query("INSERT INTO miembro_cliente (cliente_id, usuario_id, rol, invitacion_pendiente) VALUES ($1, $2, $3::rol_cliente, true)", [clienteId, usuarioId, rol]);
+  const u = (await ctx.c.query<{ email: string; nombre: string }>("SELECT email::text, nombre FROM usuario WHERE id = $1", [usuarioId])).rows[0];
+  await emitirOutbox(ctx, "miembro.invitado", clienteId, { usuarioId, email: u.email, nombre: u.nombre, rol, invitadoPor: ctx.u.usuarioId });
+}
+
+ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as S<"ClienteEntrada">;
+  await validarClienteEntrada(ctx, b, true);
+  const nombre = b.nombre!.trim();
+  const slug = slugDe(nombre);
+  if ((await ctx.c.query("SELECT 1 FROM cliente WHERE slug = $1", [slug])).rows.length) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
+  // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
+  const k = b.contacto;
+  if (k) {
+    const errores = validarSucesor({ nombre: k.nombre, email: k.email, telefono: "000000" });
+    validacion(errores.map((e) => ({ ...e, campo: `contacto.${e.campo}` })));
+  }
+  const contactoId = k ? await usuarioCliente(ctx, k.email.trim().toLowerCase(), k.nombre.trim(), k.cargo?.trim() || null) : b.contactoPrincipalId ?? null;
+  const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" ? ctx.u.usuarioId : null);
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario)
+     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+    [
+      nombre, slug, b.estado ?? "ACTIVO", JSON.stringify(b.marca ?? {}), JSON.stringify(b.tono ?? {}), JSON.stringify(b.publico ?? {}),
+      b.pilaresContenido ?? b.publico?.intereses ?? [], (b.canales ?? []).map(canalVisible), b.wordpressUrl ?? null, am, contactoId,
+      b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null,
+    ],
+  )).rows[0].id;
+  if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
+  // n8n crea las carpetas de Drive al recibir cliente.creado y completa driveUrl con PATCH /clientes/{id}.
+  await emitirOutbox(ctx, "cliente.creado", id, { clienteId: id, nombre, slug, canales: b.canales ?? [], accountManagerId: am, contactoId });
+  return { __status: 201, ...(await clienteVista(ctx, id)) };
+});
+
+ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as S<"ClienteEntrada"> & { driveUrl?: string; driveCarpetaId?: string };
+  await validarClienteEntrada(ctx, b, false);
+  const cambios: [string, unknown, string?][] = [];
+  if (b.nombre !== undefined) cambios.push(["nombre", b.nombre.trim()]);
+  // marca, tono y público se combinan con lo que ya hay (merge parcial, como la API simulada).
+  if (b.marca) cambios.push(["marca", JSON.stringify(b.marca), "marca || $::jsonb"]);
+  if (b.tono) cambios.push(["tono", JSON.stringify(b.tono), "tono || $::jsonb"]);
+  if (b.publico) cambios.push(["publico", JSON.stringify(b.publico), "publico || $::jsonb"]);
+  if (b.pilaresContenido) cambios.push(["pilares_contenido", b.pilaresContenido]);
+  if (b.canales) cambios.push(["canales", b.canales.map(canalVisible)]);
+  if (b.wordpressUrl !== undefined) cambios.push(["wordpress_url", b.wordpressUrl]);
+  if (b.fechaAniversario !== undefined) cambios.push(["fecha_aniversario", b.fechaAniversario, "$::date"]);
+  if (b.contactoPrincipalId !== undefined) cambios.push(["contacto_principal_id", b.contactoPrincipalId]);
+  if (b.accountManagerId !== undefined) cambios.push(["account_manager_id", b.accountManagerId]);
+  if (b.limiteGastoIaUsd !== undefined) cambios.push(["limite_gasto_ia_usd", b.limiteGastoIaUsd]);
+  if (b.estado !== undefined) cambios.push(["estado", b.estado, "$::estado_cliente"]);
+  // driveUrl lo escribe n8n después de crear las carpetas (no es parte de ClienteEntrada para personas).
+  if (ctx.esServicio) {
+    if (!ctx.u.scopes?.includes("clientes:write")) throw new ErrorApi(403, "SIN_PERMISO", "La llave no tiene el scope clientes:write");
+    if (b.driveUrl) cambios.push(["drive_url", b.driveUrl]);
+    if (b.driveCarpetaId) cambios.push(["drive_carpeta_id", b.driveCarpetaId]);
+  }
+  if (cambios.length) {
+    const sets = cambios.map(([col, , expr], i) => `${col} = ${(expr ?? "$").replace("$", `$${i + 2}`)}`);
+    await ctx.c.query(`UPDATE cliente SET ${sets.join(", ")}, actualizado_en = now() WHERE id = $1`, [p.id, ...cambios.map(([, v]) => v)]);
+  }
+  return clienteVista(ctx, p.id);
+});
+
+// ───────────────────────────────────────────── usuarios del cliente (POR-01): los gestiona el equipo
+
+const ROLES_CLIENTE = ["ADMIN_CLIENTE", "APROBADOR", "LECTOR"];
+const SELECT_MIEMBRO = `SELECT u.id AS "usuarioId", u.nombre, u.email::text AS email, m.rol, m.invitacion_pendiente AS "invitacionPendiente"
+  FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id`;
+
+async function buscarMiembro(ctx: Ctx, clienteId: string, usuarioId: string): Promise<S<"Miembro">> {
+  const m = esUuid(usuarioId) ? (await ctx.c.query<S<"Miembro">>(`${SELECT_MIEMBRO} WHERE m.cliente_id = $1 AND m.usuario_id = $2`, [clienteId, usuarioId])).rows[0] : undefined;
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese usuario no tiene acceso a esta cuenta");
+  return m;
+}
+
+/** No dejar a un cliente sin nadie que pueda administrar sus usuarios. */
+async function protegerUltimoAdmin(ctx: Ctx, clienteId: string, usuarioId: string) {
+  const { rows } = await ctx.c.query<{ usuario_id: string }>(
+    "SELECT usuario_id FROM miembro_cliente WHERE cliente_id = $1 AND rol = 'ADMIN_CLIENTE' AND NOT invitacion_pendiente", [clienteId],
+  );
+  if (rows.length === 1 && rows[0].usuario_id === usuarioId) throw new ErrorApi(409, "ULTIMO_ADMINISTRADOR", "La cuenta necesita al menos una persona administradora");
+}
+
+ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { email?: string; nombre?: string; rol?: string };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!correoValido(b.email)) errores.push({ campo: "email", mensaje: "Escribe un correo válido" });
+  if (!b.nombre?.trim()) errores.push({ campo: "nombre", mensaje: "Escribe el nombre" });
+  if (!b.rol || !ROLES_CLIENTE.includes(b.rol)) errores.push({ campo: "rol", mensaje: "Elige un rol" });
+  validacion(errores);
+  const usuarioId = await usuarioCliente(ctx, b.email!.trim().toLowerCase(), b.nombre!.trim(), null);
+  if ((await ctx.c.query("SELECT 1 FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [p.id, usuarioId])).rows.length) {
+    throw new ErrorApi(409, "YA_ES_MIEMBRO", "Esa persona ya tiene acceso a esta cuenta");
+  }
+  await invitarMiembro(ctx, p.id, usuarioId, b.rol!);
+  return { __status: 201, ...(await buscarMiembro(ctx, p.id, usuarioId)) };
+});
+
+ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { rol?: string };
+  if (!b.rol || !ROLES_CLIENTE.includes(b.rol)) validacion([{ campo: "rol", mensaje: "Elige un rol" }]);
+  await buscarMiembro(ctx, p.id, p.usuario);
+  if (b.rol !== "ADMIN_CLIENTE") await protegerUltimoAdmin(ctx, p.id, p.usuario);
+  await ctx.c.query("UPDATE miembro_cliente SET rol = $3::rol_cliente WHERE cliente_id = $1 AND usuario_id = $2", [p.id, p.usuario, b.rol]);
+  return buscarMiembro(ctx, p.id, p.usuario);
+});
+
+ruta("DELETE", "/clientes/:id/miembros/:usuario", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  await buscarMiembro(ctx, p.id, p.usuario);
+  await protegerUltimoAdmin(ctx, p.id, p.usuario);
+  await ctx.c.query("DELETE FROM miembro_cliente WHERE cliente_id = $1 AND usuario_id = $2", [p.id, p.usuario]);
+  await emitirOutbox(ctx, "miembro.retirado", p.id, { usuarioId: p.usuario, retiradoPor: ctx.u.usuarioId });
+  return null;
+});
+
+// ───────────────────────────────────────────── actividad de la ficha (equipo)
+
+const ETIQUETA_ACTIVIDAD: Partial<Record<Estado, S<"ActividadCuenta">["etiqueta"]>> = {
+  LISTO_REVISION: "POR_REVISAR", APROBADO_CLIENTE: "APROBADA", CAMBIOS_SOLICITADOS: "CAMBIOS_SOLICITADOS",
+};
+const ESTADO_LEGIBLE: Record<Estado, string> = {
+  BORRADOR: "borrador", EN_REVISION_INTERNA: "revisión interna", LISTO_REVISION: "revisión del cliente",
+  APROBADO_CLIENTE: "aprobada", CAMBIOS_SOLICITADOS: "cambios solicitados", PUBLICADO: "publicada",
+};
+
+ruta("GET", "/clientes/:id/actividad", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<{ tipo: "EVENTO" | "VERSION"; fecha: Date; pieza_id: string; titulo: string; version_actual: number; estado: Estado | null; version: number | null; usuario: string | null; usuario_tipo: string | null; agente: string | null }>(
+    `SELECT * FROM (
+       SELECT 'EVENTO' AS tipo, e.creado_en AS fecha, p.id AS pieza_id, p.titulo, p.version_actual, e.a_estado AS estado, e.version,
+              u.nombre AS usuario, u.tipo::text AS usuario_tipo, NULL AS agente
+       FROM evento_pieza e JOIN pieza p ON p.id = e.pieza_id LEFT JOIN usuario u ON u.id = e.usuario_id
+       WHERE p.cliente_id = $1
+       UNION ALL
+       SELECT 'VERSION', v.creado_en, p.id, p.titulo, p.version_actual, NULL, v.numero, u.nombre, u.tipo::text, v.agente
+       FROM version_pieza v JOIN pieza p ON p.id = v.pieza_id LEFT JOIN usuario u ON u.id = v.autor_usuario_id
+       WHERE p.cliente_id = $1
+     ) x WHERE fecha <= now() ORDER BY fecha DESC LIMIT 50`,
+    [p.id],
+  );
+  const datos = rows.map((r): S<"ActividadCuenta"> => {
+    const quien = r.usuario_tipo === "EQUIPO" ? `${r.usuario} · Inoo` : r.usuario_tipo === "SERVICIO" ? null : r.usuario ?? r.agente;
+    const anterior = r.version !== null && r.version < r.version_actual ? " No aplica a la versión actual." : "";
+    if (r.tipo === "VERSION") {
+      return { fecha: iso(r.fecha)!, usuarioNombre: quien, descripcion: `Creó la versión ${r.version} de «${r.titulo}».`, piezaId: r.pieza_id, etiqueta: anterior ? "VERSION_ANTERIOR" : null };
+    }
+    const e = r.estado!;
+    const descripcion =
+      e === "APROBADO_CLIENTE" ? `Aprobó la versión ${r.version} de «${r.titulo}».${anterior}`
+      : e === "CAMBIOS_SOLICITADOS" ? `Pidió cambios en la versión ${r.version} de «${r.titulo}».${anterior}`
+      : e === "LISTO_REVISION" ? `Envió la versión ${r.version} de «${r.titulo}» a revisión del cliente.`
+      : e === "PUBLICADO" ? `Publicó «${r.titulo}».`
+      : `Pasó «${r.titulo}» a ${ESTADO_LEGIBLE[e]}.`;
+    return { fecha: iso(r.fecha)!, usuarioNombre: quien, descripcion, piezaId: r.pieza_id, etiqueta: ETIQUETA_ACTIVIDAD[e] ?? null };
+  });
+  return { datos, paginacion: { siguienteCursor: null } };
+});
+
+// ───────────────────────────────────────────── Inicio del cliente («Tu cuenta»)
+
+/** El perfil de marca solo tiene sentido con servicios de marca o contenido (reunión 12 oct). */
+const SERVICIOS_DE_MARCA = ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA"];
+
+/** Lo que el cliente ve hoy: avisos globales y suyos dentro de su ventana, y su aniversario. */
+async function avisosVisibles(ctx: Ctx, clienteId: string, aniversario: string | null, hoy: string): Promise<S<"Aviso">[]> {
+  const { rows } = await ctx.c.query<FilaAviso>(
+    "SELECT * FROM aviso WHERE (cliente_id IS NULL OR cliente_id = $1) AND visible_desde <= $2::date AND fecha_fin >= $2::date ORDER BY fecha_inicio, titulo",
+    [clienteId, hoy],
+  );
+  const xs = rows.map(avisoVista);
+  const anios = aniversarioHoy(aniversario, hoy);
+  if (anios) {
+    xs.unshift({ id: `aniversario-${clienteId}`, clienteId, tipo: "ANIVERSARIO", titulo: `¡Hoy cumplimos ${anios === 1 ? "un año" : `${anios} años`} trabajando juntos!`, mensaje: "Gracias por confiar en Inoo.", fechaInicio: hoy, fechaFin: hoy, visibleDesde: hoy });
+  }
+  return xs;
+}
+
+/** Aviso de Inicio, sin montos (reunión 15 oct): solo si el cliente está atrasado. */
+async function avisoPago(ctx: Ctx, clienteId: string): Promise<S<"InicioCliente">["avisoPago"]> {
+  const x = await estadoPagoDb(ctx, clienteId);
+  return x.situacion === "ATRASADO" ? { situacion: "ATRASADO", diasAtraso: x.diasAtraso } : null;
+}
+
+/** Actividad reciente, breve: aprobaciones del cliente, publicaciones, etapas terminadas y requerimientos. */
+async function actividadReciente(ctx: Ctx, clienteId: string, limite = 4): Promise<NonNullable<S<"InicioCliente">["actividad"]>> {
+  const { rows } = await ctx.c.query<{ fecha: Date; texto: string; tipo: "APROBACION" | "ETAPA" | "REQUERIMIENTO" | "PUBLICACION" }>(
+    `SELECT * FROM (
+       SELECT e.creado_en AS fecha, CASE e.a_estado WHEN 'PUBLICADO' THEN 'Publicamos «' ELSE 'Aprobaste «' END || p.titulo || '»' AS texto,
+              CASE e.a_estado WHEN 'PUBLICADO' THEN 'PUBLICACION' ELSE 'APROBACION' END AS tipo
+       FROM evento_pieza e JOIN pieza p ON p.id = e.pieza_id
+       WHERE p.cliente_id = $1 AND p.tipo <> 'BLOG' AND ((e.a_estado = 'APROBADO_CLIENTE' AND e.canal = 'PORTAL') OR e.a_estado = 'PUBLICADO')
+       UNION ALL
+       SELECT (ep.fecha_fin + time '17:00') AT TIME ZONE 'America/Lima', 'Terminamos «' || ep.nombre || '» de ' || s.nombre, 'ETAPA'
+       FROM etapa_proyecto ep JOIN servicio_contratado sc ON sc.id = ep.servicio_contratado_id JOIN servicio s ON s.id = sc.servicio_id
+       WHERE ep.cliente_id = $1 AND ep.estado = 'COMPLETADO' AND ep.fecha_fin IS NOT NULL
+       UNION ALL
+       SELECT r.emitido_en, 'Te pedimos «' || r.titulo || '»', 'REQUERIMIENTO' FROM requerimiento r WHERE r.cliente_id = $1
+       UNION ALL
+       SELECT r.enviado_en, 'Enviaste «' || r.titulo || '»', 'REQUERIMIENTO' FROM requerimiento r WHERE r.cliente_id = $1 AND r.enviado_en IS NOT NULL
+     ) x WHERE fecha <= now() ORDER BY fecha DESC LIMIT $2`,
+    [clienteId, limite],
+  );
+  return rows.map((r) => ({ fecha: iso(r.fecha)!, texto: r.texto, tipo: r.tipo }));
+}
+
+ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const hoy = HOY_LIMA();
+  const c = (await ctx.c.query<{ nombre: string; marca: Record<string, any>; tono: Record<string, any>; publico: Record<string, any>; drive_url: string | null; fecha_aniversario: Date | null; cp_id: string | null; cp_nombre: string | null; cp_cargo: string | null; cp_email: string | null; am_id: string | null; am_nombre: string | null; am_cargo: string | null; am_email: string | null }>(
+    `SELECT c.nombre, c.marca, c.tono, c.publico, c.drive_url, c.fecha_aniversario,
+            cp.id AS cp_id, cp.nombre AS cp_nombre, cp.cargo AS cp_cargo, cp.email::text AS cp_email,
+            am.id AS am_id, am.nombre AS am_nombre, am.cargo AS am_cargo, am.email::text AS am_email
+     FROM cliente c LEFT JOIN usuario cp ON cp.id = c.contacto_principal_id LEFT JOIN usuario am ON am.id = c.account_manager_id
+     WHERE c.id = $1`,
+    [p.id],
+  )).rows[0];
+  const servicios = await Promise.all((await serviciosDelCliente(ctx, p.id)).map(async (s) => {
+    const { etapas: _e, ...v } = await servicioVista(ctx, s, periodo);
+    return v;
+  }));
+  const pendientes = (await ctx.c.query<FilaPieza>(
+    `${SELECT_PIEZA} WHERE p.cliente_id = $1 AND p.periodo = $2 AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG' ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
+    [p.id, periodo],
+  )).rows;
+  // Figma: «Próxima publicación» es la siguiente pieza que espera la revisión del cliente.
+  const proxima = pendientes.find((x) => x.fecha_programada && iso(x.fecha_programada)!.slice(0, 10) >= hoy);
+  const abiertos = (await ctx.c.query<{ id: string; numero: string; asunto: string; estado: S<"EstadoTicket"> }>(
+    "SELECT id, numero, asunto, estado FROM ticket WHERE cliente_id = $1 AND estado NOT IN ('RESUELTO', 'CERRADO') ORDER BY numero DESC", [p.id],
+  )).rows;
+  const requerimientos = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM requerimiento WHERE cliente_id = $1 AND estado IN ('PENDIENTE', 'OBSERVADO')", [p.id])).rows[0].n;
+  const plan = (await ctx.c.query<{ id: string; nombre: string; fecha_inicio: Date; fecha_fin: Date | null; contrato_archivo_id: string | null }>(
+    "SELECT id, nombre, fecha_inicio, fecha_fin, contrato_archivo_id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id],
+  )).rows[0];
+  const veePagos = ctx.esEquipo ? esFinanzas(ctx) : ctx.u.roles[p.id] === "ADMIN_CLIENTE";
+  const cuota = servicios.reduce((t, s) => t + s.cantidadMensual, 0);
+  const r: S<"InicioCliente"> = {
+    periodo,
+    indicadores: { serviciosActivos: servicios.filter((s) => s.estado === "ACTIVO").length, porAprobar: pendientes.length, ticketsAbiertos: abiertos.length, ideasPorElegir: 0, requerimientosPendientes: requerimientos },
+    plan: plan ? { id: plan.id, nombre: plan.nombre, fechaInicio: fechaIso(plan.fecha_inicio)!, fechaFin: fechaIso(plan.fecha_fin), tieneContrato: !!plan.contrato_archivo_id } : null,
+    cuenta: {
+      nombre: c.nombre,
+      contactoPrincipal: c.cp_id ? { id: c.cp_id, nombre: c.cp_nombre!, cargo: c.cp_cargo, email: c.cp_email ?? undefined } : null,
+      responsable: c.am_id ? { id: c.am_id, nombre: c.am_nombre!, cargo: c.am_cargo, email: c.am_email ?? undefined } : null,
+      driveUrl: c.drive_url,
+    },
+    avisoPago: veePagos ? await avisoPago(ctx, p.id) : null,
+    marca: servicios.some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
+      ? { mensajeCentral: c.marca.mensajeCentral ?? null, campanaActual: c.marca.campanaActual ?? null, descripcion: c.marca.descripcion ?? null, tono: c.tono.etiquetas ?? [], publico: c.publico.descripcion ?? null }
+      : null,
+    avisos: await avisosVisibles(ctx, p.id, fechaIso(c.fecha_aniversario), hoy),
+    actividad: await actividadReciente(ctx, p.id),
+    avanceMes: await progresoPiezas(ctx, null, p.id, periodo, cuota),
+    pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
+    servicios: servicios.map((s) => ({ codigo: s.codigo, nombre: s.nombre, titulo: s.titulo, servicioContratadoId: s.servicioContratadoId, cantidadMensual: s.cantidadMensual, unidad: s.unidad, estado: s.estado, avance: s.avance, responsable: s.responsable })),
+    proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha_programada)! } : null,
+    ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado })),
+  };
+  return r;
+});
+
+// ───────────────────────────────────────────── panel general y bandeja de producción (equipo)
+
+const redondear = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
+
+interface FilaPanelDb {
+  id: string; nombre: string; slug: string; estado: S<"EstadoCliente">; contacto: string | null; am: string | null; am_id: string | null;
+  limite: string; umbral: number; gasto: string; atrasadas: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
+}
+
+/** Una fila por cliente (sin los dados de baja): atrasos, aprobaciones, tickets y gasto de IA del mes. */
+async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelCliente"> & { amId: string | null })[]> {
+  const { rows } = await ctx.c.query<FilaPanelDb>(
+    `SELECT c.id, c.nombre, c.slug, c.estado, cp.nombre AS contacto, am.nombre AS am, am.id AS am_id,
+            c.limite_gasto_ia_usd AS limite, c.umbral_alerta_pct AS umbral,
+            coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.cliente_id = c.id
+                      AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1), 0) AS gasto,
+            (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado <> 'PUBLICADO' AND p.fecha_programada < now()) AS atrasadas,
+            (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG') AS por_aprobar,
+            (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')) AS tickets_abiertos,
+            (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')
+               AND t.primera_respuesta_en IS NULL AND t.sla_primera_respuesta_en < now()) AS tickets_fuera_sla,
+            (SELECT json_object_agg(estado, n) FROM (SELECT p.estado, count(*)::int AS n FROM pieza p
+               WHERE p.cliente_id = c.id AND p.periodo = $1 GROUP BY p.estado) x) AS piezas
+     FROM cliente c LEFT JOIN usuario cp ON cp.id = c.contacto_principal_id LEFT JOIN usuario am ON am.id = c.account_manager_id
+     WHERE c.estado <> 'BAJA' ORDER BY c.nombre`,
+    [periodo],
+  );
+  return rows.map((c) => {
+    const gasto = redondear(Number(c.gasto));
+    const limite = Number(c.limite);
+    const pct = Math.round((gasto / limite) * 100);
+    return {
+      cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: c.estado, logoUrl: null },
+      contactoPrincipalNombre: c.contacto,
+      accountManagerNombre: c.am,
+      amId: c.am_id,
+      estadoOperativo: c.atrasadas > 0 ? "ATENCION" : c.por_aprobar === 0 ? "AL_DIA" : "EN_CURSO",
+      atrasadas: c.atrasadas,
+      porAprobar: c.por_aprobar,
+      piezas: c.piezas ?? {},
+      ticketsAbiertos: c.tickets_abiertos,
+      ticketsFueraSla: c.tickets_fuera_sla,
+      gastoIa: { gastoUsd: gasto, limiteUsd: limite, pctLimite: pct, alerta: pct >= c.umbral },
+    };
+  });
+}
+
+function filtrarPanel<T extends S<"FilaPanelCliente"> & { amId: string | null }>(filas: T[], q: URLSearchParams): T[] {
+  let xs = filas;
+  const texto = q.get("q")?.toLowerCase();
+  if (texto) xs = xs.filter((f) => f.cliente.nombre.toLowerCase().includes(texto) || (f.contactoPrincipalNombre ?? "").toLowerCase().includes(texto));
+  if (q.get("estadoOperativo")) xs = xs.filter((f) => f.estadoOperativo === q.get("estadoOperativo"));
+  if (q.get("accountManagerId")) xs = xs.filter((f) => f.amId === q.get("accountManagerId"));
+  return xs;
+}
+
+ruta("GET", "/panel/clientes", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const todas = await filasPanel(ctx, periodo);
+  const gasto = redondear(todas.reduce((t, f) => t + f.gastoIa.gastoUsd, 0));
+  const limite = todas.reduce((t, f) => t + f.gastoIa.limiteUsd, 0);
+  const resumen: S<"ResumenAgencia"> = {
+    clientesActivos: todas.filter((f) => f.cliente.estado === "ACTIVO").length,
+    piezasAtrasadas: todas.reduce((t, f) => t + f.atrasadas, 0),
+    atrasadasPorCliente: todas.filter((f) => f.atrasadas).map((f) => ({ clienteNombre: f.cliente.nombre, atrasadas: f.atrasadas })),
+    aprobacionesPendientes: todas.reduce((t, f) => t + f.porAprobar, 0),
+    gastoIaUsd: gasto,
+    limiteIaUsd: limite,
+    pctLimite: limite ? Math.round((gasto / limite) * 1000) / 10 : 0,
+    clientesSobreUmbral: todas.filter((f) => f.gastoIa.alerta).map((f) => ({ clienteId: f.cliente.id, clienteNombre: f.cliente.nombre, gastoUsd: f.gastoIa.gastoUsd, limiteUsd: f.gastoIa.limiteUsd, pctLimite: f.gastoIa.pctLimite })),
+  };
+  const datos = filtrarPanel(todas, q).map(({ amId: _a, ...f }) => f);
+  return { resumen, datos, paginacion: { siguienteCursor: null, total: datos.length } };
+});
+
+/** Un campo de CSV: entre comillas si lleva coma, comillas o salto de línea. */
+const campoCsv = (v: unknown) => {
+  const t = v === null || v === undefined ? "" : String(v);
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+
+ruta("GET", "/panel/clientes/exportar", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
+  const filas = filtrarPanel(await filasPanel(ctx, periodo), q);
+  const csv = ["cliente,contacto,estado,atrasadas,por_aprobar,tickets_abiertos,gasto_ia_usd,limite_ia_usd"]
+    .concat(filas.map((f) => [f.cliente.nombre, f.contactoPrincipalNombre, f.estadoOperativo, f.atrasadas, f.porAprobar, f.ticketsAbiertos, f.gastoIa.gastoUsd, f.gastoIa.limiteUsd].map(campoCsv).join(",")))
+    .join("\n");
+  return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="panel-${periodo}.csv"` } });
+});
+
+const COLUMNA_BANDEJA: Record<Estado, S<"ColumnaBandeja">> = {
+  BORRADOR: "BORRADOR", EN_REVISION_INTERNA: "BORRADOR", LISTO_REVISION: "EN_REVISION", APROBADO_CLIENTE: "APROBADO", CAMBIOS_SOLICITADOS: "CAMBIOS_SOLICITADOS", PUBLICADO: "PUBLICADO",
+};
+const ORDEN_BANDEJA: S<"ColumnaBandeja">[] = ["BORRADOR", "EN_REVISION", "APROBADO", "CAMBIOS_SOLICITADOS", "PUBLICADO"];
+
+ruta("GET", "/panel/piezas", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const filtros: string[] = [];
+  const params: unknown[] = [];
+  const agregar = (sql: string, v: unknown) => {
+    params.push(v);
+    filtros.push(sql.replace("?", `$${params.length}`));
+  };
+  const cliente = q.get("clienteId");
+  if (cliente) agregar("p.cliente_id = ?", esUuid(cliente) ? cliente : "00000000-0000-0000-0000-000000000000");
+  if (q.get("periodo")) agregar("p.periodo = ?", exigirPeriodo(q.get("periodo")));
+  const servicio = q.get("servicioContratadoId");
+  if (servicio) agregar("p.servicio_contratado_id = ?", esUuid(servicio) ? servicio : "00000000-0000-0000-0000-000000000000");
+  if (q.get("origen")) agregar("coalesce(lv.autor_tipo::text, 'AGENTE') = ?", q.get("origen"));
+  const { rows } = await ctx.c.query<FilaPieza & { cliente_nombre: string }>(
+    `${SELECT_PIEZA.replace("FROM pieza p", "FROM pieza p JOIN cliente cl ON cl.id = p.cliente_id").replace("SELECT p.*,", "SELECT p.*, cl.nombre AS cliente_nombre,")}
+     ${filtros.length ? `WHERE ${filtros.join(" AND ")}` : ""} ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
+    params,
+  );
+  const ahora = Date.now();
+  const atrasada = (x: FilaPieza) => x.estado !== "PUBLICADO" && !!x.fecha_programada && new Date(x.fecha_programada).getTime() < ahora;
+  const porColumna = Math.min(Math.max(Number(q.get("porColumna") ?? 10) || 10, 1), 50);
+  const soloColumna = q.get("columna");
+  const desde = Math.max(Number(q.get("cursor") ?? 0) || 0, 0);
+  const n = (...es: Estado[]) => rows.filter((x) => es.includes(x.estado)).length;
+  let alertaGastoIa: S<"BandejaProduccion">["alertaGastoIa"] = null;
+  if (cliente && esUuid(cliente)) {
+    const f = (await filasPanel(ctx, PERIODO_ACTUAL())).find((x) => x.cliente.id === cliente);
+    if (f?.gastoIa.alerta) alertaGastoIa = { clienteNombre: f.cliente.nombre, gastoUsd: f.gastoIa.gastoUsd, limiteUsd: f.gastoIa.limiteUsd, pctLimite: f.gastoIa.pctLimite };
+  }
+  const r: S<"BandejaProduccion"> = {
+    resumen: { total: rows.length, atrasadas: rows.filter(atrasada).length, aprobadas: n("APROBADO_CLIENTE", "PUBLICADO"), publicadas: n("PUBLICADO"), porRevisar: n("LISTO_REVISION"), enProduccion: n("BORRADOR", "EN_REVISION_INTERNA", "CAMBIOS_SOLICITADOS") },
+    alertaGastoIa,
+    columnas: ORDEN_BANDEJA.filter((col) => !soloColumna || col === soloColumna).map((col) => {
+      const de = rows.filter((x) => COLUMNA_BANDEJA[x.estado] === col);
+      const inicio = soloColumna ? desde : 0;
+      const pagina = de.slice(inicio, inicio + porColumna);
+      return {
+        columna: col,
+        total: de.length,
+        piezas: pagina.map((x) => ({ ...resumenPieza(ctx, x), clienteNombre: x.cliente_nombre, atrasada: atrasada(x) })),
+        siguienteCursor: inicio + porColumna < de.length ? String(inicio + porColumna) : null,
+      };
+    }),
+  };
+  return r;
+});
+
+// «Nueva pieza» desde la bandeja: la hace una persona del equipo y nace en BORRADOR con su versión 1.
+ruta("POST", "/clientes/:id/piezas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Los agentes crean piezas por /integraciones/piezas");
+  await accesoCliente(ctx, p.id);
+  const b = (await cuerpo()) as Partial<S<"PiezaEntrada">>;
+  const errores: { campo: string; mensaje: string }[] = [];
+  const tipos = (await ctx.c.query<{ t: string }>("SELECT unnest(enum_range(NULL::tipo_pieza))::text AS t")).rows.map((r) => r.t);
+  if (!b.tipo || !tipos.includes(b.tipo)) errores.push({ campo: "tipo", mensaje: "Indica el tipo de pieza" });
+  if (!b.titulo?.trim()) errores.push({ campo: "titulo", mensaje: "Escribe un título" });
+  if (b.periodo !== undefined && !PERIODO_RE.test(b.periodo)) errores.push({ campo: "periodo", mensaje: "Formato AAAA-MM" });
+  if (b.fechaProgramada && Number.isNaN(Date.parse(b.fechaProgramada))) errores.push({ campo: "fechaProgramada", mensaje: "Fecha inválida" });
+  if (b.servicioContratadoId && !(esUuid(b.servicioContratadoId) && (await ctx.c.query("SELECT 1 FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [b.servicioContratadoId, p.id])).rows.length)) {
+    errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
+  }
+  if (b.responsableId && !(esUuid(b.responsableId) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [b.responsableId])).rows.length)) {
+    errores.push({ campo: "responsableId", mensaje: "El responsable debe ser del equipo" });
+  }
+  validacion(errores);
+  const fecha = b.fechaProgramada ?? `${HOY_LIMA()}T15:00:00Z`;
+  const periodo = b.periodo ?? new Date(Date.parse(fecha) - 5 * 3_600_000).toISOString().slice(0, 7);
+  const servicioId = b.servicioContratadoId ?? (await servicioParaTipo(ctx, p.id, b.tipo!));
+  const { rows } = await ctx.c.query<{ id: string }>(
+    `INSERT INTO pieza (cliente_id, servicio_contratado_id, tipo, titulo, resumen, canal, periodo, fecha_programada, responsable_id, nota_estado)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+    [p.id, servicioId, b.tipo, b.titulo!.trim(), b.resumen?.trim() || null, b.canal ?? (b.tipo === "BLOG" ? "Blog web" : "Instagram"), periodo, fecha, b.responsableId ?? ctx.u.usuarioId, NOTA_ESTADO.BORRADOR],
+  );
+  const pieza = await buscarPieza(ctx, rows[0].id);
+  // Sin contenido todavía: una versión 1 vacía que el equipo completa desde el detalle.
+  await nuevaVersion(ctx, pieza, b.version ?? { contenido: { tipo: "COPY", copy: "" } as S<"ContenidoPieza">, enviarARevisionInterna: false }, "PERSONA");
+  return { __status: 201, ...(await piezaCompleta(ctx, await buscarPieza(ctx, pieza.id))) };
+});
+
+ruta("PATCH", "/piezas/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const pieza = await buscarPieza(ctx, p.id);
+  const b = (await cuerpo()) as { titulo?: string; fechaProgramada?: string | null; etiquetas?: string[]; aptaPaidMedia?: boolean; responsableId?: string | null };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.titulo !== undefined && !String(b.titulo).trim()) errores.push({ campo: "titulo", mensaje: "El título no puede quedar vacío" });
+  if (b.fechaProgramada && Number.isNaN(Date.parse(b.fechaProgramada))) errores.push({ campo: "fechaProgramada", mensaje: "Fecha inválida" });
+  if (b.etiquetas !== undefined && (!Array.isArray(b.etiquetas) || b.etiquetas.some((e) => typeof e !== "string"))) errores.push({ campo: "etiquetas", mensaje: "Lista de textos" });
+  if (b.responsableId && !(esUuid(b.responsableId) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [b.responsableId])).rows.length)) {
+    errores.push({ campo: "responsableId", mensaje: "El responsable debe ser del equipo" });
+  }
+  validacion(errores);
+  const cambios: [string, unknown][] = [];
+  if (b.titulo) cambios.push(["titulo", b.titulo.trim()]);
+  if (b.fechaProgramada !== undefined) cambios.push(["fecha_programada", b.fechaProgramada]);
+  if (b.etiquetas) cambios.push(["etiquetas", [...new Set(b.etiquetas.map((e) => e.trim()).filter(Boolean))]]);
+  if (b.aptaPaidMedia !== undefined) cambios.push(["apta_paid_media", !!b.aptaPaidMedia]);
+  if (b.responsableId !== undefined) cambios.push(["responsable_id", b.responsableId]);
+  if (cambios.length) {
+    await ctx.c.query(`UPDATE pieza SET ${cambios.map(([k], i) => `${k} = $${i + 2}`).join(", ")}, actualizado_en = now() WHERE id = $1`, [pieza.id, ...cambios.map(([, v]) => v)]);
+  }
+  return piezaCompleta(ctx, await buscarPieza(ctx, pieza.id));
+});
+
+// ───────────────────────────────────────────── costos de IA y ejecuciones (ADM-01, solo ADMIN)
+
+ruta("GET", "/panel/costos-ia", async (ctx, _p, q) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo con rol ADMIN");
+  exigirRol(ctx, null, ["ADMIN"]);
+  const periodo = exigirPeriodo(q.get("periodo"));
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; limite: string; modelo: string | null; entrada: string; salida: string; imagenes: string; costo: string }>(
+    `SELECT c.id, c.nombre, c.limite_gasto_ia_usd AS limite, m.modelo,
+            coalesce(sum(m.tokens_entrada), 0) AS entrada, coalesce(sum(m.tokens_salida), 0) AS salida,
+            coalesce(sum(m.imagenes), 0) AS imagenes, coalesce(sum(m.costo_usd), 0) AS costo
+     FROM cliente c LEFT JOIN consumo_modelo m ON m.cliente_id = c.id AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1
+     WHERE c.estado <> 'BAJA' GROUP BY c.id, c.nombre, c.limite_gasto_ia_usd, m.modelo`,
+    [periodo],
+  );
+  const porCliente = new Map<string, S<"ReporteCostos">["clientes"][number]>();
+  for (const r of rows) {
+    const c = porCliente.get(r.id) ?? { clienteId: r.id, nombre: r.nombre, gastoUsd: 0, limiteUsd: Number(r.limite), pctLimite: 0, porModelo: [] };
+    if (r.modelo) {
+      c.porModelo.push({ modelo: r.modelo, tokensEntrada: Number(r.entrada), tokensSalida: Number(r.salida), imagenes: Number(r.imagenes), costoUsd: redondear(Number(r.costo)) });
+      c.gastoUsd = redondear(c.gastoUsd + Number(r.costo));
+    }
+    porCliente.set(r.id, c);
+  }
+  const clientes = [...porCliente.values()].map((c) => ({ ...c, pctLimite: Math.round((c.gastoUsd / c.limiteUsd) * 1000) / 10, porModelo: c.porModelo.sort((a, b) => (b.costoUsd ?? 0) - (a.costoUsd ?? 0)) }));
+  const r: S<"ReporteCostos"> = { periodo, totalUsd: redondear(clientes.reduce((t, c) => t + c.gastoUsd, 0)), clientes: clientes.sort((a, b) => b.pctLimite - a.pctLimite || a.nombre.localeCompare(b.nombre)) };
+  return r;
+});
+
+/** Enlace a la ejecución en n8n si se configuró N8N_URL (p. ej. https://n8n.inoo.pe). */
+const urlEjecucionN8n = (workflow: string | null, ejecucion: string | null) => {
+  const base = process.env.N8N_URL?.replace(/\/$/, "");
+  return base && workflow && ejecucion ? `${base}/workflow/${workflow}/executions/${ejecucion}` : null;
+};
+
+ruta("GET", "/panel/ejecuciones", async (ctx, _p, q) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo con rol ADMIN");
+  exigirRol(ctx, null, ["ADMIN"]);
+  const limite = Math.min(Math.max(Number(q.get("limite") ?? 50) || 50, 1), 200);
+  const desde = Math.max(Number(q.get("cursor") ?? 0) || 0, 0);
+  const cliente = q.get("clienteId");
+  const { rows } = await ctx.c.query<{ id: string; cliente_id: string; cliente_nombre: string; agente: string; estado: S<"EstadoEjecucion">; pieza_id: string | null; costo: string; error: string | null; n8n_workflow_id: string | null; n8n_execution_id: string | null; iniciado_en: Date; finalizado_en: Date | null; total: number }>(
+    `SELECT e.*, c.nombre AS cliente_nombre, coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.ejecucion_id = e.id), 0) AS costo, count(*) OVER ()::int AS total
+     FROM ejecucion_agente e JOIN cliente c ON c.id = e.cliente_id
+     WHERE ($1::uuid IS NULL OR e.cliente_id = $1) AND ($2::text IS NULL OR e.agente = $2) AND ($3::text IS NULL OR e.estado::text = $3)
+     ORDER BY e.iniciado_en DESC, e.id LIMIT $4 OFFSET $5`,
+    [cliente && esUuid(cliente) ? cliente : null, q.get("agente"), q.get("estado"), limite, desde],
+  );
+  const total = rows[0]?.total ?? 0;
+  const datos = rows.map((e): S<"Ejecucion"> => ({
+    id: e.id, clienteId: e.cliente_id, clienteNombre: e.cliente_nombre, agente: e.agente, estado: e.estado, piezaId: e.pieza_id, costoUsd: redondear(Number(e.costo), 4),
+    error: e.error, n8nExecutionUrl: urlEjecucionN8n(e.n8n_workflow_id, e.n8n_execution_id), iniciadoEn: iso(e.iniciado_en)!, finalizadoEn: iso(e.finalizado_en),
+  }));
+  return { datos, paginacion: { siguienteCursor: desde + limite < total ? String(desde + limite) : null, total } };
+});
+
+// ───────────────────────────────────────────── archivos en S3 (subida en 3 pasos) y descargas
+
+const MIME_ARCHIVO = /^(image\/(jpeg|png)|video\/mp4|application\/pdf|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/;
+const USOS_SUBIDA = ["BRIEF", "ADJUNTO_TICKET", "BIBLIOTECA", "REQUERIMIENTO"];
+
+interface FilaArchivo {
+  id: string; cliente_id: string; origen: string; almacen: "S3" | "DRIVE"; s3_key: string | null; drive_file_id: string | null;
+  nombre: string; mime: string; bytes: string | null; categoria: string | null; etiquetas: string[]; uso: string; brief_id: string | null;
+  estado: string; declara_derechos: boolean; subido_por: string | null; subido_por_nombre: string | null; creado_en: Date;
+}
+const SELECT_ARCHIVO = "SELECT a.*, u.nombre AS subido_por_nombre FROM archivo a LEFT JOIN usuario u ON u.id = a.subido_por";
+
+/** URL temporal del archivo: prefirmada en S3, o el enlace de descarga de Drive. */
+function urlArchivo(a: Pick<FilaArchivo, "almacen" | "s3_key" | "drive_file_id" | "nombre">): S<"UrlFirmada"> {
+  if (a.almacen === "DRIVE") {
+    return { url: `https://drive.google.com/uc?export=download&id=${encodeURIComponent(a.drive_file_id!)}`, expiraEn: new Date(Date.now() + 900_000).toISOString(), nombreArchivo: a.nombre };
+  }
+  return { ...almacen().urlDescarga(a.s3_key!, a.nombre), nombreArchivo: a.nombre };
+}
+
+/** Miniatura de imágenes; sin almacén configurado la lista funciona igual, solo sin vista previa. */
+function miniatura(a: Pick<FilaArchivo, "almacen" | "s3_key" | "mime" | "nombre" | "estado" | "drive_file_id">): string | null {
+  if (!a.mime.startsWith("image/") || a.almacen !== "S3" || a.estado === "PENDIENTE_SUBIDA") return null;
+  try {
+    return almacen().urlDescarga(a.s3_key!, a.nombre, 3600).url;
+  } catch {
+    return null;
+  }
+}
+
+const archivoVista = (a: FilaArchivo): S<"Archivo"> => ({
+  id: a.id, nombre: a.nombre, mime: a.mime, bytes: a.bytes === null ? null : Number(a.bytes), miniaturaUrl: miniatura(a),
+  origen: a.origen as S<"Archivo">["origen"], categoria: a.categoria, etiquetas: a.etiquetas, uso: a.uso as S<"Archivo">["uso"],
+  estado: a.estado as S<"Archivo">["estado"], declaraDerechos: a.declara_derechos, subidoPor: persona(a.subido_por, a.subido_por_nombre), creadoEn: iso(a.creado_en)!,
+});
+
+async function buscarArchivo(ctx: Ctx, id: string): Promise<FilaArchivo> {
+  const { rows } = esUuid(id) ? await ctx.c.query<FilaArchivo>(`${SELECT_ARCHIVO} WHERE a.id = $1 AND a.estado <> 'ELIMINADO'`, [id]) : { rows: [] };
+  if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese archivo");
+  await accesoCliente(ctx, rows[0].cliente_id);
+  return rows[0];
+}
+
+/** Nombre seguro para la clave en S3 (el nombre original se conserva en la base y en la descarga). */
+const nombreEnClave = (n: string) => n.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "archivo";
+
+ruta("POST", "/clientes/:id/archivos", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  const b = (await cuerpo()) as { nombre?: unknown; mime?: unknown; bytes?: unknown; uso?: unknown; briefPeriodo?: unknown; categoria?: unknown; etiquetas?: unknown; declaraDerechos?: unknown };
+  const uso = typeof b.uso === "string" ? b.uso : "BRIEF";
+  if (uso !== "ADJUNTO_TICKET") exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!USOS_SUBIDA.includes(uso)) errores.push({ campo: "uso", mensaje: "Usa BRIEF, ADJUNTO_TICKET, BIBLIOTECA o REQUERIMIENTO" });
+  if (typeof b.nombre !== "string" || !b.nombre.trim() || b.nombre.length > 255) errores.push({ campo: "nombre", mensaje: "Indica el nombre del archivo (máximo 255 caracteres)" });
+  if (typeof b.mime !== "string") errores.push({ campo: "mime", mensaje: "Indica el tipo de archivo" });
+  if (!Number.isInteger(b.bytes) || (b.bytes as number) < 1) errores.push({ campo: "bytes", mensaje: "Indica el tamaño en bytes" });
+  validacion(errores);
+  const limite = uso === "ADJUNTO_TICKET" ? 10 : 100;
+  if ((b.bytes as number) > limite * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", `El archivo supera ${limite} MB`);
+  if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", "Usa JPG, PNG, MP4, PDF, DOCX o XLSX.");
+  if (uso === "BIBLIOTECA" && b.declaraDerechos !== true) {
+    throw new ErrorApi(422, "DERECHOS_REQUERIDOS", "Declara que tienes los derechos de uso del archivo", undefined, [{ campo: "declaraDerechos", mensaje: "Obligatorio para la biblioteca" }]);
+  }
+  let briefId: string | null = null;
+  if (uso === "BRIEF") {
+    const brief = await asegurarBrief(ctx, p.id, exigirPeriodo(typeof b.briefPeriodo === "string" ? b.briefPeriodo : PERIODO_ACTUAL(), "briefPeriodo"));
+    if (brief.estado !== "BORRADOR") throw new ErrorApi(409, "BRIEF_ENVIADO", "El brief ya se envió al equipo");
+    briefId = brief.id;
+  }
+  const id = crypto.randomUUID();
+  const nombre = (b.nombre as string).trim();
+  const clave = `clientes/${p.id}/${uso.toLowerCase()}/${id}/${nombreEnClave(nombre)}`;
+  const subida = almacen().urlSubida(clave, b.mime as string);
+  const etiquetas = Array.isArray(b.etiquetas) ? [...new Set(b.etiquetas.filter((e): e is string => typeof e === "string").map((e) => e.trim()).filter(Boolean))] : [];
+  const declara = uso === "BIBLIOTECA";
+  await ctx.c.query(
+    `INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, bytes, categoria, etiquetas, uso, brief_id, subido_por, declara_derechos, declarado_por, declarado_en)
+     VALUES ($1, $2, $3, 'S3', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 THEN $12::uuid END, CASE WHEN $13 THEN now() END)`,
+    [id, p.id, ctx.esEquipo ? "EQUIPO" : "CLIENTE", clave, nombre, b.mime, b.bytes, typeof b.categoria === "string" ? b.categoria : null, etiquetas, uso, briefId, ctx.u.usuarioId, declara],
+  );
+  return { __status: 201, archivo: archivoVista(await buscarArchivo(ctx, id)), subida: { metodo: "PUT", url: subida.url, headers: subida.headers, expiraEn: subida.expiraEn } };
+});
+
+ruta("POST", "/archivos/:id/confirmar", async (ctx, p) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.estado !== "PENDIENTE_SUBIDA") return archivoVista(a);
+  const bytes = await almacen().tamano(a.s3_key!);
+  if (bytes === null) throw new ErrorApi(409, "ARCHIVO_NO_SUBIDO", "Todavía no recibimos el archivo", "Vuelve a subirlo e inténtalo de nuevo.");
+  // La biblioteca ya trae la declaración de derechos; lo demás queda SUBIDO hasta que se envía (brief, requerimiento).
+  const estado = a.uso === "BIBLIOTECA" ? "DISPONIBLE" : "SUBIDO";
+  await ctx.c.query("UPDATE archivo SET estado = $2, bytes = $3 WHERE id = $1", [a.id, estado, bytes]);
+  await emitirOutbox(ctx, "archivo.subido", a.cliente_id, { archivoId: a.id, uso: a.uso, usuarioId: ctx.u.usuarioId });
+  return archivoVista(await buscarArchivo(ctx, a.id));
+});
+
+ruta("GET", "/clientes/:id/archivos", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const limite = Math.min(Math.max(Number(q.get("limite")) || 50, 1), 100);
+  const desde = Math.max(Number(q.get("cursor")) || 0, 0);
+  // La biblioteca de la marca y los archivos de briefs ya enviados (los que firmaron derechos).
+  const filtro = `a.cliente_id = $1 AND a.estado = 'DISPONIBLE' AND a.uso IN ('BIBLIOTECA', 'BRIEF')
+    AND ($2::text IS NULL OR a.categoria = $2) AND ($3::text IS NULL OR $3 = ANY (a.etiquetas))`;
+  const params = [p.id, q.get("categoria"), q.get("etiqueta")];
+  const total = Number((await ctx.c.query<{ n: string }>(`SELECT count(*) AS n FROM archivo a WHERE ${filtro}`, params)).rows[0].n);
+  const { rows } = await ctx.c.query<FilaArchivo>(`${SELECT_ARCHIVO} WHERE ${filtro} ORDER BY a.uso DESC, a.creado_en DESC, a.id LIMIT $4 OFFSET $5`, [...params, limite, desde]);
+  return { datos: rows.map(archivoVista), paginacion: { siguienteCursor: desde + rows.length < total ? String(desde + rows.length) : null, total } };
+});
+
+ruta("PATCH", "/archivos/:id", async (ctx, p, _q, cuerpo) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.uso !== "BIBLIOTECA") throw new ErrorApi(409, "ARCHIVO_DE_BRIEF", "Los archivos del brief se editan desde el brief");
+  exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = (await cuerpo()) as { nombre?: unknown; categoria?: unknown; etiquetas?: unknown };
+  if (b.nombre !== undefined && (typeof b.nombre !== "string" || !b.nombre.trim())) validacion([{ campo: "nombre", mensaje: "El nombre no puede quedar vacío" }]);
+  const cambios: [string, unknown][] = [];
+  if (typeof b.nombre === "string") cambios.push(["nombre", b.nombre.trim()]);
+  if (b.categoria !== undefined) cambios.push(["categoria", typeof b.categoria === "string" && b.categoria ? b.categoria : null]);
+  if (Array.isArray(b.etiquetas)) cambios.push(["etiquetas", [...new Set(b.etiquetas.filter((e): e is string => typeof e === "string").map((e) => e.trim()).filter(Boolean))]]);
+  if (cambios.length) {
+    await ctx.c.query(`UPDATE archivo SET ${cambios.map(([c], i) => `${c} = $${i + 2}`).join(", ")} WHERE id = $1`, [a.id, ...cambios.map(([, v]) => v)]);
+  }
+  return archivoVista(await buscarArchivo(ctx, a.id));
+});
+
+ruta("DELETE", "/archivos/:id", async (ctx, p) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.uso === "BIBLIOTECA") exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  else if (a.estado === "DISPONIBLE" || ["CONTRATO", "INFORME", "ENTREGABLE"].includes(a.uso)) {
+    throw new ErrorApi(409, "ARCHIVO_EN_USO", "Este archivo ya se envió al equipo", "Si necesitas cambiarlo, escríbele a tu equipo Inoo.");
+  } else if (a.subido_por !== ctx.u.usuarioId) exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  // Borrado lógico: el objeto en S3 lo limpia la regla de ciclo de vida del bucket.
+  await ctx.c.query("UPDATE archivo SET estado = 'ELIMINADO' WHERE id = $1", [a.id]);
+  return null;
+});
+
+ruta("GET", "/archivos/:id/descarga", async (ctx, p) => {
+  const a = await buscarArchivo(ctx, p.id);
+  if (a.estado === "PENDIENTE_SUBIDA") throw new ErrorApi(409, "ARCHIVO_NO_SUBIDO", "Este archivo todavía no termina de subirse");
+  return urlArchivo(a);
+});
+
+ruta("GET", "/piezas/:id/descarga", async (ctx, p, q) => {
+  const pieza = await buscarPieza(ctx, p.id);
+  // El cliente descarga lo que revisó (la versión enviada); el equipo puede pedir cualquier versión.
+  const pedida = q.get("version") && ctx.esEquipo ? Number(q.get("version")) : null;
+  const numero = pedida ?? (ctx.esEquipo ? pieza.version_actual : pieza.version_cliente);
+  const { rows } = await ctx.c.query<FilaArchivo>(
+    `SELECT a.* FROM version_pieza v JOIN archivo a ON a.id = v.archivo_id AND a.estado <> 'ELIMINADO' WHERE v.pieza_id = $1 AND v.numero = $2`,
+    [pieza.id, numero],
+  );
+  if (!rows[0]) throw new ErrorApi(404, "SIN_ARCHIVO", "Esta versión no tiene un archivo para descargar");
+  return urlArchivo(rows[0]);
+});
+
+ruta("GET", "/clientes/:id/plan/contrato", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaArchivo>(
+    "SELECT a.* FROM plan_cliente pl JOIN archivo a ON a.id = pl.contrato_archivo_id AND a.estado <> 'ELIMINADO' WHERE pl.cliente_id = $1 AND pl.vigente",
+    [p.id],
+  );
+  if (!rows[0]) throw new ErrorApi(404, "SIN_CONTRATO", "Todavía no cargamos el contrato de tu plan", "Pídeselo a tu equipo Inoo.");
+  return urlArchivo(rows[0]);
+});
+
+// ───────────────────────────────────────────── resultados (PRG-01) e informe
+
+const ETIQUETA_INDICADOR: Record<string, string> = {
+  ALCANCE: "Alcance en redes", VISITAS_SITIO: "Visitas al sitio", CONTACTOS: "Contactos recibidos", COMPRAS: "Compras registradas", CONVERSION: "Conversión a compra",
+};
+const sumarDias = (f: string, n: number) => new Date(Date.parse(`${f}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+/** Mismo tramo del mes anterior (1–6 oct → 1–6 sep). */
+function mesAnterior(f: string) {
+  const d = new Date(`${f}T00:00:00Z`);
+  const dia = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  const ultimo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(dia, ultimo));
+  return d.toISOString().slice(0, 10);
+}
+const variacion = (actual: number, antes: number) => (antes > 0 ? Math.round(((actual - antes) / antes) * 1000) / 10 : null);
+
+ruta("GET", "/clientes/:id/reportes/resultados", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const hoy = HOY_LIMA();
+  const fechaOk = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
+  const hasta = fechaOk(q.get("hasta")) ?? hoy;
+  const desde = fechaOk(q.get("desde")) ?? `${hasta.slice(0, 7)}-01`;
+  if (desde > hasta) validacion([{ campo: "desde", mensaje: "La fecha inicial va antes que la final" }]);
+  const comparativa = { desde: mesAnterior(desde), hasta: mesAnterior(hasta) };
+  const { rows } = await ctx.c.query<{ fecha: Date; canal: string; metrica: string; valor: string; es_muestra: boolean; actual: boolean }>(
+    `SELECT fecha, canal, metrica, valor, es_muestra, fecha >= $2 AS actual FROM metrica_cliente
+     WHERE cliente_id = $1 AND ((fecha BETWEEN $2 AND $3) OR (fecha BETWEEN $4 AND $5)) ORDER BY fecha`,
+    [p.id, desde, hasta, comparativa.desde, comparativa.hasta],
+  );
+  const actuales = rows.filter((r) => r.actual);
+  // Total de una métrica: la fila TOTAL si n8n la cargó; si no, la suma de los canales.
+  const total = (xs: typeof rows, metrica: string) => {
+    const m = xs.filter((r) => r.metrica === metrica);
+    const conTotal = m.filter((r) => r.canal === "TOTAL");
+    return (conTotal.length ? conTotal : m).reduce((s, r) => s + Number(r.valor), 0);
+  };
+  const tiene = (metrica: string) => actuales.some((r) => r.metrica === metrica);
+  const previas = rows.filter((r) => !r.actual);
+  const indicadores: S<"ReporteResultados">["indicadores"] = ["ALCANCE", "VISITAS_SITIO", "CONTACTOS", "COMPRAS"].filter(tiene).map((clave) => ({
+    clave: clave as "ALCANCE", etiqueta: ETIQUETA_INDICADOR[clave], valor: total(actuales, clave), unidad: null, detalle: null, variacionPct: variacion(total(actuales, clave), total(previas, clave)),
+  }));
+  if (tiene("COMPRAS") && total(actuales, "VISITAS_SITIO") > 0) {
+    const compras = total(actuales, "COMPRAS");
+    const visitas = total(actuales, "VISITAS_SITIO");
+    indicadores.push({ clave: "CONVERSION", etiqueta: ETIQUETA_INDICADOR.CONVERSION, valor: Math.round((compras / visitas) * 1000) / 10, unidad: "%", detalle: `${compras} compras / ${visitas} visitas`, variacionPct: null });
+  }
+  // Rendimiento por canal: visitas al sitio que trae cada canal, día a día.
+  const canales = [...new Set(actuales.filter((r) => r.metrica === "VISITAS_SITIO" && r.canal !== "TOTAL").map((r) => r.canal))].map((canal) => {
+    const serie = actuales.filter((r) => r.canal === canal && r.metrica === "VISITAS_SITIO");
+    const suma = serie.reduce((s, r) => s + Number(r.valor), 0);
+    const antes = previas.filter((r) => r.canal === canal && r.metrica === "VISITAS_SITIO").reduce((s, r) => s + Number(r.valor), 0);
+    return { canal, metrica: "VISITAS_SITIO" as const, total: suma, variacionPct: variacion(suma, antes), puntos: serie.map((r) => ({ fecha: fechaIso(r.fecha)!, valor: Number(r.valor) })) };
+  });
+  const periodo = desde.slice(0, 7);
+  const etapas = await ctx.c.query<{ orden: number; nombre: string; descripcion: string | null; metrica: string | null; valor: string | null; fuente: string | null }>(
+    `SELECT e.orden, e.nombre, e.descripcion, e.metrica, v.valor, v.fuente FROM journey_etapa e
+     LEFT JOIN journey_valor v ON v.etapa_id = e.id AND v.periodo = $2 WHERE e.cliente_id = $1 ORDER BY e.orden`,
+    [p.id, periodo],
+  );
+  const recorrido = etapas.rows.map((e) => {
+    const desdeMetricas = e.metrica && tiene(e.metrica);
+    return { orden: e.orden, nombre: e.nombre, descripcion: e.descripcion, valor: desdeMetricas ? total(actuales, e.metrica!) : e.valor === null ? null : Number(e.valor), fuente: (desdeMetricas ? "MANUAL" : e.fuente ?? "MANUAL") as "MANUAL", pctEtapaAnterior: null as number | null };
+  });
+  recorrido.forEach((e, i) => {
+    const previo = recorrido[i - 1]?.valor;
+    e.pctEtapaAnterior = i && previo && e.valor !== null ? Math.round((e.valor / previo) * 1000) / 10 : null;
+  });
+  const resumen = (await ctx.c.query<{ texto: string; informe_archivo_id: string | null }>(
+    "SELECT texto, informe_archivo_id FROM resumen_resultados WHERE cliente_id = $1 AND periodo = $2 AND publicado", [p.id, periodo],
+  )).rows[0];
+  const r: S<"ReporteResultados"> = {
+    periodo: { desde, hasta: sumarDias(hasta, 0) },
+    comparativa,
+    esMuestra: actuales.some((x) => x.es_muestra),
+    notas: actuales.length ? [] : ["Todavía no hay métricas cargadas para estas fechas."],
+    indicadores,
+    canales,
+    recorrido,
+    lectura: resumen?.texto ?? null,
+    informeDisponible: !!resumen?.informe_archivo_id,
+  };
+  return r;
+});
+
+ruta("GET", "/clientes/:id/reportes/informe", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const periodo = exigirPeriodo(q.get("periodo"));
+  const { rows } = await ctx.c.query<FilaArchivo>(
+    `SELECT a.* FROM resumen_resultados r JOIN archivo a ON a.id = r.informe_archivo_id AND a.estado <> 'ELIMINADO'
+     WHERE r.cliente_id = $1 AND r.periodo = $2 AND r.publicado`,
+    [p.id, periodo],
+  );
+  if (!rows[0]) throw new ErrorApi(404, "SIN_INFORME", "El informe de este mes todavía no está listo");
+  return urlArchivo(rows[0]);
+});
+
+// ───────────────────────────────────────────── biblioteca de paid media (PMD-01)
+
+ruta("GET", "/clientes/:id/biblioteca-paid", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const lista = (k: string) => q.getAll(k).flatMap((t) => t.split(",")).map((t) => t.trim()).filter(Boolean);
+  const tipos = lista("tipo");
+  const etiquetas = lista("etiquetas").map((t) => t.toLowerCase());
+  const origen = q.get("origen");
+  // Aptas por defecto: lo visual y los copies aprobados (no blogs ni guiones), salvo que el equipo diga otra cosa.
+  const piezas = await ctx.c.query<{ id: string; titulo: string; tipo: string; etiquetas: string[]; canal: string | null; aprobado_en: Date | null; almacen: "S3" | "DRIVE" | null; s3_key: string | null; drive_file_id: string | null; mime: string | null; nombre: string | null }>(
+    `SELECT p.id, p.titulo, p.tipo, p.etiquetas, p.canal,
+            (SELECT max(e.creado_en) FROM evento_pieza e WHERE e.pieza_id = p.id AND e.a_estado = 'APROBADO_CLIENTE') AS aprobado_en,
+            a.almacen, a.s3_key, a.drive_file_id, a.mime, a.nombre
+     FROM pieza p
+     LEFT JOIN version_pieza v ON v.pieza_id = p.id AND v.numero = p.version_cliente
+     LEFT JOIN archivo a ON a.id = v.archivo_id AND a.estado <> 'ELIMINADO'
+     WHERE p.cliente_id = $1 AND p.estado IN ('APROBADO_CLIENTE', 'PUBLICADO') AND coalesce(p.apta_paid_media, p.tipo NOT IN ('BLOG', 'GUION'))
+     ORDER BY aprobado_en DESC NULLS LAST, p.id`,
+    [p.id],
+  );
+  const archivos = await ctx.c.query<FilaArchivo>(`${SELECT_ARCHIVO} WHERE a.cliente_id = $1 AND a.uso = 'BIBLIOTECA' AND a.estado = 'DISPONIBLE' ORDER BY a.creado_en DESC, a.id`, [p.id]);
+  let datos: S<"ItemBiblioteca">[] = [
+    ...piezas.rows.map((x) => ({
+      origen: "PIEZA" as const, id: x.id, titulo: x.titulo, tipo: x.tipo as S<"TipoPieza">,
+      etiquetas: x.etiquetas.length ? x.etiquetas : x.canal ? [x.canal.toLowerCase()] : [],
+      miniaturaUrl: x.mime && x.almacen ? miniatura({ almacen: x.almacen, s3_key: x.s3_key, drive_file_id: x.drive_file_id, mime: x.mime, nombre: x.nombre!, estado: "DISPONIBLE" }) : null,
+      aprobadoEn: iso(x.aprobado_en),
+    })),
+    ...archivos.rows.map((a) => ({ origen: "ARCHIVO_CLIENTE" as const, id: a.id, titulo: a.nombre, tipo: null, etiquetas: a.etiquetas, miniaturaUrl: miniatura(a), aprobadoEn: null })),
+  ];
+  if (origen) datos = datos.filter((d) => d.origen === origen);
+  if (tipos.length) datos = datos.filter((d) => d.tipo && tipos.includes(d.tipo));
+  if (etiquetas.length) datos = datos.filter((d) => etiquetas.every((e) => (d.etiquetas ?? []).some((x) => x.toLowerCase() === e)));
+  return { datos, paginacion: { siguienteCursor: null, total: datos.length } };
+});
+
+// ───────────────────────────────────────────── correos automáticos (INO-04)
+
+interface FilaRegla { id: string; evento: string; plantilla: string; destinatarios: S<"ReglaCorreo">["destinatarios"]; activa: boolean; descripcion: string }
+
+/** Reglas que aplican a un cliente: la suya si la tiene, si no la global del mismo evento. */
+async function reglasDe(ctx: Ctx, clienteId: string | null): Promise<FilaRegla[]> {
+  const { rows } = await ctx.c.query<FilaRegla>(
+    `SELECT DISTINCT ON (evento) id, evento, plantilla, destinatarios, activa, descripcion FROM regla_correo
+     WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY evento, cliente_id NULLS LAST`,
+    [clienteId],
+  );
+  return rows;
+}
+
+ruta("GET", "/clientes/:id/correos-automaticos", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const ORDEN = Object.keys(PLANTILLAS_CORREO);
+  const reglas = (await reglasDe(ctx, p.id)).sort((a, b) => ORDEN.indexOf(a.evento) - ORDEN.indexOf(b.evento));
+  // El cliente ve los correos que recibió su gente; el equipo, además, los avisos al AM de esta cuenta.
+  const { rows } = await ctx.c.query<{ id: string; para: string; asunto: string; evento: string | null; estado: S<"CorreoEnviado">["estado"]; enviado_en: Date | null; creado_en: Date }>(
+    `SELECT id, para::text AS para, asunto, evento, estado, enviado_en, creado_en FROM correo_enviado c
+     WHERE cliente_id = $1 AND ($2 OR para IN (SELECT u.email FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id WHERE m.cliente_id = $1))
+     ORDER BY creado_en DESC, id LIMIT 20`,
+    [p.id, ctx.esEquipo],
+  );
+  return {
+    reglas: reglas.map((r) => ({ evento: r.evento, descripcion: r.descripcion, destinatarios: r.destinatarios, activa: r.activa })),
+    recientes: rows.map((c) => ({ id: c.id, para: c.para, asunto: c.asunto, evento: c.evento, estado: c.estado, enviadoEn: iso(c.enviado_en), creadoEn: iso(c.creado_en)! })),
+  };
+});
+
+const URL_PORTAL = () => (process.env.PORTAL_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
+ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "correos:write");
+  const ev = (await cuerpo()) as { id?: unknown; tipo?: unknown; clienteId?: unknown; datos?: unknown };
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!Number.isInteger(ev.id)) errores.push({ campo: "id", mensaje: "Id del evento del outbox" });
+  if (typeof ev.tipo !== "string") errores.push({ campo: "tipo", mensaje: "Tipo del evento" });
+  if (!ev.datos || typeof ev.datos !== "object") errores.push({ campo: "datos", mensaje: "Datos del evento" });
+  validacion(errores);
+  const datos = ev.datos as Record<string, any>;
+  const regla = reglaDeEvento(ev.tipo as string, datos);
+  const clienteId = esUuid(ev.clienteId) ? ev.clienteId : null;
+  // El evento tiene que existir: así nadie con la llave puede mandar correos arbitrarios.
+  const outbox = (await ctx.c.query<{ id: string }>("SELECT id FROM outbox_evento WHERE id = $1 AND tipo = $2 AND cliente_id IS NOT DISTINCT FROM $3", [ev.id, ev.tipo, clienteId])).rows[0];
+  if (!outbox) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese evento en el outbox");
+  if (!regla || !clienteId) return { correos: [] };
+  const r = (await reglasDe(ctx, clienteId)).find((x) => x.evento === regla);
+  if (!r?.activa) return { correos: [] };
+  const plantilla = PLANTILLAS_CORREO[r.plantilla] ? r.plantilla : regla;
+
+  const cli = (await ctx.c.query<{ nombre: string; am_id: string | null }>("SELECT nombre, account_manager_id AS am_id FROM cliente WHERE id = $1", [clienteId])).rows[0];
+  const usuario = async (id: unknown) => (esUuid(id) ? (await ctx.c.query<{ id: string; nombre: string; email: string; tipo: string }>("SELECT id, nombre, email::text AS email, tipo FROM usuario WHERE id = $1 AND activo", [id])).rows[0] : undefined);
+  const actor = await usuario(regla === "miembro.invitado" ? datos.invitadoPor : datos.usuarioId);
+  const c: ContextoCorreo = { cliente: cli.nombre, actor: actor?.nombre ?? null, numero: datos.numero ?? null, periodo: datos.periodo ?? null, comentario: datos.comentario ?? null, diasAtraso: datos.diasAtraso ?? null, enlace: URL_PORTAL() };
+  let enlaceCliente = "/inicio";
+  let enlaceEquipo = `/equipo/clientes/${clienteId}`;
+  let creadorTicket: string | null = null;
+  // Servicios del evento: sus responsables reciben los correos del equipo (16 oct).
+  const servicioIds = new Set<string>([datos.servicioContratadoId, ...(Array.isArray(datos.servicioIds) ? datos.servicioIds : [])].filter(esUuid));
+  if (esUuid(datos.piezaId)) {
+    const pz = (await ctx.c.query<{ titulo: string; servicio_contratado_id: string | null }>("SELECT titulo, servicio_contratado_id FROM pieza WHERE id = $1", [datos.piezaId])).rows[0];
+    c.pieza = pz?.titulo ?? null;
+    if (pz?.servicio_contratado_id) servicioIds.add(pz.servicio_contratado_id);
+    enlaceCliente = `/entregables/${datos.piezaId}`;
+    enlaceEquipo = `/equipo/piezas/${datos.piezaId}`;
+  }
+  if (esUuid(datos.requerimientoId)) {
+    const q = (await ctx.c.query<{ titulo: string; fecha_limite: Date; servicio_contratado_id: string | null }>("SELECT titulo, fecha_limite, servicio_contratado_id FROM requerimiento WHERE id = $1", [datos.requerimientoId])).rows[0];
+    if (q?.servicio_contratado_id) servicioIds.add(q.servicio_contratado_id);
+    c.requerimiento = q?.titulo ?? null;
+    c.fechaLimite = fechaIso(q?.fecha_limite);
+    enlaceCliente = `/requerimientos/${datos.requerimientoId}`;
+  }
+  if (esUuid(datos.ticketId)) {
+    const t = (await ctx.c.query<{ creado_por: string; sla: Date; servicio_contratado_id: string | null }>("SELECT creado_por, sla_primera_respuesta_en AS sla, servicio_contratado_id FROM ticket WHERE id = $1", [datos.ticketId])).rows[0];
+    creadorTicket = t?.creado_por ?? null;
+    if (t?.servicio_contratado_id) servicioIds.add(t.servicio_contratado_id);
+    if (t?.sla) c.respuestaAntesDe = `${fechaLarga(new Date(t.sla.getTime() - 5 * 3_600_000).toISOString())} a las ${new Date(t.sla.getTime() - 5 * 3_600_000).toISOString().slice(11, 16)}`;
+    enlaceCliente = "/soporte";
+  }
+  if (regla === "miembro.invitado") enlaceCliente = "/ingresar";
+  const servicios = servicioIds.size ? (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.id = ANY($1::uuid[]) ORDER BY s.orden, sc.fecha_inicio`, [[...servicioIds]])).rows : [];
+  if (regla.startsWith("servicio.standby")) {
+    c.servicios = servicios.map((s) => tituloServicio(s.nombre, s.marca ?? s.cliente_nombre));
+    c.fechaStandby = datos.fechaStandby ?? null;
+    c.diasSinActividad = datos.diasSinActividad ?? null;
+    enlaceCliente = "/servicios";
+  }
+
+  // Destinatarios, sin repetir correo (la persona que actúa puede ser también decisora).
+  const destinos = new Map<string, { nombre: string | null; destino: Destino }>();
+  const agregar = (email: string | undefined | null, nombre: string | null, destino: Destino) => {
+    if (email && !destinos.has(email.toLowerCase())) destinos.set(email.toLowerCase(), { nombre, destino });
+  };
+  for (const d of PLANTILLAS_CORREO[plantilla].destinos) {
+    if (d === "ACTOR" && actor?.tipo === "CLIENTE") agregar(actor.email, actor.nombre, d);
+    if (d === "AM") {
+      // Si ningún responsable sigue activo, va al AM de la cuenta.
+      const equipo = (await Promise.all([...new Set(servicios.map((s) => s.responsable_id))].map(usuario))).filter((u) => u?.tipo === "EQUIPO");
+      for (const u of equipo.length ? equipo : [await usuario(cli.am_id)]) agregar(u?.email, u?.nombre ?? null, d);
+    }
+    if (d === "INVITADO") agregar(datos.email, datos.nombre ?? null, d);
+    if (d === "CREADOR_TICKET") {
+      const u = await usuario(creadorTicket);
+      agregar(u?.email, u?.nombre ?? null, d);
+    }
+    if (d === "DECISORES") {
+      const { rows } = await ctx.c.query<{ email: string; nombre: string }>(
+        `SELECT u.email::text AS email, u.nombre FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id
+         WHERE m.cliente_id = $1 AND m.rol IN ('ADMIN_CLIENTE', 'APROBADOR') AND u.activo ORDER BY m.rol, u.nombre`,
+        [clienteId],
+      );
+      rows.forEach((u) => agregar(u.email, u.nombre, d));
+    }
+  }
+
+  const correos: S<"CorreoPreparado">[] = [];
+  for (const [para, { nombre, destino }] of destinos) {
+    const enlace = `${URL_PORTAL()}${destino === "AM" ? enlaceEquipo : enlaceCliente}`;
+    const m = renderizarCorreo(plantilla, { ...c, enlace }, destino, nombre);
+    await ctx.c.query(
+      `INSERT INTO correo_enviado (cliente_id, regla_id, para, nombre, asunto, html, texto, evento, outbox_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (outbox_id, para) WHERE outbox_id IS NOT NULL DO NOTHING`,
+      [clienteId, r.id, para, nombre, m.asunto, m.html, m.texto, regla, ev.id],
+    );
+    // Si n8n reintenta el evento, vuelve solo lo que todavía no salió (con el contenido de la primera vez).
+    const fila = (await ctx.c.query<{ id: string; estado: string; asunto: string; html: string; texto: string }>(
+      "SELECT id, estado, asunto, html, texto FROM correo_enviado WHERE outbox_id = $1 AND para = $2", [ev.id, para],
+    )).rows[0];
+    if (fila.estado !== "ENVIADO") correos.push({ id: fila.id, para, nombre, asunto: fila.asunto, html: fila.html, texto: fila.texto, evento: regla });
+  }
+  return { correos };
+});
+
+ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) => {
+  soloServicio(ctx, "correos:write");
+  const b = (await cuerpo()) as { estado?: unknown; messageId?: unknown; error?: unknown };
+  if (b.estado !== "ENVIADO" && b.estado !== "FALLIDO") validacion([{ campo: "estado", mensaje: "Usa ENVIADO o FALLIDO" }]);
+  const actual = esUuid(p.id) ? (await ctx.c.query<{ estado: string }>("SELECT estado FROM correo_enviado WHERE id = $1", [p.id])).rows[0] : undefined;
+  if (!actual) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese correo");
+  // Un correo que ya salió no vuelve a FALLIDO por un reintento tardío.
+  if (actual.estado === "ENVIADO") return null;
+  await ctx.c.query(
+    `UPDATE correo_enviado SET estado = $2::estado_envio, ses_message_id = $3, error = $4, enviado_en = CASE WHEN $2::text = 'ENVIADO' THEN now() END WHERE id = $1`,
+    [p.id, b.estado, typeof b.messageId === "string" ? b.messageId : null, b.estado === "FALLIDO" && typeof b.error === "string" ? b.error.slice(0, 2000) : null],
+  );
+  return null;
+});
+
 // ───────────────────────────────────────────── despachador
 
 function coincide(patron: string, camino: string) {
@@ -2254,9 +3354,45 @@ async function idempotencia(c: Consultor, usuarioId: string, clave: string, hash
 
 export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}")}`);
 
+/**
+ * Ingreso de prueba con la base real (AUTH_MODO=demo): la pantalla de ingreso usa la misma ruta que con la
+ * API simulada, así se prueba el portal completo en local. Clave única CLAVE_DEMO (por defecto demo1234).
+ * Bloqueado con Cognito y en producción salvo PERMITIR_AUTH_DEMO=true, igual que los tokens demo.
+ */
+async function ingresarDemo(req: Request): Promise<Response> {
+  try {
+    if ((process.env.AUTH_MODO ?? "demo") !== "demo" || (process.env.NODE_ENV === "production" && process.env.PERMITIR_AUTH_DEMO !== "true")) {
+      throw new ErrorApi(404, "NO_ENCONTRADO", "El ingreso de prueba no está disponible");
+    }
+    let b: { email?: unknown; clave?: unknown } = {};
+    try {
+      b = (await req.json()) as typeof b;
+    } catch {
+      /* cuerpo vacío o inválido: credenciales incorrectas */
+    }
+    const email = typeof b.email === "string" ? b.email.trim() : "";
+    if (!email || b.clave !== (process.env.CLAVE_DEMO ?? "demo1234")) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+    const db = await baseDatos();
+    return await db.transaccion(async (c) => {
+      // usuario y miembro_cliente no tienen RLS (igual que en autenticar).
+      const u = (await c.query<{ id: string; tipo: string }>("SELECT id, tipo FROM usuario WHERE email = $1 AND activo AND tipo <> 'SERVICIO'", [email])).rows[0];
+      if (!u) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+      if (u.tipo === "CLIENTE") await c.query("UPDATE miembro_cliente SET invitacion_pendiente = false WHERE usuario_id = $1 AND invitacion_pendiente", [u.id]);
+      if (u.tipo === "CLIENTE") await c.query("SELECT registrar_actividad_cliente(array(SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1))", [u.id]);
+      const m = (await c.query<{ cliente_id: string }>("SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1 ORDER BY creado_en LIMIT 1", [u.id])).rows[0];
+      return Response.json({ token: `demo.${u.id}`, tipo: u.tipo, clienteId: u.tipo === "CLIENTE" ? m?.cliente_id ?? null : null });
+    });
+  } catch (e) {
+    if (e instanceof ErrorApi) return problema(e);
+    console.error(e);
+    return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+  }
+}
+
 export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promise<Response> {
   const url = new URL(req.url, "http://localhost");
   const camino = url.pathname.startsWith(base) ? url.pathname.slice(base.length) || "/" : url.pathname;
+  if (req.method === "POST" && camino === "/__pruebas/ingresar") return ingresarDemo(req);
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);
   if (!encontrada) {
     return problema(new ErrorApi(501, "RUTA_NO_IMPLEMENTADA", `El backend todavía no implementa ${req.method} ${camino}`, "Usa API_MODO=mock para el resto del contrato mientras se completa el backend."));
@@ -2276,6 +3412,8 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     return await db.transaccion(async (c) => {
       const u = await autenticar(req, c);
       await comoUsuario(c, u);
+      // Standby (16 oct): cualquier uso del portal por el cliente cuenta como actividad y reactiva sus servicios.
+      if (u.tipo === "CLIENTE" && u.clienteIds.length) await c.query("SELECT registrar_actividad_cliente($1::uuid[])", [u.clienteIds]);
       if (clave) {
         const previa = await idempotencia(c, u.usuarioId, clave, hash);
         if (previa) return previa;
@@ -2283,6 +3421,8 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
       const ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
       ctx.feriados = await noHabilesDb(ctx);
       const resultado = await encontrada.fn(ctx, encontrada.params!, url.searchParams, cuerpo);
+      // Descargas (CSV): la ruta arma la respuesta completa.
+      if (resultado instanceof Response) return resultado;
       let status = 200;
       let datos = resultado;
       if (resultado && typeof resultado === "object" && !Array.isArray(resultado) && "__status" in resultado) {

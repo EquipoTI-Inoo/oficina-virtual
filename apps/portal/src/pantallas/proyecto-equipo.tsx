@@ -11,6 +11,7 @@ import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavega
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
 import { TareasDelProyecto } from "./tareas";
+import { esGestion } from "../dominio/equipo";
 
 type Perfil = S<"PerfilProyecto">;
 const ESTADOS_ETAPA: [S<"EstadoHito">, string][] = [
@@ -70,6 +71,7 @@ function ProyectoEquipo() {
             <select className="input" aria-label="Estado del servicio" value={d.estado === "COMPLETADO" || d.estado === "EN_CURSO" || d.estado === "SIN_INICIAR" ? "ACTIVO" : d.estado} onChange={(e) => void actualizar({ estado: e.target.value }, "Estado actualizado")} style={{ width: 150 }}>
               <option value="ACTIVO">Activo</option>
               <option value="PAUSADO">En pausa</option>
+              <option value="STANDBY">Standby</option>
               <option value="FINALIZADO">Finalizado</option>
             </select>
             <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico">
@@ -137,6 +139,7 @@ function ProyectoEquipo() {
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
         </div>
         <aside className="pila">
+          <ResponsableServicio actual={d.responsable ?? null} alCambiar={(responsableId) => actualizar({ responsableId }, "Responsable actualizado")} />
           <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Métricas que ve el cliente</h3>
             {d.metricas.map((m) => (
@@ -150,6 +153,30 @@ function ProyectoEquipo() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** Responsable del servicio en Inoo (16 oct): lo elige gestión; recibe los avisos de este servicio. */
+function ResponsableServicio({ actual, alCambiar }: { actual: S<"PersonaMini"> | null; alCambiar: (id: string) => Promise<void> }) {
+  const gestion = esGestion(usePortal().sesion?.usuario.rolEquipo);
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(gestion ? "/panel/equipo" : null);
+  return (
+    <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Responsable del servicio</h3>
+      {gestion && equipo.datos ? (
+        <select className="input" aria-label="Responsable del servicio" value={actual?.id ?? ""} onChange={(e) => void alCambiar(e.target.value)}>
+          {!actual && <option value="">Sin responsable</option>}
+          {equipo.datos.datos.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nombre}{u.cargo ? ` · ${u.cargo}` : ""}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="negrita texto-sm">{actual?.nombre ?? "Sin responsable"}</p>
+      )}
+      <p className="texto-xs texto-muted">Recibe los avisos de este servicio. El cliente lo ve en «Mis servicios».</p>
+    </div>
   );
 }
 
@@ -340,7 +367,8 @@ function ComentariosEquipo({ servicioId }: { servicioId: string }) {
 export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clienteId: string; abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
   const avisar = useAviso();
   const catalogo = useConsulta<{ datos: S<"ServicioCatalogo">[] }>(abierto ? "/servicios" : null);
-  const [f, setF] = useState({ servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "" });
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(abierto ? "/panel/equipo" : null);
+  const [f, setF] = useState({ servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "", responsable: "" });
   const [errores, setErrores] = useState<Record<string, string>>({});
   const cat = catalogo.datos?.datos.find((c) => c.codigo === f.servicio);
   const esCrm = f.servicio === "CRM_IMPLEMENTACION" || f.servicio === "CRM_INTEGRACION";
@@ -355,11 +383,12 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
         metodo: "POST",
         cuerpo: {
           servicioCodigo: f.servicio || undefined, variante: f.variante || null, fechaInicio: f.fechaInicio || undefined, marca: f.marca || null, detalle,
+          responsableId: f.responsable || undefined,
           entregables: f.servicio === "SOCIAL_MEDIA_PRO" && f.piezas ? [{ tipoPieza: "COPY", cantidadMensual: Number(f.piezas) }] : undefined,
         },
       });
       avisar({ titulo: "Servicio contratado", texto: "Se creó con las etapas de su plantilla. El cliente ya lo ve en su portal." });
-      setF({ servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "" });
+      setF({ servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "", responsable: "" });
       alCrear();
       alCerrar();
     } catch (e) {
@@ -397,6 +426,18 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
           ))}
         </select>
         {err("servicioCodigo")}
+      </div>
+      <div className="campo">
+        <label htmlFor="ns-responsable">Responsable en Inoo</label>
+        <select id="ns-responsable" className="input" value={f.responsable} onChange={(e) => setF({ ...f, responsable: e.target.value })}>
+          <option value="">El responsable de la cuenta</option>
+          {equipo.datos?.datos.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nombre}{u.cargo ? ` · ${u.cargo}` : ""}
+            </option>
+          ))}
+        </select>
+        {err("responsableId")}
       </div>
       {!!cat?.variantes.length && (
         <div className="campo">

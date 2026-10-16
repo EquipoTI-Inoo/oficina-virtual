@@ -12,6 +12,7 @@ import {
 } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
+import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
 // ═════════════════════════════════════════════ Soporte
@@ -629,11 +630,37 @@ export function PantallaFichaCliente() {
 
 type ClienteFicha = S<"Cliente"> & { marca: { descripcion?: string; mensajeCentral?: string; campanaActual?: string } };
 
+/** Standby (16 oct): si nadie del cliente entra al portal en 30 días, sus servicios pasan a standby. */
+function ActividadCliente({ a }: { a: S<"InactividadCliente"> }) {
+  const dias = a.diasSinActividad === 0 ? "hoy" : a.diasSinActividad === 1 ? "hace 1 día" : `hace ${a.diasSinActividad} días`;
+  if (a.estado === "STANDBY") {
+    return (
+      <Aviso icono={<LuShieldCheck size={16} />} titulo="Servicios en standby" tono="alerta">
+        {a.serviciosEnStandby === 1 ? "1 servicio está" : `${a.serviciosEnStandby} servicios están`} en standby: nadie del cliente entra al portal desde {fCorta(a.ultimaActividad)}. Se reactivan solos cuando alguien vuelva a entrar.
+      </Aviso>
+    );
+  }
+  if (a.estado === "POR_ENTRAR") {
+    return (
+      <Aviso icono={<LuShieldCheck size={16} />} titulo={`Pasa a standby el ${fCorta(a.fechaStandby)}`} tono="alerta">
+        Nadie del cliente entra al portal desde {fCorta(a.ultimaActividad)}. Ya le avisamos por correo; es un buen momento para contactarlo.
+      </Aviso>
+    );
+  }
+  return (
+    <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 8 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Actividad del cliente</h3>
+      <p className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>Último ingreso al portal: {dias}.</p>
+    </div>
+  );
+}
+
 function Ficha() {
   const { params } = useNavegacion();
   const avisar = useAviso();
   const [editando, setEditando] = useState(false);
   const [nuevoServicio, setNuevoServicio] = useState(false);
+  const gestion = esGestion(usePortal().sesion?.usuario.rolEquipo);
   const id = params.id ?? CLIENTE_DEMO;
   const c = useConsulta<ClienteFicha>(`/clientes/${id}`);
   const s = useConsulta<S<"ServiciosCliente">>(`/clientes/${id}/servicios`);
@@ -707,9 +734,11 @@ function Ficha() {
           <div className="tarjeta" style={{ padding: "22px 16px" }}>
             <div className="fila entre" style={{ marginBottom: 18 }}>
               <h3 className="tarjeta-titulo">Servicios y alcance</h3>
-              <button className="boton boton--chico" onClick={() => setNuevoServicio(true)}>
-                <LuPlus size={14} /> Nuevo servicio
-              </button>
+              {gestion && (
+                <button className="boton boton--chico" onClick={() => setNuevoServicio(true)}>
+                  <LuPlus size={14} /> Nuevo servicio
+                </button>
+              )}
             </div>
             <NuevoServicio clienteId={id} abierto={nuevoServicio} alCerrar={() => setNuevoServicio(false)} alCrear={() => void s.recargar()} />
             <div style={{ display: "grid", gap: 16 }}>
@@ -719,10 +748,10 @@ function Ficha() {
                   <span style={{ flex: 1 }}>
                     <Enlace a={`/equipo/proyectos/${x.servicioContratadoId}`} className="negrita enlace" style={{ display: "block", fontSize: 11.5 }}>{x.titulo}</Enlace>
                     <span className="texto-xs texto-muted" style={{ fontSize: 9.5 }}>
-                      {[detalleServicio(x), x.avance.etapaActual ? `${x.avance.porcentaje} % · ${x.avance.etapaActual.nombre}` : `${x.avance.porcentaje} %`].filter(Boolean).join(" · ")}
+                      {[detalleServicio(x), x.avance.etapaActual ? `${x.avance.porcentaje} % · ${x.avance.etapaActual.nombre}` : `${x.avance.porcentaje} %`, x.responsable && `Responsable: ${x.responsable.nombre}`].filter(Boolean).join(" · ")}
                     </span>
                   </span>
-                  <Etiqueta tono={x.estado === "ACTIVO" ? "verde" : "gris"}>{x.estado === "ACTIVO" ? "Activo" : x.estado === "PAUSADO" ? "En pausa" : "Finalizado"}</Etiqueta>
+                  <Etiqueta tono={x.estado === "ACTIVO" ? "verde" : x.estado === "STANDBY" ? "violeta" : "gris"}>{ETIQUETA_ESTADO_SERVICIO[x.estado]}</Etiqueta>
                 </div>
               ))}
             </div>
@@ -732,6 +761,7 @@ function Ficha() {
           <EstadoPagoDelCliente clienteId={id} />
         </div>
         <aside className="pila">
+          {d.inactividad && <ActividadCliente a={d.inactividad} />}
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5, paddingLeft: 4 }}>Referencias de marca</h3>
             <div style={{ height: 120, borderRadius: 12, backgroundImage: "url(/muestras/serum.jpg)", backgroundSize: "cover", backgroundPosition: "center 65%" }} role="img" aria-label="Referencia de marca" />

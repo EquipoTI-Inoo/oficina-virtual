@@ -50,11 +50,11 @@ salida.push(
   insert("plan_cliente", ["id", "cliente_id", "nombre", "fecha_inicio", "fecha_fin"], [[f.plan.id, D.CLIENTES[0].id, f.plan.nombre, f.plan.fechaInicio, f.plan.fechaFin]]),
 );
 salida.push(
-  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin)
-SELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, ${q(DIEGO)}::uuid, v.inicio::date, v.fin::date
+  `INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin, responsable_id)
+SELECT v.id::uuid, v.cliente_id::uuid, s.id, ${q(f.plan.id)}::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, ${q(DIEGO)}::uuid, v.inicio::date, v.fin::date, v.responsable::uuid
 FROM (VALUES
-${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.codigo, s.variante, JSON.stringify(s.detalle), s.marca, s.estado, s.siguientePaso, s.fechaInicio, s.fechaFin])).join(",\n")}
-) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin)
+${D.SERVICIOS_CONTRATADOS.map((s) => fila([s.id, s.clienteId, s.codigo, s.variante, JSON.stringify(s.detalle), s.marca, s.estado, s.siguientePaso, s.fechaInicio, s.fechaFin, s.responsableId])).join(",\n")}
+) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin, responsable)
 JOIN servicio s ON s.codigo = v.codigo
 LEFT JOIN LATERAL (
   SELECT id FROM plantilla_proyecto x WHERE x.servicio_id = s.id AND x.activa AND (x.variante = v.variante OR x.variante IS NULL)
@@ -133,6 +133,12 @@ LEFT JOIN LATERAL (
     "archivo",
     ["id", "cliente_id", "origen", "almacen", "s3_key", "nombre", "mime", "bytes", "uso", "brief_id", "estado", "subido_por"],
     D.BRIEF_INICIAL.archivos.map((a) => [a.id, D.CLIENTES[0].id, "CLIENTE", "S3", `clientes/casa-oliva/briefs/2026-10/${a.nombre}`, a.nombre, a.mime, a.bytes, "BRIEF", D.uid(14, 1), "SUBIDO", D.USUARIOS[0].id]),
+  ),
+  "-- Biblioteca de la marca (fotos con derechos firmados): la usan Paid media y los agentes.",
+  insert(
+    "archivo",
+    ["id", "cliente_id", "origen", "almacen", "s3_key", "nombre", "mime", "bytes", "categoria", "etiquetas", "uso", "estado", "declara_derechos", "declarado_por", "declarado_en", "subido_por", "creado_en"],
+    D.BIBLIOTECA_INICIAL.map((a) => [a.id, a.clienteId, "CLIENTE", "S3", `clientes/casa-oliva/biblioteca/${a.nombre}`, a.nombre, a.mime, a.bytes, a.categoria, `{${a.etiquetas.join(",")}}`, "BIBLIOTECA", a.estado, true, D.USUARIOS[0].id, a.creadoEn, D.USUARIOS[0].id, a.creadoEn]),
   ),
   insert(
     "referencia_cliente",

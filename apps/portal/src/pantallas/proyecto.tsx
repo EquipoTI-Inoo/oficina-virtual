@@ -17,6 +17,7 @@ const ESTADO_AVANCE: Record<string, [string, "verde" | "azul" | "gris"]> = {
   EN_CURSO: ["En curso", "azul"],
   COMPLETADO: ["Completado", "verde"],
   PAUSADO: ["En pausa", "gris"],
+  STANDBY: ["Standby", "gris"],
 };
 
 export function PantallaProyecto() {
@@ -42,7 +43,7 @@ function Proyecto() {
       <Cabecera
         antetitulo={linea ? linea.toUpperCase() : undefined}
         titulo={d.titulo}
-        bajada={d.descripcion ?? undefined}
+        bajada={[d.descripcion, d.responsable && `Responsable en Inoo: ${d.responsable.nombre}`].filter(Boolean).join(" · ") || undefined}
         accion={<Etiqueta tono={tono}>{estado}</Etiqueta>}
       />
 

@@ -292,3 +292,12 @@ test("calendarios: el AM aprueba la propuesta del Jefe de Marketing", async ({ p
   await page.getByRole("button", { name: "Aprobar plan" }).click();
   await expect(page.getByText("Plan aprobado").first()).toBeVisible();
 });
+
+test("equipo operativo: sin Blog en el menú y ve el responsable de cada servicio", async ({ page }) => {
+  await entrarComo(page, "operativo");
+  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
+  await expect(menu.getByText("Clientes", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(menu.getByText("Blog", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Responsable: Camila Paredes/)).toBeVisible();
+});
