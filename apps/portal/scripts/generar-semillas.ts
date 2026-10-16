@@ -36,12 +36,14 @@ const f = D.FICHA_CASA_OLIVA;
 salida.push(
   insert(
     "cliente",
-    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd", "fecha_aniversario"],
+    ["id", "nombre", "slug", "marca", "tono", "publico", "pilares_contenido", "canales", "account_manager_id", "contacto_principal_id", "drive_carpeta_id", "drive_url", "limite_gasto_ia_usd", "fecha_aniversario",
+      "situacion_pago", "pago_atrasado_desde", "pago_nota", "pago_actualizado_por", "pago_actualizado_en"],
     D.CLIENTES.map((c) => [
       c.id, c.nombre, c.slug,
       c.slug === "casa-oliva" ? f.marca : {}, c.slug === "casa-oliva" ? f.tono : {}, c.slug === "casa-oliva" ? f.publico : {},
       c.slug === "casa-oliva" ? f.publico.intereses : [], c.slug === "casa-oliva" ? f.canales : [],
       DIEGO, c.contactoPrincipalId, c.slug === "casa-oliva" ? "demo-casa-oliva" : null, c.slug === "casa-oliva" ? f.driveUrl : null, c.limiteGastoIaUsd, c.fechaAniversario ?? null,
+      c.pago?.situacion ?? "AL_DIA", c.pago?.atrasadoDesde ?? null, c.pago?.nota ?? null, c.pago?.actualizadoPorId ?? null, c.pago?.actualizadoEn ?? null,
     ]),
   ),
   insert("miembro_cliente", ["cliente_id", "usuario_id", "rol"], D.MIEMBROS.map((m) => [m.clienteId, m.usuarioId, m.rol])),
@@ -61,11 +63,6 @@ LEFT JOIN LATERAL (
 `,
   insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.flatMap((s) => s.entregables.map((e) => [s.id, e.tipoPieza, e.cantidadMensual]))),
   insert(
-    "pago_programado",
-    ["id", "cliente_id", "servicio_contratado_id", "concepto", "monto", "moneda", "fecha_vencimiento", "estado", "pagado_en"],
-    D.PAGOS_INICIALES.map((x) => [x.id, x.clienteId, x.servicioContratadoId, x.concepto, x.monto, x.moneda, x.fechaVencimiento, x.estado, x.pagadoEn]),
-  ),
-  insert(
     "reunion",
     ["id", "servicio_contratado_id", "cliente_id", "titulo", "fecha", "estado", "con_acuerdos", "resumen"],
     D.REUNIONES_INICIALES.map((r) => [r.id, r.servicioContratadoId, r.clienteId, r.titulo, r.fecha, r.estado, r.conAcuerdos, r.resumen]),
@@ -79,6 +76,17 @@ LEFT JOIN LATERAL (
     "etapa_proyecto",
     ["id", "servicio_contratado_id", "cliente_id", "periodo", "orden", "nombre", "avance_pct", "estado", "espera_cliente", "fecha_inicio", "fecha_estimada", "fecha_fin"],
     D.etapasIniciales().map((e) => [e.id, e.servicioContratadoId, e.clienteId, e.periodo, e.orden, e.nombre, e.avancePct, e.estado, e.esperaCliente, e.fechaInicio, e.fechaEstimada, e.fechaFin]),
+  ),
+  insert(
+    "tarea",
+    ["id", "servicio_contratado_id", "cliente_id", "etapa_id", "titulo", "descripcion", "estado", "responsable_id", "fecha_limite", "completada_en", "creado_por", "creado_en"],
+    D.TAREAS_INICIALES.map((t) => [t.id, t.servicioContratadoId, t.clienteId, t.etapaId, t.titulo, t.descripcion, t.estado, t.responsableId, t.fechaLimite, t.completadaEn, t.creadoPorId, t.creadoEn]),
+  ),
+  insert(
+    "comentario_tarea",
+    ["id", "tarea_id", "cliente_id", "autor_id", "texto", "menciones", "creado_en"],
+    // uuid[] como literal de Postgres (q() convierte los arreglos en text[]).
+    D.COMENTARIOS_TAREA_INICIALES.map((c) => [c.id, c.tareaId, c.clienteId, c.autorId, c.texto, `{${c.menciones.join(",")}}`, c.creadoEn]),
   ),
   insert("calendario", ["id", "cliente_id", "periodo", "estado", "version", "cupo_ideas_blog", "aprobado_por", "aprobado_en"], [[D.uid(12, 1), D.CLIENTES[0].id, D.PERIODO, "APROBADO_PLAN", 1, 1, DIEGO, "2026-09-28T15:00:00Z"]]),
   insert(

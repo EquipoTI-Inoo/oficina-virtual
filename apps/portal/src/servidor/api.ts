@@ -9,19 +9,22 @@
  * POST /tickets/{id}/mensajes · POST /piezas/{id}/versiones · POST /integraciones/piezas(/{id}/versiones) ·
  * POST /integraciones/ejecuciones (estas tres con X-Api-Key) · GET /servicios · GET|POST /clientes/{id}/servicios ·
  * GET /clientes/{id}/avance · GET /servicios-contratados/{id}/avance · PATCH /servicios-contratados/{id}/etapas/{id} ·
- * GET /plantillas · GET /clientes/{id}/pagos · GET /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/comentarios ·
+ * GET /plantillas · GET|PUT /clientes/{id}/estado-pago · GET /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/comentarios ·
  * requerimientos de la agencia al cliente
  * (GET /plantillas-requerimiento, GET|POST /clientes/{id}/requerimientos, GET /requerimientos/{id},
  * PUT /requerimientos/{id}/respuesta, POST /requerimientos/{id}/revision, POST /integraciones/requerimientos/atrasos) ·
  * cambio de responsable (GET|POST /clientes/{id}/cambio-responsable, POST /solicitudes-responsable/{id}/decision) · GET /clientes/{id}/miembros · GET|POST /avisos · DELETE /avisos/{id} ·
  * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
- * POST /clientes/{id}/pagos · PATCH|DELETE /pagos/{id} · POST /clientes · PATCH /clientes/{id} (n8n completa driveUrl con
+ * GET|PUT /clientes/{id}/estado-pago · POST /clientes · PATCH /clientes/{id} (n8n completa driveUrl con
  * el scope clientes:write) · POST|PATCH|DELETE /clientes/{id}/miembros(/{id}) · GET /clientes/{id}/inicio · GET /clientes/{id}/actividad ·
  * panel del equipo (GET /panel/clientes(/exportar), GET /panel/piezas, GET /panel/costos-ia, GET /panel/ejecuciones) ·
  * POST /clientes/{id}/piezas · PATCH /piezas/{id} · archivos con URLs prefirmadas de S3 (POST|GET /clientes/{id}/archivos,
  * POST /archivos/{id}/confirmar, PATCH|DELETE /archivos/{id}, GET /archivos/{id}/descarga, GET /piezas/{id}/descarga,
  * GET /clientes/{id}/plan/contrato) · GET /clientes/{id}/reportes/resultados|informe · GET /clientes/{id}/biblioteca-paid ·
  * correos automáticos (GET /clientes/{id}/correos-automaticos, POST /integraciones/correos/preparar y /{id}/resultado).
+ * proyecto como eje (GET /panel/proyectos, GET /panel/equipo, GET|POST /servicios-contratados/{id}/tareas,
+ * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios) ·
+ * standby por inactividad (POST /integraciones/servicios/inactividad).
  * Solo InooWork (fase 6) responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -35,8 +38,11 @@ import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { almacen } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
-import { correrFecha, diasAtraso, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
-import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, esGestion, estadoPagos, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
+import { diasAtrasoRevision } from "../dominio/revision";
+import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, tareaVencida, validarTarea } from "../dominio/proyectos";
+import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
+import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDesdePlantilla, plantillaPara, tituloServicio, validarContratacion } from "../dominio/servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -47,6 +53,8 @@ interface Ctx {
   c: Consultor;
   esEquipo: boolean;
   esServicio: boolean;
+  /** Feriados y días no laborables, para los plazos en días hábiles (se cargan una vez por solicitud). */
+  feriados: ReadonlySet<string>;
 }
 
 // ───────────────────────────────────────────── utilidades
@@ -110,18 +118,24 @@ interface FilaPieza {
   ultima_autor_tipo: "AGENTE" | "PERSONA" | null;
   ultima_agente: string | null;
   ultima_autor_nombre: string | null;
+  revision_enviada_en: Date | null;
 }
 
 // La última versión se lee con RLS: el cliente solo «ve» las que se le enviaron.
 const SELECT_PIEZA = `
   SELECT p.*, r.nombre AS responsable_nombre,
-         lv.autor_tipo AS ultima_autor_tipo, lv.agente AS ultima_agente, au.nombre AS ultima_autor_nombre
+         lv.autor_tipo AS ultima_autor_tipo, lv.agente AS ultima_agente, au.nombre AS ultima_autor_nombre,
+         vc.enviada_cliente_en AS revision_enviada_en
   FROM pieza p
+  LEFT JOIN version_pieza vc ON vc.pieza_id = p.id AND vc.numero = p.version_cliente
   LEFT JOIN usuario r ON r.id = p.responsable_id
   LEFT JOIN LATERAL (SELECT v.autor_tipo, v.agente, v.autor_usuario_id FROM version_pieza v WHERE v.pieza_id = p.id ORDER BY v.numero DESC LIMIT 1) lv ON true
   LEFT JOIN usuario au ON au.id = lv.autor_usuario_id`;
 
 function resumenPieza(ctx: Ctx, p: FilaPieza): S<"PiezaResumen"> & Record<string, unknown> {
+  // Si el cliente no la revisa a tiempo, aparece «Atrasado» (reunión 15 oct).
+  const enviada = p.estado === "LISTO_REVISION" ? iso(p.revision_enviada_en) : null;
+  const atrasoRevision = enviada ? diasAtrasoRevision(enviada, HOY_LIMA(), ctx.feriados) : 0;
   const r: S<"PiezaResumen"> & Record<string, unknown> = {
     id: p.id,
     clienteId: p.cliente_id,
@@ -136,7 +150,8 @@ function resumenPieza(ctx: Ctx, p: FilaPieza): S<"PiezaResumen"> & Record<string
     miniaturaUrl: null,
     servicioContratadoId: p.servicio_contratado_id,
     ideaSeleccionada: false,
-    atrasada: false,
+    atrasada: atrasoRevision > 0,
+    diasAtrasoRevision: atrasoRevision,
     actualizadoEn: iso(p.actualizado_en)!,
     formato: FORMATO[p.tipo] ?? "Pieza",
   };
@@ -435,15 +450,6 @@ ruta("GET", "/clientes", async (ctx) => {
   return { datos: rows.map((c) => ({ ...c, logoUrl: null })), paginacion: { siguienteCursor: null } };
 });
 
-// Personas del equipo, para elegir responsables (de cuenta y de cada servicio).
-ruta("GET", "/equipo/usuarios", async (ctx) => {
-  soloEquipo(ctx);
-  const { rows } = await ctx.c.query<S<"PersonaEquipo">>(
-    `SELECT id, nombre, cargo, email::text AS email, rol_equipo::text AS "rolEquipo" FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre`,
-  );
-  return { datos: rows };
-});
-
 ruta("GET", "/clientes/:id", async (ctx, p) => {
   await accesoCliente(ctx, p.id);
   return clienteVista(ctx, p.id);
@@ -485,14 +491,11 @@ async function clienteVista(ctx: Ctx, clienteId: string): Promise<S<"Cliente">> 
     creadoEn: iso(c.creado_en)!,
   };
   if (ctx.esEquipo) {
-    const hoy = HOY_LIMA();
-    const vencidos = (await ctx.c.query<{ v: Date }>("SELECT fecha_vencimiento AS v FROM pago_programado WHERE cliente_id = $1 AND estado = 'PENDIENTE' AND fecha_vencimiento < $2::date", [clienteId, hoy])).rows;
     const standby = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM servicio_contratado WHERE cliente_id = $1 AND estado::text = 'STANDBY'", [clienteId])).rows[0].n;
     Object.assign(r, {
       driveUrl: c.drive_url,
       driveCarpetaId: c.drive_carpeta_id,
       limiteGastoIaUsd: Number(c.limite_gasto_ia_usd),
-      estadoPagos: estadoPagos(vencidos.map((x) => ({ fechaVencimiento: fechaIso(x.v)! })), hoy),
       inactividad: inactividadVista(c.ultima_actividad_cliente_en, c.aviso_inactividad_en, standby, new Date()),
     });
   }
@@ -1517,6 +1520,201 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => perfilVista(ctx, await buscarServicio(ctx, p.id), exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL())));
 
+// ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
+
+ruta("GET", "/panel/equipo", async (ctx) => {
+  soloEquipo(ctx);
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null }>(
+    "SELECT id, nombre, cargo, rol_equipo FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre",
+  );
+  const iniciales = (n: string) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  return { datos: rows.map((u) => ({ id: u.id, nombre: u.nombre, iniciales: iniciales(u.nombre), cargo: u.cargo, rolEquipo: u.rol_equipo })) };
+});
+
+ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const periodo = PERIODO_ACTUAL();
+  const hoy = HOY_LIMA();
+  const servicios = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.estado <> 'FINALIZADO' ORDER BY c.nombre, s.orden, sc.fecha_inicio`)).rows;
+  const am = new Map((await ctx.c.query<{ id: string; am_id: string | null; am_nombre: string | null }>(
+    "SELECT c.id, u.id AS am_id, u.nombre AS am_nombre FROM cliente c LEFT JOIN usuario u ON u.id = c.account_manager_id",
+  )).rows.map((r) => [r.id, r.am_id ? { id: r.am_id, nombre: r.am_nombre ?? "" } : null]));
+  const reqs = (await ctx.c.query<{ servicio_contratado_id: string; fecha_limite: Date }>(
+    "SELECT servicio_contratado_id, fecha_limite FROM requerimiento WHERE estado IN ('PENDIENTE', 'OBSERVADO')",
+  )).rows;
+  const tareas = (await ctx.c.query<{ servicio_contratado_id: string; responsable_id: string | null; estado: EstadoTarea; fecha_limite: Date | null }>(
+    "SELECT servicio_contratado_id, responsable_id, estado, fecha_limite FROM tarea WHERE estado <> 'HECHA'",
+  )).rows;
+  const datos: S<"ProyectoPipeline">[] = [];
+  for (const sc of servicios) {
+    const etapas = await etapasDelServicio(ctx, sc, periodo);
+    const avance = calcularAvance(
+      etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) })),
+      hoy, sc.modalidad === "MENSUAL" ? periodo : null,
+    );
+    const actual = etapas.find((e) => e.orden === avance.etapaActual?.orden);
+    const suyos = reqs.filter((r) => r.servicio_contratado_id === sc.id);
+    const atrasados = suyos.filter((r) => diasAtraso(fechaIso(r.fecha_limite)!, hoy, ctx.feriados) > 0).length;
+    const abiertas = tareas.filter((t) => t.servicio_contratado_id === sc.id);
+    datos.push({
+      servicioContratadoId: sc.id, clienteId: sc.cliente_id, clienteNombre: sc.cliente_nombre, titulo: tituloServicio(sc.nombre, sc.marca ?? sc.cliente_nombre),
+      codigo: sc.codigo, estado: sc.estado,
+      columna: columnaProyecto({ estado: sc.estado, avance, esperaCliente: !!actual?.espera_cliente, requerimientosAtrasados: atrasados }),
+      avance, responsable: am.get(sc.cliente_id) ?? null,
+      tareas: { abiertas: abiertas.length, vencidas: abiertas.filter((t) => tareaVencida({ estado: t.estado, fechaLimite: fechaIso(t.fecha_limite) }, hoy)).length },
+      requerimientosPendientes: suyos.length, requerimientosAtrasados: atrasados,
+    });
+  }
+  const quien = q.get("responsableId");
+  const texto = q.get("q")?.toLowerCase();
+  return {
+    columnas: COLUMNAS_PROYECTO,
+    datos: datos
+      .filter((x) => !quien || x.responsable?.id === quien || tareas.some((t) => t.servicio_contratado_id === x.servicioContratadoId && t.responsable_id === quien))
+      .filter((x) => !texto || x.titulo.toLowerCase().includes(texto) || x.clienteNombre.toLowerCase().includes(texto)),
+  };
+});
+
+interface FilaTarea {
+  id: string;
+  servicio_contratado_id: string;
+  cliente_id: string;
+  etapa_id: string | null;
+  etapa_nombre: string | null;
+  titulo: string;
+  descripcion: string | null;
+  estado: EstadoTarea;
+  responsable_id: string | null;
+  responsable_nombre: string | null;
+  fecha_limite: Date | null;
+  completada_en: Date | null;
+  creado_por: string | null;
+  creado_por_nombre: string | null;
+  creado_en: Date;
+  comentarios: number;
+}
+const SELECT_TAREA = `
+  SELECT t.*, e.nombre AS etapa_nombre, r.nombre AS responsable_nombre, cp.nombre AS creado_por_nombre,
+         (SELECT count(*)::int FROM comentario_tarea ct WHERE ct.tarea_id = t.id) AS comentarios
+  FROM tarea t
+  LEFT JOIN etapa_proyecto e ON e.id = t.etapa_id
+  LEFT JOIN usuario r ON r.id = t.responsable_id
+  LEFT JOIN usuario cp ON cp.id = t.creado_por`;
+
+const tareaVistaDb = (t: FilaTarea): S<"Tarea"> => ({
+  id: t.id, servicioContratadoId: t.servicio_contratado_id, etapaId: t.etapa_id, etapaNombre: t.etapa_nombre, titulo: t.titulo, descripcion: t.descripcion,
+  estado: t.estado, responsable: persona(t.responsable_id, t.responsable_nombre), fechaLimite: fechaIso(t.fecha_limite),
+  vencida: tareaVencida({ estado: t.estado, fechaLimite: fechaIso(t.fecha_limite) }, HOY_LIMA()), comentarios: t.comentarios,
+  creadoPor: persona(t.creado_por, t.creado_por_nombre), creadoEn: iso(t.creado_en)!, completadaEn: iso(t.completada_en),
+});
+
+async function buscarTarea(ctx: Ctx, id: string): Promise<FilaTarea> {
+  soloEquipo(ctx);
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  const t = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.id = $1`, [id])).rows[0];
+  if (!t) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  return t;
+}
+
+/** Valida el cuerpo y que el responsable sea del equipo y la etapa, del mismo proyecto. */
+async function revisarTarea(ctx: Ctx, b: Record<string, unknown>, servicioId: string, parcial: boolean) {
+  const errores = validarTarea(b, parcial);
+  if (typeof b.responsableId === "string" && !(esUuid(b.responsableId) && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [b.responsableId])).rows.length)) {
+    errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
+  }
+  if (typeof b.etapaId === "string" && !(esUuid(b.etapaId) && (await ctx.c.query("SELECT 1 FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2", [b.etapaId, servicioId])).rows.length)) {
+    errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  }
+  validacion(errores);
+}
+
+type CuerpoTarea = { titulo?: string; descripcion?: string | null; estado?: EstadoTarea; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null };
+
+ruta("GET", "/servicios-contratados/:id/tareas", async (ctx, p) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const vistas = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.servicio_contratado_id = $1`, [sc.id])).rows.map(tareaVistaDb);
+  return { datos: ordenarTareas(vistas) };
+});
+
+ruta("POST", "/servicios-contratados/:id/tareas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as CuerpoTarea;
+  await revisarTarea(ctx, b, sc.id, false);
+  const estado = b.estado ?? "PENDIENTE";
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO tarea (servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, estado, responsable_id, fecha_limite, completada_en, creado_por)
+     VALUES ($1, $2, $3, $4, $5, $6::estado_tarea, $7, $8::date, CASE WHEN $6 = 'HECHA' THEN now() END, $9) RETURNING id`,
+    [sc.id, sc.cliente_id, b.etapaId ?? null, b.titulo!.trim(), b.descripcion?.trim() || null, estado, b.responsableId ?? null, b.fechaLimite ?? null, ctx.esServicio ? null : ctx.u.usuarioId],
+  )).rows[0].id;
+  if (b.responsableId) await emitirOutbox(ctx, "tarea.asignada", sc.cliente_id, { tareaId: id, servicioContratadoId: sc.id, responsableId: b.responsableId, usuarioId: ctx.u.usuarioId });
+  return { __status: 201, ...tareaVistaDb(await buscarTarea(ctx, id)) };
+});
+
+ruta("PATCH", "/tareas/:id", async (ctx, p, _q, cuerpo) => {
+  const t = await buscarTarea(ctx, p.id);
+  const b = (await cuerpo()) as CuerpoTarea;
+  await revisarTarea(ctx, b, t.servicio_contratado_id, true);
+  const estado = b.estado ?? t.estado;
+  const responsable = b.responsableId === undefined ? t.responsable_id : b.responsableId;
+  await ctx.c.query(
+    `UPDATE tarea SET titulo = $2, descripcion = $3, estado = $4::estado_tarea, responsable_id = $5, etapa_id = $6, fecha_limite = $7::date,
+            completada_en = CASE WHEN $4 <> 'HECHA' THEN NULL WHEN estado = 'HECHA' THEN completada_en ELSE now() END, actualizado_en = now()
+     WHERE id = $1`,
+    [
+      t.id, b.titulo !== undefined ? b.titulo.trim() : t.titulo, b.descripcion !== undefined ? b.descripcion?.trim() || null : t.descripcion, estado, responsable,
+      b.etapaId === undefined ? t.etapa_id : b.etapaId, b.fechaLimite === undefined ? fechaIso(t.fecha_limite) : b.fechaLimite,
+    ],
+  );
+  if (responsable && responsable !== t.responsable_id) {
+    await emitirOutbox(ctx, "tarea.asignada", t.cliente_id, { tareaId: t.id, servicioContratadoId: t.servicio_contratado_id, responsableId: responsable, usuarioId: ctx.u.usuarioId });
+  }
+  return tareaVistaDb(await buscarTarea(ctx, t.id));
+});
+
+ruta("DELETE", "/tareas/:id", async (ctx, p) => {
+  const t = await buscarTarea(ctx, p.id);
+  await ctx.c.query("DELETE FROM tarea WHERE id = $1", [t.id]);
+  return null;
+});
+
+interface FilaComentarioTarea { id: string; texto: string; autor_id: string; autor_nombre: string; menciones_personas: { id: string; nombre: string }[]; creado_en: Date }
+const SELECT_COMENTARIO_TAREA = `
+  SELECT ct.id, ct.texto, ct.autor_id, u.nombre AS autor_nombre, ct.creado_en,
+         coalesce((SELECT json_agg(json_build_object('id', m.id, 'nombre', m.nombre) ORDER BY m.nombre) FROM usuario m WHERE m.id = ANY (ct.menciones)), '[]') AS menciones_personas
+  FROM comentario_tarea ct JOIN usuario u ON u.id = ct.autor_id`;
+const comentarioTareaVistaDb = (c: FilaComentarioTarea): S<"ComentarioTarea"> => ({
+  id: c.id, autor: { id: c.autor_id, nombre: c.autor_nombre }, texto: c.texto, menciones: c.menciones_personas, creadoEn: iso(c.creado_en)!,
+});
+
+ruta("GET", "/tareas/:id/comentarios", async (ctx, p) => {
+  const t = await buscarTarea(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaComentarioTarea>(`${SELECT_COMENTARIO_TAREA} WHERE ct.tarea_id = $1 ORDER BY ct.creado_en`, [t.id]);
+  return { datos: rows.map(comentarioTareaVistaDb) };
+});
+
+ruta("POST", "/tareas/:id/comentarios", async (ctx, p, _q, cuerpo) => {
+  const t = await buscarTarea(ctx, p.id);
+  const b = (await cuerpo()) as { texto?: unknown; mencionIds?: unknown };
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (texto.length < 2 || texto.length > 2000) errores.push({ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" });
+  const menciones = Array.isArray(b.mencionIds) ? [...new Set(b.mencionIds as unknown[])] : [];
+  const validos = menciones.every((x) => esUuid(x))
+    ? (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM usuario WHERE id = ANY ($1::uuid[]) AND tipo = 'EQUIPO'", [menciones])).rows[0].n === menciones.length
+    : false;
+  if (!validos) errores.push({ campo: "mencionIds", mensaje: "Solo puedes mencionar a personas del equipo" });
+  validacion(errores);
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO comentario_tarea (tarea_id, cliente_id, autor_id, texto, menciones) VALUES ($1, $2, $3, $4, $5::uuid[]) RETURNING id",
+    [t.id, t.cliente_id, ctx.u.usuarioId, texto, menciones],
+  )).rows[0].id;
+  for (const m of menciones) await emitirOutbox(ctx, "tarea.mencion", t.cliente_id, { tareaId: t.id, comentarioId: id, mencionadoId: m, usuarioId: ctx.u.usuarioId });
+  const c = (await ctx.c.query<FilaComentarioTarea>(`${SELECT_COMENTARIO_TAREA} WHERE ct.id = $1`, [id])).rows[0];
+  return { __status: 201, ...comentarioTareaVistaDb(c) };
+});
+
 async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<S<"PerfilProyecto">> {
   const av = await avanceServicio(ctx, s, periodo);
   const reuniones = (await ctx.c.query<{ id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null }>(
@@ -1676,91 +1874,45 @@ ruta("POST", "/servicios-contratados/:id/comentarios", async (ctx, p, _q, cuerpo
 });
 
 
-/** Pago nuevo (`parcial` = false) o cambio: concepto, monto > 0, moneda y fecha de vencimiento. */
-function validarPago(b: { concepto?: unknown; monto?: unknown; moneda?: unknown; fechaVencimiento?: unknown; estado?: unknown; pagadoEn?: unknown }, parcial: boolean) {
-  const fecha = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
-  const errores: { campo: string; mensaje: string }[] = [];
-  if ((!parcial || b.concepto !== undefined) && (typeof b.concepto !== "string" || b.concepto.trim().length < 3)) errores.push({ campo: "concepto", mensaje: "Escribe el concepto" });
-  if ((!parcial || b.monto !== undefined) && !(typeof b.monto === "number" && b.monto > 0)) errores.push({ campo: "monto", mensaje: "El monto debe ser mayor a 0" });
-  if (b.moneda !== undefined && !["PEN", "USD"].includes(b.moneda as string)) errores.push({ campo: "moneda", mensaje: "Usa PEN o USD" });
-  if ((!parcial || b.fechaVencimiento !== undefined) && !fecha(b.fechaVencimiento)) errores.push({ campo: "fechaVencimiento", mensaje: "Indica la fecha (AAAA-MM-DD)" });
-  if (b.estado !== undefined && !["PENDIENTE", "PAGADO"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Usa PENDIENTE o PAGADO" });
-  if (b.pagadoEn != null && !fecha(b.pagadoEn)) errores.push({ campo: "pagadoEn", mensaje: "Usa el formato AAAA-MM-DD" });
-  return errores;
+// Estado de pago (reunión 15 oct): solo «Al día» o «Atrasado» desde una fecha; sin cuotas ni montos.
+// ADMIN y FINANZAS lo ven completo y lo cambian; el resto del equipo ve la situación y la alerta; quien
+// administra la cuenta del cliente, solo la situación y los días.
+const esFinanzas = (ctx: Ctx) => ctx.esEquipo && !ctx.esServicio && ROLES_FINANZAS.includes(ctx.u.rolEquipo ?? "");
+
+async function estadoPagoDb(ctx: Ctx, clienteId: string): Promise<S<"EstadoPago">> {
+  const x = (await ctx.c.query<{ situacion_pago: SituacionPago; pago_atrasado_desde: Date | null; pago_nota: string | null; pago_actualizado_en: Date | null; pago_actualizado_por: string | null; actualizado_por_nombre: string | null }>(
+    `SELECT c.situacion_pago, c.pago_atrasado_desde, c.pago_nota, c.pago_actualizado_en, c.pago_actualizado_por, u.nombre AS actualizado_por_nombre
+     FROM cliente c LEFT JOIN usuario u ON u.id = c.pago_actualizado_por WHERE c.id = $1`,
+    [clienteId],
+  )).rows[0];
+  const desde = fechaIso(x.pago_atrasado_desde);
+  const diasAtraso = x.situacion_pago === "ATRASADO" ? diasAtrasoPago(desde, HOY_LIMA()) : 0;
+  const base: S<"EstadoPago"> = { situacion: x.situacion_pago, diasAtraso };
+  if (!ctx.esEquipo) return base;
+  const equipo = { ...base, atrasadoDesde: desde, alertaOperaciones: alertaPago(x.situacion_pago, diasAtraso), umbralDias: UMBRAL_ALERTA_PAGO_DIAS };
+  return esFinanzas(ctx) ? { ...equipo, nota: x.pago_nota, actualizadoEn: iso(x.pago_actualizado_en), actualizadoPor: persona(x.pago_actualizado_por, x.actualizado_por_nombre) } : equipo;
 }
 
-interface FilaPago { id: string; cliente_id: string; concepto: string; servicio_contratado_id: string | null; monto: string; moneda: "PEN" | "USD"; fecha_vencimiento: Date; estado: "PENDIENTE" | "PAGADO"; pagado_en: Date | null }
-const pagoVistaDb = (x: FilaPago): S<"PagoProgramado"> => {
-  const vence = fechaIso(x.fecha_vencimiento)!;
-  return {
-    id: x.id, concepto: x.concepto, servicioContratadoId: x.servicio_contratado_id, monto: Number(x.monto), moneda: x.moneda, fechaVencimiento: vence,
-    estado: x.estado === "PENDIENTE" && vence < HOY_LIMA() ? "VENCIDO" : x.estado, pagadoEn: fechaIso(x.pagado_en),
-  };
-};
-
-ruta("POST", "/clientes/:id/pagos", async (ctx, p, _q, cuerpo) => {
+ruta("GET", "/clientes/:id/estado-pago", async (ctx, p) => {
   await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
-  const b = (await cuerpo()) as { concepto?: string; monto?: number; moneda?: string; fechaVencimiento?: string; servicioContratadoId?: string | null };
-  const errores = validarPago(b, false);
-  if (b.servicioContratadoId && !(esUuid(b.servicioContratadoId) && (await ctx.c.query("SELECT 1 FROM servicio_contratado WHERE id = $1 AND cliente_id = $2", [b.servicioContratadoId, p.id])).rows.length)) {
-    errores.push({ campo: "servicioContratadoId", mensaje: "Ese servicio no es de este cliente" });
-  }
-  validacion(errores);
-  const { rows } = await ctx.c.query<FilaPago>(
-    `INSERT INTO pago_programado (cliente_id, servicio_contratado_id, concepto, monto, moneda, fecha_vencimiento, creado_por)
-     VALUES ($1, $2, $3, $4, $5::moneda, $6, $7) RETURNING *`,
-    [p.id, b.servicioContratadoId ?? null, b.concepto!.trim(), b.monto, b.moneda ?? "PEN", b.fechaVencimiento, ctx.u.usuarioId],
-  );
-  return { __status: 201, ...pagoVistaDb(rows[0]) };
+  exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  return estadoPagoDb(ctx, p.id);
 });
 
-async function buscarPago(ctx: Ctx, id: string): Promise<FilaPago> {
-  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
-  const x = (await ctx.c.query<FilaPago>("SELECT * FROM pago_programado WHERE id = $1", [id])).rows[0];
-  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pago");
-  await accesoCliente(ctx, x.cliente_id);
-  exigirRol(ctx, x.cliente_id, ["ACCOUNT_MANAGER", "ADMIN"]);
-  return x;
-}
-
-ruta("PATCH", "/pagos/:id", async (ctx, p, _q, cuerpo) => {
-  const x = await buscarPago(ctx, p.id);
-  const b = (await cuerpo()) as { concepto?: string; monto?: number; moneda?: string; fechaVencimiento?: string; estado?: string; pagadoEn?: string | null };
-  validacion(validarPago(b, true));
-  const estado = b.estado ?? x.estado;
-  const pagado = estado === "PAGADO" ? (b.estado ? b.pagadoEn ?? HOY_LIMA() : fechaIso(x.pagado_en)) : null;
-  const { rows } = await ctx.c.query<FilaPago>(
-    `UPDATE pago_programado SET concepto = coalesce($2, concepto), monto = coalesce($3, monto), moneda = coalesce($4::moneda, moneda),
-            fecha_vencimiento = coalesce($5::date, fecha_vencimiento), estado = $6::estado_pago, pagado_en = $7::date WHERE id = $1 RETURNING *`,
-    [x.id, b.concepto?.trim() ?? null, b.monto ?? null, b.moneda ?? null, b.fechaVencimiento ?? null, estado, pagado],
-  );
-  return pagoVistaDb(rows[0]);
-});
-
-ruta("DELETE", "/pagos/:id", async (ctx, p) => {
-  const x = await buscarPago(ctx, p.id);
-  await ctx.c.query("DELETE FROM pago_programado WHERE id = $1", [x.id]);
-  return null;
-});
-
-// «Mi cuenta → Pagos»: solo quien administra la cuenta y gestión (AM y ADMIN); el equipo operativo
-// solo ve si el cliente está al día (estadoPagos en la ficha). VENCIDO se calcula al leer.
-ruta("GET", "/clientes/:id/pagos", async (ctx, p) => {
+ruta("PUT", "/clientes/:id/estado-pago", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, [...ROLES_GESTION, "ADMIN_CLIENTE"]);
-  const { rows } = await ctx.c.query<{ id: string; concepto: string; servicio_contratado_id: string | null; monto: string; moneda: "PEN" | "USD"; fecha_vencimiento: Date; estado: "PENDIENTE" | "PAGADO"; pagado_en: Date | null }>(
-    "SELECT * FROM pago_programado WHERE cliente_id = $1 ORDER BY fecha_vencimiento", [p.id],
+  exigirRol(ctx, p.id, ["ADMIN", "FINANZAS"]);
+  const b = (await cuerpo()) as { situacion?: SituacionPago; atrasadoDesde?: string; nota?: string | null };
+  validacion(validarEstadoPago(b, HOY_LIMA()));
+  const atrasado = b.situacion === "ATRASADO";
+  await ctx.c.query(
+    `UPDATE cliente SET situacion_pago = $2::situacion_pago, pago_atrasado_desde = $3::date, pago_nota = $4,
+            pago_actualizado_por = $5, pago_actualizado_en = now(), actualizado_en = now() WHERE id = $1`,
+    [p.id, b.situacion, atrasado ? b.atrasadoDesde : null, b.nota?.trim() || null, ctx.esServicio ? null : ctx.u.usuarioId],
   );
-  const hoy = HOY_LIMA();
-  const vista = (x: (typeof rows)[number]): S<"PagoProgramado"> => {
-    const vence = fechaIso(x.fecha_vencimiento)!;
-    return {
-      id: x.id, concepto: x.concepto, servicioContratadoId: x.servicio_contratado_id, monto: Number(x.monto), moneda: x.moneda, fechaVencimiento: vence,
-      estado: x.estado === "PENDIENTE" && vence < hoy ? "VENCIDO" : x.estado, pagadoEn: fechaIso(x.pagado_en),
-    };
-  };
-  return { pendientes: rows.filter((x) => x.estado === "PENDIENTE").map(vista), pagados: rows.filter((x) => x.estado === "PAGADO").reverse().map(vista) };
+  const vista = await estadoPagoDb(ctx, p.id);
+  await emitirOutbox(ctx, "pago.situacion_cambiada", p.id, { situacion: vista.situacion, atrasadoDesde: atrasado ? b.atrasadoDesde : null, diasAtraso: vista.diasAtraso, alertaOperaciones: vista.alertaOperaciones, usuarioId: ctx.u.usuarioId });
+  return vista;
 });
 
 ruta("GET", "/plantillas", async (ctx, _p, q) => {
@@ -1855,7 +2007,7 @@ function reqVista(r: FilaReq, dias: ReadonlySet<string>): S<"Requerimiento"> {
   return {
     id: r.id, servicioContratadoId: r.servicio_contratado_id, servicioTitulo: tituloServicio(r.servicio_nombre, r.servicio_marca ?? r.cliente_nombre),
     plantillaCodigo: r.plantilla_codigo, titulo: r.titulo, descripcion: r.plantilla_descripcion, mensaje: r.mensaje, estado: r.estado,
-    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta, dias), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
+    emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta, dias), diasParaVencer: diasParaVencer(limite, HOY_LIMA(), dias), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
     notaEquipo: r.nota_equipo, enviadoEn: iso(r.enviado_en), enviadoPor: persona(r.enviado_por, r.enviado_por_nombre), revisadoEn: iso(r.revisado_en),
     creadoPor: persona(r.creado_por, r.creado_por_nombre),
   };
@@ -2385,18 +2537,10 @@ async function avisosVisibles(ctx: Ctx, clienteId: string, aniversario: string |
   return xs;
 }
 
-/** Aviso de Inicio, sin monto: el pago más urgente si ya venció o vence en 7 días. */
-async function avisoPago(ctx: Ctx, clienteId: string, hoy: string): Promise<S<"InicioCliente">["avisoPago"]> {
-  const { rows } = await ctx.c.query<{ concepto: string; vence: string; vencidos: number }>(
-    `SELECT concepto, to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vence,
-            (SELECT count(*)::int FROM pago_programado WHERE cliente_id = $1 AND estado = 'PENDIENTE' AND fecha_vencimiento < $2::date) AS vencidos
-     FROM pago_programado WHERE cliente_id = $1 AND estado = 'PENDIENTE' ORDER BY fecha_vencimiento LIMIT 1`,
-    [clienteId, hoy],
-  );
-  const x = rows[0];
-  const limite = new Date(Date.parse(`${hoy}T12:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
-  if (!x || x.vence > limite) return null;
-  return { concepto: x.concepto, fechaVencimiento: x.vence, estado: x.vence < hoy ? "VENCIDO" : "POR_VENCER", vencidos: x.vencidos };
+/** Aviso de Inicio, sin montos (reunión 15 oct): solo si el cliente está atrasado. */
+async function avisoPago(ctx: Ctx, clienteId: string): Promise<S<"InicioCliente">["avisoPago"]> {
+  const x = await estadoPagoDb(ctx, clienteId);
+  return x.situacion === "ATRASADO" ? { situacion: "ATRASADO", diasAtraso: x.diasAtraso } : null;
 }
 
 /** Actividad reciente, breve: aprobaciones del cliente, publicaciones, etapas terminadas y requerimientos. */
@@ -2450,7 +2594,7 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
   const plan = (await ctx.c.query<{ id: string; nombre: string; fecha_inicio: Date; fecha_fin: Date | null; contrato_archivo_id: string | null }>(
     "SELECT id, nombre, fecha_inicio, fecha_fin, contrato_archivo_id FROM plan_cliente WHERE cliente_id = $1 AND vigente", [p.id],
   )).rows[0];
-  const veePagos = ctx.esEquipo ? esGestion(ctx.u.rolEquipo) : ctx.u.roles[p.id] === "ADMIN_CLIENTE";
+  const veePagos = ctx.esEquipo ? esFinanzas(ctx) : ctx.u.roles[p.id] === "ADMIN_CLIENTE";
   const cuota = servicios.reduce((t, s) => t + s.cantidadMensual, 0);
   const r: S<"InicioCliente"> = {
     periodo,
@@ -2462,7 +2606,7 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
       responsable: c.am_id ? { id: c.am_id, nombre: c.am_nombre!, cargo: c.am_cargo, email: c.am_email ?? undefined } : null,
       driveUrl: c.drive_url,
     },
-    avisoPago: veePagos ? await avisoPago(ctx, p.id, hoy) : null,
+    avisoPago: veePagos ? await avisoPago(ctx, p.id) : null,
     marca: servicios.some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
       ? { mensajeCentral: c.marca.mensajeCentral ?? null, campanaActual: c.marca.campanaActual ?? null, descripcion: c.marca.descripcion ?? null, tono: c.tono.etiquetas ?? [], publico: c.publico.descripcion ?? null }
       : null,
@@ -3274,7 +3418,9 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
         const previa = await idempotencia(c, u.usuarioId, clave, hash);
         if (previa) return previa;
       }
-      const resultado = await encontrada.fn({ u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO" }, encontrada.params!, url.searchParams, cuerpo);
+      const ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
+      ctx.feriados = await noHabilesDb(ctx);
+      const resultado = await encontrada.fn(ctx, encontrada.params!, url.searchParams, cuerpo);
       // Descargas (CSV): la ruta arma la respuesta completa.
       if (resultado instanceof Response) return resultado;
       let status = 200;

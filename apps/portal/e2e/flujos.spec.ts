@@ -121,10 +121,13 @@ test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", asy
   await entrarComo(page, "equipo");
   await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
   await page.getByRole("button", { name: "Pedir requerimiento" }).click();
-  await page.selectOption("#req-plantilla", "INFO_IA");
-  await expect(page.getByText("Plazo sugerido: 3 días hábiles")).toBeVisible();
   await page.selectOption("#req-servicio", { label: "Social Media Pro - Casa Oliva" });
-  await page.getByRole("button", { name: "Pedir al cliente" }).click();
+  const dialogo = page.getByRole("dialog");
+  // Solo aparecen las plantillas del servicio; el brief web no es de Social Media Pro.
+  await expect(dialogo.getByRole("radio", { name: /Brief de desarrollo web/ })).toHaveCount(0);
+  await dialogo.getByRole("radio", { name: /Información de tu empresa para la IA/ }).click();
+  await expect(dialogo.getByLabel("Vista previa del formulario")).toContainText("Así le llega al cliente");
+  await dialogo.getByRole("button", { name: "Pedir al cliente" }).click();
   await expect(page.getByText("Requerimiento enviado")).toBeVisible();
   await expect(page.getByText("Información de tu empresa para la IA")).toBeVisible();
 });
@@ -184,14 +187,6 @@ test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuev
   await expect(page.getByRole("link", { name: "Diseño y desarrollo web - Casa Oliva", exact: true })).toHaveCount(2);
 });
 
-test("blog (equipo): elegir otra idea", async ({ page }) => {
-  await entrarComo(page, "equipo");
-  await page.goto("/equipo/blog");
-  await page.getByRole("button", { name: /Cómo leer la etiqueta/ }).click();
-  await page.getByRole("button", { name: "Confirmar selección" }).click();
-  await expect(page.getByText("Selección confirmada")).toBeVisible();
-});
-
 test("equipo: nueva pieza, revisión interna y liberación al cliente", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/panel");
@@ -207,6 +202,49 @@ test("equipo: nueva pieza, revisión interna y liberación al cliente", async ({
   await expect(page.getByRole("button", { name: "Retirar de revisión" })).toBeVisible();
 });
 
+test("pagos: operaciones solo ve la alerta y Finanzas marca al cliente al día", async ({ browser }) => {
+  const ficha = "/equipo/clientes/00000000-0000-4000-8002-000000000001";
+  const am = await browser.newPage();
+  await entrarComo(am, "equipo");
+  await am.goto(ficha);
+  await expect(am.getByText("Pago atrasado 8 días")).toBeVisible({ timeout: 20_000 });
+  await expect(am.getByRole("heading", { name: "Estado de pago" })).toHaveCount(0);
+  await am.close();
+  const finanzas = await browser.newPage();
+  await entrarComo(finanzas, "finanzas");
+  await finanzas.goto(ficha);
+  await expect(finanzas.getByText("Cuota 2 de 3 de la implementación de CRM (dato de relleno)")).toBeVisible({ timeout: 20_000 });
+  await finanzas.getByRole("button", { name: "Cambiar estado" }).click();
+  const dialogo = finanzas.getByRole("dialog");
+  await dialogo.getByRole("button", { name: "Al día" }).click();
+  await dialogo.getByRole("button", { name: "Guardar" }).click();
+  await expect(finanzas.getByText("Marcado al día")).toBeVisible();
+  await finanzas.close();
+});
+
+test("proyectos: del pipeline al proyecto, crear una tarea, moverla y mencionar a alguien", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos");
+  const espera = page.locator(".pipeline-columna", { hasText: "Esperando al cliente" });
+  await expect(espera.getByText("Implementación de CRM - Casa Oliva")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ }).click();
+  await expect(page.getByRole("heading", { name: "Tareas del equipo" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.fill("#nt-titulo", "Subir los 50 productos al catálogo");
+  await page.selectOption("#nt-responsable", { label: "Admin Inoo" });
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+  await expect(page.getByText("Admin Inoo recibe el aviso.")).toBeVisible();
+  await page.getByRole("button", { name: "Kanban" }).click();
+  await page.getByLabel("Estado de «Subir los 50 productos al catálogo»").selectOption("EN_CURSO");
+  await expect(page.locator('.kanban-columna[aria-label^="En curso"]')).toContainText("Subir los 50 productos al catálogo");
+  await page.getByRole("button", { name: "Subir los 50 productos al catálogo" }).click();
+  const dialogo = page.getByRole("dialog");
+  await dialogo.getByRole("button", { name: "Rosa" }).click();
+  await expect(dialogo.locator("#comentario-tarea")).toHaveValue(/@Rosa Paredes/);
+  await dialogo.getByRole("button", { name: "Comentar" }).click();
+  await expect(page.getByText("Avisamos a 1 persona.")).toBeVisible();
+});
+
 test("un cliente no entra al panel interno", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/equipo/panel");
@@ -216,12 +254,12 @@ test("un cliente no entra al panel interno", async ({ page }) => {
 test("mi cuenta: la foto de perfil abre pagos, usuarios y ayuda", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/inicio");
-  await expect(page.getByText(/venció el 02 oct/)).toBeVisible();
-  await expect(page.getByText("S/ 3,200")).toHaveCount(0);
+  await expect(page.getByText(/Tienes un pago con 8 días de atraso/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/S\/ /)).toHaveCount(0);
   await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
   await page.getByRole("menuitem", { name: "Pagos" }).click();
   await expect(page).toHaveURL(/\/cuenta\/pagos$/);
-  await expect(page.getByText("Mensualidad de octubre")).toBeVisible();
+  await expect(page.getByText("Atrasado · 8 días")).toBeVisible();
   await page.getByRole("tab", { name: "Ayuda" }).click();
   await expect(page.getByText("Pagos y facturación")).toBeVisible();
 });
@@ -255,15 +293,11 @@ test("calendarios: el AM aprueba la propuesta del Jefe de Marketing", async ({ p
   await expect(page.getByText("Plan aprobado").first()).toBeVisible();
 });
 
-test("equipo operativo: sin Blog en el menú; de pagos solo ve si el cliente está al día", async ({ page }) => {
+test("equipo operativo: sin Blog en el menú y ve el responsable de cada servicio", async ({ page }) => {
   await entrarComo(page, "operativo");
   await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
   await expect(menu.getByText("Clientes", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(menu.getByText("Blog", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Pagos atrasados")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Marcar pagado" })).toHaveCount(0);
   await expect(page.getByText(/Responsable: Camila Paredes/)).toBeVisible();
-  await page.goto("/equipo/blog");
-  await expect(page.getByText("El blog es de gestión")).toBeVisible();
 });

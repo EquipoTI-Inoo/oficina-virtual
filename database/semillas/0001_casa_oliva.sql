@@ -9,15 +9,16 @@ VALUES
   ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL),
   ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER'),
   ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN'),
-  ('00000000-0000-4000-8001-000000000005', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB');
+  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS'),
+  ('00000000-0000-4000-8001-000000000006', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB');
 
-INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario)
+INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario, situacion_pago, pago_atrasado_desde, pago_nota, pago_actualizado_por, pago_actualizado_en)
 VALUES
-  ('00000000-0000-4000-8002-000000000001', 'Casa Oliva', 'casa-oliva', '{"descripcion":"Casa Oliva comunica cuidado consciente de la piel y bienestar cotidiano. El contenido acompaña pequeños rituales de limpieza, hidratación y protección.","mensajeCentral":"Cuida tu piel. Vuelve a ti.","campanaActual":"Campaña de octubre: «Tu ritual, tu momento»."}'::jsonb, '{"etiquetas":["Cercano","Consciente","Sereno"],"descripcion":"Invitar a una pausa y usar mensajes simples. Hablar de hábitos sin promesas absolutas.","ejemplo":"«Entre tantos pendientes, regálate una pausa.»"}'::jsonb, '{"descripcion":"Personas interesadas en el cuidado de la piel, el bienestar y los hábitos cotidianos.","intereses":["Rituales diarios","Cuidado consciente","Autocuidado accesible"],"segmentos":null}'::jsonb, ARRAY['Rituales diarios', 'Cuidado consciente', 'Autocuidado accesible']::text[], ARRAY['Instagram', 'Facebook', 'Blog web']::text[], '00000000-0000-4000-8001-000000000003', '00000000-0000-4000-8001-000000000001', 'demo-casa-oliva', 'https://drive.google.com/drive/folders/demo-casa-oliva', 60, '2024-10-06'),
-  ('00000000-0000-4000-8002-000000000002', 'Nativa Café', 'nativa-cafe', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 80, NULL),
-  ('00000000-0000-4000-8002-000000000003', 'Luma Studio', 'luma-studio', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 100, NULL),
-  ('00000000-0000-4000-8002-000000000004', 'Andes Salud', 'andes-salud', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 50, NULL),
-  ('00000000-0000-4000-8002-000000000005', 'Marea Local', 'marea-local', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 60, NULL);
+  ('00000000-0000-4000-8002-000000000001', 'Casa Oliva', 'casa-oliva', '{"descripcion":"Casa Oliva comunica cuidado consciente de la piel y bienestar cotidiano. El contenido acompaña pequeños rituales de limpieza, hidratación y protección.","mensajeCentral":"Cuida tu piel. Vuelve a ti.","campanaActual":"Campaña de octubre: «Tu ritual, tu momento»."}'::jsonb, '{"etiquetas":["Cercano","Consciente","Sereno"],"descripcion":"Invitar a una pausa y usar mensajes simples. Hablar de hábitos sin promesas absolutas.","ejemplo":"«Entre tantos pendientes, regálate una pausa.»"}'::jsonb, '{"descripcion":"Personas interesadas en el cuidado de la piel, el bienestar y los hábitos cotidianos.","intereses":["Rituales diarios","Cuidado consciente","Autocuidado accesible"],"segmentos":null}'::jsonb, ARRAY['Rituales diarios', 'Cuidado consciente', 'Autocuidado accesible']::text[], ARRAY['Instagram', 'Facebook', 'Blog web']::text[], '00000000-0000-4000-8001-000000000003', '00000000-0000-4000-8001-000000000001', 'demo-casa-oliva', 'https://drive.google.com/drive/folders/demo-casa-oliva', 60, '2024-10-06', 'ATRASADO', '2026-09-28', 'Cuota 2 de 3 de la implementación de CRM (dato de relleno)', '00000000-0000-4000-8001-000000000005', '2026-10-01T15:00:00Z'),
+  ('00000000-0000-4000-8002-000000000002', 'Nativa Café', 'nativa-cafe', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 80, NULL, 'AL_DIA', NULL, NULL, NULL, NULL),
+  ('00000000-0000-4000-8002-000000000003', 'Luma Studio', 'luma-studio', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 100, NULL, 'ATRASADO', '2026-10-03', NULL, '00000000-0000-4000-8001-000000000005', '2026-10-05T15:00:00Z'),
+  ('00000000-0000-4000-8002-000000000004', 'Andes Salud', 'andes-salud', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 50, NULL, 'AL_DIA', NULL, NULL, NULL, NULL),
+  ('00000000-0000-4000-8002-000000000005', 'Marea Local', 'marea-local', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ARRAY[]::text[], ARRAY[]::text[], '00000000-0000-4000-8001-000000000003', NULL, NULL, NULL, 60, NULL, 'AL_DIA', NULL, NULL, NULL, NULL);
 
 INSERT INTO miembro_cliente (cliente_id, usuario_id, rol)
 VALUES
@@ -34,7 +35,7 @@ FROM (VALUES
   ('00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', 'SOPORTE_CONTINUO', 'WEB', '{}', NULL, 'ACTIVO', 'revisar «5 hábitos para una piel saludable».', '2026-01-01', '2026-12-31', '00000000-0000-4000-8001-000000000003'),
   ('00000000-0000-4000-8004-000000000002', '00000000-0000-4000-8002-000000000001', 'SOCIAL_MEDIA_PRO', NULL, '{}', NULL, 'ACTIVO', 'revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».', '2026-01-01', '2026-12-31', '00000000-0000-4000-8001-000000000003'),
   ('00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'CRM_IMPLEMENTACION', NULL, '{"crm":"HubSpot","tipoLicencia":"Sales Hub Starter","licencias":3,"usuarios":5}', NULL, 'ACTIVO', 'validar el mapa de procesos de venta que enviamos el viernes.', '2026-09-01', NULL, '00000000-0000-4000-8001-000000000003'),
-  ('00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'WEB', 'ECOMMERCE', '{}', NULL, 'ACTIVO', 'aprobar el diseño de la página de producto.', '2026-09-21', NULL, '00000000-0000-4000-8001-000000000005')
+  ('00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'WEB', 'ECOMMERCE', '{}', NULL, 'ACTIVO', 'aprobar el diseño de la página de producto.', '2026-09-21', NULL, '00000000-0000-4000-8001-000000000006')
 ) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin, responsable)
 JOIN servicio s ON s.codigo = v.codigo
 LEFT JOIN LATERAL (
@@ -47,14 +48,6 @@ VALUES
   ('00000000-0000-4000-8004-000000000001', 'BLOG', 4),
   ('00000000-0000-4000-8004-000000000002', 'COPY', 12),
   ('00000000-0000-4000-8004-000000000002', 'ESTATICO', 4);
-
-INSERT INTO pago_programado (id, cliente_id, servicio_contratado_id, concepto, monto, moneda, fecha_vencimiento, estado, pagado_en)
-VALUES
-  ('00000000-0000-4000-8022-000000000001', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de septiembre', 4800, 'PEN', '2026-09-15', 'PAGADO', '2026-09-14'),
-  ('00000000-0000-4000-8022-000000000002', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8004-000000000003', 'Implementación de CRM · cuota 2 de 3', 3200, 'PEN', '2026-10-02', 'PENDIENTE', NULL),
-  ('00000000-0000-4000-8022-000000000003', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de octubre', 4800, 'PEN', '2026-10-15', 'PENDIENTE', NULL),
-  ('00000000-0000-4000-8022-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8004-000000000004', 'Web e-commerce · 2.º hito', 6500, 'PEN', '2026-10-30', 'PENDIENTE', NULL),
-  ('00000000-0000-4000-8022-000000000005', '00000000-0000-4000-8002-000000000001', NULL, 'Mensualidad de noviembre', 4800, 'PEN', '2026-11-15', 'PENDIENTE', NULL);
 
 INSERT INTO reunion (id, servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen)
 VALUES
@@ -93,6 +86,19 @@ VALUES
   ('00000000-0000-4000-8020-000000000016', '00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', '2026-10', 2, 'Atención de tickets y tareas', 70, 'EN_PROGRESO', false, '2026-10-05', '2026-10-23', NULL),
   ('00000000-0000-4000-8020-000000000017', '00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', '2026-10', 3, 'Sesión de seguimiento', 85, 'SIN_INICIAR', false, '2026-10-26', '2026-10-27', NULL),
   ('00000000-0000-4000-8020-000000000018', '00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', '2026-10', 4, 'Entregables e informe', 100, 'SIN_INICIAR', false, '2026-10-28', '2026-10-29', NULL);
+
+INSERT INTO tarea (id, servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, estado, responsable_id, fecha_limite, completada_en, creado_por, creado_en)
+VALUES
+  ('00000000-0000-4000-8027-000000000001', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8020-000000000005', 'Armar flujograma y benchmark de referencias', NULL, 'HECHA', '00000000-0000-4000-8001-000000000003', '2026-10-02', '2026-10-02T20:00:00Z', '00000000-0000-4000-8001-000000000003', '2026-09-29T14:00:00Z'),
+  ('00000000-0000-4000-8027-000000000002', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8020-000000000006', 'Diseñar el inicio y la ficha de producto', 'Versión web y móvil. Primero en Stitch; luego «Copy to Figma» para revisarlo entre todos.', 'EN_CURSO', '00000000-0000-4000-8001-000000000003', '2026-10-09', NULL, '00000000-0000-4000-8001-000000000003', '2026-09-29T14:00:00Z'),
+  ('00000000-0000-4000-8027-000000000003', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8020-000000000006', 'Revisar las fotos de producto que subió el cliente', NULL, 'PENDIENTE', '00000000-0000-4000-8001-000000000003', '2026-10-05', NULL, '00000000-0000-4000-8001-000000000003', '2026-09-29T14:00:00Z'),
+  ('00000000-0000-4000-8027-000000000004', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8020-000000000008', 'Pedir las credenciales de la pasarela de pago', NULL, 'PENDIENTE', '00000000-0000-4000-8001-000000000004', '2026-10-20', NULL, '00000000-0000-4000-8001-000000000003', '2026-09-29T14:00:00Z'),
+  ('00000000-0000-4000-8027-000000000005', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8020-000000000002', 'Configurar el pipeline de ventas en el CRM', NULL, 'EN_CURSO', '00000000-0000-4000-8001-000000000003', '2026-10-14', NULL, '00000000-0000-4000-8001-000000000003', '2026-09-29T14:00:00Z'),
+  ('00000000-0000-4000-8027-000000000006', '00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8020-000000000002', 'Crear las licencias de los usuarios', 'Depende del requerimiento «Usuarios del CRM», que el cliente todavía no envía.', 'BLOQUEADA', '00000000-0000-4000-8001-000000000003', '2026-10-07', NULL, '00000000-0000-4000-8001-000000000003', '2026-09-29T14:00:00Z');
+
+INSERT INTO comentario_tarea (id, tarea_id, cliente_id, autor_id, texto, menciones, creado_en)
+VALUES
+  ('00000000-0000-4000-8028-000000000001', '00000000-0000-4000-8027-000000000002', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000004', '@Diego Castro usa la paleta del manual de marca que subieron al Drive.', '{00000000-0000-4000-8001-000000000003}', '2026-10-05T16:00:00Z');
 
 INSERT INTO calendario (id, cliente_id, periodo, estado, version, cupo_ideas_blog, aprobado_por, aprobado_en)
 VALUES

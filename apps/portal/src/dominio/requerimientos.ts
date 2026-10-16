@@ -170,3 +170,18 @@ export const correrFecha = (fecha: string | null, n: number, feriados?: Readonly
 
 /** Un requerimiento cuenta como pendiente para el cliente si no lo envió o si el equipo le pidió corregirlo. */
 export const pendienteParaCliente = (estado: string) => estado === "PENDIENTE" || estado === "OBSERVADO";
+
+/** Días hábiles que le quedan al cliente antes de la fecha límite: 0 = vence hoy (o ya venció). */
+export const diasParaVencer = (limite: string, hoy: string, feriados?: ReadonlySet<string>) => diasAtraso(hoy.slice(0, 10), limite, feriados);
+
+export type Semaforo = "VERDE" | "NARANJA" | "ROJO";
+
+/**
+ * Semáforo de lo que el cliente tiene pendiente (reunión 15 oct): verde con tiempo, naranja si vence hoy o
+ * el siguiente día hábil, rojo si ya está atrasado. Lo enviado o aprobado no lleva semáforo.
+ */
+export function semaforoRequerimiento(r: { estado: string; diasAtraso: number; diasParaVencer: number }): Semaforo | null {
+  if (!pendienteParaCliente(r.estado)) return null;
+  if (r.diasAtraso > 0) return "ROJO";
+  return r.diasParaVencer <= 1 ? "NARANJA" : "VERDE";
+}

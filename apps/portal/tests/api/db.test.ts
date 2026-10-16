@@ -21,6 +21,7 @@ import { pruebasArchivos } from "./flujo-archivos";
 import { prefirmar, usarAlmacen, type Almacen } from "../../src/servidor/almacen";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
 import { pruebasEquipo } from "./flujo-equipo";
+import { pruebasProyectos } from "./flujo-proyectos";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -34,7 +35,7 @@ let tablas = "";
 // Los feriados vienen de la migración 0011; el TRUNCATE en cascada de cliente vacía aviso, así que se
 // guardan al cargar el esquema y se vuelven a insertar en cada reinicio.
 let feriadosMigracion: { fecha: string; nombre: string }[] = [];
-// Igual con las reglas globales de correo de la 0015 (regla_correo referencia a cliente).
+// Igual con las reglas globales de correo de la 0017 (regla_correo referencia a cliente).
 let reglasCorreo = "";
 async function reiniciar() {
   const feriados = feriadosMigracion.map((f) => `('FERIADO', '${f.nombre.replace(/'/g, "''")}', DATE '${f.fecha}', DATE '${f.fecha}', DATE '${f.fecha}' - 7)`).join(",\n");
@@ -54,10 +55,12 @@ before(async () => {
   await db.exec(sql("migraciones/0010_cambio_responsable.sql"));
   await db.exec(sql("migraciones/0011_avisos.sql"));
   await db.exec(sql("migraciones/0012_blogs_internos.sql"));
-  await db.exec(sql("migraciones/0013_invitaciones.sql"));
-  await db.exec(sql("migraciones/0014_paid_media_por_tipo.sql"));
-  await db.exec(sql("migraciones/0015_correos.sql"));
-  await db.exec(sql("migraciones/0016_responsables_y_standby.sql"));
+  await db.exec(sql("migraciones/0013_estado_pago.sql"));
+  await db.exec(sql("migraciones/0014_tareas.sql"));
+  await db.exec(sql("migraciones/0015_invitaciones.sql"));
+  await db.exec(sql("migraciones/0016_paid_media_por_tipo.sql"));
+  await db.exec(sql("migraciones/0017_correos.sql"));
+  await db.exec(sql("migraciones/0018_responsables_y_standby.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -76,7 +79,7 @@ before(async () => {
 pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows;
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
-pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasPanel("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasEquipo("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
@@ -93,6 +96,7 @@ const subirAlBucket = async (url: string, bytes: number) => void bucket.set(deco
 pruebasArchivos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, subirAlBucket);
 // El backend usa la fecha real de Lima para los atrasos.
 pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
+pruebasProyectos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {

@@ -96,7 +96,7 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   );
   const u = rows[0];
   if (!u) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
-  // El primer ingreso cierra las invitaciones pendientes (migración 0013).
+  // El primer ingreso cierra las invitaciones pendientes (migración 0015).
   if (u.tipo === "CLIENTE") await c.query("UPDATE miembro_cliente SET invitacion_pendiente = false WHERE usuario_id = $1 AND invitacion_pendiente", [u.id]);
   const m = await c.query<{ cliente_id: string; rol: Usuario["roles"][string] }>("SELECT cliente_id, rol FROM miembro_cliente WHERE usuario_id = $1", [u.id]);
   return {

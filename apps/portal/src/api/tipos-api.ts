@@ -72,23 +72,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/equipo/usuarios": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Personas del equipo activas, para elegir responsables de cuenta y de servicio */
-        get: operations["listarEquipo"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/clientes": {
         parameters: {
             query?: never;
@@ -146,7 +129,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/clientes/{clienteId}/pagos": {
+    "/clientes/{clienteId}/estado-pago": {
         parameters: {
             query?: never;
             header?: never;
@@ -156,37 +139,23 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * "Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados
-         * @description Solo la persona que administra la cuenta y gestión (AM y ADMIN); otros roles del cliente y el equipo operativo reciben 403. El equipo operativo ve solo `estadoPagos` en la ficha del cliente.
+         * «Al día» o «Atrasado X días» (reunión 15 oct). Sin cuotas ni montos: eso vivirá en Cosmic
+         * @description Cada rol ve lo suyo:
+         *     - ADMIN y FINANZAS: todo, con la nota y quién lo actualizó.
+         *     - El resto del equipo: situación, días y si hay alerta (para coordinar antes de seguir con el proyecto).
+         *     - ADMIN_CLIENTE: solo situación y días. Otros roles del cliente reciben 403.
          */
-        get: operations["listarPagosCliente"];
-        put?: never;
-        /** El equipo programa un pago del cliente (cuota del plan o de un servicio) */
-        post: operations["registrarPago"];
+        get: operations["obtenerEstadoPago"];
+        /**
+         * Administración o Finanzas marca al cliente al día o atrasado desde una fecha
+         * @description Emite `pago.situacion_cambiada`. Si el atraso alcanza el umbral, operaciones ve la alerta en el panel y en la ficha.
+         */
+        put: operations["actualizarEstadoPago"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/pagos/{pagoId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pagoId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Quitar un pago programado por error */
-        delete: operations["eliminarPago"];
-        options?: never;
-        head?: never;
-        /** Marcar pagado (estado PAGADO, por defecto hoy) o corregir concepto, monto o vencimiento */
-        patch: operations["actualizarPago"];
         trace?: never;
     };
     "/avisos": {
@@ -1400,6 +1369,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/panel/proyectos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pipeline (reunión 15 oct): una tarjeta por proyecto (servicio contratado activo o en pausa), agrupadas por su situación
+         * @description Columnas calculadas, en este orden de prioridad: EN_PAUSA (servicio pausado) · ESPERA_CLIENTE (requerimientos
+         *     atrasados, o la etapa actual depende del cliente y está atrasada) · CON_RETRASO (etapa actual atrasada) ·
+         *     POR_INICIAR (nada avanzado) · POR_CERRAR (avance de 90 % o más) · EN_CURSO.
+         */
+        get: operations["pipelineProyectos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/equipo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Personas del equipo de Inoo, para asignar tareas y mencionar */
+        get: operations["listarEquipo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/tareas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Tareas internas del proyecto (reunión 15 oct). El cliente nunca las ve */
+        get: operations["listarTareas"];
+        put?: never;
+        /** Nueva tarea; si tiene responsable, emite tarea.asignada */
+        post: operations["crearTarea"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tareas/{tareaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quitar una tarea creada por error */
+        delete: operations["eliminarTarea"];
+        options?: never;
+        head?: never;
+        /** Cambiar estado, responsable, fecha, etapa o texto. Un responsable nuevo emite tarea.asignada */
+        patch: operations["actualizarTarea"];
+        trace?: never;
+    };
+    "/tareas/{tareaId}/comentarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        /** Conversación interna de la tarea, del más antiguo al más nuevo */
+        get: operations["listarComentariosTarea"];
+        put?: never;
+        /** Comentar y mencionar a personas del equipo; cada mención emite tarea.mencion (aviso a esa persona) */
+        post: operations["comentarTarea"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/panel/clientes": {
         parameters: {
             query?: never;
@@ -1662,8 +1730,11 @@ export interface components {
         };
         /** @enum {string} */
         TipoUsuario: "EQUIPO" | "CLIENTE" | "SERVICIO";
-        /** @enum {string} */
-        RolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN";
+        /**
+         * @description FINANZAS (reunión 15 oct): ve y cambia el estado de pago de los clientes, junto con ADMIN
+         * @enum {string}
+         */
+        RolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN" | "FINANZAS";
         /**
          * @description ADMIN_CLIENTE gestiona usuarios; APROBADOR aprueba, sube y abre tickets; LECTOR solo mira y abre tickets.
          * @enum {string}
@@ -1751,15 +1822,6 @@ export interface components {
             cargo?: string | null;
             /** Format: email */
             email?: string | null;
-        };
-        PersonaEquipo: {
-            /** Format: uuid */
-            id: string;
-            nombre: string;
-            cargo?: string | null;
-            /** Format: email */
-            email: string;
-            rolEquipo: components["schemas"]["RolEquipo"];
         };
         /** @description Actividad del cliente en el portal y standby (solo equipo) */
         InactividadCliente: {
@@ -1900,11 +1962,6 @@ export interface components {
             driveCarpetaId?: string | null;
             /** @description Solo equipo */
             limiteGastoIaUsd?: number;
-            /**
-             * @description Solo equipo: ATRASADO si hay un pago pendiente vencido. Es lo único de pagos que ve el equipo operativo.
-             * @enum {string}
-             */
-            estadoPagos?: "AL_DIA" | "ATRASADO";
             inactividad?: components["schemas"]["InactividadCliente"];
             /** Format: date-time */
             creadoEn?: string;
@@ -1929,15 +1986,11 @@ export interface components {
                 /** Format: uri */
                 driveUrl?: string | null;
             };
-            /** @description El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE, ACCOUNT_MANAGER y ADMIN. */
+            /** @description Solo si está atrasado, sin montos (reunión 15 oct). Solo para ADMIN_CLIENTE, ADMIN y FINANZAS; si no, null. */
             avisoPago?: {
-                concepto: string;
-                /** Format: date */
-                fechaVencimiento: string;
                 /** @enum {string} */
-                estado: "VENCIDO" | "POR_VENCER";
-                /** @description Cuántos pagos están vencidos en total */
-                vencidos?: number;
+                situacion: "ATRASADO";
+                diasAtraso: number;
             } | null;
             /** @description Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null */
             marca?: {
@@ -2009,43 +2062,117 @@ export interface components {
             /** Format: date */
             visibleDesde?: string;
         };
-        /** @description Al crear: concepto, monto y fechaVencimiento obligatorios */
-        PagoEntrada: {
-            concepto?: string;
-            monto?: number;
-            /**
-             * @default PEN
-             * @enum {string}
-             */
-            moneda: "PEN" | "USD";
-            /** Format: date */
-            fechaVencimiento?: string;
-            /** Format: uuid */
-            servicioContratadoId?: string | null;
-            /** @enum {string} */
-            estado?: "PENDIENTE" | "PAGADO";
-            /** Format: date */
-            pagadoEn?: string | null;
-        };
-        PagoProgramado: {
+        /** @enum {string} */
+        SituacionPago: "AL_DIA" | "ATRASADO";
+        /** @enum {string} */
+        EstadoTarea: "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
+        /** @enum {string} */
+        ColumnaProyecto: "POR_INICIAR" | "EN_CURSO" | "ESPERA_CLIENTE" | "CON_RETRASO" | "POR_CERRAR" | "EN_PAUSA";
+        PersonaEquipo: {
             /** Format: uuid */
             id: string;
-            /** @example Mensualidad de octubre */
-            concepto: string;
+            nombre: string;
+            iniciales: string;
+            cargo?: string | null;
+            rolEquipo?: components["schemas"]["RolEquipo"] | null;
+        };
+        Tarea: {
             /** Format: uuid */
-            servicioContratadoId?: string | null;
-            monto: number;
-            /** @enum {string} */
-            moneda: "PEN" | "USD";
+            id: string;
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** Format: uuid */
+            etapaId?: string | null;
+            etapaNombre?: string | null;
+            titulo: string;
+            descripcion?: string | null;
+            estado: components["schemas"]["EstadoTarea"];
+            responsable?: components["schemas"]["PersonaMini"] | null;
             /** Format: date */
-            fechaVencimiento: string;
+            fechaLimite?: string | null;
+            /** @description No está HECHA y su fecha límite ya pasó */
+            vencida: boolean;
+            comentarios: number;
+            creadoPor?: components["schemas"]["PersonaMini"] | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            completadaEn?: string | null;
+        };
+        /** @description Al crear, titulo es obligatorio. responsableId debe ser del equipo; etapaId, del mismo proyecto */
+        TareaEntrada: {
+            titulo?: string;
+            descripcion?: string | null;
+            estado?: components["schemas"]["EstadoTarea"];
+            /** Format: uuid */
+            responsableId?: string | null;
+            /** Format: uuid */
+            etapaId?: string | null;
+            /** Format: date */
+            fechaLimite?: string | null;
+        };
+        ComentarioTarea: {
+            /** Format: uuid */
+            id: string;
+            autor: components["schemas"]["PersonaMini"];
+            texto: string;
+            menciones: components["schemas"]["PersonaMini"][];
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        ProyectoPipeline: {
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** Format: uuid */
+            clienteId: string;
+            clienteNombre: string;
+            /** @example Diseño y desarrollo web - Casa Oliva */
+            titulo: string;
+            codigo: components["schemas"]["CodigoServicio"];
+            estado: components["schemas"]["EstadoServicio"];
+            columna: components["schemas"]["ColumnaProyecto"];
+            avance: components["schemas"]["AvanceProyecto"];
+            /** @description Quien lleva la cuenta */
+            responsable?: components["schemas"]["PersonaMini"] | null;
+            tareas: {
+                abiertas: number;
+                vencidas: number;
+            };
+            requerimientosPendientes: number;
+            requerimientosAtrasados: number;
+        };
+        EstadoPago: {
+            situacion: components["schemas"]["SituacionPago"];
+            /** @description Días corridos desde atrasadoDesde; 0 si está al día */
+            diasAtraso: number;
             /**
-             * @description VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)
-             * @enum {string}
+             * Format: date
+             * @description Solo equipo
              */
-            estado: "PENDIENTE" | "PAGADO" | "VENCIDO";
-            /** Format: date */
-            pagadoEn?: string | null;
+            atrasadoDesde?: string | null;
+            /** @description Solo equipo. Atrasado con diasAtraso ≥ umbralDias: coordinar antes de seguir con el proyecto */
+            alertaOperaciones?: boolean;
+            /** @description Solo equipo. Días desde los que se alerta (7, de relleno) */
+            umbralDias?: number;
+            /** @description Solo ADMIN y FINANZAS */
+            nota?: string | null;
+            /**
+             * Format: date-time
+             * @description Solo ADMIN y FINANZAS
+             */
+            actualizadoEn?: string | null;
+            /** @description Solo ADMIN y FINANZAS */
+            actualizadoPor?: components["schemas"]["PersonaMini"] | null;
+        };
+        EstadoPagoEntrada: {
+            situacion: components["schemas"]["SituacionPago"];
+            /**
+             * Format: date
+             * @description Obligatoria si ATRASADO; no puede ser futura
+             */
+            atrasadoDesde?: string;
+            /** @description Interna: qué cuota o qué se conversó */
+            nota?: string | null;
         };
         SolicitudResponsable: {
             /** Format: uuid */
@@ -2179,6 +2306,8 @@ export interface components {
             fechaLimite: string;
             /** @description Días hábiles de atraso (hasta hoy o hasta que se envió) */
             diasAtraso: number;
+            /** @description Días hábiles que quedan hasta la fecha límite (0 = vence hoy o ya venció). Con diasAtraso arma el semáforo: rojo si hay atraso, naranja si quedan 0 o 1, verde si hay más */
+            diasParaVencer: number;
             /** @description Días hábiles que ya se corrió el cronograma por este atraso */
             diasCorridos?: number;
             campos: components["schemas"]["CampoFormulario"][];
@@ -2538,7 +2667,10 @@ export interface components {
             };
             /** @description Solo equipo. "Lista para programar", "Esperando al cliente" */
             notaEstado?: string | null;
+            /** @description LISTO_REVISION y el cliente no la revisó en su plazo (3 días hábiles desde que se le envió). El cliente ve «Atrasado» */
             atrasada?: boolean;
+            /** @description Días hábiles de atraso en la revisión del cliente; 0 si está a tiempo o no espera revisión */
+            diasAtrasoRevision?: number;
             /** Format: date-time */
             actualizadoEn?: string;
         };
@@ -3133,6 +3265,8 @@ export interface components {
                 /** @description pctLimite ≥ umbral ("Alerta · Umbral ≥ 80 %") */
                 alerta: boolean;
             };
+            /** @description Solo si el pago está atrasado desde el umbral (7 días): operaciones coordina antes de seguir con el proyecto. Sin montos */
+            pagoAtrasadoDias?: number | null;
         };
         BandejaProduccion: {
             resumen: {
@@ -3286,7 +3420,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "tarea.mencion" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -3526,29 +3660,6 @@ export interface operations {
             };
         };
     };
-    listarEquipo: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["PersonaEquipo"][];
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-        };
-    };
     listarClientes: {
         parameters: {
             query?: {
@@ -3731,10 +3842,8 @@ export interface operations {
                      *         }
                      *       ],
                      *       "avisoPago": {
-                     *         "concepto": "Mensualidad de octubre",
-                     *         "fechaVencimiento": "2026-10-15",
-                     *         "estado": "POR_VENCER",
-                     *         "vencidos": 0
+                     *         "situacion": "ATRASADO",
+                     *         "diasAtraso": 8
                      *       },
                      *       "marca": {
                      *         "mensajeCentral": "Cuida tu piel. Vuelve a ti.",
@@ -3759,7 +3868,7 @@ export interface operations {
             };
         };
     };
-    listarPagosCliente: {
+    obtenerEstadoPago: {
         parameters: {
             query?: never;
             header?: never;
@@ -3776,19 +3885,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @description Por fecha de vencimiento */
-                        pendientes: components["schemas"]["PagoProgramado"][];
-                        /** @description Los más recientes primero */
-                        pagados: components["schemas"]["PagoProgramado"][];
-                    };
+                    /**
+                     * @example {
+                     *       "situacion": "ATRASADO",
+                     *       "atrasadoDesde": "2026-09-28",
+                     *       "diasAtraso": 8,
+                     *       "alertaOperaciones": true,
+                     *       "umbralDias": 7,
+                     *       "nota": "Cuota 2 de 3 de la implementación de CRM",
+                     *       "actualizadoEn": "2026-10-01T15:00:00Z",
+                     *       "actualizadoPor": {
+                     *         "id": "8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b",
+                     *         "nombre": "Rosa Paredes"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["EstadoPago"];
                 };
             };
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
         };
     };
-    registrarPago: {
+    actualizarEstadoPago: {
         parameters: {
             query?: never;
             header?: never;
@@ -3799,55 +3918,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PagoEntrada"];
-            };
-        };
-        responses: {
-            /** @description Creado */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PagoProgramado"];
-                };
-            };
-            422: components["responses"]["Validacion"];
-        };
-    };
-    eliminarPago: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pagoId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Eliminado */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    actualizarPago: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pagoId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PagoEntrada"];
+                "application/json": components["schemas"]["EstadoPagoEntrada"];
             };
         };
         responses: {
@@ -3857,10 +3928,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PagoProgramado"];
+                    "application/json": components["schemas"]["EstadoPago"];
                 };
             };
-            404: components["responses"]["NoEncontrado"];
+            403: components["responses"]["SinPermiso"];
             422: components["responses"]["Validacion"];
         };
     };
@@ -6378,6 +6449,221 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    pipelineProyectos: {
+        parameters: {
+            query?: {
+                /** @description Solo proyectos cuya cuenta lleva esa persona o donde tiene tareas abiertas */
+                responsableId?: string;
+                /** @description Cliente o servicio */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        columnas: {
+                            clave: components["schemas"]["ColumnaProyecto"];
+                            titulo: string;
+                        }[];
+                        datos: components["schemas"]["ProyectoPipeline"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarEquipo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PersonaEquipo"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarTareas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Abiertas primero, por fecha límite; las hechas al final */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["Tarea"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TareaEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tarea"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizarTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TareaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tarea"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarComentariosTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ComentarioTarea"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    comentarTarea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tareaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                    /** @description Personas del equipo */
+                    mencionIds?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentarioTarea"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     panelClientes: {

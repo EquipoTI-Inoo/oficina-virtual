@@ -68,7 +68,7 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 | n8n (perfil `fase1`) | http://localhost:5678 | se crea al primer ingreso | n8n en VPS/ECS |
 | NocoDB (perfil `fase1`) | http://localhost:8080 | se crea al primer ingreso | Panel interno Fase 1 |
 
-Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0016) y luego `database/semillas/0001_casa_oliva.sql`
+Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0018) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
 
 ### Probar el backend real en local (base, archivos, correos y n8n)

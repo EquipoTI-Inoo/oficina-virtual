@@ -1,6 +1,6 @@
 /**
  * Pedido del 16 oct 2026, escrito una vez y ejecutado contra la API simulada y el backend real:
- * el equipo operativo no ve el blog ni el detalle de pagos, standby por inactividad del cliente y
+ * el equipo operativo no ve el blog ni cambia el estado de pago, standby por inactividad del cliente y
  * responsable por servicio contratado.
  */
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
 import { CASA_OLIVA, crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
 
-const CAMILA_ID = uid(1, 5);
+const CAMILA_ID = uid(1, 6);
 /** Desarrollo web: equipo operativo. */
 const CAMILA = `demo.${CAMILA_ID}`;
 const DIEGO_ID = uid(1, 3);
@@ -34,17 +34,11 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/ideas-blog?periodo=2026-10`, VALERIA)).status, 200);
     });
 
-    test("pagos: el equipo operativo solo sabe si el cliente está al día", async () => {
+    test("pagos: el equipo operativo no cambia el estado de pago", async () => {
       await reiniciar();
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, CAMILA)).status, 403);
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, CAMILA)).json.avisoPago, null, "sin aviso de pago en Inicio");
-      assert.ok((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, DIEGO)).json.avisoPago, "gestión sí lo ve");
-      const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}`, CAMILA)).json;
-      assert.equal(vista.estadoPagos, "ATRASADO", "la cuota del CRM venció el 2 de octubre");
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}`, VALERIA)).json.estadoPagos, undefined, "el cliente no recibe este dato");
-      const { pendientes } = (await llamar("GET", `/clientes/${CASA_OLIVA}/pagos`, DIEGO)).json;
-      for (const p of pendientes) assert.equal((await llamar("PATCH", `/pagos/${p.id}`, DIEGO, { estado: "PAGADO" })).status, 200);
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}`, CAMILA)).json.estadoPagos, "AL_DIA");
+      const ruta = `/clientes/${CASA_OLIVA}/estado-pago`;
+      assert.equal((await llamar("PUT", ruta, CAMILA, { situacion: "AL_DIA" })).status, 403);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, CAMILA)).json.avisoPago, null, "sin detalle de pago en Inicio");
     });
 
     test("standby: aviso una vez a los 23 días, standby a los 30 y se reactiva cuando el cliente vuelve", async () => {
@@ -99,9 +93,9 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
 
     test("responsable: se elige al contratar (por defecto el AM) y solo gestión lo cambia", async () => {
       await reiniciar();
-      assert.equal((await llamar("GET", "/equipo/usuarios", VALERIA)).status, 403);
-      const equipo = (await llamar("GET", "/equipo/usuarios", CAMILA)).json.datos;
-      assert.deepEqual(equipo.map((u: any) => [u.nombre, u.rolEquipo]), [["Admin Inoo", "ADMIN"], ["Camila Paredes", "DESARROLLO_WEB"], ["Diego Castro", "ACCOUNT_MANAGER"]]);
+      assert.equal((await llamar("GET", "/panel/equipo", VALERIA)).status, 403);
+      const equipo = (await llamar("GET", "/panel/equipo", CAMILA)).json.datos.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+      assert.deepEqual(equipo.map((u: any) => [u.nombre, u.rolEquipo]), [["Admin Inoo", "ADMIN"], ["Camila Paredes", "DESARROLLO_WEB"], ["Diego Castro", "ACCOUNT_MANAGER"], ["Rosa Paredes", "FINANZAS"]]);
 
       const sinElegir = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-19" });
       assert.equal(sinElegir.json.responsable.id, DIEGO_ID);

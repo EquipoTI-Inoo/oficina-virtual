@@ -1,7 +1,7 @@
 /**
  * Correos automáticos (INO-04): qué evento del outbox dispara qué correo, a quién y con qué texto.
  * La API arma el correo (POST /integraciones/correos/preparar) y n8n solo lo envía por SMTP, así los
- * textos se revisan en el repo y se prueban. Las reglas activas viven en `regla_correo` (migración 0015).
+ * textos se revisan en el repo y se prueban. Las reglas activas viven en `regla_correo` (migración 0017).
  */
 
 /** A quién va: decisores del cliente (ADMIN_CLIENTE y APROBADOR), quien hizo la acción, el equipo Inoo

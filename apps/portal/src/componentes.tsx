@@ -1,17 +1,16 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3, LuFileText,
-  LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck,
+  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3,
+  LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
 import { api, cerrarSesion, clienteActivo, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
-import { esGestion } from "./dominio/equipo";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
-type Tono = "violeta" | "verde" | "ambar" | "azul" | "gris";
+type Tono = "violeta" | "verde" | "ambar" | "azul" | "gris" | "rojo";
 export const ESTADO_PIEZA: Record<string, [string, Tono]> = {
   EN_PRODUCCION: ["En producción", "gris"],
   BORRADOR: ["Borrador", "gris"],
@@ -38,6 +37,31 @@ export function Etiqueta({ tono = "gris", children, sinPunto }: { tono?: Tono; c
 export function EtiquetaEstado({ estado, mapa = ESTADO_PIEZA }: { estado: string; mapa?: Record<string, [string, Tono]> }) {
   const [texto, tono] = mapa[estado] ?? [estado, "gris"];
   return <Etiqueta tono={tono}>{texto}</Etiqueta>;
+}
+
+/**
+ * Lo que el cliente ve de un entregable (reunión 15 oct): solo «Listo para revisar», «Revisado» (pidió
+ * cambios), «Aprobado» o «Atrasado» si no lo revisó en su plazo. El significado de cada estado está en
+ * docs/diseno.md.
+ */
+export const ESTADO_PIEZA_CLIENTE: Record<string, [string, Tono]> = {
+  EN_PRODUCCION: ["En producción", "gris"],
+  LISTO_REVISION: ["Listo para revisar", "violeta"],
+  CAMBIOS_SOLICITADOS: ["Revisado", "ambar"],
+  APROBADO_CLIENTE: ["Aprobado", "verde"],
+  PUBLICADO: ["Publicado", "azul"],
+};
+
+const diasHabiles = (n: number) => `${n} ${n === 1 ? "día hábil" : "días hábiles"}`;
+
+/** Estado de una pieza según quién mira; si el cliente no la revisó a tiempo, «Atrasado». */
+export function EtiquetaPieza({ p }: { p: { estado: string; atrasada?: boolean; diasAtrasoRevision?: number } }) {
+  const esCliente = leerSesion()?.tipo === "CLIENTE";
+  if (p.estado === "LISTO_REVISION" && p.atrasada) {
+    const dias = diasHabiles(p.diasAtrasoRevision ?? 1);
+    return <Etiqueta tono="rojo">{esCliente ? `Atrasado · ${dias}` : `Cliente atrasado · ${dias}`}</Etiqueta>;
+  }
+  return <EtiquetaEstado estado={p.estado} mapa={esCliente ? ESTADO_PIEZA_CLIENTE : ESTADO_PIEZA} />;
 }
 
 export const ICONO_SERVICIO: Record<string, ReactNode> = {
@@ -181,7 +205,7 @@ export function TarjetaPieza({ p, accion = "Revisar pieza" }: { p: S<"PiezaResum
       <Miniatura diseno={p.diseno as never} />
       <div className="tarjeta-pieza-cuerpo">
         <div>
-          <EtiquetaEstado estado={p.estado} />
+          <EtiquetaPieza p={p} />
         </div>
         <h3 className="tarjeta-pieza-titulo">{p.titulo}</h3>
         <p className="tarjeta-pieza-meta">
@@ -274,20 +298,18 @@ const NAV_CLIENTE = [
 ];
 const NAV_EQUIPO = [
   { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },
+  { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
   { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 /> },
   { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks /> },
   { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
-  // El blog interno es de gestión (16 oct): el equipo operativo no lo ve.
-  { a: "/equipo/blog", texto: "Blog", icono: <LuFileText />, gestion: true },
-  { a: "/equipo/avisos", texto: "Avisos", icono: <LuMegaphone /> },
+  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone /> },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
 function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
-  const rol = sesion?.usuario.rolEquipo;
-  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => (!("soloAdmin" in n) || rol === "ADMIN") && (!("gestion" in n) || esGestion(rol)));
+  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
   const u = sesion?.usuario;
   const salir = () => {
     cerrarSesion();

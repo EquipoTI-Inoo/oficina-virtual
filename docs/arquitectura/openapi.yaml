@@ -146,24 +146,6 @@ paths:
                 required: [datos]
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/ServicioCatalogo' } }
-  /equipo/usuarios:
-    get:
-      tags: [Clientes]
-      operationId: listarEquipo
-      summary: 'Personas del equipo activas, para elegir responsables de cuenta y de servicio'
-      x-roles: [EQUIPO]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [datos]
-                properties:
-                  datos: { type: array, items: { $ref: '#/components/schemas/PersonaEquipo' } }
-        '403': { $ref: '#/components/responses/SinPermiso' }
-
   /clientes:
     get:
       tags: [Clientes]
@@ -271,80 +253,52 @@ paths:
                     unidad: entregas
                     estado: ACTIVO
                     avance: { porcentaje: 20, etapaActual: { orden: 2, nombre: Procesos e implementación, estado: EN_PROGRESO, atrasada: false }, totalEtapas: 4, etapasCompletadas: 1 }
-                avisoPago: { concepto: Mensualidad de octubre, fechaVencimiento: '2026-10-15', estado: POR_VENCER, vencidos: 0 }
+                avisoPago: { situacion: ATRASADO, diasAtraso: 8 }
                 marca: { mensajeCentral: Cuida tu piel. Vuelve a ti., tono: [Cercano, Consciente, Sereno] }
                 actividad:
                   - { fecha: '2026-10-06T15:00:00Z', texto: 'Terminamos la etapa «Sesión de contenido» de Social Media Pro', tipo: ETAPA }
                 ticketsAbiertos: []
 
-  /clientes/{clienteId}/pagos:
+  /clientes/{clienteId}/estado-pago:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
     get:
       tags: [Clientes]
-      operationId: listarPagosCliente
-      summary: '"Mi cuenta → Pagos": pendientes (con los vencidos) e historial de pagados'
-      description: 'Solo la persona que administra la cuenta y gestión (AM y ADMIN); otros roles del cliente y el equipo operativo reciben 403. El equipo operativo ve solo `estadoPagos` en la ficha del cliente.'
-      x-roles: [ACCOUNT_MANAGER, ADMIN, ADMIN_CLIENTE]
+      operationId: obtenerEstadoPago
+      summary: '«Al día» o «Atrasado X días» (reunión 15 oct). Sin cuotas ni montos: eso vivirá en Cosmic'
+      description: |
+        Cada rol ve lo suyo:
+        - ADMIN y FINANZAS: todo, con la nota y quién lo actualizó.
+        - El resto del equipo: situación, días y si hay alerta (para coordinar antes de seguir con el proyecto).
+        - ADMIN_CLIENTE: solo situación y días. Otros roles del cliente reciben 403.
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema:
-                type: object
-                required: [pendientes, pagados]
-                properties:
-                  pendientes: { type: array, description: Por fecha de vencimiento, items: { $ref: '#/components/schemas/PagoProgramado' } }
-                  pagados: { type: array, description: Los más recientes primero, items: { $ref: '#/components/schemas/PagoProgramado' } }
+              schema: { $ref: '#/components/schemas/EstadoPago' }
+              example: { situacion: ATRASADO, atrasadoDesde: '2026-09-28', diasAtraso: 8, alertaOperaciones: true, umbralDias: 7, nota: 'Cuota 2 de 3 de la implementación de CRM', actualizadoEn: '2026-10-01T15:00:00Z', actualizadoPor: { id: 8e9f0a1b-2c3d-4e5f-8a6b-7c8d9e0f1a2b, nombre: Rosa Paredes } }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
-    post:
+    put:
       tags: [Clientes]
-      operationId: registrarPago
-      summary: 'El equipo programa un pago del cliente (cuota del plan o de un servicio)'
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      operationId: actualizarEstadoPago
+      summary: 'Administración o Finanzas marca al cliente al día o atrasado desde una fecha'
+      description: Emite `pago.situacion_cambiada`. Si el atraso alcanza el umbral, operaciones ve la alerta en el panel y en la ficha.
+      x-roles: [ADMIN, FINANZAS]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PagoEntrada' }
-      responses:
-        '201':
-          description: Creado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PagoProgramado' }
-        '422': { $ref: '#/components/responses/Validacion' }
-
-  /pagos/{pagoId}:
-    parameters:
-      - { name: pagoId, in: path, required: true, schema: { type: string, format: uuid } }
-    patch:
-      tags: [Clientes]
-      operationId: actualizarPago
-      summary: 'Marcar pagado (estado PAGADO, por defecto hoy) o corregir concepto, monto o vencimiento'
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PagoEntrada' }
+            schema: { $ref: '#/components/schemas/EstadoPagoEntrada' }
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PagoProgramado' }
-        '404': { $ref: '#/components/responses/NoEncontrado' }
+              schema: { $ref: '#/components/schemas/EstadoPago' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
-    delete:
-      tags: [Clientes]
-      operationId: eliminarPago
-      summary: Quitar un pago programado por error
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
-      responses:
-        '204': { description: Eliminado }
-        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /avisos:
     get:
@@ -2121,6 +2075,162 @@ paths:
                   recientes: { type: array, items: { $ref: '#/components/schemas/CorreoEnviado' } }
 
   # ------------------------------------------------------------------ Panel interno
+  /panel/proyectos:
+    get:
+      tags: [Panel interno]
+      operationId: pipelineProyectos
+      summary: 'Pipeline (reunión 15 oct): una tarjeta por proyecto (servicio contratado activo o en pausa), agrupadas por su situación'
+      description: |
+        Columnas calculadas, en este orden de prioridad: EN_PAUSA (servicio pausado) · ESPERA_CLIENTE (requerimientos
+        atrasados, o la etapa actual depende del cliente y está atrasada) · CON_RETRASO (etapa actual atrasada) ·
+        POR_INICIAR (nada avanzado) · POR_CERRAR (avance de 90 % o más) · EN_CURSO.
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: responsableId, in: query, description: 'Solo proyectos cuya cuenta lleva esa persona o donde tiene tareas abiertas', schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: Cliente o servicio, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [columnas, datos]
+                properties:
+                  columnas: { type: array, items: { type: object, required: [clave, titulo], properties: { clave: { $ref: '#/components/schemas/ColumnaProyecto' }, titulo: { type: string } } } }
+                  datos: { type: array, items: { $ref: '#/components/schemas/ProyectoPipeline' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/equipo:
+    get:
+      tags: [Panel interno]
+      operationId: listarEquipo
+      summary: Personas del equipo de Inoo, para asignar tareas y mencionar
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/PersonaEquipo' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /servicios-contratados/{servicioContratadoId}/tareas:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarTareas
+      summary: 'Tareas internas del proyecto (reunión 15 oct). El cliente nunca las ve'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: 'Abiertas primero, por fecha límite; las hechas al final'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/Tarea' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: crearTarea
+      summary: 'Nueva tarea; si tiene responsable, emite tarea.asignada'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TareaEntrada' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tarea' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tareas/{tareaId}:
+    parameters:
+      - { name: tareaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Servicios]
+      operationId: actualizarTarea
+      summary: 'Cambiar estado, responsable, fecha, etapa o texto. Un responsable nuevo emite tarea.asignada'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TareaEntrada' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tarea' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Servicios]
+      operationId: eliminarTarea
+      summary: Quitar una tarea creada por error
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Eliminada }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /tareas/{tareaId}/comentarios:
+    parameters:
+      - { name: tareaId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: listarComentariosTarea
+      summary: Conversación interna de la tarea, del más antiguo al más nuevo
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/ComentarioTarea' } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: comentarTarea
+      summary: 'Comentar y mencionar a personas del equipo; cada mención emite tarea.mencion (aviso a esa persona)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, minLength: 2, maxLength: 2000 }
+                mencionIds: { type: array, items: { type: string, format: uuid }, description: Personas del equipo }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComentarioTarea' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /panel/clientes:
     get:
       tags: [Panel interno]
@@ -2503,7 +2613,7 @@ components:
 
     # ---------- enums (mismos valores que la base)
     TipoUsuario: { type: string, enum: [EQUIPO, CLIENTE, SERVICIO] }
-    RolEquipo: { type: string, enum: [ACCOUNT_MANAGER, DISENO, AUDIOVISUAL, PAID_MEDIA, DESARROLLO_WEB, ADMIN] }
+    RolEquipo: { type: string, enum: [ACCOUNT_MANAGER, DISENO, AUDIOVISUAL, PAID_MEDIA, DESARROLLO_WEB, ADMIN, FINANZAS], description: 'FINANZAS (reunión 15 oct): ve y cambia el estado de pago de los clientes, junto con ADMIN' }
     RolCliente:
       type: string
       enum: [ADMIN_CLIENTE, APROBADOR, LECTOR]
@@ -2567,15 +2677,6 @@ components:
         nombre: { type: string }
         cargo: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email }
-    PersonaEquipo:
-      type: object
-      required: [id, nombre, email, rolEquipo]
-      properties:
-        id: { type: string, format: uuid }
-        nombre: { type: string }
-        cargo: { type: [string, 'null'] }
-        email: { type: string, format: email }
-        rolEquipo: { $ref: '#/components/schemas/RolEquipo' }
     InactividadCliente:
       type: object
       description: 'Actividad del cliente en el portal y standby (solo equipo)'
@@ -2694,7 +2795,6 @@ components:
             driveUrl: { type: [string, 'null'], format: uri, description: Solo equipo }
             driveCarpetaId: { type: [string, 'null'], description: Solo equipo }
             limiteGastoIaUsd: { type: number, description: Solo equipo }
-            estadoPagos: { type: string, enum: [AL_DIA, ATRASADO], description: 'Solo equipo: ATRASADO si hay un pago pendiente vencido. Es lo único de pagos que ve el equipo operativo.' }
             inactividad: { $ref: '#/components/schemas/InactividadCliente' }
             creadoEn: { type: string, format: date-time }
     InicioCliente:
@@ -2721,14 +2821,12 @@ components:
             responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable de cuenta en Inoo ("Tu equipo Inoo")' }
             driveUrl: { type: [string, 'null'], format: uri }
         avisoPago:
-          description: 'El pago más urgente si ya venció o vence en los próximos 7 días; sin monto (el detalle está en Mi cuenta → Pagos). Solo para ADMIN_CLIENTE, ACCOUNT_MANAGER y ADMIN.'
+          description: 'Solo si está atrasado, sin montos (reunión 15 oct). Solo para ADMIN_CLIENTE, ADMIN y FINANZAS; si no, null.'
           type: [object, 'null']
-          required: [concepto, fechaVencimiento, estado]
+          required: [situacion, diasAtraso]
           properties:
-            concepto: { type: string }
-            fechaVencimiento: { type: string, format: date }
-            estado: { type: string, enum: [VENCIDO, POR_VENCER] }
-            vencidos: { type: integer, description: 'Cuántos pagos están vencidos en total' }
+            situacion: { type: string, enum: [ATRASADO] }
+            diasAtraso: { type: integer, minimum: 0 }
         marca:
           description: 'Solo si tiene Social Media Pro, Brandformance o Paid Media; si no, null'
           type: [object, 'null']
@@ -2799,29 +2897,95 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: string, format: date }
         visibleDesde: { type: string, format: date }
-    PagoEntrada:
+    SituacionPago: { type: string, enum: [AL_DIA, ATRASADO] }
+    EstadoTarea: { type: string, enum: [PENDIENTE, EN_CURSO, BLOQUEADA, HECHA] }
+    ColumnaProyecto: { type: string, enum: [POR_INICIAR, EN_CURSO, ESPERA_CLIENTE, CON_RETRASO, POR_CERRAR, EN_PAUSA] }
+    PersonaEquipo:
       type: object
-      description: 'Al crear: concepto, monto y fechaVencimiento obligatorios'
-      properties:
-        concepto: { type: string, minLength: 3 }
-        monto: { type: number, exclusiveMinimum: 0 }
-        moneda: { type: string, enum: [PEN, USD], default: PEN }
-        fechaVencimiento: { type: string, format: date }
-        servicioContratadoId: { type: [string, 'null'], format: uuid }
-        estado: { type: string, enum: [PENDIENTE, PAGADO] }
-        pagadoEn: { type: [string, 'null'], format: date }
-    PagoProgramado:
-      type: object
-      required: [id, concepto, monto, moneda, fechaVencimiento, estado]
+      required: [id, nombre, iniciales]
       properties:
         id: { type: string, format: uuid }
-        concepto: { type: string, examples: [Mensualidad de octubre] }
-        servicioContratadoId: { type: [string, 'null'], format: uuid }
-        monto: { type: number }
-        moneda: { type: string, enum: [PEN, USD] }
-        fechaVencimiento: { type: string, format: date }
-        estado: { type: string, enum: [PENDIENTE, PAGADO, VENCIDO], description: 'VENCIDO = PENDIENTE con fecha pasada (se calcula al leer)' }
-        pagadoEn: { type: [string, 'null'], format: date }
+        nombre: { type: string }
+        iniciales: { type: string }
+        cargo: { type: [string, 'null'] }
+        rolEquipo: { oneOf: [ { $ref: '#/components/schemas/RolEquipo' }, { type: 'null' } ] }
+    Tarea:
+      type: object
+      required: [id, servicioContratadoId, titulo, estado, vencida, comentarios, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        servicioContratadoId: { type: string, format: uuid }
+        etapaId: { type: [string, 'null'], format: uuid }
+        etapaNombre: { type: [string, 'null'] }
+        titulo: { type: string }
+        descripcion: { type: [string, 'null'] }
+        estado: { $ref: '#/components/schemas/EstadoTarea' }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        fechaLimite: { type: [string, 'null'], format: date }
+        vencida: { type: boolean, description: 'No está HECHA y su fecha límite ya pasó' }
+        comentarios: { type: integer }
+        creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        creadoEn: { type: string, format: date-time }
+        completadaEn: { type: [string, 'null'], format: date-time }
+    TareaEntrada:
+      type: object
+      description: 'Al crear, titulo es obligatorio. responsableId debe ser del equipo; etapaId, del mismo proyecto'
+      properties:
+        titulo: { type: string, minLength: 3, maxLength: 200 }
+        descripcion: { type: [string, 'null'] }
+        estado: { $ref: '#/components/schemas/EstadoTarea' }
+        responsableId: { type: [string, 'null'], format: uuid }
+        etapaId: { type: [string, 'null'], format: uuid }
+        fechaLimite: { type: [string, 'null'], format: date }
+    ComentarioTarea:
+      type: object
+      required: [id, autor, texto, menciones, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        autor: { $ref: '#/components/schemas/PersonaMini' }
+        texto: { type: string }
+        menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
+        creadoEn: { type: string, format: date-time }
+    ProyectoPipeline:
+      type: object
+      required: [servicioContratadoId, clienteId, clienteNombre, titulo, codigo, estado, columna, avance, tareas, requerimientosPendientes, requerimientosAtrasados]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        clienteNombre: { type: string }
+        titulo: { type: string, examples: [Diseño y desarrollo web - Casa Oliva] }
+        codigo: { $ref: '#/components/schemas/CodigoServicio' }
+        estado: { $ref: '#/components/schemas/EstadoServicio' }
+        columna: { $ref: '#/components/schemas/ColumnaProyecto' }
+        avance: { $ref: '#/components/schemas/AvanceProyecto' }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Quien lleva la cuenta }
+        tareas:
+          type: object
+          required: [abiertas, vencidas]
+          properties:
+            abiertas: { type: integer }
+            vencidas: { type: integer }
+        requerimientosPendientes: { type: integer }
+        requerimientosAtrasados: { type: integer }
+    EstadoPago:
+      type: object
+      required: [situacion, diasAtraso]
+      properties:
+        situacion: { $ref: '#/components/schemas/SituacionPago' }
+        diasAtraso: { type: integer, minimum: 0, description: 'Días corridos desde atrasadoDesde; 0 si está al día' }
+        atrasadoDesde: { type: [string, 'null'], format: date, description: 'Solo equipo' }
+        alertaOperaciones: { type: boolean, description: 'Solo equipo. Atrasado con diasAtraso ≥ umbralDias: coordinar antes de seguir con el proyecto' }
+        umbralDias: { type: integer, description: 'Solo equipo. Días desde los que se alerta (7, de relleno)' }
+        nota: { type: [string, 'null'], description: 'Solo ADMIN y FINANZAS' }
+        actualizadoEn: { type: [string, 'null'], format: date-time, description: 'Solo ADMIN y FINANZAS' }
+        actualizadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Solo ADMIN y FINANZAS' }
+    EstadoPagoEntrada:
+      type: object
+      required: [situacion]
+      properties:
+        situacion: { $ref: '#/components/schemas/SituacionPago' }
+        atrasadoDesde: { type: string, format: date, description: 'Obligatoria si ATRASADO; no puede ser futura' }
+        nota: { type: [string, 'null'], description: 'Interna: qué cuota o qué se conversó' }
     SolicitudResponsable:
       type: object
       required: [id, nombre, email, telefono, quitarAccesoAnterior, estado, solicitadoPor, creadoEn]
@@ -2916,7 +3080,7 @@ components:
         diasHabiles: { type: integer, minimum: 1, maximum: 30, description: 'Plazo; por defecto el de la plantilla' }
     Requerimiento:
       type: object
-      required: [id, servicioContratadoId, servicioTitulo, titulo, estado, emitidoEn, fechaLimite, diasAtraso, campos, respuestas]
+      required: [id, servicioContratadoId, servicioTitulo, titulo, estado, emitidoEn, fechaLimite, diasAtraso, diasParaVencer, campos, respuestas]
       properties:
         id: { type: string, format: uuid }
         servicioContratadoId: { type: string, format: uuid }
@@ -2929,6 +3093,7 @@ components:
         emitidoEn: { type: string, format: date-time }
         fechaLimite: { type: string, format: date, description: 'Vence a las 23:59 de Lima de ese día' }
         diasAtraso: { type: integer, description: 'Días hábiles de atraso (hasta hoy o hasta que se envió)' }
+        diasParaVencer: { type: integer, minimum: 0, description: 'Días hábiles que quedan hasta la fecha límite (0 = vence hoy o ya venció). Con diasAtraso arma el semáforo: rojo si hay atraso, naranja si quedan 0 o 1, verde si hay más' }
         diasCorridos: { type: integer, description: 'Días hábiles que ya se corrió el cronograma por este atraso' }
         campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
         respuestas: { type: object, additionalProperties: true }
@@ -3230,7 +3395,8 @@ components:
             tipo: { type: string, enum: [AGENTE, PERSONA] }
             nombre: { type: string }
         notaEstado: { type: [string, 'null'], description: 'Solo equipo. "Lista para programar", "Esperando al cliente"' }
-        atrasada: { type: boolean }
+        atrasada: { type: boolean, description: 'LISTO_REVISION y el cliente no la revisó en su plazo (3 días hábiles desde que se le envió). El cliente ve «Atrasado»' }
+        diasAtrasoRevision: { type: integer, minimum: 0, description: 'Días hábiles de atraso en la revisión del cliente; 0 si está a tiempo o no espera revisión' }
         actualizadoEn: { type: string, format: date-time }
     PiezaEntrada:
       type: object
@@ -3793,6 +3959,7 @@ components:
             limiteUsd: { type: number }
             pctLimite: { type: number }
             alerta: { type: boolean, description: 'pctLimite ≥ umbral ("Alerta · Umbral ≥ 80 %")' }
+        pagoAtrasadoDias: { type: [integer, 'null'], description: 'Solo si el pago está atrasado desde el umbral (7 días): operaciones coordina antes de seguir con el proyecto. Sin montos' }
     BandejaProduccion:
       type: object
       required: [columnas, resumen]
@@ -3986,6 +4153,9 @@ components:
             - ticket.mensaje_cliente
             - ticket.estado_cambiado     # correo al cliente
             - presupuesto.alerta         # gasto IA ≥ umbral o ≥ límite
+            - pago.situacion_cambiada    # Finanzas marcó al día o atrasado; desde el umbral, alerta a operaciones
+            - tarea.asignada             # una tarea interna tiene responsable nuevo; aviso a esa persona
+            - tarea.mencion              # alguien mencionó a una persona en una tarea
             - servicio.contratado        # proyecto creado desde su plantilla (etapas y fechas)
             - servicio.standby_proximo   # faltan 7 días para el standby por inactividad (correo al cliente y responsables)
             - servicio.standby           # 30 días sin actividad del cliente: sus servicios activos pasan a STANDBY

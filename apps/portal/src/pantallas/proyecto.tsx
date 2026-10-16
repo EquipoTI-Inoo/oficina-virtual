@@ -6,7 +6,7 @@
  * Reemplaza a «Avance de proyectos» (que era la misma información que «Servicios contratados»).
  */
 import { useState } from "react";
-import { LuCalendarClock, LuCircleCheck, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
+import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes } from "./principal";
@@ -127,7 +127,11 @@ function Proyecto() {
   );
 }
 
-/** Soporte continuo: los tickets se generan dentro del servicio (reunión 12 oct). */
+/**
+ * Soporte continuo: los tickets se generan dentro del servicio (reunión 12 oct). Van al revés que los
+ * requerimientos (reunión 15 oct): aquí el cliente nos pide algo y lo atiende Inoo, así que se ven
+ * distintos: fondo blanco con borde punteado, sin semáforo ni llamado a completar.
+ */
 function TicketsDelServicio({ servicioId }: { servicioId: string }) {
   const avisar = useAviso();
   const lista = useConsulta<{ datos: S<"Ticket">[] }>(`/clientes/${clienteActivo()}/tickets?servicioContratadoId=${servicioId}`);
@@ -157,9 +161,14 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
   return (
     <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
       <div className="fila entre">
-        <div className="fila" style={{ gap: 10 }}>
-          <LuTicket size={18} color="var(--c-primario)" />
-          <h2 className="tarjeta-titulo">Tickets</h2>
+        <div style={{ display: "grid", gap: 4 }}>
+          <span className="etiqueta-direccion">
+            <LuArrowUpRight size={13} /> Lo que nos pediste · lo atiende Inoo
+          </span>
+          <div className="fila" style={{ gap: 10 }}>
+            <LuTicket size={18} color="var(--c-primario)" />
+            <h2 className="tarjeta-titulo">Tus tickets</h2>
+          </div>
         </div>
         <button className="boton boton--chico" onClick={() => setAbierto(true)}>
           <LuPlus size={14} /> Generar ticket
@@ -168,13 +177,13 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
       {lista.datos?.datos.length === 0 && <p className="texto-xs texto-muted">¿Necesitas un cambio o algo no funciona? Genera un ticket y lo atendemos dentro de tu soporte.</p>}
       <div className="lista-suave">
         {lista.datos?.datos.map((t) => (
-          <div key={t.id} className="fila-suave" style={{ padding: "12px 14px", alignItems: "flex-start" }}>
+          <div key={t.id} className="fila-suave fila-ticket" style={{ padding: "12px 14px", alignItems: "flex-start" }}>
             <span style={{ display: "grid", gap: 4 }}>
               <span className="negrita" style={{ fontSize: 13 }}>
                 {t.codigo} · {t.asunto}
               </span>
               {t.resumenEstado && <span className="texto-xs texto-muted">{t.resumenEstado}</span>}
-              <span className="texto-xs texto-muted">Creado el {fDiaMes(t.creadoEn)}</span>
+              <span className="texto-xs texto-muted">Lo pediste el {fDiaMes(t.creadoEn)}</span>
             </span>
             <EtiquetaEstado estado={t.estado} mapa={ESTADO_TICKET} />
           </div>
@@ -212,7 +221,15 @@ function RequerimientosDelServicio({ servicioId }: { servicioId: string }) {
   return (
     <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
       <div className="fila entre">
-        <h2 className="tarjeta-titulo">Necesitamos de ti</h2>
+        <div style={{ display: "grid", gap: 4 }}>
+          <span className="etiqueta-direccion">
+            <LuArrowDownLeft size={13} /> Inoo te pide · te toca a ti
+          </span>
+          <div className="fila" style={{ gap: 10 }}>
+            <LuClipboardList size={18} color="var(--c-primario)" />
+            <h2 className="tarjeta-titulo">Necesitamos de ti</h2>
+          </div>
+        </div>
         <Enlace a="/requerimientos" className="enlace">
           Ver todos →
         </Enlace>

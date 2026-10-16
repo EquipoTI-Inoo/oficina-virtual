@@ -20,8 +20,6 @@ export const PESTANAS_CUENTA = [
 
 const ROL_CLIENTE: Record<string, string> = { ADMIN_CLIENTE: "Administra la cuenta", APROBADOR: "Aprueba entregables", LECTOR: "Solo lectura" };
 const DESTINATARIOS: Record<string, string> = { MIEMBROS_CLIENTE: "Tu equipo", ACCOUNT_MANAGER: "Inoo", AMBOS: "Tu equipo e Inoo" };
-const MONEDA: Record<string, string> = { PEN: "S/", USD: "US$" };
-export const fMonto = (monto: number, moneda: string) => `${MONEDA[moneda] ?? moneda} ${monto.toLocaleString("es-PE")}`;
 
 export function PantallaCuenta() {
   return (
@@ -116,44 +114,27 @@ function MisDatos() {
 }
 
 // ───────────────────────────── Pagos (solo quien administra la cuenta)
+// Reunión 15 oct: los pagos los lleva Administración y Finanzas. Aquí solo se ve si está al día;
+// sin cuotas ni montos.
 
 function Pagos() {
-  const { datos: d, error, recargar } = useConsulta<{ pendientes: S<"PagoProgramado">[]; pagados: S<"PagoProgramado">[] }>(`/clientes/${clienteActivo()}/pagos`);
+  const { datos: d, error, recargar } = useConsulta<S<"EstadoPago">>(`/clientes/${clienteActivo()}/estado-pago`);
   if (error) return <ErrorCarga error={error} reintentar={error.status === 403 ? undefined : recargar} />;
   if (!d) return <Cargando />;
-  const fila = (x: S<"PagoProgramado">) => (
-    <tr key={x.id} style={{ cursor: "default" }}>
-      <td className="negrita">{x.concepto}</td>
-      <td>{x.estado === "PAGADO" && x.pagadoEn ? `Pagado el ${fDiaMes(x.pagadoEn)}` : `${x.estado === "VENCIDO" ? "Venció" : "Vence"} el ${fDiaMes(x.fechaVencimiento)}`}</td>
-      <td>
-        <Etiqueta tono={x.estado === "VENCIDO" ? "ambar" : x.estado === "PAGADO" ? "verde" : "gris"}>{x.estado === "VENCIDO" ? "Vencido" : x.estado === "PAGADO" ? "Pagado" : "Pendiente"}</Etiqueta>
-      </td>
-      <td className="negrita" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{fMonto(x.monto, x.moneda)}</td>
-    </tr>
-  );
+  const atrasado = d.situacion === "ATRASADO";
   return (
     <div className="pila">
-      <Tarjeta titulo="Próximos pagos">
-        {d.pendientes.length === 0 ? (
-          <p className="texto-sm texto-muted">Estás al día. No tienes pagos pendientes.</p>
-        ) : (
-          <div className="tabla-envoltura">
-            <table className="tabla" style={{ fontSize: 12.5 }}>
-              <tbody>{d.pendientes.map(fila)}</tbody>
-            </table>
-          </div>
-        )}
+      <Tarjeta titulo="Estado de tus pagos">
+        <div className="fila" style={{ gap: 12 }}>
+          <Etiqueta tono={atrasado ? "rojo" : "verde"}>{atrasado ? `Atrasado · ${d.diasAtraso} ${d.diasAtraso === 1 ? "día" : "días"}` : "Al día"}</Etiqueta>
+        </div>
+        <p className="texto-sm" style={{ lineHeight: 1.5 }}>
+          {atrasado
+            ? "Tienes un pago pendiente. Si ya lo hiciste, envíale el comprobante a administración para actualizarlo."
+            : "Estás al día con tus pagos. ¡Gracias!"}
+        </p>
         <p className="texto-xs texto-muted">¿Dudas con una factura o un pago? Escríbele a administración desde la pestaña Ayuda.</p>
       </Tarjeta>
-      {d.pagados.length > 0 && (
-        <Tarjeta titulo="Pagos realizados">
-          <div className="tabla-envoltura">
-            <table className="tabla" style={{ fontSize: 12.5 }}>
-              <tbody>{d.pagados.map(fila)}</tbody>
-            </table>
-          </div>
-        </Tarjeta>
-      )}
     </div>
   );
 }

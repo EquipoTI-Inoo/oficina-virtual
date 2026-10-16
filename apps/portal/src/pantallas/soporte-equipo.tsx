@@ -11,7 +11,7 @@ import {
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
-import { NuevoServicio, PagosDelCliente } from "./proyecto-equipo";
+import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
 
@@ -426,7 +426,11 @@ function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total
                     <p className="texto-xs texto-muted" style={{ fontSize: 10, marginTop: 5 }}>{f.contactoPrincipalNombre}</p>
                   </td>
                   <td>
-                    <Etiqueta tono={tono}>{et}</Etiqueta>
+                    <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
+                      <Etiqueta tono={tono}>{et}</Etiqueta>
+                      {/* Reunión 15 oct: sin montos; solo avisa que hay que coordinar con Finanzas. */}
+                      {f.pagoAtrasadoDias != null && <Etiqueta tono="rojo">Pago atrasado · {f.pagoAtrasadoDias} días</Etiqueta>}
+                    </div>
                   </td>
                   <td style={{ fontSize: 15, color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
                   <td style={{ fontSize: 15, color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
@@ -754,14 +758,7 @@ function Ficha() {
           </div>
           <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
-          {gestion ? (
-            <PagosDelCliente clienteId={id} />
-          ) : (
-            <div className="tarjeta fila entre" style={{ padding: "22px 16px" }}>
-              <h3 className="tarjeta-titulo">Pagos</h3>
-              <Etiqueta tono={d.estadoPagos === "ATRASADO" ? "violeta" : "verde"}>{d.estadoPagos === "ATRASADO" ? "Pagos atrasados" : "Pagos al día"}</Etiqueta>
-            </div>
-          )}
+          <EstadoPagoDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}

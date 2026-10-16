@@ -28,7 +28,7 @@ export interface UsuarioDemo {
   cargo: string | null;
   iniciales: string;
   tipo: TipoUsuario;
-  rolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN" | null;
+  rolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN" | "FINANZAS" | null;
   /** Solo entorno de pruebas. Nunca existe en producción (Cognito gestiona las contraseñas). */
   claveDemo: string;
 }
@@ -38,8 +38,9 @@ export const USUARIOS: UsuarioDemo[] = [
   { id: uid(1, 2), nombre: "Martín Salas", email: "martin@casaoliva.pe", cargo: "Marketing", iniciales: "MS", tipo: "CLIENTE", rolEquipo: null, claveDemo: "demo1234" },
   { id: uid(1, 3), nombre: "Diego Castro", email: "diego.castro@inoo.pe", cargo: "Equipo de agencia", iniciales: "DC", tipo: "EQUIPO", rolEquipo: "ACCOUNT_MANAGER", claveDemo: "demo1234" },
   { id: uid(1, 4), nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", claveDemo: "demo1234" },
+  { id: uid(1, 5), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", claveDemo: "demo1234" },
   // Equipo operativo (16 oct): no ve el blog ni el detalle de pagos; es responsable del e-commerce de Casa Oliva.
-  { id: uid(1, 5), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", claveDemo: "demo1234" },
+  { id: uid(1, 6), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", claveDemo: "demo1234" },
 ];
 
 export const MIEMBROS: { clienteId: string; usuarioId: string; rol: RolCliente }[] = [
@@ -70,12 +71,16 @@ export interface ClienteDemo {
   /** Última vez que alguien del cliente usó el portal (standby, 16 oct); por defecto HOY. */
   ultimaActividad?: string;
   avisoInactividadEn?: string | null;
+  /** Estado de pago (reunión 15 oct): lo marca Finanzas; sin cuotas ni montos. */
+  pago?: { situacion: "AL_DIA" | "ATRASADO"; atrasadoDesde: string | null; nota: string | null; actualizadoPorId: string | null; actualizadoEn: string | null };
 }
 
 export const CLIENTES: ClienteDemo[] = [
-  { id: uid(2, 1), nombre: "Casa Oliva", slug: "casa-oliva", iniciales: "CO", contactoPrincipalId: uid(1, 1), contactoNombre: "Valeria Mendoza", limiteGastoIaUsd: 60, gastoIaUsd: 48, fechaAniversario: "2024-10-06" },
+  { id: uid(2, 1), nombre: "Casa Oliva", slug: "casa-oliva", iniciales: "CO", contactoPrincipalId: uid(1, 1), contactoNombre: "Valeria Mendoza", limiteGastoIaUsd: 60, gastoIaUsd: 48, fechaAniversario: "2024-10-06",
+    pago: { situacion: "ATRASADO", atrasadoDesde: "2026-09-28", nota: "Cuota 2 de 3 de la implementación de CRM (dato de relleno)", actualizadoPorId: uid(1, 5), actualizadoEn: "2026-10-01T15:00:00Z" } },
   { id: uid(2, 2), nombre: "Nativa Café", slug: "nativa-cafe", iniciales: "NC", contactoPrincipalId: null, contactoNombre: "Lucía Torres", limiteGastoIaUsd: 80, gastoIaUsd: 36, resumenFijo: { atrasadas: 1, porAprobar: 3 } },
-  { id: uid(2, 3), nombre: "Luma Studio", slug: "luma-studio", iniciales: "LS", contactoPrincipalId: null, contactoNombre: "Andrea Ríos", limiteGastoIaUsd: 100, gastoIaUsd: 84, resumenFijo: { atrasadas: 2, porAprobar: 6 } },
+  { id: uid(2, 3), nombre: "Luma Studio", slug: "luma-studio", iniciales: "LS", contactoPrincipalId: null, contactoNombre: "Andrea Ríos", limiteGastoIaUsd: 100, gastoIaUsd: 84, resumenFijo: { atrasadas: 2, porAprobar: 6 },
+    pago: { situacion: "ATRASADO", atrasadoDesde: "2026-10-03", nota: null, actualizadoPorId: uid(1, 5), actualizadoEn: "2026-10-05T15:00:00Z" } },
   { id: uid(2, 4), nombre: "Andes Salud", slug: "andes-salud", iniciales: "AS", contactoPrincipalId: null, contactoNombre: "Carlos Vega", limiteGastoIaUsd: 50, gastoIaUsd: 22, resumenFijo: { atrasadas: 0, porAprobar: 2 } },
   { id: uid(2, 5), nombre: "Marea Local", slug: "marea-local", iniciales: "ML", contactoPrincipalId: null, contactoNombre: "Sofía León", limiteGastoIaUsd: 60, gastoIaUsd: 18, resumenFijo: { atrasadas: 0, porAprobar: 0 } },
 ];
@@ -143,7 +148,7 @@ export const SERVICIOS_CONTRATADOS: ServicioContratadoDemo[] = [
   { id: uid(4, 1), clienteId: uid(2, 1), codigo: "SOPORTE_CONTINUO", variante: "WEB", detalle: {}, marca: null, entregables: [{ tipoPieza: "BLOG", cantidadMensual: 4 }], siguientePaso: "revisar «5 hábitos para una piel saludable».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO", responsableId: uid(1, 3) },
   { id: uid(4, 2), clienteId: uid(2, 1), codigo: "SOCIAL_MEDIA_PRO", variante: null, detalle: {}, marca: null, entregables: [{ tipoPieza: "COPY", cantidadMensual: 12 }, { tipoPieza: "ESTATICO", cantidadMensual: 4 }], siguientePaso: "revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO", responsableId: uid(1, 3) },
   { id: uid(4, 3), clienteId: uid(2, 1), codigo: "CRM_IMPLEMENTACION", variante: null, detalle: { crm: "HubSpot", tipoLicencia: "Sales Hub Starter", licencias: 3, usuarios: 5 }, marca: null, entregables: [], siguientePaso: "validar el mapa de procesos de venta que enviamos el viernes.", fechaInicio: "2026-09-01", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 3) },
-  { id: uid(4, 4), clienteId: uid(2, 1), codigo: "WEB", variante: "ECOMMERCE", detalle: {}, marca: null, entregables: [], siguientePaso: "aprobar el diseño de la página de producto.", fechaInicio: "2026-09-21", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 5) },
+  { id: uid(4, 4), clienteId: uid(2, 1), codigo: "WEB", variante: "ECOMMERCE", detalle: {}, marca: null, entregables: [], siguientePaso: "aprobar el diseño de la página de producto.", fechaInicio: "2026-09-21", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 6) },
 ];
 
 export interface EtapaDemo {
@@ -554,25 +559,50 @@ export const EJECUCIONES_INICIALES = [
   },
 ];
 
-/** Pagos programados de Casa Oliva. Montos y fechas de relleno hasta conectar la facturación real. */
-export interface PagoDemo {
+/** Tareas internas del equipo en los proyectos de Casa Oliva (reunión 15 oct). Datos de relleno. */
+export interface TareaDemo {
   id: string;
+  servicioContratadoId: string;
   clienteId: string;
-  servicioContratadoId: string | null;
-  concepto: string;
-  monto: number;
-  moneda: "PEN" | "USD";
-  fechaVencimiento: string;
-  estado: "PENDIENTE" | "PAGADO";
-  pagadoEn: string | null;
+  etapaId: string | null;
+  titulo: string;
+  descripcion: string | null;
+  estado: "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
+  responsableId: string | null;
+  fechaLimite: string | null;
+  completadaEn: string | null;
+  creadoPorId: string | null;
+  creadoEn: string;
 }
 
-export const PAGOS_INICIALES: PagoDemo[] = [
-  { id: uid(22, 1), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de septiembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-09-15", estado: "PAGADO", pagadoEn: "2026-09-14" },
-  { id: uid(22, 2), clienteId: uid(2, 1), servicioContratadoId: uid(4, 3), concepto: "Implementación de CRM · cuota 2 de 3", monto: 3200, moneda: "PEN", fechaVencimiento: "2026-10-02", estado: "PENDIENTE", pagadoEn: null },
-  { id: uid(22, 3), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de octubre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-10-15", estado: "PENDIENTE", pagadoEn: null },
-  { id: uid(22, 4), clienteId: uid(2, 1), servicioContratadoId: uid(4, 4), concepto: "Web e-commerce · 2.º hito", monto: 6500, moneda: "PEN", fechaVencimiento: "2026-10-30", estado: "PENDIENTE", pagadoEn: null },
-  { id: uid(22, 5), clienteId: uid(2, 1), servicioContratadoId: null, concepto: "Mensualidad de noviembre", monto: 4800, moneda: "PEN", fechaVencimiento: "2026-11-15", estado: "PENDIENTE", pagadoEn: null },
+const WEB = uid(4, 4);
+const CRM = uid(4, 3);
+const tarea = (n: number, sc: string, etapa: number | null, titulo: string, estado: TareaDemo["estado"], responsable: string | null, fecha: string | null, extra: Partial<TareaDemo> = {}): TareaDemo => ({
+  id: uid(27, n), servicioContratadoId: sc, clienteId: uid(2, 1), etapaId: etapa ? uid(20, etapa) : null, titulo, descripcion: null, estado, responsableId: responsable, fechaLimite: fecha,
+  completadaEn: estado === "HECHA" ? "2026-10-02T20:00:00Z" : null, creadoPorId: uid(1, 3), creadoEn: "2026-09-29T14:00:00Z", ...extra,
+});
+
+export const TAREAS_INICIALES: TareaDemo[] = [
+  tarea(1, WEB, 5, "Armar flujograma y benchmark de referencias", "HECHA", uid(1, 3), "2026-10-02"),
+  tarea(2, WEB, 6, "Diseñar el inicio y la ficha de producto", "EN_CURSO", uid(1, 3), "2026-10-09", { descripcion: "Versión web y móvil. Primero en Stitch; luego «Copy to Figma» para revisarlo entre todos." }),
+  tarea(3, WEB, 6, "Revisar las fotos de producto que subió el cliente", "PENDIENTE", uid(1, 3), "2026-10-05"),
+  tarea(4, WEB, 8, "Pedir las credenciales de la pasarela de pago", "PENDIENTE", uid(1, 4), "2026-10-20"),
+  tarea(5, CRM, 2, "Configurar el pipeline de ventas en el CRM", "EN_CURSO", uid(1, 3), "2026-10-14"),
+  tarea(6, CRM, 2, "Crear las licencias de los usuarios", "BLOQUEADA", uid(1, 3), "2026-10-07", { descripcion: "Depende del requerimiento «Usuarios del CRM», que el cliente todavía no envía." }),
+];
+
+export interface ComentarioTareaDemo {
+  id: string;
+  tareaId: string;
+  clienteId: string;
+  autorId: string;
+  texto: string;
+  menciones: string[];
+  creadoEn: string;
+}
+
+export const COMENTARIOS_TAREA_INICIALES: ComentarioTareaDemo[] = [
+  { id: uid(28, 1), tareaId: uid(27, 2), clienteId: uid(2, 1), autorId: uid(1, 4), texto: "@Diego Castro usa la paleta del manual de marca que subieron al Drive.", menciones: [uid(1, 3)], creadoEn: "2026-10-05T16:00:00Z" },
 ];
 
 /** Reuniones de los proyectos de Casa Oliva (para las métricas del perfil). Datos de relleno. */

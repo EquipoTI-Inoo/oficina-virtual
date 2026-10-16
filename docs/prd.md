@@ -1,6 +1,8 @@
 # PRD — Oficina virtual de IA y Portal de clientes
 
-Oct 3, 2026 · @Asesrorias Estrategicas
+Oct 3, 2026 · @Asesrorias Estrategicas · actualizado el 13 oct 2026
+
+> **Qué cambió (10–13 oct 2026).** La reunión del 12 oct con el CEO redefinió el portal. El cliente **solo mira** lo que tiene contratado y cómo avanza, y **opera en un solo lugar**: los requerimientos que la agencia le pide. Además aprueba entregables y comenta en sus proyectos. Los servicios siguen el catálogo real de Inoo (8 servicios con subtipos y plantillas de etapas). Plan del mes, blog, biblioteca y generación de estáticos pasan al panel del equipo. La integración con InooWork queda en pausa. Lo dicho en esa reunión manda sobre versiones anteriores de este documento.
 
 ## Resumen y objetivos
 
@@ -30,7 +32,8 @@ La Fase 1 corre en el VPS de Hostinger, es solo interna y guarda todo en Google 
 | Paid media | Equipo de la agencia | Tomar piezas aprobadas y contenido del cliente para armar campañas |
 | Desarrollo web | Equipo de la agencia | Prototipos generados a partir de un brief, para iterar y entregar |
 | Admin | Equipo de la agencia | Gestionar clientes, servicios contratados, accesos, modelos y costos |
-| Cliente | Contacto del cliente | Ver lo contratado y los entregables, aprobar o comentar, subir referencias y contenido, abrir tickets |
+| Cliente (administrador) | Responsable de la cuenta del cliente | Ver servicios, avance y entregables; responder requerimientos; aprobar o comentar; ver pagos; pedir cambio de responsable |
+| Cliente (usuario) | Otros contactos del cliente | Lo mismo que el administrador, sin pagos. El cliente no crea usuarios: los da de alta el equipo |
 | Agentes de IA | Oficina virtual | Leer el perfil y las referencias del cliente; escribir entregables en Drive y en la base |
 
 ## Fases
@@ -45,24 +48,44 @@ Se pasa de fase solo al cumplir el criterio de cada puerta. La duración de las 
 
 El cliente solo ve piezas que el equipo ya revisó, y todo lo que aporta (referencias y contenido propio) alimenta a los agentes y a paid media. En la Fase 1 el portal todavía no existe: esas acciones pasan por el account manager y Google Drive.
 
+## Catálogo de servicios
+
+Cada servicio contratado es un **proyecto** con su perfil propio. Se crea desde una **plantilla** según el servicio y su subtipo. La plantilla define las etapas, el peso de cada una en el avance (% acumulado, configurable) y las métricas que ve el cliente. El título que ve el cliente es "Servicio - Marca", y solo aparecen los servicios activos.
+
+| **Servicio** | **Modalidad** | **Subtipos** | **Notas** |
+| --- | --- | --- | --- |
+| Social Media Pro | Mensual | — | Solo creación de contenido. Su perfil muestra las piezas del mes |
+| Brandformance | Proyecto | Marca nueva, rebranding | Estrategia e identidad (logo, manual, posicionamiento) |
+| Paid Media | Mensual | — | Gestión de pauta; usa las piezas aprobadas y el contenido del cliente |
+| Diseño y desarrollo web | Proyecto | Landing, informativa, e-commerce, catálogo, aplicativo | Ver "Desarrollo web: de brief a prototipo aprobado" |
+| Implementación de CRM | Proyecto | — | Avance acumulado 20 % → 60 % → 80 % → 100 % (cada capacitación suma 20 %) |
+| Integración de CRM | Proyecto | — | Conexión con otras plataformas por API, licencias y usuarios |
+| Producción audiovisual | Proyecto | Fotografía; foto y video en crudo; producción y postproducción; cobertura completa | La IA asiste con guiones y storyboards y no genera video |
+| Soporte continuo | Mensual | CRM, web | Los tickets viven dentro de este servicio. El blog del cliente es parte del soporte web |
+
+Los servicios mensuales generan sus etapas mes a mes. El perfil de marca del cliente (tono, público, referencias) solo se muestra si tiene Social Media Pro, Brandformance o Paid Media.
+
 ## Vista del cliente vs vista interna
 
-El cliente ve **resultados y decisiones** (qué tiene contratado, qué se entregó, qué debe aprobar); el equipo ve además **cómo se produce** (agentes, tareas, costos, borradores internos). Es la misma base de datos con dos interfaces y permisos distintos.
+El cliente ve **qué tiene contratado y cómo avanza**, y solo opera en lo que le toca: responder requerimientos, aprobar entregables y comentar. El equipo ve además **cómo se produce** (agentes, planificación, costos, borradores internos). Es la misma base de datos con dos interfaces y permisos distintos. La regla es mostrarle al cliente poca información y bien ordenada.
+
+**Menú del cliente:** Inicio · Servicios · Requerimientos · Entregables. Lo demás vive en "Mi cuenta", que se abre desde la foto de perfil arriba a la derecha. El logo de Inoo lleva al Inicio.
 
 | **Módulo** | **Cliente (portal)** | **Equipo (panel interno)** |
 | --- | --- | --- |
-| Inicio | Resumen: servicios activos, pendientes de aprobar, tickets abiertos | Todos los clientes: estado, atrasos, alertas |
-| Servicios contratados | Lista de servicios, alcance y entregables incluidos por mes | Lo mismo + consumo vs lo contratado |
-| Entregables por servicio | Piezas listas para revisar; aprobar o comentar | Borradores, versiones, quién (agente o persona) hizo qué |
-| Blog | Ideas propuestas para elegir; artículos para aprobar | Flujo completo de ideas, fuentes y revisión |
-| Brief y referencias | Subir referencias, marca, competidores y contenido propio | Ver y completar el perfil; las referencias alimentan a los agentes |
-| Paid media | Piezas aprobadas disponibles para anuncios y resultados de campañas | Biblioteca de piezas y contenido del cliente para armar campañas |
-| Calendario | Calendario del mes con estado por pieza | Calendario + tareas asignadas a subagentes y personas |
-| Reportes y customer journey | Gráficos de resultados y del recorrido de sus clientes | Lo mismo + análisis interno y recomendaciones |
-| CRM (InooWork) | Estado de su implementación de CRM | Avance, tareas y responsables de la implementación |
-| Soporte | Abrir y seguir tickets | Bandeja de tickets por cliente, SLA, asignación |
-| Correos automáticos (RPA) | Ver qué correos salen y cuándo | Configurar disparadores desde InooWork |
+| Inicio | Lo que antes era la "ficha del cliente": servicios activos con avance lineal, responsable, enlace a Drive, contadores de arriba (servicios, requerimientos pendientes), perfil de marca plegable (solo con Social Media Pro, Brandformance o Paid Media), actividad reciente de pocas líneas. Banners de avisos y de pagos | Panel general: todos los clientes, atrasos, alertas |
+| Servicios (con su avance) | Una sola página. Cada servicio abre su **perfil de proyecto**: métricas de la plantilla arriba; etapas, reuniones y próximos pasos; entregables por revisar; comentarios; tickets si es soporte continuo | Lo mismo, más crear proyectos desde plantilla, avanzar etapas, registrar reuniones y responder comentarios |
+| Requerimientos | Lo que la agencia le pide (brief por tipo de servicio, accesos, catálogo de productos, etc.): formulario, fecha límite y estado de atraso | Crear requerimientos desde plantillas, revisarlos y ver los atrasos |
+| Entregables | Piezas listas para revisar; aprobar o pedir cambios | Bandeja de producción: borradores, versiones, quién (agente o persona) hizo qué |
+| Mi cuenta | Pestañas: Mi cuenta (datos, plan, contrato) · Pagos (solo el administrador) · Usuarios (y pedir cambio de responsable) · Notificaciones (correos automáticos) · Ayuda | Ficha del cliente: alta con acceso del responsable, pagos, aprobar cambios de responsable |
+| Ayuda | Burbuja discreta que deriva por WhatsApp a la persona o el área que corresponde. No hay módulo de soporte en el menú | Tickets dentro de cada servicio de soporte continuo |
+| Avisos | Banner en Inicio: feriados, días no laborables, aniversario del cliente. Nunca las vacaciones del equipo | Calendario de feriados y avisos |
+| Plan del mes | No lo ve | Plan mensual y calendario (lo aprueba el account manager) |
+| Blog | No lo ve: el blog es parte del soporte web, y el cliente no aprueba artículos | Ideas, redacción, revisión interna y aprobación por el equipo |
+| Biblioteca y estáticos con IA | No los ve como módulo. Las piezas aparecen dentro de Social Media Pro, Paid Media o Audiovisual | Generación de estáticos, biblioteca para paid media |
 | Agentes y costos | No lo ve | Ejecuciones, errores, costo de IA por cliente |
+
+**Pagos.** En Inicio no se muestran montos, solo un aviso cuando un pago vence pronto o ya venció (concepto y fecha). El detalle está en Mi cuenta → Pagos, que solo ven el administrador del cliente y el equipo.
 
 ## InooWork: estado actual e integración
 
@@ -97,6 +120,48 @@ El repositorio muestra que **InooWork hoy es la intranet de RRHH del equipo de I
 
 - **Tickets:** el cliente abre el ticket en el portal; se crea en InooWork asignado al área que corresponde, el equipo lo atiende ahí, y cada cambio de estado vuelve al portal y dispara un correo automático al cliente. InooWork necesita un módulo de tickets (hoy no existe) o, como primer paso, un grupo "Soporte" dentro del proyecto de cada cliente.
 
+**Actualización (12–13 oct 2026):**
+
+- En la reunión se acordó que crear un proyecto en InooWork genere su tablero desde la plantilla del servicio y cree la cuenta del cliente.
+- Portal e InooWork deben compartir **la misma fuente de datos**. Las pruebas se harán sobre una copia de InooWork, y el diseño del portal se llevará también a InooWork.
+- La propuesta técnica es que el Postgres del portal sea la fuente única y que InooWork sume un módulo "Proyectos de clientes" que lea de ahí.
+- **La integración queda en pausa** por decisión del equipo hasta cerrar el portal. Mientras tanto, el panel del equipo dentro del portal cubre la creación de proyectos desde plantilla y los tickets.
+
+## Requerimientos al cliente
+
+Los requerimientos van **de la agencia al cliente**: lo que el equipo necesita para avanzar.
+
+- **Plantillas.** Cada uno se crea desde una plantilla de formulario: brief según el servicio, accesos, catálogo de productos para la IA, etc. Las preguntas actuales son de relleno y se reemplazan por las reales.
+- **Fecha límite.** Se cuenta en **días hábiles** (sin fines de semana ni feriados de Perú) y vence a las 23:59.
+- **Atrasos.** Si el cliente se atrasa, el atraso se ve en el portal, el cronograma del proyecto se corre automáticamente y se le avisa al cliente, por correo incluido. Una tarea diaria de n8n revisa los atrasos; es idempotente, así que no corre dos veces el mismo día.
+- **Cambio de responsable.** El cliente lo pide desde Mi cuenta → Usuarios y el equipo lo aprueba antes de dar el acceso.
+
+## Desarrollo web: de brief a prototipo aprobado
+
+**Decisión (10 y 13 oct 2026):**
+- El diseño se genera con IA en Google Stitch.
+- Una persona del equipo lo pasa a Figma y lo aprueba internamente.
+- El cliente aprueba una **demo navegable**, nunca el Figma, y no debe notarse que se generó con IA.
+- El sitio final lo construye el equipo a mano.
+
+| **Paso** | **Quién** | **Qué pasa** |
+| --- | --- | --- |
+| 1. Prompt visual | Agente | Lee el brief web del cliente, elige componentes de referencia en 21st.dev y arma el prompt (con capturas) |
+| 2. Diseño en Stitch | Agente | Crea el proyecto en Stitch, aplica el design system del cliente (desde su DESIGN.md) y genera las pantallas |
+| 3. Paso a Figma | Persona del equipo | Usa "Copy to Figma" desde la web de Stitch, ajusta las capas y aprueba internamente |
+| 4. Demo navegable | Agente | Lee el Figma (Figma MCP, solo lectura) y arma una demo HTML con datos de prueba y componentes de 21st.dev |
+| 5. QA | Persona del equipo | Limpia el código y revisa la demo |
+| 6. Aprobación del cliente | Cliente | Prueba la demo en demos.inoo.pe y pide cambios sin límite de rondas. Al aprobar, se crea la tarea de construcción en InooWork |
+
+**Conexión con Stitch.** Google ofrece un servidor MCP alojado en `https://stitch.googleapis.com/mcp` (HTTP, cabecera `X-Goog-Api-Key`; la configuración está en stitch.withgoogle.com/docs/mcp/setup).
+- **Qué permite:** crear proyectos; generar, editar y variar pantallas; crear y aplicar design systems.
+- **Qué no hace:** no exporta a Figma ni a código. El paso a Figma es manual a propósito, porque es la aprobación interna. El código lo escribe el agente leyendo el diseño.
+- **API key:** es de la cuenta de Inoo. Se guarda en la configuración personal de Claude Code (`claude mcp add ... -s user`) o como secreto de n8n, nunca en el repositorio.
+- **Cuota gratuita aproximada:** 350 generaciones al mes en modo estándar y 50 en experimental. Alcanza para los proyectos web actuales, pero no para generar en masa.
+- **Tiempos:** cada generación puede tardar varios minutos. Los flujos automáticos usan timeouts largos y no reintentan a ciegas, porque cada reintento gasta cuota.
+
+**Demos (demos.inoo.pe):** contenedor nginx aparte en el VPS de Hostinger. Link firmado que vence a los pocos días, `noindex`, límite de solicitudes por IP y conteo de vistas.
+
 ## Requisitos funcionales
 
 P0 = imprescindible para salir en esa fase; P1 = importante; P2 = deseable.
@@ -114,19 +179,30 @@ P0 = imprescindible para salir en esa fase; P1 = importante; P2 = deseable.
 | AUD-01 | Audiovisual asistido | Guion, shotlist y storyboard por video para el equipo audiovisual (sin generar video) | P1 | 1 |
 | PRG-01 | Programación | Programar lo aprobado en redes; traer métricas | P1 | 1 |
 | WEB-01 | Desarrollo web | Prototipo navegable desde un brief, con vista previa e iteraciones | P1 | 1 |
+| WEB-02 | Desarrollo web | El agente genera las pantallas en Stitch (MCP) desde el brief, con referencias de 21st.dev y el design system del cliente | P1 | 1 |
+| WEB-03 | Desarrollo web | Demo HTML en demos.inoo.pe con link firmado que vence, noindex, límite de solicitudes y conteo de vistas; el cliente la aprueba o pide cambios | P1 | 1–2 |
 | DRV-01 | Google Drive | Todo entregable se guarda en Drive (cliente / mes / tipo) con estado borrador o aprobado | P0 | 1 |
 | APR-01 | Aprobaciones | Aprobar o pedir cambios por Telegram/Slack (Fase 1) y desde el portal (Fase 2) | P0 | 1–2 |
 | POR-01 | Portal | Login por cliente con permisos por usuario | P0 | 2 |
-| POR-02 | Portal | Servicios contratados y entregables por servicio | P0 | 2 |
+| POR-02 | Portal | Servicios activos del catálogo real, cada uno con su perfil de proyecto (métricas, etapas con avance acumulado, reuniones, próximos pasos, entregables, comentarios) | P0 | 2 |
 | POR-03 | Portal | Aprobar, comentar y descargar entregables | P0 | 2 |
-| POR-04 | Portal | Elegir ideas de blog y aprobar artículos | P1 | 2 |
-| POR-05 | Portal | Subir contenido propio y referencias (fotos, videos, documentos) | P0 | 2 |
-| POR-06 | Portal | Gráficos de resultados y de customer journey | P1 | 2 |
+| POR-04 | Portal | ~~Elegir ideas de blog y aprobar artículos~~ Eliminado el 12 oct: el blog lo aprueba el equipo y vive en el soporte web | — | — |
+| POR-05 | Portal | Requerimientos de la agencia al cliente: formulario por plantilla, archivos, fecha límite en días hábiles, atraso que corre el cronograma y avisa | P0 | 2 |
+| POR-06 | Portal | Métricas de resultados dentro de cada servicio (no en Inicio). El customer journey va en el informe, no en el portal | P1 | 2 |
+| POR-07 | Portal | Inicio resumido: servicios con avance lineal, contadores, perfil de marca plegable, actividad breve, avisos | P0 | 2 |
+| POR-08 | Portal | Mi cuenta desde la foto de perfil: datos y contrato, pagos (solo el administrador), usuarios, notificaciones, ayuda | P0 | 2 |
+| POR-09 | Portal | Pagos: el equipo los registra; el cliente ve su estado y en Inicio solo un aviso de vencimiento, sin montos | P1 | 2 |
+| POR-10 | Portal | Cambio de responsable: el cliente lo pide y el equipo lo aprueba antes de dar el acceso | P1 | 2 |
+| POR-11 | Portal | Avisos: feriados y días no laborables (Perú), aniversario del cliente; nunca las vacaciones del equipo | P2 | 2 |
+| POR-12 | Portal | Burbuja de ayuda que deriva por WhatsApp a la persona o el área que corresponde | P1 | 2 |
+| EQU-01 | Panel interno | Alta de cliente con el acceso de su responsable; crear proyectos desde plantilla (servicio + subtipo) | P0 | 2 |
+| EQU-02 | Panel interno | Gestionar el proyecto: avanzar etapas, reuniones, comentarios, requerimientos, tickets y pagos | P0 | 2 |
+| EQU-03 | Panel interno | Plan del mes y blog (ideas, redacción, revisión y aprobación internas) | P1 | 2 |
 | PMD-01 | Paid media | Biblioteca de piezas aprobadas + contenido del cliente, etiquetada para anuncios | P1 | 2 |
 | PMD-02 | Paid media | Variantes de copies y formatos para anuncios a partir de una pieza | P2 | 3 |
 | INO-01 | InooWork | Mismo proveedor de login para InooWork y el portal (Cognito), con cuentas separadas para equipo y clientes | P0 | 2 |
 | INO-02 | InooWork | Ver avance de la implementación de CRM | P1 | 2 |
-| INO-03 | InooWork | Soporte: el cliente crea y sigue tickets en el portal; el equipo los gestiona en InooWork | P0 | 2 |
+| INO-03 | InooWork | Soporte: el cliente crea y sigue tickets dentro de su servicio de soporte continuo; el equipo los gestiona (hoy en el panel del portal; luego en InooWork) | P0 | 2 |
 | INO-04 | InooWork | RPA: disparar correos desde eventos de InooWork (entregable listo, ticket resuelto, etc.) | P1 | 2 |
 | ADM-01 | Panel interno | Vista de todos los clientes, tareas, ejecuciones de agentes y costo de IA por cliente | P1 | 2 |
 | INO-00 | InooWork | Proteger la API de InooWork (token o API key en todos los endpoints) antes de cualquier integración | P0 | 1 |
@@ -135,7 +211,32 @@ P0 = imprescindible para salir en esa fase; P1 = importante; P2 = deseable.
 | INO-07 | InooWork | Proyectos sincronizados: el portal muestra al cliente el avance de su proyecto en InooWork (estado e hitos) | P0 | 2 |
 | INO-08 | InooWork | Módulo de tickets en InooWork (bandeja por cliente, asignación por área, estados) conectado al portal | P0 | 2 |
 
-**Estados de una pieza** (únicos para Drive, base de datos y portal): BORRADOR → EN_REVISION_INTERNA → LISTO_REVISION (visible al cliente) → APROBADO_CLIENTE o CAMBIOS_SOLICITADOS → PUBLICADO. En Drive el prefijo solo distingue BORRADOR_ y APROBADO_. Los blogs de clientes con WordPress también se crean allí como borrador.
+**Estados de una pieza** (únicos para Drive, base de datos y portal): BORRADOR → EN_REVISION_INTERNA → LISTO_REVISION (visible al cliente) → APROBADO_CLIENTE o CAMBIOS_SOLICITADOS → PUBLICADO. En Drive el prefijo solo distingue BORRADOR_ y APROBADO_. Los blogs de clientes con WordPress también se crean allí como borrador. **Excepción, los blogs:** el cliente no los ve ni los aprueba, y el equipo los pasa de EN_REVISION_INTERNA a APROBADO_CLIENTE.
+
+## Estado de implementación (13 oct 2026)
+
+El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cada una abarca contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas y pruebas.
+
+| **Fase** | **Qué incluye** | **Estado** |
+| --- | --- | --- |
+| 0 | Menú del cliente simplificado | Hecha |
+| 1 | Catálogo de 8 servicios, subtipos y plantillas con etapas y pesos | Hecha |
+| 2 | Inicio resumido, Mi cuenta y perfil de proyecto | Hecha |
+| 3 | Requerimientos agencia → cliente con días hábiles y atrasos | Hecha |
+| 4 | Tickets dentro del servicio, cambio de responsable, avisos y feriados | Hecha |
+| 5 | Panel del equipo: proyectos desde plantilla, alta de cliente, blogs internos, pagos | Hecha |
+| 6 | Integración con InooWork | En pausa |
+
+**Pendientes:**
+- Responder tickets desde el panel.
+- Conectar el requerimiento "Brief de contenido" con el brief mensual que lee el agente Jefe de Marketing.
+- Generar solas las etapas del mes siguiente en los servicios mensuales.
+- Flujos de correo en n8n.
+- Actualizar los snapshots de las pruebas visuales.
+- Backend real del Inicio y del panel.
+- Reemplazar los datos de relleno (fechas de pago, preguntas de los briefs, números de WhatsApp).
+- Despliegue.
+- Flujo web con Stitch (WEB-02, WEB-03).
 
 ## Requisitos no funcionales
 
@@ -231,9 +332,11 @@ El estado va en el nombre del archivo (BORRADOR_ o APROBADO_) y en la base de da
 
 inoo-oficina-virtual/
 
-├── docs/                 PRD, arquitectura, decisiones
+├── docs/                 PRD, arquitectura y contrato OpenAPI, diseño, configuración
 
 ├── infra/
+
+│   ├── local/            docker-compose para desarrollo
 
 │   ├── hostinger/        docker-compose, Caddy, .env.example (Fase 1)
 
@@ -257,7 +360,7 @@ inoo-oficina-virtual/
 
 ├── prompts/              un archivo por agente y tarea, versionado
 
-├── database/             migraciones y datos de prueba
+├── database/             migraciones, semillas y comprobaciones (Postgres con RLS)
 
 ├── apps/
 
@@ -292,6 +395,8 @@ Las metas son propuestas iniciales; se ajustan con los datos del piloto.
 | Clientes activos en el portal | ≥ 80 % de los clientes | 2 |
 | Aprobaciones hechas desde el portal | ≥ 60 % | 2 |
 | Tiempo de primera respuesta a tickets | ≤ 1 día hábil | 2 |
+| Requerimientos respondidos a tiempo por el cliente | ≥ 80 % | 2 |
+| Prototipos web aprobados por el cliente en ≤ 2 rondas | ≥ 70 % | 1–2 |
 | Piezas reutilizadas en paid media | ≥ 30 % de las aprobadas | 2 |
 
 ## Riesgos y preguntas abiertas
@@ -304,10 +409,19 @@ Las metas son propuestas iniciales; se ajustan con los datos del piloto.
 | Migrar a AWS interrumpe la operación | Todo en Docker desde la Fase 1; migrar en una ventana con backup completo |
 | Contenido del cliente con derechos de uso dudosos | El cliente declara al subir que tiene los derechos; se guarda la fecha y el usuario |
 | La API de InooWork, sin autenticación, expone datos de colaboradores | Protegerla antes de integrar (INO-00), cambiar las contraseñas de admin y sacar las credenciales del repositorio |
+| El cliente se satura con demasiada información | Menú de 4 secciones, Inicio breve, detalle solo dentro de cada servicio, y lo administrativo en Mi cuenta |
+| El cliente se atrasa con requerimientos y el proyecto se frena | Fecha límite en días hábiles visible, correo automático, cronograma que se corre solo |
+| Se nota que la web se generó con IA | El cliente solo ve la demo limpia y revisada por QA; el Figma y el código intermedio no salen de la agencia |
+| Se agota la cuota de Stitch o una generación se cuelga | Generar solo en proyectos web activos, timeouts largos, nada de reintentos automáticos; el paso a Figma queda manual |
+| Portal e InooWork terminan con datos duplicados | Una sola fuente de datos (Postgres del portal) al retomar la integración |
 
 **Preguntas abiertas**
 
-- ¿El customer journey se arma con datos reales (GA4, CRM) o es un mapa que diseña el equipo?
+- ¿El customer journey se arma con datos reales (GA4, CRM) o es un mapa que diseña el equipo? (Ya no va en el portal, solo en el informe.)
+
+- ¿Se aprueba la propuesta de que el Postgres del portal sea la fuente única para InooWork?
+
+- ¿Cuáles son las preguntas reales de cada brief y los números de WhatsApp por área?
 
 - ¿Se retoma el video generado con IA en alguna fase, o queda solo el apoyo al equipo audiovisual?
 

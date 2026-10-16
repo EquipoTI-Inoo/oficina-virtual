@@ -9,6 +9,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { LuCircleAlert, LuClipboardList, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { semaforoRequerimiento } from "../dominio/requerimientos";
 
 type Req = S<"Requerimiento">;
 type Lista = { datos: Req[]; pendientes: number; atrasados: number };
@@ -22,29 +23,58 @@ const ESTADO_REQ: Record<string, [string, "ambar" | "violeta" | "azul" | "verde"
 
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 
-/** «Vence el 8 oct» o «Atrasado 2 días hábiles». */
+/** Desde 5 días hábiles de atraso el rojo se vuelve más intenso. */
+const ATRASO_INTENSO = 5;
+
+/** Luz del semáforo (verde, naranja o rojo) para lo que el cliente tiene pendiente. */
+export function LuzSemaforo({ r }: { r: Req }) {
+  const color = semaforoRequerimiento(r);
+  if (!color) return null;
+  return <span className="semaforo" data-color={color} data-intenso={r.diasAtraso >= ATRASO_INTENSO || undefined} aria-hidden />;
+}
+
+/** «A tiempo · vence el 8 oct», «Vence hoy», «Vence mañana» o «Atrasado 2 días hábiles»; con su color. */
 export function PlazoRequerimiento({ r }: { r: Req }) {
-  const pendiente = r.estado === "PENDIENTE" || r.estado === "OBSERVADO";
-  if (pendiente && r.diasAtraso > 0) {
-    return (
-      <span className="texto-xs negrita" style={{ color: "var(--c-alerta)" }}>
-        Atrasado {plural(r.diasAtraso, "día hábil", "días hábiles")}
-      </span>
-    );
-  }
-  if (pendiente) return <span className="texto-xs texto-muted">Vence el {fDiaMes(r.fechaLimite)} a las 23:59</span>;
-  return <span className="texto-xs texto-muted">{r.enviadoEn ? `Enviado el ${fDiaMes(r.enviadoEn)}` : ""}</span>;
+  const color = semaforoRequerimiento(r);
+  if (!color) return <span className="texto-xs texto-muted">{r.enviadoEn ? `Enviado el ${fDiaMes(r.enviadoEn)}` : ""}</span>;
+  const texto =
+    color === "ROJO"
+      ? `Atrasado ${plural(r.diasAtraso, "día hábil", "días hábiles")}`
+      : r.diasParaVencer === 0
+        ? "Vence hoy a las 23:59"
+        : r.diasParaVencer === 1
+          ? `Vence el próximo día hábil (${fDiaMes(r.fechaLimite)})`
+          : `A tiempo · vence el ${fDiaMes(r.fechaLimite)}`;
+  return (
+    <span className="texto-xs negrita texto-semaforo" data-color={color}>
+      {texto}
+    </span>
+  );
 }
 
 export function FilaRequerimiento({ r, accion = "Completar" }: { r: Req; accion?: string }) {
   const [texto, tono] = ESTADO_REQ[r.estado];
   const pendiente = r.estado === "PENDIENTE" || r.estado === "OBSERVADO";
+  const color = semaforoRequerimiento(r);
   return (
-    <Enlace a={`/requerimientos/${r.id}`} className="fila-suave" style={{ padding: "14px 14px", textDecoration: "none", color: "inherit", alignItems: "center" }}>
-      <span style={{ display: "grid", gap: 4, minWidth: 0 }}>
-        <span className="negrita" style={{ fontSize: 13 }}>{r.titulo}</span>
-        <span className="texto-xs texto-muted">{r.servicioTitulo}</span>
-        <PlazoRequerimiento r={r} />
+    <Enlace
+      a={`/requerimientos/${r.id}`}
+      className="fila-suave fila-req"
+      data-semaforo={color ?? undefined}
+      data-intenso={(color === "ROJO" && r.diasAtraso >= ATRASO_INTENSO) || undefined}
+      style={{ padding: "14px 14px", textDecoration: "none", color: "inherit", alignItems: "center" }}
+    >
+      <span className="fila" style={{ gap: 12, minWidth: 0, alignItems: "flex-start" }}>
+        {color && (
+          <span style={{ paddingTop: 4 }}>
+            <LuzSemaforo r={r} />
+          </span>
+        )}
+        <span style={{ display: "grid", gap: 4, minWidth: 0 }}>
+          <span className="negrita" style={{ fontSize: 13 }}>{r.titulo}</span>
+          <span className="texto-xs texto-muted">{r.servicioTitulo}</span>
+          <PlazoRequerimiento r={r} />
+        </span>
       </span>
       <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
         <Etiqueta tono={tono}>{texto}</Etiqueta>
@@ -72,7 +102,7 @@ function Requerimientos() {
   const resto = d.datos.filter((r) => !abiertos.includes(r));
   return (
     <>
-      <Cabecera titulo="Requerimientos" bajada="Lo que necesitamos de ti para avanzar con tus proyectos." />
+      <Cabecera titulo="Requerimientos" bajada="Lo que Inoo necesita de ti para avanzar con tus proyectos. Te toca a ti: el color te dice cuánto tiempo te queda." />
       {d.atrasados > 0 && (
         <Aviso icono={<LuCircleAlert size={18} />} tono="alerta" titulo={d.atrasados === 1 ? "Tienes un requerimiento atrasado" : `Tienes ${d.atrasados} requerimientos atrasados`}>
           No podemos avanzar sin esa información: cada día hábil de atraso corre la fecha de entrega del servicio.
@@ -397,6 +427,14 @@ export function RequerimientosDelCliente({ clienteId }: { clienteId: string }) {
   );
 }
 
+const TIPO_CAMPO: Record<string, string> = {
+  TEXTO: "Texto corto", TEXTO_LARGO: "Texto largo", LISTA: "Lista (una por línea)", URL: "Enlace", OPCION: "Opciones", SI_NO: "Sí o no", ARCHIVOS: "Archivos",
+};
+
+/**
+ * Pedir un requerimiento (reunión 15 oct): primero el servicio, luego solo las plantillas que aplican a
+ * ese servicio, y una vista previa de los campos que le llegarán al cliente.
+ */
 function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { clienteId: string; abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
   const avisar = useAviso();
   const plantillas = useConsulta<{ datos: S<"PlantillaRequerimiento">[] }>(abierto ? "/plantillas-requerimiento" : null);
@@ -406,7 +444,9 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
   const [dias, setDias] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [errores, setErrores] = useState<Record<string, string>>({});
-  const elegida = plantillas.datos?.datos.find((p) => p.codigo === plantilla);
+  const codigoServicio = servicios.datos?.servicios.find((s) => s.servicioContratadoId === servicio)?.codigo;
+  const disponibles = (plantillas.datos?.datos ?? []).filter((p) => !p.servicios.length || (codigoServicio && p.servicios.includes(codigoServicio)));
+  const elegida = disponibles.find((p) => p.codigo === plantilla);
   const pedir = async () => {
     setErrores({});
     try {
@@ -436,21 +476,16 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Pedir requerimiento">
       <h2 style={{ fontSize: 18, fontWeight: 600 }}>Pedir requerimiento</h2>
       <div className="campo">
-        <label htmlFor="req-plantilla">¿Qué le pedimos?</label>
-        <select id="req-plantilla" className="input" value={plantilla} onChange={(e) => setPlantilla(e.target.value)}>
-          <option value="">Elige una plantilla</option>
-          {plantillas.datos?.datos.map((p) => (
-            <option key={p.codigo} value={p.codigo}>
-              {p.nombre}
-            </option>
-          ))}
-        </select>
-        {elegida && <span className="ayuda-campo">{elegida.descripcion} Plazo sugerido: {elegida.diasHabiles} días hábiles.</span>}
-        {error("plantillaCodigo")}
-      </div>
-      <div className="campo">
         <label htmlFor="req-servicio">¿Para qué servicio?</label>
-        <select id="req-servicio" className="input" value={servicio} onChange={(e) => setServicio(e.target.value)}>
+        <select
+          id="req-servicio"
+          className="input"
+          value={servicio}
+          onChange={(e) => {
+            setServicio(e.target.value);
+            setPlantilla("");
+          }}
+        >
           <option value="">Elige un servicio</option>
           {servicios.datos?.servicios.map((s) => (
             <option key={s.servicioContratadoId} value={s.servicioContratadoId}>
@@ -460,6 +495,51 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
         </select>
         {error("servicioContratadoId")}
       </div>
+      <div className="campo">
+        <span className="rotulo" id="req-plantilla-rotulo">¿Qué le pedimos?</span>
+        {!servicio ? (
+          <span className="ayuda-campo">Elige primero el servicio para ver sus plantillas.</span>
+        ) : (
+          <div className="lista-suave" role="radiogroup" aria-labelledby="req-plantilla-rotulo">
+            {disponibles.map((p) => (
+              <button
+                key={p.codigo}
+                type="button"
+                role="radio"
+                aria-checked={plantilla === p.codigo}
+                className={`fila-suave${plantilla === p.codigo ? " fila-suave--activa" : ""}`}
+                style={{ border: 0, cursor: "pointer", textAlign: "left", padding: "10px 12px", font: "inherit", color: "inherit" }}
+                onClick={() => setPlantilla(p.codigo)}
+              >
+                <span style={{ display: "grid", gap: 2 }}>
+                  <span className="negrita" style={{ fontSize: 13 }}>{p.nombre}</span>
+                  <span className="texto-xs texto-muted">{p.descripcion}</span>
+                </span>
+                <span className="texto-xs texto-muted" style={{ whiteSpace: "nowrap" }}>{p.diasHabiles} días hábiles</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {error("plantillaCodigo")}
+      </div>
+      {elegida && (
+        <div className="tarjeta" style={{ padding: "14px 16px", display: "grid", gap: 8, boxShadow: "none" }} aria-label="Vista previa del formulario">
+          <span className="etiqueta-direccion">Así le llega al cliente</span>
+          <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
+            {elegida.campos.map((c) => (
+              <li key={c.clave} className="texto-sm">
+                {c.etiqueta}
+                {c.obligatorio && <span className="texto-primario"> *</span>}
+                <span className="texto-xs texto-muted">
+                  {" "}
+                  · {TIPO_CAMPO[c.tipo] ?? c.tipo}
+                  {c.tipo === "OPCION" && c.opciones?.length ? `: ${c.opciones.join(" / ")}` : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       <div className="campo">
         <label htmlFor="req-dias">Plazo en días hábiles</label>
         <div className="entrada">

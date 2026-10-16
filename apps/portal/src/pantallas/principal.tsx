@@ -10,7 +10,7 @@ import {
   useConsulta, useNavegacion, type S,
 } from "../base";
 import {
-  AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Miniatura, Modal,
+  AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
@@ -191,10 +191,8 @@ function Inicio() {
       />
       <AvisosInicio avisos={d.avisos ?? []} />
       {pago && (
-        <Aviso icono={<LuWallet size={18} />} tono={pago.estado === "VENCIDO" ? "alerta" : undefined}>
-          {pago.estado === "VENCIDO"
-            ? `${pago.vencidos && pago.vencidos > 1 ? `Tienes ${pago.vencidos} pagos vencidos. ` : ""}«${pago.concepto}» venció el ${fDiaMes(pago.fechaVencimiento)}.`
-            : `«${pago.concepto}» vence el ${fDiaMes(pago.fechaVencimiento)}.`}{" "}
+        <Aviso icono={<LuWallet size={18} />} tono="alerta">
+          Tienes un pago con {pago.diasAtraso} {pago.diasAtraso === 1 ? "día" : "días"} de atraso. Si ya pagaste, envíale el comprobante a administración.{" "}
           <Enlace a="/cuenta/pagos" className="enlace">
             Ver mis pagos →
           </Enlace>
@@ -708,7 +706,7 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
         {p.formato} · {p.canal} · Publicación prevista: {p.fechaProgramada ? fCorta(p.fechaProgramada) : "—"}
       </p>
       <div className="fila" style={{ margin: "20px 0 24px" }}>
-        <EtiquetaEstado estado={p.estado} />
+        <EtiquetaPieza p={p} />
         {v && (
           <span className="texto-xs texto-muted">
             Versión {v.numero} · Actualizada el {fDiaMes(v.enviadaEn ?? v.creadoEn)}
