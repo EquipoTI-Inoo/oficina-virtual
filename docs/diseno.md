@@ -63,16 +63,17 @@ El texto usa tonos más oscuros (`#1A7F57`, `#9A4F00`, `#B42318`) para cumplir c
 
 ## La IA no se nota
 
-Regla de la reunión del 15 oct: el cliente no debe notar que su trabajo se hace con IA. Nada de lo que ve o recibe nombra agentes, modelos ni herramientas (Claude, GPT, Gemini, Stitch, n8n):
+**La IA que Inoo usa para su trabajo es invisible; la IA que el cliente elige usar es visible** (regla del 15 oct, reformulada el 17 oct). Por defecto, todo lo que Inoo entrega lo hace una persona ante el cliente: nada de lo que ve o recibe nombra agentes, modelos ni herramientas (Claude, GPT, Gemini, Stitch, n8n). La excepción es la sección **«Agentes de IA»** (`/ia`, fase 16a), donde el cliente crea sus propios agentes y usa Content AI por voluntad propia:
 
 - La API nunca le manda `autorTipo`, `agente`, `autor` ni el origen `AGENTE` de un archivo (le llega como `EQUIPO`). Quien le envía una pieza siempre es una persona del equipo.
 - Los textos de las pantallas del cliente no hablan de IA.
-- **Excepción: CRM.** Ahí Inoo vende agentes de IA y WhatsApp API como producto, así que en esos servicios sí se nombra. Por ejemplo, el requerimiento «Información para tu agente de IA» solo se puede pedir en Implementación o Integración de CRM, y la API rechaza pedirlo en otro servicio.
-- La prueba `tests/api/flujo-sin-ia.ts` recorre todas las lecturas del contrato como usuario cliente (más el detalle de sus piezas, versiones, requerimientos y servicios) y falla si encuentra un rastro de IA fuera de CRM. Corre contra la API simulada y contra Postgres.
+- **Sección «Agentes de IA».** Ahí sí se nombra la IA, porque es la que el cliente eligió. Nunca muestra los agentes internos de Inoo, y lo que el cliente genera con Content AI no se mezcla con las piezas que hace Inoo.
+- **CRM.** Ahí Inoo vende agentes de IA y WhatsApp API como producto, así que en esos servicios también se nombra. Por ejemplo, el requerimiento «Información para tu agente de IA» solo se puede pedir en Implementación o Integración de CRM, y la API rechaza pedirlo en otro servicio.
+- La prueba `tests/api/flujo-sin-ia.ts` recorre todas las lecturas del contrato como usuario cliente (más el detalle de sus piezas, versiones, requerimientos y servicios) y falla si encuentra un rastro de IA fuera de CRM y de la sección `/ia/`. Corre contra la API simulada y contra Postgres.
 
 Lo interno tampoco llega al cliente: los KPIs del proyecto, la causa y la justificación de los atrasos, las tareas y las notas internas solo se le devuelven al equipo (fase 13).
 
-Fuera del portal (Drive compartido, WordPress, metadatos de archivos, horario de correos) la regla se cumple en los workflows de n8n (fase 17 del roadmap).
+Fuera del portal (Drive compartido, WordPress, metadatos de archivos, horario de correos) la regla se cumple en los workflows de n8n (fase 18 del roadmap).
 
 ## Pantallas
 
@@ -92,6 +93,8 @@ Fuera del portal (Drive compartido, WordPress, metadatos de archivos, horario de
 | `/soporte` | 07-soporte | Fuera del menú (reunión 12 oct); solo se llega desde «Contactar a mi equipo» |
 | `/soporte/nuevo` | 09-crear-ticket | |
 | `/equipo/panel` | 14-panel-general | Suma la etiqueta roja «Pago atrasado · N días» junto al estado del cliente desde 7 días de atraso (reunión 15 oct), sin montos |
+| `/ia` (Inicio, Mis agentes, Conocimiento, Plantillas, Content AI, Conversaciones) | — | Sin diseño: «Agentes de IA» (fase 16a), visible para todos los clientes; referencia visual: la sección de agentes de Cosmiq CRM. Inicio con el consumo del mes en soles contra el tope (tarifas de prueba), métricas y «Crear un agente con IA» (describe tu negocio → propuesta). `/ia/agentes/{id}`: constructor por pasos (identidad y tono, instrucciones, conocimiento, acciones, cuándo pasar con una persona, canales) y chat de prueba al costado; borrador → publicar (versiones), pausar. Conocimiento con «preguntas sin respuesta». Content AI: genera texto en variaciones, con historial y copia. Quien solo lee no edita |
+| Ficha del cliente (equipo) | — | Fase 16a: tarjeta «Agentes de IA del cliente» con su consumo, sus agentes, el interruptor «Razonamiento avanzado» (Claude; solo el equipo) y los canales que pidió conectar |
 | Menú del equipo | — | Fase 15b (17 oct): Panel general, Mi panel, Proyectos, Clientes, Calendarios; **Agencia** (Feriados y avisos, Costos de IA). Sin el grupo «Contenido»: la bandeja entró al proyecto y Plan del mes desapareció |
 | `/equipo/mi-panel` | — | Sin diseño: panel del colaborador (fase 13). Sus tareas abiertas (vencidas primero), sus proyectos con avance, columna y KPIs, y su resumen: activos, cerrados, con retraso y rebotes |
 | `/equipo/proyectos` | — | Sin diseño: pipeline (reunión 15 oct). Una tarjeta por proyecto en columnas Por iniciar, En curso, Esperando al cliente (borde naranja), Con retraso (borde rojo), Por cerrar y En pausa; filtro «Mis proyectos» y búsqueda. Monday solo es referencia visual |

@@ -389,3 +389,30 @@ test("soporte por consumo: el cliente ve su bolsa y el equipo clasifica los tick
   await expect(equipo.getByText("Agotado")).toBeVisible();
   await equipo.close();
 });
+
+test("agentes de IA: el cliente crea un agente con IA, lo prueba en el chat y genera contenido", async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "cliente");
+  await page.goto("/inicio");
+  await page.locator(".nav-item", { hasText: "Agentes de IA" }).click({ timeout: 30_000 });
+  await expect(page.getByText("Contactos atendidos")).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Describe tu negocio").fill("Somos una tienda de cosmética natural en Miraflores y queremos vender más por chat.");
+  await page.getByRole("button", { name: "Proponer agente" }).click();
+  await page.getByRole("button", { name: "Crear este agente" }).click({ timeout: 30_000 });
+  await expect(page).toHaveURL(/\/ia\/agentes\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  await expect(page.getByLabel("Mensaje de prueba")).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel("Mensaje de prueba").fill("Me interesa comprar, ¿me cotizan?");
+  await page.getByRole("button", { name: "Enviar" }).click();
+  await expect(page.getByText("Acción: Registrar interesados")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Publicar" }).click();
+  await expect(page.getByText("Agente publicado")).toBeVisible();
+  await page.getByRole("tab", { name: "Content AI" }).click();
+  await page.getByLabel("¿Qué quieres escribir?").fill("Lanzamiento de la crema de noche con 10 % de descuento");
+  await page.getByRole("button", { name: /Generar/ }).click();
+  await expect(page.locator(".variacion").first()).toBeVisible({ timeout: 30_000 });
+  const equipo = await browser.newPage();
+  await entrarComo(equipo, "equipo");
+  await equipo.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await expect(equipo.getByText("Agentes de IA del cliente")).toBeVisible({ timeout: 30_000 });
+  await equipo.close();
+});

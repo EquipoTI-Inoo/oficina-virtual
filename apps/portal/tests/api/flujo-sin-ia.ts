@@ -1,8 +1,9 @@
 /**
  * Sin rastro de IA (reunión del 15 oct 2026): el cliente no debe notar que su trabajo se hace con IA.
  * Recorre todas las lecturas (GET) del contrato como usuario cliente, más el detalle de cada pieza,
- * versión, requerimiento y servicio que ve, y falla si algo delata la IA. Única excepción: CRM, donde
- * los agentes de IA y WhatsApp API son el producto. Corre contra la API simulada y Postgres.
+ * versión, requerimiento y servicio que ve, y falla si algo delata la IA. Excepciones: CRM, donde
+ * los agentes de IA y WhatsApp API son el producto, y la sección «Agentes de IA» (/ia/), que es la IA que
+ * el cliente eligió usar (fase 16a). Corre contra la API simulada y Postgres.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -28,7 +29,8 @@ function lecturasDelContrato(): string[] {
     if (!enPaths) continue;
     const c = linea.match(/^  (\/\S+):\s*$/);
     if (c) camino = c[1];
-    if (/^    get:/.test(linea) && !camino.startsWith("/__") && !camino.startsWith("/integraciones")) {
+    // La sección «Agentes de IA» (/ia/) es la IA que el cliente eligió usar: ahí sí se nombra (fase 16a).
+    if (/^    get:/.test(linea) && !camino.startsWith("/__") && !camino.startsWith("/integraciones") && !/\/ia(\/|$)/.test(camino)) {
       const params = [...camino.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
       if (params.every((p) => valores[p])) rutas.push(camino.replace(/\{(\w+)\}/g, (_m, p) => valores[p]));
     }

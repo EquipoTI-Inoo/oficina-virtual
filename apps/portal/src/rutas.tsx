@@ -16,6 +16,7 @@ import { PantallaAvisosEquipo } from "./pantallas/avisos";
 import { PantallaProyectoEquipo } from "./pantallas/proyecto-equipo";
 import { PantallaPipeline } from "./pantallas/pipeline";
 import { PantallaMiPanel } from "./pantallas/mi-panel";
+import { PantallaIa } from "./pantallas/ia";
 import { PantallaEntregableCliente, PantallaEntregableEquipo } from "./pantallas/entregables";
 import {
   PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
@@ -46,6 +47,13 @@ export const RUTAS: Ruta[] = [
   { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
   { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
   { patron: "/cuenta", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
+  { patron: "/ia", pantalla: PantallaIa, figma: null, espacio: "cliente" },
+  { patron: "/ia/agentes", pantalla: PantallaIa, figma: null, espacio: "cliente" },
+  { patron: "/ia/agentes/:id", pantalla: PantallaIa, figma: null, espacio: "cliente" },
+  { patron: "/ia/conocimiento", pantalla: PantallaIa, figma: null, espacio: "cliente" },
+  { patron: "/ia/plantillas", pantalla: PantallaIa, figma: null, espacio: "cliente" },
+  { patron: "/ia/contenido", pantalla: PantallaIa, figma: null, espacio: "cliente" },
+  { patron: "/ia/conversaciones", pantalla: PantallaIa, figma: null, espacio: "cliente" },
   { patron: "/cuenta/pagos", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/usuarios", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/notificaciones", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },

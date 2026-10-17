@@ -1398,6 +1398,295 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/{clienteId}/ia/resumen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Inicio de la sección: consumo del mes, métricas de los agentes y si las respuestas se simulan */
+        get: operations["resumenIa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/ia/agentes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Agentes de IA que creó el cliente (nunca los internos de Inoo) */
+        get: operations["listarAgentesIa"];
+        put?: never;
+        /** Crea un agente en borrador (desde cero o desde una plantilla) */
+        post: operations["crearAgenteIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/ia/borrador-agente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** «Crear con IA»: describe tu negocio y devuelve una propuesta de agente (no la guarda). Usa Claude Sonnet 5.5. */
+        post: operations["borradorAgenteIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia/agentes/{agenteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        /** Detalle del agente */
+        get: operations["obtenerAgenteIa"];
+        put?: never;
+        post?: never;
+        /** Elimina el agente y sus conversaciones */
+        delete: operations["eliminarAgenteIa"];
+        options?: never;
+        head?: never;
+        /** Edita el borrador del agente, o lo pausa y reactiva */
+        patch: operations["actualizarAgenteIa"];
+        trace?: never;
+    };
+    "/ia/agentes/{agenteId}/publicar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publica la configuración actual como una versión nueva */
+        post: operations["publicarAgenteIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia/agentes/{agenteId}/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Chat de prueba: le escribe al agente (borrador incluido) y devuelve su respuesta. Cobra por mensaje; 409 TOPE_ALCANZADO si se llegó al tope del mes. */
+        post: operations["probarAgenteIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia/agentes/{agenteId}/conectar-canal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** El cliente pide conectar el agente a WhatsApp o a su web: queda SOLICITADO y se abre un ticket para el equipo */
+        post: operations["conectarCanalAgenteIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/ia/conocimiento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Bases de conocimiento del cliente */
+        get: operations["listarConocimientoIa"];
+        put?: never;
+        /** Crea una base de conocimiento */
+        post: operations["crearConocimientoIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia/conocimiento/{baseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                baseId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Elimina la base (los agentes dejan de usarla) */
+        delete: operations["eliminarConocimientoIa"];
+        options?: never;
+        head?: never;
+        /** Cambia el nombre o los artículos (reemplaza la lista completa) */
+        patch: operations["actualizarConocimientoIa"];
+        trace?: never;
+    };
+    "/clientes/{clienteId}/ia/sin-respuesta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Preguntas que los agentes no pudieron responder (pendientes primero) */
+        get: operations["listarSinRespuestaIa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia/sin-respuesta/{preguntaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preguntaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Marca la pregunta como resuelta (ya se agregó a la base de conocimiento) */
+        patch: operations["resolverSinRespuestaIa"];
+        trace?: never;
+    };
+    "/ia/plantillas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plantillas hechas por Inoo (agentes y contenido) */
+        get: operations["plantillasAgenteIa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/ia/contenido": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Content AI: lo que generó el cliente (más reciente primero). No se mezcla con las piezas que hace Inoo. */
+        get: operations["listarContenidoIa"];
+        put?: never;
+        /** Content AI: genera texto (Gemini Flash). Cobra por variación; 409 TOPE_ALCANZADO si se llegó al tope del mes. */
+        post: operations["generarContenidoIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/ia/conversaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        /** Registro de conversaciones de los agentes (más reciente primero) */
+        get: operations["listarConversacionesIa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia/conversaciones/{conversacionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversacionId: string;
+            };
+            cookie?: never;
+        };
+        /** Conversación con todos sus mensajes */
+        get: operations["obtenerConversacionIa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/panel/equipo": {
         parameters: {
             query?: never;
@@ -2297,6 +2586,208 @@ export interface components {
             menciones: components["schemas"]["PersonaMini"][];
             /** Format: date-time */
             creadoEn: string;
+        };
+        /** @enum {string} */
+        AccionAgente: "CREAR_LEAD" | "AGENDAR_CITA" | "ENVIAR_CATALOGO" | "DERIVAR_PERSONA";
+        /** @enum {string} */
+        TonoAgente: "CERCANO" | "FORMAL" | "ENTUSIASTA";
+        /** @enum {string} */
+        DestinoContenido: "REDES" | "BLOG" | "EMAIL" | "WEB" | "CONVERSACION";
+        PlantillaAgente: {
+            /** @example RECEPCIONISTA */
+            codigo: string;
+            /** @enum {string} */
+            categoria: "AGENTE" | "CONTENIDO";
+            nombre: string;
+            descripcion: string;
+            rol: string;
+            tono: components["schemas"]["TonoAgente"];
+            saludo: string;
+            instrucciones: string;
+            acciones: components["schemas"]["AccionAgente"][];
+        };
+        /** @description Al crear: nombre obligatorio. razonamientoAvanzado solo lo cambia el equipo (usa Claude, más caro). */
+        AgenteIaEntrada: {
+            nombre?: string;
+            rol?: string;
+            tono?: components["schemas"]["TonoAgente"];
+            saludo?: string;
+            instrucciones?: string;
+            conocimientoIds?: string[];
+            acciones?: components["schemas"]["AccionAgente"][];
+            /** @description Cuándo pasar con una persona */
+            derivarCuando?: string | null;
+            plantillaCodigo?: string | null;
+            /**
+             * @description PATCH: pausar o reactivar. Para publicar una versión nueva, POST .../publicar
+             * @enum {string}
+             */
+            estado?: "BORRADOR" | "PUBLICADO" | "PAUSADO";
+            razonamientoAvanzado?: boolean;
+        };
+        AgenteIa: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            clienteId: string;
+            /** @example Asistente de Casa Oliva */
+            nombre: string;
+            rol: string;
+            tono: components["schemas"]["TonoAgente"];
+            saludo: string;
+            instrucciones: string;
+            conocimientoIds: string[];
+            acciones: components["schemas"]["AccionAgente"][];
+            derivarCuando?: string | null;
+            plantillaCodigo?: string | null;
+            /** @enum {string} */
+            estado: "BORRADOR" | "PUBLICADO" | "PAUSADO";
+            /** @description Última versión publicada (0 si nunca se publicó) */
+            version: number;
+            cambiosSinPublicar?: boolean;
+            razonamientoAvanzado: boolean;
+            /** @description PRUEBA siempre está activo; los demás se piden con conectar-canal y los conecta el equipo */
+            canales: {
+                /** @enum {string} */
+                canal: "PRUEBA" | "WHATSAPP" | "WEB";
+                /** @enum {string} */
+                estado: "ACTIVO" | "SOLICITADO";
+            }[];
+            conversaciones: number;
+            /** Format: date-time */
+            publicadoEn?: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            actualizadoEn: string;
+        };
+        ArticuloConocimiento: {
+            id?: string;
+            titulo: string;
+            contenido: string;
+        };
+        BaseConocimientoEntrada: {
+            nombre?: string;
+            articulos?: components["schemas"]["ArticuloConocimiento"][];
+        };
+        BaseConocimiento: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            clienteId: string;
+            nombre: string;
+            articulos: components["schemas"]["ArticuloConocimiento"][];
+            /** @description Preguntas que sus agentes no pudieron responder (para mejorarla) */
+            preguntasSinRespuesta: number;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            actualizadoEn: string;
+        };
+        PreguntaSinRespuesta: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            agenteId: string;
+            agenteNombre: string;
+            pregunta: string;
+            resuelta: boolean;
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        ConversacionIa: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            agenteId: string;
+            agenteNombre: string;
+            /** @enum {string} */
+            canal: "PRUEBA" | "WHATSAPP" | "WEB";
+            /** @example Prueba */
+            contacto: string;
+            mensajes: number;
+            acciones: number;
+            /** Format: date-time */
+            iniciadaEn: string;
+            /** Format: date-time */
+            ultimaEn: string;
+            /** @description Soles */
+            costo: number;
+        };
+        MensajeIa: {
+            /** @enum {string} */
+            rol: "CONTACTO" | "AGENTE";
+            texto: string;
+            accion?: components["schemas"]["AccionAgente"] | null;
+            sinRespuesta?: boolean;
+            /** @description Respondido en modo de prueba, sin llamar al modelo */
+            simulado?: boolean;
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        ConversacionIaDetalle: components["schemas"]["ConversacionIa"] & {
+            historial: components["schemas"]["MensajeIa"][];
+        };
+        RespuestaPrueba: {
+            /** Format: uuid */
+            conversacionId: string;
+            respuesta: components["schemas"]["MensajeIa"];
+            consumo: components["schemas"]["ConsumoIa"];
+        };
+        ContenidoIaEntrada: {
+            destino: components["schemas"]["DestinoContenido"];
+            indicacion: string;
+            tono?: components["schemas"]["TonoAgente"];
+            /** @description Por defecto 1 */
+            variaciones?: number;
+        };
+        ContenidoIa: {
+            /** Format: uuid */
+            id: string;
+            destino: components["schemas"]["DestinoContenido"];
+            indicacion: string;
+            tono?: components["schemas"]["TonoAgente"] | null;
+            variaciones: string[];
+            palabras: number;
+            /** @description Soles */
+            costo: number;
+            simulado: boolean;
+            creadoPor?: components["schemas"]["PersonaMini"] | null;
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        /** @description Consumo del mes en soles. El tope es el límite de gasto de IA del cliente convertido a soles; al llegar, se pausa la generación. */
+        ConsumoIa: {
+            /** @example 2026-10 */
+            periodo: string;
+            /** @enum {string} */
+            moneda: "PEN";
+            agentes: number;
+            contenido: number;
+            /** @example 34.5 */
+            total: number;
+            tope: number;
+            pct: number;
+            /** @description Desde el 80 % del tope */
+            alerta: boolean;
+            pausado: boolean;
+            tarifasDeRelleno: boolean;
+        };
+        ResumenIa: {
+            consumo: components["schemas"]["ConsumoIa"];
+            metricas: {
+                contactos: number;
+                conversaciones: number;
+                acciones: number;
+                citas: number;
+                minutosAhorrados: number;
+            };
+            agentes: {
+                total: number;
+                publicados: number;
+            };
+            /** @description Las respuestas se simulan (fase de prueba, sin llamadas a los modelos) */
+            modoSimulado?: boolean;
         };
         /**
          * @description La clasifica el equipo; por defecto BASICO
@@ -6821,6 +7312,583 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PanelColaborador"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    resumenIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    listarAgentesIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["AgenteIa"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgenteIaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgenteIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borradorAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    descripcion: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        agente: components["schemas"]["AgenteIaEntrada"];
+                        simulado: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    obtenerAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgenteIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    eliminarAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizarAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgenteIaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgenteIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    publicarAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgenteIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    probarAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    mensaje: string;
+                    /** Format: uuid */
+                    conversacionId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaPrueba"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    conectarCanalAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agenteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    canal: "WHATSAPP" | "WEB";
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgenteIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    listarConocimientoIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["BaseConocimiento"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearConocimientoIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaseConocimientoEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseConocimiento"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarConocimientoIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                baseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizarConocimientoIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                baseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaseConocimientoEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseConocimiento"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarSinRespuestaIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PreguntaSinRespuesta"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    resolverSinRespuestaIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                preguntaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    resuelta: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreguntaSinRespuesta"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    plantillasAgenteIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PlantillaAgente"][];
+                    };
+                };
+            };
+        };
+    };
+    listarContenidoIa: {
+        parameters: {
+            query?: {
+                destino?: components["schemas"]["DestinoContenido"];
+            };
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ContenidoIa"][];
+                        resumen: {
+                            palabras: number;
+                            costo: number;
+                            palabrasPorDia: number;
+                        };
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    generarContenidoIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContenidoIaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContenidoIa"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarConversacionesIa: {
+        parameters: {
+            query?: {
+                agenteId?: string;
+            };
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ConversacionIa"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    obtenerConversacionIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionIaDetalle"];
                 };
             };
             403: components["responses"]["SinPermiso"];

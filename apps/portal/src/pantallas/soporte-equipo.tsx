@@ -13,6 +13,7 @@ import {
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { EditarFicha, NuevoCliente } from "./sin-diseno";
+import { IaDelCliente } from "./ia";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -730,6 +731,7 @@ function Ficha() {
           <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
           <EstadoPagoDelCliente clienteId={id} />
+          <IaDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>

@@ -112,6 +112,37 @@ VALUES
   ('00000000-0000-4000-8029-000000000003', '00000000-0000-4000-8002-000000000001', 1, 'CAMBIOS_SOLICITADOS', 'Falta la etapa de negociación antes de ganar la venta.', '00000000-0000-4000-8001-000000000001', '2026-09-25T17:00:00Z'),
   ('00000000-0000-4000-8029-000000000003', '00000000-0000-4000-8002-000000000001', 2, 'APROBADO', NULL, '00000000-0000-4000-8001-000000000001', '2026-09-30T18:00:00Z');
 
+INSERT INTO base_conocimiento (id, cliente_id, nombre, articulos, creado_en, actualizado_en)
+VALUES
+  ('00000000-0000-4000-8031-000000000001', '00000000-0000-4000-8002-000000000001', 'Casa Oliva · preguntas frecuentes', '[{"id":"a1","titulo":"Horarios y ubicación","contenido":"Nuestra tienda está en Av. Larco 345, Miraflores. Atendemos de lunes a sábado de 10:00 a 20:00."},{"id":"a2","titulo":"Envíos","contenido":"Hacemos envíos a todo Lima en 24 a 48 horas. El envío es gratis en compras desde S/ 150. A provincias, de 3 a 5 días hábiles."},{"id":"a3","titulo":"Cambios y devoluciones","contenido":"Aceptamos cambios dentro de los 7 días con el producto sellado y la boleta. Las devoluciones se reembolsan en 5 días hábiles."},{"id":"a4","titulo":"Productos para piel sensible","contenido":"Para piel sensible recomendamos el sérum calmante de manzanilla y la crema hidratante sin fragancia. Todos nuestros productos son libres de parabenos."}]', '2026-10-02T14:00:00Z', '2026-10-02T14:30:00Z');
+
+INSERT INTO agente_ia (id, cliente_id, nombre, rol, tono, saludo, instrucciones, conocimiento_ids, acciones, derivar_cuando, plantilla_codigo, razonamiento_avanzado, estado, version, canales, publicado_en, creado_por, creado_en, actualizado_en)
+VALUES
+  ('00000000-0000-4000-8030-000000000001', '00000000-0000-4000-8002-000000000001', 'Asistente de Casa Oliva', 'Atención al cliente', 'CERCANO', '¡Hola! Soy el asistente de Casa Oliva. ¿En qué te ayudo?', 'Ayuda con dudas de productos, envíos, cambios y devoluciones según la base de conocimiento. Recomienda productos para piel sensible cuando te lo pidan. Si la persona está molesta, pásala con una persona.', '{00000000-0000-4000-8031-000000000001}', ARRAY['ENVIAR_CATALOGO', 'CREAR_LEAD', 'DERIVAR_PERSONA']::text[], 'La persona pide hablar con alguien o tiene un reclamo.', 'ATENCION_CLIENTE', false, 'PUBLICADO', 1, '[{"canal":"PRUEBA","estado":"ACTIVO"}]', '2026-10-03T15:00:00Z', '00000000-0000-4000-8001-000000000001', '2026-10-02T14:00:00Z', '2026-10-03T15:00:00Z');
+
+INSERT INTO version_agente_ia (agente_id, numero, cliente_id, config, publicado_por, creado_en)
+VALUES
+  ('00000000-0000-4000-8030-000000000001', 1, '00000000-0000-4000-8002-000000000001', '{"nombre":"Asistente de Casa Oliva","rol":"Atención al cliente","tono":"CERCANO","saludo":"¡Hola! Soy el asistente de Casa Oliva. ¿En qué te ayudo?","instrucciones":"Ayuda con dudas de productos, envíos, cambios y devoluciones según la base de conocimiento. Recomienda productos para piel sensible cuando te lo pidan. Si la persona está molesta, pásala con una persona.","conocimientoIds":["00000000-0000-4000-8031-000000000001"],"acciones":["ENVIAR_CATALOGO","CREAR_LEAD","DERIVAR_PERSONA"],"derivarCuando":"La persona pide hablar con alguien o tiene un reclamo."}', '00000000-0000-4000-8001-000000000001', '2026-10-03T15:00:00Z');
+
+INSERT INTO conversacion_ia (id, cliente_id, agente_id, canal, contacto, iniciada_en)
+VALUES
+  ('00000000-0000-4000-8032-000000000001', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8030-000000000001', 'PRUEBA', 'Prueba', '2026-10-05T16:00:00Z');
+
+INSERT INTO mensaje_ia (conversacion_id, cliente_id, rol, texto, accion, sin_respuesta, simulado, costo_pen, creado_en)
+VALUES
+  ('00000000-0000-4000-8032-000000000001', '00000000-0000-4000-8002-000000000001', 'CONTACTO', '¿Hacen envíos a provincia?', NULL, false, true, 0, '2026-10-05T16:00:00Z'),
+  ('00000000-0000-4000-8032-000000000001', '00000000-0000-4000-8002-000000000001', 'AGENTE', 'Sí, a provincias llegamos en 3 a 5 días hábiles. En Lima, en 24 a 48 horas.', NULL, false, true, 0.05, '2026-10-05T16:00:03Z'),
+  ('00000000-0000-4000-8032-000000000001', '00000000-0000-4000-8002-000000000001', 'CONTACTO', '¿Tienen tienda en Arequipa?', NULL, false, true, 0, '2026-10-05T16:01:00Z'),
+  ('00000000-0000-4000-8032-000000000001', '00000000-0000-4000-8002-000000000001', 'AGENTE', 'No tengo esa información todavía. Si quieres, te paso con una persona de nuestro equipo.', NULL, true, true, 0.05, '2026-10-05T16:01:02Z');
+
+INSERT INTO pregunta_sin_respuesta (id, cliente_id, agente_id, pregunta, resuelta, creado_en)
+VALUES
+  ('00000000-0000-4000-8033-000000000001', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8030-000000000001', '¿Tienen tienda en Arequipa?', false, '2026-10-05T16:01:02Z');
+
+INSERT INTO contenido_ia (id, cliente_id, destino, indicacion, tono, variaciones, palabras, costo_pen, simulado, creado_por, creado_en)
+VALUES
+  ('00000000-0000-4000-8034-000000000001', '00000000-0000-4000-8002-000000000001', 'REDES', 'Promoción del sérum calmante por el día de la madre', 'CERCANO', '["✨ Este mes, regálale calma: sérum calmante de manzanilla con 15 % de descuento. #DíaDeLaMadre"]', 15, 0.03, true, '00000000-0000-4000-8001-000000000001', '2026-10-04T15:00:00Z');
+
 INSERT INTO comentario_tarea (id, tarea_id, cliente_id, autor_id, texto, menciones, creado_en)
 VALUES
   ('00000000-0000-4000-8028-000000000001', '00000000-0000-4000-8027-000000000002', '00000000-0000-4000-8002-000000000001', '00000000-0000-4000-8001-000000000004', '@Diego Castro usa la paleta del manual de marca que subieron al Drive.', '{00000000-0000-4000-8001-000000000003}', '2026-10-05T16:00:00Z');

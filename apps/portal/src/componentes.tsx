@@ -1,7 +1,7 @@
 "use client";
 import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLayoutGrid, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound,
+  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLayoutGrid, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuBot,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
@@ -294,6 +294,8 @@ const NAV_CLIENTE = [
   { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
   { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: "porAprobar" },
   { a: "/requerimientos", texto: "Requerimientos", icono: <LuClipboardList />, contador: "requerimientos" },
+  // Fase 16a: la IA que el cliente elige usar (sus agentes y Content AI). Visible para todos los clientes.
+  { a: "/ia", texto: "Agentes de IA", icono: <LuBot /> },
 ];
 const NAV_EQUIPO = [
   { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },

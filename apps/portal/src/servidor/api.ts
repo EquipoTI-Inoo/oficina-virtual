@@ -33,6 +33,9 @@ import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
+import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
+import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "./ia-cliente";
+import { ErrorIa } from "./ia-modelos";
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
@@ -1671,6 +1674,360 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, cuerpo) => {
 });
 
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
+
+// ───────────────────────────────────────────── IA del cliente (fase 16a): agentes, conocimiento y Content AI
+// La IA que el cliente elige usar: aquí sí se nombra. Nunca se listan los agentes internos de Inoo.
+
+const ESCRIBEN_IA = ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"];
+interface FilaAgenteIa {
+  id: string; cliente_id: string; nombre: string; rol: string; tono: S<"TonoAgente">; saludo: string; instrucciones: string; conocimiento_ids: string[];
+  acciones: S<"AccionAgente">[]; derivar_cuando: string | null; plantilla_codigo: string | null; razonamiento_avanzado: boolean; estado: S<"AgenteIa">["estado"];
+  version: number; canales: S<"AgenteIa">["canales"]; publicado_en: Date | null; creado_en: Date; actualizado_en: Date; publicada: unknown; conversaciones: number;
+}
+const SELECT_AGENTE_IA = `
+  SELECT a.*, (SELECT v.config FROM version_agente_ia v WHERE v.agente_id = a.id AND v.numero = a.version) AS publicada,
+         (SELECT count(*)::int FROM conversacion_ia c WHERE c.agente_id = a.id) AS conversaciones
+  FROM agente_ia a`;
+const configAgenteDb = (a: Pick<FilaAgenteIa, "nombre" | "rol" | "tono" | "saludo" | "instrucciones" | "conocimiento_ids" | "acciones" | "derivar_cuando">) =>
+  ({ nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimiento_ids, acciones: a.acciones, derivarCuando: a.derivar_cuando });
+/** JSON con las claves ordenadas: Postgres reordena las claves de un jsonb al guardarlo. */
+const jsonEstable = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(jsonEstable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${jsonEstable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v);
+const agenteIaVistaDb = (a: FilaAgenteIa): S<"AgenteIa"> => ({
+  id: a.id, clienteId: a.cliente_id, nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimiento_ids,
+  acciones: a.acciones, derivarCuando: a.derivar_cuando, plantillaCodigo: a.plantilla_codigo, estado: a.estado, version: a.version,
+  cambiosSinPublicar: a.version === 0 || jsonEstable(a.publicada ?? null) !== jsonEstable(configAgenteDb(a)), razonamientoAvanzado: a.razonamiento_avanzado,
+  canales: a.canales, conversaciones: a.conversaciones, publicadoEn: iso(a.publicado_en), creadoEn: iso(a.creado_en)!, actualizadoEn: iso(a.actualizado_en)!,
+});
+async function buscarAgenteIaDb(ctx: Ctx, id: string) {
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese agente");
+  const a = (await ctx.c.query<FilaAgenteIa>(`${SELECT_AGENTE_IA} WHERE a.id = $1`, [id])).rows[0];
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese agente");
+  await accesoCliente(ctx, a.cliente_id);
+  return a;
+}
+async function basesDelCliente(ctx: Ctx, clienteId: string, ids: string[] | undefined) {
+  if (!ids?.length) return [];
+  const validos = ids.filter(esUuid);
+  const { rows } = await ctx.c.query<{ id: string }>("SELECT id FROM base_conocimiento WHERE cliente_id = $1 AND id = ANY($2::uuid[])", [clienteId, `{${validos.join(",")}}`]);
+  return rows.length === ids.length ? [] : [{ campo: "conocimientoIds", mensaje: "Esa base de conocimiento no es de esta cuenta" }];
+}
+
+/** Consumo del mes del cliente: respuestas de sus agentes + Content AI, contra su tope. */
+async function consumoIaDb(ctx: Ctx, clienteId: string, periodo = PERIODO_ACTUAL()) {
+  const { rows } = await ctx.c.query<{ agentes: string; contenido: string; limite: string }>(
+    `SELECT (SELECT coalesce(sum(costo_pen), 0) FROM mensaje_ia WHERE cliente_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2) AS agentes,
+            (SELECT coalesce(sum(costo_pen), 0) FROM contenido_ia WHERE cliente_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2) AS contenido,
+            (SELECT limite_gasto_ia_usd FROM cliente WHERE id = $1) AS limite`,
+    [clienteId, periodo],
+  );
+  return calcularConsumoIa(periodo, Number(rows[0].agentes), Number(rows[0].contenido), Number(rows[0].limite));
+}
+async function exigirSaldoIaDb(ctx: Ctx, clienteId: string) {
+  if ((await consumoIaDb(ctx, clienteId)).pausado) throw new ErrorApi(409, "TOPE_ALCANZADO", "Llegaste al tope de consumo de IA de este mes", "Pide a tu equipo Inoo que lo amplíe, o espera al próximo mes.");
+}
+const nombreClienteDb = async (ctx: Ctx, id: string) => (await ctx.c.query<{ nombre: string }>("SELECT nombre FROM cliente WHERE id = $1", [id])).rows[0].nombre;
+const iaNoDisponible = (e: unknown, titulo: string) => {
+  if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", titulo, e.message);
+  throw e;
+};
+
+ruta("GET", "/clientes/:id/ia/resumen", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  const m = (await ctx.c.query<{ contactos: number; conversaciones: number; respuestas: number; acciones: number; citas: number }>(
+    `SELECT (SELECT count(DISTINCT contacto)::int FROM conversacion_ia WHERE cliente_id = $1) AS contactos,
+            (SELECT count(*)::int FROM conversacion_ia WHERE cliente_id = $1) AS conversaciones,
+            count(*) FILTER (WHERE rol = 'AGENTE')::int AS respuestas,
+            count(*) FILTER (WHERE accion IS NOT NULL)::int AS acciones,
+            count(*) FILTER (WHERE accion = 'AGENDAR_CITA')::int AS citas
+     FROM mensaje_ia WHERE cliente_id = $1`, [p.id],
+  )).rows[0];
+  const a = (await ctx.c.query<{ total: number; publicados: number }>(
+    "SELECT count(*)::int AS total, count(*) FILTER (WHERE estado = 'PUBLICADO')::int AS publicados FROM agente_ia WHERE cliente_id = $1", [p.id],
+  )).rows[0];
+  return {
+    consumo: await consumoIaDb(ctx, p.id),
+    metricas: { contactos: m.contactos, conversaciones: m.conversaciones, acciones: m.acciones, citas: m.citas, minutosAhorrados: Math.round(m.respuestas * MINUTOS_POR_RESPUESTA * 10) / 10 },
+    agentes: a, modoSimulado: iaSimulada(),
+  } satisfies S<"ResumenIa">;
+});
+
+ruta("GET", "/clientes/:id/ia/agentes", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  return { datos: (await ctx.c.query<FilaAgenteIa>(`${SELECT_AGENTE_IA} WHERE a.cliente_id = $1 ORDER BY a.actualizado_en DESC`, [p.id])).rows.map(agenteIaVistaDb) };
+});
+
+ruta("POST", "/clientes/:id/ia/agentes", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as Partial<S<"AgenteIaEntrada">>;
+  const errores = validarAgente(b, false);
+  if (b.razonamientoAvanzado && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
+  errores.push(...(await basesDelCliente(ctx, p.id, b.conocimientoIds)));
+  validacion(errores);
+  const pl = plantillaAgente(b.plantillaCodigo);
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO agente_ia (cliente_id, nombre, rol, tono, saludo, instrucciones, conocimiento_ids, acciones, derivar_cuando, plantilla_codigo, razonamiento_avanzado, creado_por)
+     VALUES ($1, $2, $3, $4::tono_agente_ia, $5, $6, $7::uuid[], $8::text[], $9, $10, $11, $12) RETURNING id`,
+    [p.id, b.nombre!.trim(), b.rol?.trim() ?? pl?.rol ?? "Asistente virtual", b.tono ?? pl?.tono ?? "CERCANO", b.saludo ?? pl?.saludo ?? "", b.instrucciones ?? pl?.instrucciones ?? "",
+     `{${(b.conocimientoIds ?? []).join(",")}}`, b.acciones ?? pl?.acciones ?? [], b.derivarCuando ?? null, b.plantillaCodigo ?? null, !!b.razonamientoAvanzado, ctx.esServicio ? null : ctx.u.usuarioId],
+  )).rows[0].id;
+  return { __status: 201, ...agenteIaVistaDb(await buscarAgenteIaDb(ctx, id)) };
+});
+
+ruta("POST", "/clientes/:id/ia/borrador-agente", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as { descripcion?: string };
+  if (!(typeof b.descripcion === "string" && b.descripcion.trim().length >= 20 && b.descripcion.length <= 1500)) {
+    validacion([{ campo: "descripcion", mensaje: "Cuéntanos de tu negocio (20 a 1500 caracteres)" }]);
+  }
+  try {
+    return await borradorAgente(b.descripcion!.trim(), await nombreClienteDb(ctx, p.id));
+  } catch (e) {
+    return iaNoDisponible(e, "No pudimos generar la propuesta");
+  }
+});
+
+ruta("GET", "/ia/agentes/:id", async (ctx, p) => agenteIaVistaDb(await buscarAgenteIaDb(ctx, p.id)));
+
+ruta("PATCH", "/ia/agentes/:id", async (ctx, p, _q, cuerpo) => {
+  const a = await buscarAgenteIaDb(ctx, p.id);
+  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as Partial<S<"AgenteIaEntrada">>;
+  const errores = validarAgente(b, true);
+  if (b.razonamientoAvanzado !== undefined && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
+  if (b.estado === "PUBLICADO" && a.version === 0) errores.push({ campo: "estado", mensaje: "Publica el agente al menos una vez" });
+  errores.push(...(await basesDelCliente(ctx, a.cliente_id, b.conocimientoIds)));
+  validacion(errores);
+  const cambios: [string, unknown, string][] = [];
+  const poner = (col: string, v: unknown, tipo = "") => v !== undefined && cambios.push([col, typeof v === "string" && tipo !== "::tono_agente_ia" && tipo !== "::estado_agente_ia" ? v.trim() : v, tipo]);
+  poner("nombre", b.nombre);
+  poner("rol", b.rol);
+  poner("tono", b.tono, "::tono_agente_ia");
+  poner("saludo", b.saludo);
+  poner("instrucciones", b.instrucciones);
+  poner("conocimiento_ids", b.conocimientoIds === undefined ? undefined : `{${b.conocimientoIds.join(",")}}`, "::uuid[]");
+  poner("acciones", b.acciones, "::text[]");
+  poner("derivar_cuando", b.derivarCuando);
+  poner("razonamiento_avanzado", b.razonamientoAvanzado);
+  poner("estado", b.estado, "::estado_agente_ia");
+  if (cambios.length) {
+    await ctx.c.query(`UPDATE agente_ia SET ${cambios.map(([c, , t], i) => `${c} = $${i + 2}${t}`).join(", ")}, actualizado_en = now() WHERE id = $1`, [a.id, ...cambios.map(([, v]) => v)]);
+  }
+  return agenteIaVistaDb(await buscarAgenteIaDb(ctx, a.id));
+});
+
+ruta("DELETE", "/ia/agentes/:id", async (ctx, p) => {
+  const a = await buscarAgenteIaDb(ctx, p.id);
+  exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  await ctx.c.query("DELETE FROM agente_ia WHERE id = $1", [a.id]);
+  return null;
+});
+
+ruta("POST", "/ia/agentes/:id/publicar", async (ctx, p) => {
+  const a = await buscarAgenteIaDb(ctx, p.id);
+  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
+  if (!a.instrucciones.trim()) validacion([{ campo: "instrucciones", mensaje: "Escribe las instrucciones antes de publicar" }]);
+  await ctx.c.query("INSERT INTO version_agente_ia (agente_id, numero, cliente_id, config, publicado_por) VALUES ($1, $2, $3, $4, $5)", [
+    a.id, a.version + 1, a.cliente_id, JSON.stringify(configAgenteDb(a)), ctx.esServicio ? null : ctx.u.usuarioId,
+  ]);
+  await ctx.c.query("UPDATE agente_ia SET version = version + 1, estado = 'PUBLICADO', publicado_en = now(), actualizado_en = now() WHERE id = $1", [a.id]);
+  return agenteIaVistaDb(await buscarAgenteIaDb(ctx, a.id));
+});
+
+ruta("POST", "/ia/agentes/:id/probar", async (ctx, p, _q, cuerpo) => {
+  const a = await buscarAgenteIaDb(ctx, p.id);
+  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as { mensaje?: string; conversacionId?: string | null };
+  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
+  if (!mensaje || mensaje.length > 1000) validacion([{ campo: "mensaje", mensaje: "Escribe un mensaje (hasta 1000 caracteres)" }]);
+  if (a.estado === "PAUSADO") throw new ErrorApi(409, "AGENTE_PAUSADO", "Este agente está pausado", "Reactívalo para probarlo.");
+  await exigirSaldoIaDb(ctx, a.cliente_id);
+  let convId = b.conversacionId ?? null;
+  if (convId && !(esUuid(convId) && (await ctx.c.query("SELECT 1 FROM conversacion_ia WHERE id = $1 AND agente_id = $2", [convId, a.id])).rows.length)) {
+    throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  }
+  const historial = convId
+    ? (await ctx.c.query<{ rol: "CONTACTO" | "AGENTE"; texto: string }>("SELECT rol, texto FROM mensaje_ia WHERE conversacion_id = $1 ORDER BY id", [convId])).rows
+    : [];
+  const articulos = (await ctx.c.query<{ articulos: { id: string; titulo: string; contenido: string }[] }>(
+    "SELECT articulos FROM base_conocimiento WHERE cliente_id = $1 AND id = ANY($2::uuid[])", [a.cliente_id, `{${a.conocimiento_ids.join(",")}}`],
+  )).rows.flatMap((x) => x.articulos);
+  let r: Awaited<ReturnType<typeof responderAgente>>;
+  try {
+    r = await responderAgente({
+      config: { nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, acciones: a.acciones, derivarCuando: a.derivar_cuando, negocio: await nombreClienteDb(ctx, a.cliente_id) },
+      razonamientoAvanzado: a.razonamiento_avanzado, articulos, historial, mensaje,
+    });
+  } catch (e) {
+    return iaNoDisponible(e, "El agente no pudo responder");
+  }
+  convId ??= (await ctx.c.query<{ id: string }>("INSERT INTO conversacion_ia (cliente_id, agente_id) VALUES ($1, $2) RETURNING id", [a.cliente_id, a.id])).rows[0].id;
+  await ctx.c.query("INSERT INTO mensaje_ia (conversacion_id, cliente_id, rol, texto, simulado) VALUES ($1, $2, 'CONTACTO', $3, $4)", [convId, a.cliente_id, mensaje, r.simulado]);
+  const fila = (await ctx.c.query<{ creado_en: Date }>(
+    `INSERT INTO mensaje_ia (conversacion_id, cliente_id, rol, texto, accion, sin_respuesta, simulado, modelo, tokens_entrada, tokens_salida, costo_pen)
+     VALUES ($1, $2, 'AGENTE', $3, $4, $5, $6, $7, $8, $9, $10) RETURNING creado_en`,
+    [convId, a.cliente_id, r.texto, r.accion, r.sinRespuesta, r.simulado, r.modelo, r.tokensEntrada, r.tokensSalida, r.costoPen],
+  )).rows[0];
+  if (r.sinRespuesta) await ctx.c.query("INSERT INTO pregunta_sin_respuesta (cliente_id, agente_id, pregunta) VALUES ($1, $2, $3)", [a.cliente_id, a.id, mensaje]);
+  return {
+    conversacionId: convId,
+    respuesta: { rol: "AGENTE", texto: r.texto, accion: r.accion, sinRespuesta: r.sinRespuesta, simulado: r.simulado, creadoEn: iso(fila.creado_en)! },
+    consumo: await consumoIaDb(ctx, a.cliente_id),
+  } satisfies S<"RespuestaPrueba">;
+});
+
+ruta("POST", "/ia/agentes/:id/conectar-canal", async (ctx, p, _q, cuerpo) => {
+  const a = await buscarAgenteIaDb(ctx, p.id);
+  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as { canal?: string };
+  if (b.canal !== "WHATSAPP" && b.canal !== "WEB") validacion([{ campo: "canal", mensaje: "Elige WhatsApp o tu web" }]);
+  if (a.version === 0) throw new ErrorApi(409, "AGENTE_SIN_PUBLICAR", "Publica el agente antes de conectarlo");
+  if (a.canales.some((c) => c.canal === b.canal)) throw new ErrorApi(409, "CANAL_YA_PEDIDO", "Ya pediste conectar ese canal");
+  await ctx.c.query("UPDATE agente_ia SET canales = canales || $2::jsonb, actualizado_en = now() WHERE id = $1", [a.id, JSON.stringify([{ canal: b.canal, estado: "SOLICITADO" }])]);
+  // El equipo lo conecta: se abre un ticket (sirve aunque el cliente no tenga Soporte continuo).
+  const canal = b.canal === "WHATSAPP" ? "WhatsApp" : "la web";
+  const t = (await ctx.c.query<{ id: string; numero: string }>(
+    `INSERT INTO ticket (cliente_id, creado_por, asunto, categoria, descripcion, resumen_estado, sla_primera_respuesta_en)
+     VALUES ($1, $2, $3, $4::categoria_ticket, $5, 'Recibimos tu pedido. Te escribimos para coordinar la conexión.', now() + interval '1 day') RETURNING id, numero`,
+    [a.cliente_id, ctx.u.usuarioId, `Conectar «${a.nombre}» a ${canal}`, b.canal === "WHATSAPP" ? "CRM" : "WEB", `El cliente pidió conectar su agente de IA «${a.nombre}» a ${canal}.`],
+  )).rows[0];
+  await emitirOutbox(ctx, "ticket.creado", a.cliente_id, { ticketId: t.id, numero: Number(t.numero), categoria: "OTRO", asunto: `Conectar agente a ${canal}`, servicioContratadoId: null, usuarioId: ctx.u.usuarioId });
+  return agenteIaVistaDb(await buscarAgenteIaDb(ctx, a.id));
+});
+
+interface FilaBase { id: string; cliente_id: string; nombre: string; articulos: S<"ArticuloConocimiento">[]; creado_en: Date; actualizado_en: Date; sin_respuesta: number }
+const SELECT_BASE = `
+  SELECT b.*, (SELECT count(*)::int FROM pregunta_sin_respuesta q JOIN agente_ia a ON a.id = q.agente_id WHERE NOT q.resuelta AND b.id = ANY(a.conocimiento_ids)) AS sin_respuesta
+  FROM base_conocimiento b`;
+const baseVistaDb = (b: FilaBase): S<"BaseConocimiento"> => ({
+  id: b.id, clienteId: b.cliente_id, nombre: b.nombre, articulos: b.articulos, preguntasSinRespuesta: b.sin_respuesta, creadoEn: iso(b.creado_en)!, actualizadoEn: iso(b.actualizado_en)!,
+});
+const articulosNormalizados = (xs: S<"ArticuloConocimiento">[]) => JSON.stringify(xs.map((x, i) => ({ id: x.id ?? `a${i + 1}`, titulo: x.titulo.trim(), contenido: x.contenido.trim() })));
+async function buscarBaseDb(ctx: Ctx, id: string) {
+  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
+  const b = (await ctx.c.query<FilaBase>(`${SELECT_BASE} WHERE b.id = $1`, [id])).rows[0];
+  if (!b) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
+  await accesoCliente(ctx, b.cliente_id);
+  return b;
+}
+
+ruta("GET", "/clientes/:id/ia/conocimiento", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  return { datos: (await ctx.c.query<FilaBase>(`${SELECT_BASE} WHERE b.cliente_id = $1 ORDER BY b.creado_en`, [p.id])).rows.map(baseVistaDb) };
+});
+ruta("POST", "/clientes/:id/ia/conocimiento", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as Partial<S<"BaseConocimientoEntrada">>;
+  validacion(validarBase(b, false));
+  const id = (await ctx.c.query<{ id: string }>("INSERT INTO base_conocimiento (cliente_id, nombre, articulos) VALUES ($1, $2, $3) RETURNING id", [p.id, b.nombre!.trim(), articulosNormalizados(b.articulos ?? [])])).rows[0].id;
+  return { __status: 201, ...baseVistaDb(await buscarBaseDb(ctx, id)) };
+});
+ruta("PATCH", "/ia/conocimiento/:id", async (ctx, p, _q, cuerpo) => {
+  const base = await buscarBaseDb(ctx, p.id);
+  exigirRol(ctx, base.cliente_id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as Partial<S<"BaseConocimientoEntrada">>;
+  validacion(validarBase(b, true));
+  await ctx.c.query("UPDATE base_conocimiento SET nombre = coalesce($2, nombre), articulos = coalesce($3::jsonb, articulos), actualizado_en = now() WHERE id = $1", [
+    base.id, b.nombre?.trim() ?? null, b.articulos === undefined ? null : articulosNormalizados(b.articulos),
+  ]);
+  return baseVistaDb(await buscarBaseDb(ctx, base.id));
+});
+ruta("DELETE", "/ia/conocimiento/:id", async (ctx, p) => {
+  const base = await buscarBaseDb(ctx, p.id);
+  exigirRol(ctx, base.cliente_id, ["EQUIPO", "ADMIN_CLIENTE"]);
+  await ctx.c.query("UPDATE agente_ia SET conocimiento_ids = array_remove(conocimiento_ids, $1::uuid) WHERE cliente_id = $2", [base.id, base.cliente_id]);
+  await ctx.c.query("DELETE FROM base_conocimiento WHERE id = $1", [base.id]);
+  return null;
+});
+
+interface FilaPregunta { id: string; agente_id: string; agente_nombre: string; pregunta: string; resuelta: boolean; creado_en: Date; cliente_id: string }
+const preguntaVistaDb = (x: FilaPregunta): S<"PreguntaSinRespuesta"> => ({ id: x.id, agenteId: x.agente_id, agenteNombre: x.agente_nombre, pregunta: x.pregunta, resuelta: x.resuelta, creadoEn: iso(x.creado_en)! });
+const SELECT_PREGUNTA = "SELECT q.*, a.nombre AS agente_nombre FROM pregunta_sin_respuesta q JOIN agente_ia a ON a.id = q.agente_id";
+ruta("GET", "/clientes/:id/ia/sin-respuesta", async (ctx, p) => {
+  await accesoCliente(ctx, p.id);
+  return { datos: (await ctx.c.query<FilaPregunta>(`${SELECT_PREGUNTA} WHERE q.cliente_id = $1 ORDER BY q.resuelta, q.creado_en DESC`, [p.id])).rows.map(preguntaVistaDb) };
+});
+ruta("PATCH", "/ia/sin-respuesta/:id", async (ctx, p, _q, cuerpo) => {
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa pregunta");
+  const x = (await ctx.c.query<FilaPregunta>(`${SELECT_PREGUNTA} WHERE q.id = $1`, [p.id])).rows[0];
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa pregunta");
+  await accesoCliente(ctx, x.cliente_id);
+  exigirRol(ctx, x.cliente_id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as { resuelta?: unknown };
+  if (typeof b.resuelta !== "boolean") validacion([{ campo: "resuelta", mensaje: "Sí o no" }]);
+  await ctx.c.query("UPDATE pregunta_sin_respuesta SET resuelta = $2 WHERE id = $1", [x.id, b.resuelta]);
+  return preguntaVistaDb({ ...x, resuelta: b.resuelta as boolean });
+});
+
+ruta("GET", "/ia/plantillas", async () => ({ datos: PLANTILLAS_AGENTE }));
+
+interface FilaContenido { id: string; destino: S<"DestinoContenido">; indicacion: string; tono: S<"TonoAgente"> | null; variaciones: string[]; palabras: number; costo_pen: string; simulado: boolean; creado_por: string | null; autor_nombre: string | null; creado_en: Date }
+const contenidoVistaDb = (c: FilaContenido): S<"ContenidoIa"> => ({
+  id: c.id, destino: c.destino, indicacion: c.indicacion, tono: c.tono, variaciones: c.variaciones, palabras: c.palabras, costo: Number(c.costo_pen), simulado: c.simulado,
+  creadoPor: persona(c.creado_por, c.autor_nombre), creadoEn: iso(c.creado_en)!,
+});
+const SELECT_CONTENIDO = "SELECT c.*, u.nombre AS autor_nombre FROM contenido_ia c LEFT JOIN usuario u ON u.id = c.creado_por";
+ruta("GET", "/clientes/:id/ia/contenido", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const destino = q.get("destino");
+  const datos = (await ctx.c.query<FilaContenido>(`${SELECT_CONTENIDO} WHERE c.cliente_id = $1 AND ($2::text IS NULL OR c.destino = $2) ORDER BY c.creado_en DESC`, [p.id, destino])).rows.map(contenidoVistaDb);
+  const mes = (await ctx.c.query<{ palabras: number; costo: string }>(
+    "SELECT coalesce(sum(palabras), 0)::int AS palabras, coalesce(sum(costo_pen), 0) AS costo FROM contenido_ia WHERE cliente_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2",
+    [p.id, PERIODO_ACTUAL()],
+  )).rows[0];
+  const dia = Number(HOY_LIMA().slice(8, 10));
+  return { datos, resumen: { palabras: mes.palabras, costo: Math.round(Number(mes.costo) * 100) / 100, palabrasPorDia: Math.round((mes.palabras / dia) * 10) / 10 } };
+});
+ruta("POST", "/clientes/:id/ia/contenido", async (ctx, p, _q, cuerpo) => {
+  await accesoCliente(ctx, p.id);
+  exigirRol(ctx, p.id, ESCRIBEN_IA);
+  const b = (await cuerpo()) as Partial<S<"ContenidoIaEntrada">>;
+  validacion(validarContenido(b));
+  await exigirSaldoIaDb(ctx, p.id);
+  let r: Awaited<ReturnType<typeof generarContenido>>;
+  try {
+    r = await generarContenido({ negocio: await nombreClienteDb(ctx, p.id), destino: b.destino!, indicacion: b.indicacion!.trim(), tono: b.tono ?? null, variaciones: b.variaciones ?? 1 });
+  } catch (e) {
+    return iaNoDisponible(e, "No pudimos generar el contenido");
+  }
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO contenido_ia (cliente_id, destino, indicacion, tono, variaciones, palabras, costo_pen, simulado, modelo, creado_por)
+     VALUES ($1, $2, $3, $4::tono_agente_ia, $5, $6, $7, $8, $9, $10) RETURNING id`,
+    [p.id, b.destino, b.indicacion!.trim(), b.tono ?? null, JSON.stringify(r.variaciones), r.palabras, r.costoPen, r.simulado, r.modelo, ctx.esServicio ? null : ctx.u.usuarioId],
+  )).rows[0].id;
+  return { __status: 201, ...contenidoVistaDb((await ctx.c.query<FilaContenido>(`${SELECT_CONTENIDO} WHERE c.id = $1`, [id])).rows[0]) };
+});
+
+interface FilaConversacion { id: string; agente_id: string; agente_nombre: string; canal: S<"ConversacionIa">["canal"]; contacto: string; iniciada_en: Date; mensajes: number; acciones: number; ultima_en: Date | null; costo: string; cliente_id: string }
+const SELECT_CONVERSACION = `
+  SELECT c.*, a.nombre AS agente_nombre, count(m.id)::int AS mensajes, count(m.accion)::int AS acciones, max(m.creado_en) AS ultima_en, coalesce(sum(m.costo_pen), 0) AS costo
+  FROM conversacion_ia c JOIN agente_ia a ON a.id = c.agente_id LEFT JOIN mensaje_ia m ON m.conversacion_id = c.id`;
+const conversacionVistaDb = (c: FilaConversacion): S<"ConversacionIa"> => ({
+  id: c.id, agenteId: c.agente_id, agenteNombre: c.agente_nombre, canal: c.canal, contacto: c.contacto, mensajes: c.mensajes, acciones: c.acciones,
+  iniciadaEn: iso(c.iniciada_en)!, ultimaEn: iso(c.ultima_en ?? c.iniciada_en)!, costo: Math.round(Number(c.costo) * 100) / 100,
+});
+ruta("GET", "/clientes/:id/ia/conversaciones", async (ctx, p, q) => {
+  await accesoCliente(ctx, p.id);
+  const agente = q.get("agenteId");
+  const { rows } = await ctx.c.query<FilaConversacion>(
+    `${SELECT_CONVERSACION} WHERE c.cliente_id = $1 AND ($2::uuid IS NULL OR c.agente_id = $2) GROUP BY c.id, a.nombre ORDER BY ultima_en DESC NULLS LAST`,
+    [p.id, agente && esUuid(agente) ? agente : null],
+  );
+  return { datos: rows.map(conversacionVistaDb) };
+});
+ruta("GET", "/ia/conversaciones/:id", async (ctx, p) => {
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  const c = (await ctx.c.query<FilaConversacion>(`${SELECT_CONVERSACION} WHERE c.id = $1 GROUP BY c.id, a.nombre`, [p.id])).rows[0];
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  await accesoCliente(ctx, c.cliente_id);
+  const historial = (await ctx.c.query<{ rol: "CONTACTO" | "AGENTE"; texto: string; accion: S<"AccionAgente"> | null; sin_respuesta: boolean; simulado: boolean; creado_en: Date }>(
+    "SELECT rol, texto, accion, sin_respuesta, simulado, creado_en FROM mensaje_ia WHERE conversacion_id = $1 ORDER BY id", [c.id],
+  )).rows.map((m) => ({ rol: m.rol, texto: m.texto, accion: m.accion, sinRespuesta: m.sin_respuesta, simulado: m.simulado, creadoEn: iso(m.creado_en)! }));
+  return { ...conversacionVistaDb(c), historial } satisfies S<"ConversacionIaDetalle">;
+});
 
 // ───────────────────────────────────────────── KPIs, reporte y panel del colaborador (reunión 15 oct)
 

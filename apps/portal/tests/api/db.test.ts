@@ -22,6 +22,7 @@ import { pruebasEntregables } from "./flujo-entregables";
 import { pruebasEstructura } from "./flujo-estructura";
 import { pruebasKpis } from "./flujo-kpis";
 import { pruebasConsumo } from "./flujo-consumo";
+import { pruebasIaCliente } from "./flujo-ia-cliente";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -60,6 +61,7 @@ before(async () => {
   await db.exec(sql("migraciones/0017_estructura_servicios.sql"));
   await db.exec(sql("migraciones/0018_kpis_atrasos.sql"));
   await db.exec(sql("migraciones/0019_soporte_consumo.sql"));
+  await db.exec(sql("migraciones/0020_ia_cliente.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -84,6 +86,7 @@ pruebasEntregables("Postgres", (req) => manejarSolicitudDb(req), reiniciar, even
 pruebasEstructura("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasKpis("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasConsumo("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasIaCliente("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {
@@ -263,6 +266,20 @@ describe("clientes, tickets y notificaciones · Postgres", () => {
     const { rows } = await db.query<{ tipo: string; payload: any }>("SELECT tipo, payload FROM outbox_evento ORDER BY id DESC LIMIT 1");
     assert.equal(rows[0].tipo, "ticket.creado");
     assert.equal(rows[0].payload.numero, 1043);
+  });
+
+  test("IA del cliente: otro cliente no ve sus agentes ni conversaciones, ni consultando directo (RLS)", async () => {
+    await reiniciar();
+    await db.exec(`INSERT INTO usuario (id, email, nombre, tipo) VALUES ('${uid(1, 50)}', 'ana@nativa.pe', 'Ana', 'CLIENTE');
+      INSERT INTO miembro_cliente (cliente_id, usuario_id, rol) VALUES ('${NATIVA}', '${uid(1, 50)}', 'ADMIN_CLIENTE');`);
+    assert.equal((await llamar("GET", `/ia/agentes/${uid(30, 1)}`, `demo.${uid(1, 50)}`)).status, 404);
+    assert.equal((await llamar("GET", `/ia/conversaciones/${uid(32, 1)}`, `demo.${uid(1, 50)}`)).status, 404);
+    const visibles = await db.transaction(async (tx) => {
+      await comoUsuario(tx as never, { usuarioId: uid(1, 50), tipo: "CLIENTE", clienteIds: [NATIVA] });
+      const q = async (t: string) => (await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n;
+      return [await q("agente_ia"), await q("mensaje_ia"), await q("contenido_ia"), await q("base_conocimiento")];
+    });
+    assert.deepEqual(visibles, [0, 0, 0, 0]);
   });
 
   test("tickets: otro cliente recibe 404 (RLS) y no ve mensajes internos", async () => {

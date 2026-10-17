@@ -97,6 +97,45 @@ LEFT JOIN LATERAL (
     ["entregable_id", "cliente_id", "version", "decision", "comentario", "usuario_id", "creado_en"],
     D.ENTREGABLES_INICIALES.flatMap((e) => e.decisiones.map((d) => [e.id, e.clienteId, d.version, d.decision, d.comentario, d.usuarioId, d.fecha])),
   ),
+  // IA del cliente (fase 16a)
+  insert(
+    "base_conocimiento",
+    ["id", "cliente_id", "nombre", "articulos", "creado_en", "actualizado_en"],
+    D.BASES_CONOCIMIENTO_INICIALES.map((b) => [b.id, b.clienteId, b.nombre, JSON.stringify(b.articulos), b.creadoEn, b.actualizadoEn]),
+  ),
+  insert(
+    "agente_ia",
+    ["id", "cliente_id", "nombre", "rol", "tono", "saludo", "instrucciones", "conocimiento_ids", "acciones", "derivar_cuando", "plantilla_codigo", "razonamiento_avanzado", "estado", "version", "canales", "publicado_en", "creado_por", "creado_en", "actualizado_en"],
+    D.AGENTES_IA_INICIALES.map((a) => [
+      a.id, a.clienteId, a.nombre, a.rol, a.tono, a.saludo, a.instrucciones, `{${a.conocimientoIds.join(",")}}`, a.acciones, a.derivarCuando, a.plantillaCodigo, a.razonamientoAvanzado,
+      a.estado, a.version, JSON.stringify(a.canales), a.publicadoEn, a.creadoPorId, a.creadoEn, a.actualizadoEn,
+    ]),
+  ),
+  insert(
+    "version_agente_ia",
+    ["agente_id", "numero", "cliente_id", "config", "publicado_por", "creado_en"],
+    D.AGENTES_IA_INICIALES.filter((a) => a.publicada).map((a) => [a.id, a.version, a.clienteId, a.publicada, a.creadoPorId, a.publicadoEn]),
+  ),
+  insert(
+    "conversacion_ia",
+    ["id", "cliente_id", "agente_id", "canal", "contacto", "iniciada_en"],
+    D.CONVERSACIONES_IA_INICIALES.map((c) => [c.id, c.clienteId, c.agenteId, c.canal, c.contacto, c.iniciadaEn]),
+  ),
+  insert(
+    "mensaje_ia",
+    ["conversacion_id", "cliente_id", "rol", "texto", "accion", "sin_respuesta", "simulado", "costo_pen", "creado_en"],
+    D.CONVERSACIONES_IA_INICIALES.flatMap((c) => c.mensajes.map((m) => [c.id, c.clienteId, m.rol, m.texto, m.accion, m.sinRespuesta, m.simulado, m.costoPen, m.creadoEn])),
+  ),
+  insert(
+    "pregunta_sin_respuesta",
+    ["id", "cliente_id", "agente_id", "pregunta", "resuelta", "creado_en"],
+    D.SIN_RESPUESTA_INICIALES.map((x) => [x.id, x.clienteId, x.agenteId, x.pregunta, x.resuelta, x.creadoEn]),
+  ),
+  insert(
+    "contenido_ia",
+    ["id", "cliente_id", "destino", "indicacion", "tono", "variaciones", "palabras", "costo_pen", "simulado", "creado_por", "creado_en"],
+    D.CONTENIDO_IA_INICIAL.map((c) => [c.id, c.clienteId, c.destino, c.indicacion, c.tono, JSON.stringify(c.variaciones), c.palabras, c.costoPen, c.simulado, c.creadoPorId, c.creadoEn]),
+  ),
   insert(
     "comentario_tarea",
     ["id", "tarea_id", "cliente_id", "autor_id", "texto", "menciones", "creado_en"],

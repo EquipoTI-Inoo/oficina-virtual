@@ -20,6 +20,7 @@
     "api-key": "tsx scripts/crear-api-key.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "jose": "^6.2.12",
     "next": "^15.5.4",
     "pg": "^8.23.1",

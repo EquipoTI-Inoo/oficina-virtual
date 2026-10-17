@@ -63,6 +63,8 @@ tags:
   - name: Soporte
   - name: Correos
   - name: Panel interno
+  - name: IA del cliente
+    description: 'Fase 16a (17 oct): agentes de IA y Content AI que el cliente crea y usa por voluntad propia. Es la única sección donde el cliente ve IA y montos (consumo en soles, tarifas de relleno).'
   - name: Integraciones
 
 paths:
@@ -2091,6 +2093,359 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /clientes/{clienteId}/ia/resumen:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [IA del cliente]
+      operationId: resumenIa
+      summary: 'Inicio de la sección: consumo del mes, métricas de los agentes y si las respuestas se simulan'
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResumenIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /clientes/{clienteId}/ia/agentes:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [IA del cliente]
+      operationId: listarAgentesIa
+      summary: Agentes de IA que creó el cliente (nunca los internos de Inoo)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/AgenteIa' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [IA del cliente]
+      operationId: crearAgenteIa
+      summary: Crea un agente en borrador (desde cero o desde una plantilla)
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AgenteIaEntrada' } } } }
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgenteIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/ia/borrador-agente:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    post:
+      tags: [IA del cliente]
+      operationId: borradorAgenteIa
+      summary: '«Crear con IA»: describe tu negocio y devuelve una propuesta de agente (no la guarda). Usa Claude Sonnet 5.5.'
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [descripcion], properties: { descripcion: { type: string, minLength: 20, maxLength: 1500 } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [agente, simulado], properties: { agente: { $ref: '#/components/schemas/AgenteIaEntrada' }, simulado: { type: boolean } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /ia/agentes/{agenteId}:
+    parameters:
+      - { name: agenteId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [IA del cliente]
+      operationId: obtenerAgenteIa
+      summary: Detalle del agente
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgenteIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [IA del cliente]
+      operationId: actualizarAgenteIa
+      summary: Edita el borrador del agente, o lo pausa y reactiva
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AgenteIaEntrada' } } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgenteIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [IA del cliente]
+      operationId: eliminarAgenteIa
+      summary: Elimina el agente y sus conversaciones
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '204': { description: Eliminado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /ia/agentes/{agenteId}/publicar:
+    parameters:
+      - { name: agenteId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [IA del cliente]
+      operationId: publicarAgenteIa
+      summary: Publica la configuración actual como una versión nueva
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgenteIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /ia/agentes/{agenteId}/probar:
+    parameters:
+      - { name: agenteId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [IA del cliente]
+      operationId: probarAgenteIa
+      summary: 'Chat de prueba: le escribe al agente (borrador incluido) y devuelve su respuesta. Cobra por mensaje; 409 TOPE_ALCANZADO si se llegó al tope del mes.'
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [mensaje], properties: { mensaje: { type: string, minLength: 1, maxLength: 1000 }, conversacionId: { type: [string, 'null'], format: uuid } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaPrueba' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /ia/agentes/{agenteId}/conectar-canal:
+    parameters:
+      - { name: agenteId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [IA del cliente]
+      operationId: conectarCanalAgenteIa
+      summary: 'El cliente pide conectar el agente a WhatsApp o a su web: queda SOLICITADO y se abre un ticket para el equipo'
+      x-roles: [ADMIN_CLIENTE, APROBADOR, EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [canal], properties: { canal: { type: string, enum: [WHATSAPP, WEB] } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgenteIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /clientes/{clienteId}/ia/conocimiento:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [IA del cliente]
+      operationId: listarConocimientoIa
+      summary: Bases de conocimiento del cliente
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/BaseConocimiento' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [IA del cliente]
+      operationId: crearConocimientoIa
+      summary: Crea una base de conocimiento
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BaseConocimientoEntrada' } } } }
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BaseConocimiento' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /ia/conocimiento/{baseId}:
+    parameters:
+      - { name: baseId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [IA del cliente]
+      operationId: actualizarConocimientoIa
+      summary: Cambia el nombre o los artículos (reemplaza la lista completa)
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BaseConocimientoEntrada' } } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BaseConocimiento' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [IA del cliente]
+      operationId: eliminarConocimientoIa
+      summary: Elimina la base (los agentes dejan de usarla)
+      x-roles: [EQUIPO, ADMIN_CLIENTE]
+      responses:
+        '204': { description: Eliminada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /clientes/{clienteId}/ia/sin-respuesta:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [IA del cliente]
+      operationId: listarSinRespuestaIa
+      summary: Preguntas que los agentes no pudieron responder (pendientes primero)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/PreguntaSinRespuesta' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /ia/sin-respuesta/{preguntaId}:
+    parameters:
+      - { name: preguntaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [IA del cliente]
+      operationId: resolverSinRespuestaIa
+      summary: Marca la pregunta como resuelta (ya se agregó a la base de conocimiento)
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [resuelta], properties: { resuelta: { type: boolean } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreguntaSinRespuesta' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /ia/plantillas:
+    get:
+      tags: [IA del cliente]
+      operationId: plantillasAgenteIa
+      summary: Plantillas hechas por Inoo (agentes y contenido)
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/PlantillaAgente' } } } }
+
+  /clientes/{clienteId}/ia/contenido:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [IA del cliente]
+      operationId: listarContenidoIa
+      summary: 'Content AI: lo que generó el cliente (más reciente primero). No se mezcla con las piezas que hace Inoo.'
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: destino, in: query, schema: { $ref: '#/components/schemas/DestinoContenido' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos, resumen], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ContenidoIa' } }, resumen: { type: object, required: [palabras, costo, palabrasPorDia], properties: { palabras: { type: integer }, costo: { type: number }, palabrasPorDia: { type: number } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [IA del cliente]
+      operationId: generarContenidoIa
+      summary: 'Content AI: genera texto (Gemini Flash). Cobra por variación; 409 TOPE_ALCANZADO si se llegó al tope del mes.'
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ContenidoIaEntrada' } } } }
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContenidoIa' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/ia/conversaciones:
+    parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
+    get:
+      tags: [IA del cliente]
+      operationId: listarConversacionesIa
+      summary: Registro de conversaciones de los agentes (más reciente primero)
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: agenteId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ConversacionIa' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /ia/conversaciones/{conversacionId}:
+    parameters:
+      - { name: conversacionId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [IA del cliente]
+      operationId: obtenerConversacionIa
+      summary: Conversación con todos sus mensajes
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversacionIaDetalle' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /panel/equipo:
     get:
       tags: [Panel interno]
@@ -3140,6 +3495,204 @@ components:
         texto: { type: string }
         menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
         creadoEn: { type: string, format: date-time }
+    AccionAgente:
+      type: string
+      enum: [CREAR_LEAD, AGENDAR_CITA, ENVIAR_CATALOGO, DERIVAR_PERSONA]
+    TonoAgente:
+      type: string
+      enum: [CERCANO, FORMAL, ENTUSIASTA]
+    DestinoContenido:
+      type: string
+      enum: [REDES, BLOG, EMAIL, WEB, CONVERSACION]
+    PlantillaAgente:
+      type: object
+      required: [codigo, categoria, nombre, descripcion, rol, tono, saludo, instrucciones, acciones]
+      properties:
+        codigo: { type: string, examples: [RECEPCIONISTA] }
+        categoria: { type: string, enum: [AGENTE, CONTENIDO] }
+        nombre: { type: string }
+        descripcion: { type: string }
+        rol: { type: string }
+        tono: { $ref: '#/components/schemas/TonoAgente' }
+        saludo: { type: string }
+        instrucciones: { type: string }
+        acciones: { type: array, items: { $ref: '#/components/schemas/AccionAgente' } }
+    AgenteIaEntrada:
+      type: object
+      description: 'Al crear: nombre obligatorio. razonamientoAvanzado solo lo cambia el equipo (usa Claude, más caro).'
+      properties:
+        nombre: { type: string, minLength: 3, maxLength: 60 }
+        rol: { type: string, maxLength: 80 }
+        tono: { $ref: '#/components/schemas/TonoAgente' }
+        saludo: { type: string, maxLength: 300 }
+        instrucciones: { type: string, maxLength: 4000 }
+        conocimientoIds: { type: array, items: { type: string, format: uuid } }
+        acciones: { type: array, items: { $ref: '#/components/schemas/AccionAgente' } }
+        derivarCuando: { type: [string, 'null'], maxLength: 500, description: 'Cuándo pasar con una persona' }
+        plantillaCodigo: { type: [string, 'null'] }
+        estado: { type: string, enum: [BORRADOR, PUBLICADO, PAUSADO], description: 'PATCH: pausar o reactivar. Para publicar una versión nueva, POST .../publicar' }
+        razonamientoAvanzado: { type: boolean }
+    AgenteIa:
+      type: object
+      required: [id, clienteId, nombre, rol, tono, saludo, instrucciones, conocimientoIds, acciones, estado, version, razonamientoAvanzado, canales, conversaciones, creadoEn, actualizadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        nombre: { type: string, examples: [Asistente de Casa Oliva] }
+        rol: { type: string }
+        tono: { $ref: '#/components/schemas/TonoAgente' }
+        saludo: { type: string }
+        instrucciones: { type: string }
+        conocimientoIds: { type: array, items: { type: string, format: uuid } }
+        acciones: { type: array, items: { $ref: '#/components/schemas/AccionAgente' } }
+        derivarCuando: { type: [string, 'null'] }
+        plantillaCodigo: { type: [string, 'null'] }
+        estado: { type: string, enum: [BORRADOR, PUBLICADO, PAUSADO] }
+        version: { type: integer, description: 'Última versión publicada (0 si nunca se publicó)' }
+        cambiosSinPublicar: { type: boolean }
+        razonamientoAvanzado: { type: boolean }
+        canales:
+          type: array
+          description: 'PRUEBA siempre está activo; los demás se piden con conectar-canal y los conecta el equipo'
+          items:
+            type: object
+            required: [canal, estado]
+            properties:
+              canal: { type: string, enum: [PRUEBA, WHATSAPP, WEB] }
+              estado: { type: string, enum: [ACTIVO, SOLICITADO] }
+        conversaciones: { type: integer }
+        publicadoEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
+        actualizadoEn: { type: string, format: date-time }
+    ArticuloConocimiento:
+      type: object
+      required: [titulo, contenido]
+      properties:
+        id: { type: string }
+        titulo: { type: string }
+        contenido: { type: string }
+    BaseConocimientoEntrada:
+      type: object
+      properties:
+        nombre: { type: string, minLength: 3, maxLength: 80 }
+        articulos: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/ArticuloConocimiento' } }
+    BaseConocimiento:
+      type: object
+      required: [id, clienteId, nombre, articulos, preguntasSinRespuesta, creadoEn, actualizadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        nombre: { type: string }
+        articulos: { type: array, items: { $ref: '#/components/schemas/ArticuloConocimiento' } }
+        preguntasSinRespuesta: { type: integer, description: 'Preguntas que sus agentes no pudieron responder (para mejorarla)' }
+        creadoEn: { type: string, format: date-time }
+        actualizadoEn: { type: string, format: date-time }
+    PreguntaSinRespuesta:
+      type: object
+      required: [id, agenteId, agenteNombre, pregunta, resuelta, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        agenteId: { type: string, format: uuid }
+        agenteNombre: { type: string }
+        pregunta: { type: string }
+        resuelta: { type: boolean }
+        creadoEn: { type: string, format: date-time }
+    ConversacionIa:
+      type: object
+      required: [id, agenteId, agenteNombre, canal, contacto, mensajes, acciones, iniciadaEn, ultimaEn, costo]
+      properties:
+        id: { type: string, format: uuid }
+        agenteId: { type: string, format: uuid }
+        agenteNombre: { type: string }
+        canal: { type: string, enum: [PRUEBA, WHATSAPP, WEB] }
+        contacto: { type: string, examples: [Prueba] }
+        mensajes: { type: integer }
+        acciones: { type: integer }
+        iniciadaEn: { type: string, format: date-time }
+        ultimaEn: { type: string, format: date-time }
+        costo: { type: number, description: 'Soles' }
+    MensajeIa:
+      type: object
+      required: [rol, texto, creadoEn]
+      properties:
+        rol: { type: string, enum: [CONTACTO, AGENTE] }
+        texto: { type: string }
+        accion: { oneOf: [ { $ref: '#/components/schemas/AccionAgente' }, { type: 'null' } ] }
+        sinRespuesta: { type: boolean }
+        simulado: { type: boolean, description: 'Respondido en modo de prueba, sin llamar al modelo' }
+        creadoEn: { type: string, format: date-time }
+    ConversacionIaDetalle:
+      allOf:
+        - $ref: '#/components/schemas/ConversacionIa'
+        - type: object
+          required: [historial]
+          properties:
+            historial: { type: array, items: { $ref: '#/components/schemas/MensajeIa' } }
+    RespuestaPrueba:
+      type: object
+      required: [conversacionId, respuesta, consumo]
+      properties:
+        conversacionId: { type: string, format: uuid }
+        respuesta: { $ref: '#/components/schemas/MensajeIa' }
+        consumo: { $ref: '#/components/schemas/ConsumoIa' }
+    ContenidoIaEntrada:
+      type: object
+      required: [destino, indicacion]
+      properties:
+        destino: { $ref: '#/components/schemas/DestinoContenido' }
+        indicacion: { type: string, minLength: 10, maxLength: 1000 }
+        tono: { $ref: '#/components/schemas/TonoAgente' }
+        variaciones: { type: integer, minimum: 1, maximum: 3, description: 'Por defecto 1' }
+    ContenidoIa:
+      type: object
+      required: [id, destino, indicacion, variaciones, palabras, costo, simulado, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        destino: { $ref: '#/components/schemas/DestinoContenido' }
+        indicacion: { type: string }
+        tono: { oneOf: [ { $ref: '#/components/schemas/TonoAgente' }, { type: 'null' } ] }
+        variaciones: { type: array, items: { type: string } }
+        palabras: { type: integer }
+        costo: { type: number, description: 'Soles' }
+        simulado: { type: boolean }
+        creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        creadoEn: { type: string, format: date-time }
+    ConsumoIa:
+      type: object
+      description: 'Consumo del mes en soles. El tope es el límite de gasto de IA del cliente convertido a soles; al llegar, se pausa la generación.'
+      required: [periodo, moneda, agentes, contenido, total, tope, pct, alerta, pausado, tarifasDeRelleno]
+      properties:
+        periodo: { type: string, examples: ['2026-10'] }
+        moneda: { type: string, enum: [PEN] }
+        agentes: { type: number }
+        contenido: { type: number }
+        total: { type: number, examples: [34.5] }
+        tope: { type: number }
+        pct: { type: integer }
+        alerta: { type: boolean, description: 'Desde el 80 % del tope' }
+        pausado: { type: boolean }
+        tarifasDeRelleno: { type: boolean }
+    ResumenIa:
+      type: object
+      required: [consumo, metricas, agentes]
+      properties:
+        consumo: { $ref: '#/components/schemas/ConsumoIa' }
+        metricas:
+          type: object
+          required: [contactos, conversaciones, acciones, citas, minutosAhorrados]
+          properties:
+            contactos: { type: integer }
+            conversaciones: { type: integer }
+            acciones: { type: integer }
+            citas: { type: integer }
+            minutosAhorrados: { type: number }
+        agentes:
+          type: object
+          required: [total, publicados]
+          properties:
+            total: { type: integer }
+            publicados: { type: integer }
+        modoSimulado: { type: boolean, description: 'Las respuestas se simulan (fase de prueba, sin llamadas a los modelos)' }
     ComplejidadTicket:
       type: string
       enum: [BASICO, COMPLEJO]

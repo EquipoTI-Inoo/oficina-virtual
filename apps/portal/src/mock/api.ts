@@ -15,6 +15,9 @@ import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
+import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
+import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "../servidor/ia-cliente";
+import { ErrorIa } from "../servidor/ia-modelos";
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
@@ -87,6 +90,11 @@ interface Estado {
   tareas: D.TareaDemo[];
   entregables: D.EntregableDemo[];
   comentariosTarea: D.ComentarioTareaDemo[];
+  agentesIa: D.AgenteIaDemo[];
+  basesConocimiento: D.BaseConocimientoDemo[];
+  conversacionesIa: D.ConversacionIaDemo[];
+  sinRespuesta: D.PreguntaSinRespuestaDemo[];
+  contenidoIa: D.ContenidoIaDemo[];
   solicitudesResponsable: {
     id: string; clienteId: string; solicitadoPorId: string; nombre: string; email: string; telefono: string; cargo: string | null; motivo: string | null;
     quitarAccesoAnterior: boolean; estado: "PENDIENTE" | "APROBADA" | "RECHAZADA"; notaEquipo: string | null; decididoEn: string | null; creadoEn: string;
@@ -148,6 +156,11 @@ function estadoInicial(): Estado {
     tareas: structuredClone(D.TAREAS_INICIALES),
     entregables: structuredClone(D.ENTREGABLES_INICIALES),
     comentariosTarea: structuredClone(D.COMENTARIOS_TAREA_INICIALES),
+    agentesIa: structuredClone(D.AGENTES_IA_INICIALES),
+    basesConocimiento: structuredClone(D.BASES_CONOCIMIENTO_INICIALES),
+    conversacionesIa: structuredClone(D.CONVERSACIONES_IA_INICIALES),
+    sinRespuesta: structuredClone(D.SIN_RESPUESTA_INICIALES),
+    contenidoIa: structuredClone(D.CONTENIDO_IA_INICIAL),
     solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
@@ -2256,6 +2269,316 @@ ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {
   if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   accesoCliente(ctx, s.clienteId);
   return avanceServicio(s, ctx.esEquipo);
+});
+
+// ───────────────────────────────────────────── IA del cliente (fase 16a): agentes, conocimiento y Content AI
+// La IA que el cliente elige usar: aquí sí se nombra. Nunca se listan los agentes internos de Inoo.
+
+const ESCRIBEN_IA = ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"];
+const configPublicable = (a: D.AgenteIaDemo) =>
+  JSON.stringify({ nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimientoIds, acciones: a.acciones, derivarCuando: a.derivarCuando });
+
+function agenteIaVista(a: D.AgenteIaDemo): S<"AgenteIa"> {
+  return {
+    id: a.id, clienteId: a.clienteId, nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimientoIds,
+    acciones: a.acciones, derivarCuando: a.derivarCuando, plantillaCodigo: a.plantillaCodigo, estado: a.estado, version: a.version,
+    cambiosSinPublicar: a.publicada !== configPublicable(a), razonamientoAvanzado: a.razonamientoAvanzado, canales: a.canales,
+    conversaciones: E.conversacionesIa.filter((c) => c.agenteId === a.id).length, publicadoEn: a.publicadoEn, creadoEn: a.creadoEn, actualizadoEn: a.actualizadoEn,
+  };
+}
+function buscarAgenteIa(ctx: Ctx, id: string) {
+  const a = E.agentesIa.find((x) => x.id === id);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese agente");
+  accesoCliente(ctx, a.clienteId);
+  return a;
+}
+const baseVista = (b: D.BaseConocimientoDemo): S<"BaseConocimiento"> => ({
+  id: b.id, clienteId: b.clienteId, nombre: b.nombre, articulos: b.articulos, creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn,
+  preguntasSinRespuesta: E.sinRespuesta.filter((p) => !p.resuelta && E.agentesIa.find((a) => a.id === p.agenteId)?.conocimientoIds.includes(b.id)).length,
+});
+function conversacionVista(c: D.ConversacionIaDemo): S<"ConversacionIa"> {
+  const ultimo = c.mensajes[c.mensajes.length - 1];
+  return {
+    id: c.id, agenteId: c.agenteId, agenteNombre: E.agentesIa.find((a) => a.id === c.agenteId)?.nombre ?? "", canal: c.canal, contacto: c.contacto,
+    mensajes: c.mensajes.length, acciones: c.mensajes.filter((m) => m.accion).length, iniciadaEn: c.iniciadaEn, ultimaEn: ultimo?.creadoEn ?? c.iniciadaEn,
+    costo: Math.round(c.mensajes.reduce((t, m) => t + m.costoPen, 0) * 100) / 100,
+  };
+}
+const contenidoVista = (c: D.ContenidoIaDemo): S<"ContenidoIa"> => ({
+  id: c.id, destino: c.destino, indicacion: c.indicacion, tono: c.tono, variaciones: c.variaciones, palabras: c.palabras, costo: c.costoPen, simulado: c.simulado,
+  creadoPor: persona(c.creadoPorId), creadoEn: c.creadoEn,
+});
+
+/** Consumo del mes del cliente: respuestas de sus agentes + Content AI, contra su tope. */
+function consumoIa(clienteId: string, periodo = D.PERIODO) {
+  const enMes = (f: string) => periodoLima(f) === periodo;
+  const agentes = E.conversacionesIa.filter((c) => c.clienteId === clienteId).flatMap((c) => c.mensajes).filter((m) => enMes(m.creadoEn)).reduce((t, m) => t + m.costoPen, 0);
+  const contenido = E.contenidoIa.filter((c) => c.clienteId === clienteId && enMes(c.creadoEn)).reduce((t, c) => t + c.costoPen, 0);
+  return calcularConsumoIa(periodo, agentes, contenido, E.clientes.find((c) => c.id === clienteId)!.limiteGastoIaUsd);
+}
+function exigirSaldoIa(clienteId: string) {
+  if (consumoIa(clienteId).pausado) throw new ErrorApi(409, "TOPE_ALCANZADO", "Llegaste al tope de consumo de IA de este mes", "Pide a tu equipo Inoo que lo amplíe, o espera al próximo mes.");
+}
+const negocioDe = (clienteId: string) => E.clientes.find((c) => c.id === clienteId)!.nombre;
+
+ruta("GET", "/clientes/:id/ia/resumen", (ctx, p) => {
+  accesoCliente(ctx, p.id);
+  const convs = E.conversacionesIa.filter((c) => c.clienteId === p.id);
+  const respuestas = convs.flatMap((c) => c.mensajes).filter((m) => m.rol === "AGENTE");
+  const agentes = E.agentesIa.filter((a) => a.clienteId === p.id);
+  return {
+    consumo: consumoIa(p.id),
+    metricas: {
+      contactos: new Set(convs.map((c) => c.contacto)).size, conversaciones: convs.length, acciones: respuestas.filter((m) => m.accion).length,
+      citas: respuestas.filter((m) => m.accion === "AGENDAR_CITA").length, minutosAhorrados: Math.round(respuestas.length * MINUTOS_POR_RESPUESTA * 10) / 10,
+    },
+    agentes: { total: agentes.length, publicados: agentes.filter((a) => a.estado === "PUBLICADO").length },
+    modoSimulado: iaSimulada(),
+  } satisfies S<"ResumenIa">;
+});
+
+ruta("GET", "/clientes/:id/ia/agentes", (ctx, p) => {
+  accesoCliente(ctx, p.id);
+  return { datos: E.agentesIa.filter((a) => a.clienteId === p.id).sort((a, b) => b.actualizadoEn.localeCompare(a.actualizadoEn)).map(agenteIaVista) };
+});
+
+ruta("POST", "/clientes/:id/ia/agentes", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ESCRIBEN_IA);
+  const b = await cuerpo<Partial<S<"AgenteIaEntrada">>>(req);
+  const errores = validarAgente(b, false);
+  if (b.razonamientoAvanzado && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
+  if (b.conocimientoIds?.some((id) => !E.basesConocimiento.some((x) => x.id === id && x.clienteId === c.id))) errores.push({ campo: "conocimientoIds", mensaje: "Esa base de conocimiento no es de esta cuenta" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const pl = plantillaAgente(b.plantillaCodigo);
+  const ahora = new Date().toISOString();
+  const a: D.AgenteIaDemo = {
+    id: nuevoId(30), clienteId: c.id, nombre: b.nombre!.trim(), rol: b.rol?.trim() ?? pl?.rol ?? "Asistente virtual", tono: b.tono ?? pl?.tono ?? "CERCANO",
+    saludo: b.saludo ?? pl?.saludo ?? "", instrucciones: b.instrucciones ?? pl?.instrucciones ?? "", conocimientoIds: b.conocimientoIds ?? [], acciones: b.acciones ?? pl?.acciones ?? [],
+    derivarCuando: b.derivarCuando ?? null, plantillaCodigo: b.plantillaCodigo ?? null, razonamientoAvanzado: !!b.razonamientoAvanzado, estado: "BORRADOR", version: 0, publicada: null,
+    canales: [{ canal: "PRUEBA", estado: "ACTIVO" }], publicadoEn: null, creadoPorId: ctx.usuario.id, creadoEn: ahora, actualizadoEn: ahora,
+  };
+  E.agentesIa.push(a);
+  return { __status: 201, ...agenteIaVista(a) };
+});
+
+ruta("POST", "/clientes/:id/ia/borrador-agente", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ESCRIBEN_IA);
+  const b = await cuerpo<{ descripcion?: string }>(req);
+  if (!(typeof b.descripcion === "string" && b.descripcion.trim().length >= 20 && b.descripcion.length <= 1500)) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "descripcion", mensaje: "Cuéntanos de tu negocio (20 a 1500 caracteres)" }]);
+  }
+  try {
+    return await borradorAgente(b.descripcion.trim(), c.nombre);
+  } catch (e) {
+    if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", "No pudimos generar la propuesta", e.message);
+    throw e;
+  }
+});
+
+ruta("GET", "/ia/agentes/:id", (ctx, p) => agenteIaVista(buscarAgenteIa(ctx, p.id)));
+
+ruta("PATCH", "/ia/agentes/:id", async (ctx, p, _q, req) => {
+  const a = buscarAgenteIa(ctx, p.id);
+  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
+  const b = await cuerpo<Partial<S<"AgenteIaEntrada">>>(req);
+  const errores = validarAgente(b, true);
+  if (b.razonamientoAvanzado !== undefined && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
+  if (b.estado === "PUBLICADO" && a.version === 0) errores.push({ campo: "estado", mensaje: "Publica el agente al menos una vez" });
+  if (b.conocimientoIds?.some((id) => !E.basesConocimiento.some((x) => x.id === id && x.clienteId === a.clienteId))) errores.push({ campo: "conocimientoIds", mensaje: "Esa base de conocimiento no es de esta cuenta" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  for (const k of ["nombre", "rol", "tono", "saludo", "instrucciones", "conocimientoIds", "acciones", "derivarCuando", "razonamientoAvanzado", "estado"] as const) {
+    if (b[k] !== undefined) (a as unknown as Record<string, unknown>)[k] = typeof b[k] === "string" && k !== "tono" && k !== "estado" ? (b[k] as string).trim() : b[k];
+  }
+  a.actualizadoEn = new Date().toISOString();
+  return agenteIaVista(a);
+});
+
+ruta("DELETE", "/ia/agentes/:id", (ctx, p) => {
+  const a = buscarAgenteIa(ctx, p.id);
+  exigirRol(ctx, a.clienteId, ["EQUIPO", "ADMIN_CLIENTE"]);
+  E.agentesIa = E.agentesIa.filter((x) => x.id !== a.id);
+  E.conversacionesIa = E.conversacionesIa.filter((c) => c.agenteId !== a.id);
+  E.sinRespuesta = E.sinRespuesta.filter((x) => x.agenteId !== a.id);
+  return null;
+});
+
+ruta("POST", "/ia/agentes/:id/publicar", (ctx, p) => {
+  const a = buscarAgenteIa(ctx, p.id);
+  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
+  if (!a.instrucciones.trim()) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "instrucciones", mensaje: "Escribe las instrucciones antes de publicar" }]);
+  a.version += 1;
+  a.publicada = configPublicable(a);
+  a.estado = "PUBLICADO";
+  a.publicadoEn = a.actualizadoEn = new Date().toISOString();
+  return agenteIaVista(a);
+});
+
+ruta("POST", "/ia/agentes/:id/probar", async (ctx, p, _q, req) => {
+  const a = buscarAgenteIa(ctx, p.id);
+  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
+  const b = await cuerpo<{ mensaje?: string; conversacionId?: string | null }>(req);
+  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
+  if (!mensaje || mensaje.length > 1000) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "mensaje", mensaje: "Escribe un mensaje (hasta 1000 caracteres)" }]);
+  if (a.estado === "PAUSADO") throw new ErrorApi(409, "AGENTE_PAUSADO", "Este agente está pausado", "Reactívalo para probarlo.");
+  exigirSaldoIa(a.clienteId);
+  let conv = b.conversacionId ? E.conversacionesIa.find((c) => c.id === b.conversacionId && c.agenteId === a.id) : undefined;
+  if (b.conversacionId && !conv) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  const ahora = new Date().toISOString();
+  if (!conv) {
+    conv = { id: nuevoId(32), clienteId: a.clienteId, agenteId: a.id, canal: "PRUEBA", contacto: "Prueba", mensajes: [], iniciadaEn: ahora };
+    E.conversacionesIa.push(conv);
+  }
+  const articulos = E.basesConocimiento.filter((x) => a.conocimientoIds.includes(x.id)).flatMap((x) => x.articulos);
+  let r: Awaited<ReturnType<typeof responderAgente>>;
+  try {
+    r = await responderAgente({
+      config: { ...a, negocio: negocioDe(a.clienteId) }, razonamientoAvanzado: a.razonamientoAvanzado, articulos,
+      historial: conv.mensajes.map((m) => ({ rol: m.rol, texto: m.texto })), mensaje,
+    });
+  } catch (e) {
+    if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", "El agente no pudo responder", e.message);
+    throw e;
+  }
+  conv.mensajes.push({ rol: "CONTACTO", texto: mensaje, accion: null, sinRespuesta: false, simulado: r.simulado, costoPen: 0, creadoEn: ahora });
+  const respuesta: D.MensajeIaDemo = { rol: "AGENTE", texto: r.texto, accion: r.accion, sinRespuesta: r.sinRespuesta, simulado: r.simulado, costoPen: r.costoPen, creadoEn: new Date().toISOString() };
+  conv.mensajes.push(respuesta);
+  if (r.sinRespuesta) E.sinRespuesta.push({ id: nuevoId(33), clienteId: a.clienteId, agenteId: a.id, pregunta: mensaje, resuelta: false, creadoEn: respuesta.creadoEn });
+  return {
+    conversacionId: conv.id,
+    respuesta: { rol: "AGENTE", texto: respuesta.texto, accion: respuesta.accion as S<"AccionAgente"> | null, sinRespuesta: respuesta.sinRespuesta, simulado: respuesta.simulado, creadoEn: respuesta.creadoEn },
+    consumo: consumoIa(a.clienteId),
+  } satisfies S<"RespuestaPrueba">;
+});
+
+ruta("POST", "/ia/agentes/:id/conectar-canal", async (ctx, p, _q, req) => {
+  const a = buscarAgenteIa(ctx, p.id);
+  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
+  const b = await cuerpo<{ canal?: string }>(req);
+  if (b.canal !== "WHATSAPP" && b.canal !== "WEB") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "canal", mensaje: "Elige WhatsApp o tu web" }]);
+  if (a.version === 0) throw new ErrorApi(409, "AGENTE_SIN_PUBLICAR", "Publica el agente antes de conectarlo");
+  if (a.canales.some((c) => c.canal === b.canal)) throw new ErrorApi(409, "CANAL_YA_PEDIDO", "Ya pediste conectar ese canal");
+  a.canales.push({ canal: b.canal, estado: "SOLICITADO" });
+  // El equipo lo conecta: se abre un ticket (sirve aunque el cliente no tenga Soporte continuo).
+  const numero = Math.max(...E.tickets.map((t) => t.numero)) + 1;
+  const ahora = new Date().toISOString();
+  const canal = b.canal === "WHATSAPP" ? "WhatsApp" : "la web";
+  E.tickets.push({
+    id: D.uid(8, numero), numero, asunto: `Conectar «${a.nombre}» a ${canal}`, categoria: b.canal === "WHATSAPP" ? "CRM" : "WEB", estado: "ABIERTO",
+    resumenEstado: "Recibimos tu pedido. Te escribimos para coordinar la conexión.", creadoEn: ahora, actualizadoEn: ahora,
+    descripcion: `El cliente pidió conectar su agente de IA «${a.nombre}» a ${canal}.`, servicioContratadoId: null,
+  });
+  emitir("ticket.creado", a.clienteId, { ticketId: D.uid(8, numero), numero, categoria: "OTRO", asunto: `Conectar agente a ${canal}`, servicioContratadoId: null, usuarioId: ctx.usuario.id });
+  a.actualizadoEn = ahora;
+  return agenteIaVista(a);
+});
+
+ruta("GET", "/clientes/:id/ia/conocimiento", (ctx, p) => {
+  accesoCliente(ctx, p.id);
+  return { datos: E.basesConocimiento.filter((b) => b.clienteId === p.id).map(baseVista) };
+});
+ruta("POST", "/clientes/:id/ia/conocimiento", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ESCRIBEN_IA);
+  const b = await cuerpo<Partial<S<"BaseConocimientoEntrada">>>(req);
+  const errores = validarBase(b, false);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const ahora = new Date().toISOString();
+  const base: D.BaseConocimientoDemo = { id: nuevoId(31), clienteId: c.id, nombre: b.nombre!.trim(), articulos: (b.articulos ?? []).map((x, i) => ({ id: x.id ?? `a${i + 1}`, titulo: x.titulo.trim(), contenido: x.contenido.trim() })), creadoEn: ahora, actualizadoEn: ahora };
+  E.basesConocimiento.push(base);
+  return { __status: 201, ...baseVista(base) };
+});
+ruta("PATCH", "/ia/conocimiento/:id", async (ctx, p, _q, req) => {
+  const base = E.basesConocimiento.find((x) => x.id === p.id);
+  if (!base) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
+  accesoCliente(ctx, base.clienteId);
+  exigirRol(ctx, base.clienteId, ESCRIBEN_IA);
+  const b = await cuerpo<Partial<S<"BaseConocimientoEntrada">>>(req);
+  const errores = validarBase(b, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.nombre !== undefined) base.nombre = b.nombre.trim();
+  if (b.articulos !== undefined) base.articulos = b.articulos.map((x, i) => ({ id: x.id ?? `a${i + 1}`, titulo: x.titulo.trim(), contenido: x.contenido.trim() }));
+  base.actualizadoEn = new Date().toISOString();
+  return baseVista(base);
+});
+ruta("DELETE", "/ia/conocimiento/:id", (ctx, p) => {
+  const base = E.basesConocimiento.find((x) => x.id === p.id);
+  if (!base) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
+  accesoCliente(ctx, base.clienteId);
+  exigirRol(ctx, base.clienteId, ["EQUIPO", "ADMIN_CLIENTE"]);
+  E.basesConocimiento = E.basesConocimiento.filter((x) => x.id !== base.id);
+  for (const a of E.agentesIa) a.conocimientoIds = a.conocimientoIds.filter((id) => id !== base.id);
+  return null;
+});
+
+ruta("GET", "/clientes/:id/ia/sin-respuesta", (ctx, p) => {
+  accesoCliente(ctx, p.id);
+  return {
+    datos: E.sinRespuesta.filter((x) => x.clienteId === p.id).sort((a, b) => Number(a.resuelta) - Number(b.resuelta) || b.creadoEn.localeCompare(a.creadoEn))
+      .map((x): S<"PreguntaSinRespuesta"> => ({ id: x.id, agenteId: x.agenteId, agenteNombre: E.agentesIa.find((a) => a.id === x.agenteId)?.nombre ?? "", pregunta: x.pregunta, resuelta: x.resuelta, creadoEn: x.creadoEn })),
+  };
+});
+ruta("PATCH", "/ia/sin-respuesta/:id", async (ctx, p, _q, req) => {
+  const x = E.sinRespuesta.find((y) => y.id === p.id);
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa pregunta");
+  accesoCliente(ctx, x.clienteId);
+  exigirRol(ctx, x.clienteId, ESCRIBEN_IA);
+  const b = await cuerpo<{ resuelta?: unknown }>(req);
+  if (typeof b.resuelta !== "boolean") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "resuelta", mensaje: "Sí o no" }]);
+  x.resuelta = b.resuelta;
+  return { id: x.id, agenteId: x.agenteId, agenteNombre: E.agentesIa.find((a) => a.id === x.agenteId)?.nombre ?? "", pregunta: x.pregunta, resuelta: x.resuelta, creadoEn: x.creadoEn };
+});
+
+ruta("GET", "/ia/plantillas", () => ({ datos: PLANTILLAS_AGENTE }));
+
+ruta("GET", "/clientes/:id/ia/contenido", (ctx, p, q) => {
+  accesoCliente(ctx, p.id);
+  const todos = E.contenidoIa.filter((c) => c.clienteId === p.id);
+  const delMes = todos.filter((c) => periodoLima(c.creadoEn) === D.PERIODO);
+  const palabras = delMes.reduce((t, c) => t + c.palabras, 0);
+  return {
+    datos: todos.filter((c) => !q.get("destino") || c.destino === q.get("destino")).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)).map(contenidoVista),
+    resumen: { palabras, costo: Math.round(delMes.reduce((t, c) => t + c.costoPen, 0) * 100) / 100, palabrasPorDia: Math.round((palabras / Number(D.HOY.slice(8, 10))) * 10) / 10 },
+  };
+});
+ruta("POST", "/clientes/:id/ia/contenido", async (ctx, p, _q, req) => {
+  const c = accesoCliente(ctx, p.id);
+  exigirRol(ctx, c.id, ESCRIBEN_IA);
+  const b = await cuerpo<Partial<S<"ContenidoIaEntrada">>>(req);
+  const errores = validarContenido(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  exigirSaldoIa(c.id);
+  let r: Awaited<ReturnType<typeof generarContenido>>;
+  try {
+    r = await generarContenido({ negocio: c.nombre, destino: b.destino!, indicacion: b.indicacion!.trim(), tono: b.tono ?? null, variaciones: b.variaciones ?? 1 });
+  } catch (e) {
+    if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", "No pudimos generar el contenido", e.message);
+    throw e;
+  }
+  const item: D.ContenidoIaDemo = {
+    id: nuevoId(34), clienteId: c.id, destino: b.destino!, indicacion: b.indicacion!.trim(), tono: b.tono ?? null, variaciones: r.variaciones, palabras: r.palabras,
+    costoPen: r.costoPen, simulado: r.simulado, creadoPorId: ctx.usuario.id, creadoEn: new Date().toISOString(),
+  };
+  E.contenidoIa.push(item);
+  return { __status: 201, ...contenidoVista(item) };
+});
+
+ruta("GET", "/clientes/:id/ia/conversaciones", (ctx, p, q) => {
+  accesoCliente(ctx, p.id);
+  return {
+    datos: E.conversacionesIa.filter((c) => c.clienteId === p.id && (!q.get("agenteId") || c.agenteId === q.get("agenteId"))).map(conversacionVista)
+      .sort((a, b) => b.ultimaEn.localeCompare(a.ultimaEn)),
+  };
+});
+ruta("GET", "/ia/conversaciones/:id", (ctx, p) => {
+  const c = E.conversacionesIa.find((x) => x.id === p.id);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  accesoCliente(ctx, c.clienteId);
+  return {
+    ...conversacionVista(c),
+    historial: c.mensajes.map((m) => ({ rol: m.rol, texto: m.texto, accion: m.accion as S<"AccionAgente"> | null, sinRespuesta: m.sinRespuesta, simulado: m.simulado, creadoEn: m.creadoEn })),
+  } satisfies S<"ConversacionIaDetalle">;
 });
 
 // ───────────────────────────────────────────── KPIs, reporte y panel del colaborador (reunión 15 oct)

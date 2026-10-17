@@ -696,3 +696,85 @@ export const COMENTARIOS_PROYECTO_INICIALES: ComentarioProyectoDemo[] = [
   { id: uid(24, 2), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 3), texto: "¡Claro! Coordinamos la fecha cuando cerremos la implementación.", interno: false, creadoEn: "2026-10-05T18:05:00Z" },
   { id: uid(24, 3), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 3), texto: "Confirmar movilidad para la capacitación presencial.", interno: true, creadoEn: "2026-10-05T18:06:00Z" },
 ];
+
+// ───────────────────────────── IA del cliente (fase 16a): sus agentes, conocimiento y Content AI
+
+export interface AgenteIaDemo {
+  id: string;
+  clienteId: string;
+  nombre: string;
+  rol: string;
+  tono: "CERCANO" | "FORMAL" | "ENTUSIASTA";
+  saludo: string;
+  instrucciones: string;
+  conocimientoIds: string[];
+  acciones: ("CREAR_LEAD" | "AGENDAR_CITA" | "ENVIAR_CATALOGO" | "DERIVAR_PERSONA")[];
+  derivarCuando: string | null;
+  plantillaCodigo: string | null;
+  razonamientoAvanzado: boolean;
+  estado: "BORRADOR" | "PUBLICADO" | "PAUSADO";
+  version: number;
+  /** Configuración de la última versión publicada (para saber si hay cambios sin publicar). */
+  publicada: string | null;
+  canales: { canal: "PRUEBA" | "WHATSAPP" | "WEB"; estado: "ACTIVO" | "SOLICITADO" }[];
+  publicadoEn: string | null;
+  creadoPorId: string | null;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+export interface BaseConocimientoDemo { id: string; clienteId: string; nombre: string; articulos: { id: string; titulo: string; contenido: string }[]; creadoEn: string; actualizadoEn: string }
+export interface MensajeIaDemo { rol: "CONTACTO" | "AGENTE"; texto: string; accion: string | null; sinRespuesta: boolean; simulado: boolean; costoPen: number; creadoEn: string }
+export interface ConversacionIaDemo { id: string; clienteId: string; agenteId: string; canal: "PRUEBA" | "WHATSAPP" | "WEB"; contacto: string; mensajes: MensajeIaDemo[]; iniciadaEn: string }
+export interface PreguntaSinRespuestaDemo { id: string; clienteId: string; agenteId: string; pregunta: string; resuelta: boolean; creadoEn: string }
+export interface ContenidoIaDemo {
+  id: string; clienteId: string; destino: "REDES" | "BLOG" | "EMAIL" | "WEB" | "CONVERSACION"; indicacion: string; tono: "CERCANO" | "FORMAL" | "ENTUSIASTA" | null;
+  variaciones: string[]; palabras: number; costoPen: number; simulado: boolean; creadoPorId: string | null; creadoEn: string;
+}
+
+const AGENTE_CO = uid(30, 1);
+const BASE_CO = uid(31, 1);
+const CONFIG_AGENTE_CO = {
+  nombre: "Asistente de Casa Oliva", rol: "Atención al cliente", tono: "CERCANO" as const,
+  saludo: "¡Hola! Soy el asistente de Casa Oliva. ¿En qué te ayudo?",
+  instrucciones: "Ayuda con dudas de productos, envíos, cambios y devoluciones según la base de conocimiento. Recomienda productos para piel sensible cuando te lo pidan. Si la persona está molesta, pásala con una persona.",
+  conocimientoIds: [BASE_CO], acciones: ["ENVIAR_CATALOGO", "CREAR_LEAD", "DERIVAR_PERSONA"] as AgenteIaDemo["acciones"],
+  derivarCuando: "La persona pide hablar con alguien o tiene un reclamo.",
+};
+export const AGENTES_IA_INICIALES: AgenteIaDemo[] = [
+  {
+    id: AGENTE_CO, clienteId: uid(2, 1), ...CONFIG_AGENTE_CO, plantillaCodigo: "ATENCION_CLIENTE", razonamientoAvanzado: false, estado: "PUBLICADO", version: 1,
+    publicada: JSON.stringify(CONFIG_AGENTE_CO), canales: [{ canal: "PRUEBA", estado: "ACTIVO" }], publicadoEn: "2026-10-03T15:00:00Z",
+    creadoPorId: uid(1, 1), creadoEn: "2026-10-02T14:00:00Z", actualizadoEn: "2026-10-03T15:00:00Z",
+  },
+];
+export const BASES_CONOCIMIENTO_INICIALES: BaseConocimientoDemo[] = [
+  {
+    id: BASE_CO, clienteId: uid(2, 1), nombre: "Casa Oliva · preguntas frecuentes", creadoEn: "2026-10-02T14:00:00Z", actualizadoEn: "2026-10-02T14:30:00Z",
+    articulos: [
+      { id: "a1", titulo: "Horarios y ubicación", contenido: "Nuestra tienda está en Av. Larco 345, Miraflores. Atendemos de lunes a sábado de 10:00 a 20:00." },
+      { id: "a2", titulo: "Envíos", contenido: "Hacemos envíos a todo Lima en 24 a 48 horas. El envío es gratis en compras desde S/ 150. A provincias, de 3 a 5 días hábiles." },
+      { id: "a3", titulo: "Cambios y devoluciones", contenido: "Aceptamos cambios dentro de los 7 días con el producto sellado y la boleta. Las devoluciones se reembolsan en 5 días hábiles." },
+      { id: "a4", titulo: "Productos para piel sensible", contenido: "Para piel sensible recomendamos el sérum calmante de manzanilla y la crema hidratante sin fragancia. Todos nuestros productos son libres de parabenos." },
+    ],
+  },
+];
+export const CONVERSACIONES_IA_INICIALES: ConversacionIaDemo[] = [
+  {
+    id: uid(32, 1), clienteId: uid(2, 1), agenteId: AGENTE_CO, canal: "PRUEBA", contacto: "Prueba", iniciadaEn: "2026-10-05T16:00:00Z",
+    mensajes: [
+      { rol: "CONTACTO", texto: "¿Hacen envíos a provincia?", accion: null, sinRespuesta: false, simulado: true, costoPen: 0, creadoEn: "2026-10-05T16:00:00Z" },
+      { rol: "AGENTE", texto: "Sí, a provincias llegamos en 3 a 5 días hábiles. En Lima, en 24 a 48 horas.", accion: null, sinRespuesta: false, simulado: true, costoPen: 0.05, creadoEn: "2026-10-05T16:00:03Z" },
+      { rol: "CONTACTO", texto: "¿Tienen tienda en Arequipa?", accion: null, sinRespuesta: false, simulado: true, costoPen: 0, creadoEn: "2026-10-05T16:01:00Z" },
+      { rol: "AGENTE", texto: "No tengo esa información todavía. Si quieres, te paso con una persona de nuestro equipo.", accion: null, sinRespuesta: true, simulado: true, costoPen: 0.05, creadoEn: "2026-10-05T16:01:02Z" },
+    ],
+  },
+];
+export const SIN_RESPUESTA_INICIALES: PreguntaSinRespuestaDemo[] = [
+  { id: uid(33, 1), clienteId: uid(2, 1), agenteId: AGENTE_CO, pregunta: "¿Tienen tienda en Arequipa?", resuelta: false, creadoEn: "2026-10-05T16:01:02Z" },
+];
+export const CONTENIDO_IA_INICIAL: ContenidoIaDemo[] = [
+  {
+    id: uid(34, 1), clienteId: uid(2, 1), destino: "REDES", indicacion: "Promoción del sérum calmante por el día de la madre", tono: "CERCANO",
+    variaciones: ["✨ Este mes, regálale calma: sérum calmante de manzanilla con 15 % de descuento. #DíaDeLaMadre"], palabras: 15, costoPen: 0.03, simulado: true, creadoPorId: uid(1, 1), creadoEn: "2026-10-04T15:00:00Z",
+  },
+];

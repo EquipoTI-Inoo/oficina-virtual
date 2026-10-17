@@ -1167,6 +1167,65 @@ a.avatar:hover {
   text-align: center;
 }
 
+/* Agentes de IA del cliente (fase 16a). */
+.editor-agente {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 18px;
+  align-items: start;
+}
+.chat-prueba {
+  position: sticky;
+  top: 16px;
+  padding: 18px 16px;
+  display: grid;
+  gap: 10px;
+}
+.chat-mensajes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 260px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--c-fondo);
+  border-radius: 12px;
+}
+.burbuja {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  display: grid;
+  gap: 4px;
+}
+.burbuja--agente { align-self: flex-start; background: var(--c-blanco); border: 1px solid var(--c-borde); border-bottom-left-radius: 4px; }
+.burbuja--contacto { align-self: flex-end; background: var(--c-primario); color: var(--c-blanco); border-bottom-right-radius: 4px; }
+.propuesta-agente {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed var(--c-primario-borde);
+  border-radius: 12px;
+  background: var(--c-primario-suave);
+}
+.variacion {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--c-blanco);
+  border: 1px solid var(--c-borde);
+  border-radius: 10px;
+}
+@media (max-width: 900px) {
+  .editor-agente { grid-template-columns: 1fr; }
+  .chat-prueba { position: static; }
+}
+
 /* Soporte por consumo: bolsa del mes (fase 15). */
 .consumo-fichas { gap: 12px; }
 .consumo-ficha {

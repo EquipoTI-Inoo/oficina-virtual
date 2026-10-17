@@ -252,6 +252,7 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 14 | Gantt y calendario del proyecto (equipo y cliente); menú del equipo con la sección «Contenido» | Hecha |
 | 15 | Soporte por consumo: sin etapas, bolsa del mes (tickets complejos y básicos, horas de Meet, WhatsApp ilimitado) | Hecha |
 | 15b | El contenido entra al proyecto: Kanban de piezas en Social Media Pro y Paid Media, blogs en una tarjeta del Soporte continuo web, sin Bandeja ni Plan del mes en el menú | Hecha |
+| 16a | IA para el cliente: agentes con chat de prueba, conocimiento, plantillas, Content AI (texto), conversaciones y consumo en soles | Hecha |
 
 **Pendientes:**
 - Responder tickets desde el panel.
@@ -424,6 +425,13 @@ Las metas son propuestas iniciales; se ajustan con los datos del piloto.
 | Requerimientos respondidos a tiempo por el cliente | ≥ 80 % | 2 |
 | Prototipos web aprobados por el cliente en ≤ 2 rondas | ≥ 70 % | 1–2 |
 | Piezas reutilizadas en paid media | ≥ 30 % de las aprobadas | 2 |
+
+**IA para el cliente (pedido del CEO, 17 oct, fase 16a).** Todos los clientes tienen la sección «Agentes de IA», inspirada en la de Cosmiq CRM. Ahí crean sus propios agentes de atención (con un constructor por pasos y un chat de prueba), sus bases de conocimiento y contenido con Content AI. Es la IA que el cliente elige usar; la IA que Inoo usa para su trabajo sigue invisible.
+- **Cobro.** Crear no cuesta; se paga por uso, en soles. Las tarifas son de prueba: S/ 0,05 por respuesta de agente, S/ 0,20 con razonamiento avanzado y S/ 0,03 por variación de contenido. El tope es el límite mensual de gasto de IA del cliente convertido a soles; al llegar, la IA se pausa.
+- **Canales.** Por defecto, solo el chat de prueba. Si el cliente pide WhatsApp o su web, se abre un ticket y el equipo lo conecta (fase 16b).
+- **Modelos.** Gemini Flash para casi todo; Claude Sonnet 5.5 solo para «Crear con IA» y para los agentes que el equipo marca como de razonamiento avanzado.
+- **Fase de prueba.** Las respuestas se simulan con la base de conocimiento (`IA_MODO=simulado`, sin llamadas) salvo que se active el modo real. Hay un tope diario de gasto de todo el sistema y respuestas cortas.
+- **Pendiente (16b).** Imágenes en Content AI, WhatsApp, widget web y voz.
 
 **Soporte por consumo (reunión 15 oct, fase 15).** El soporte continuo no tiene etapas. El cliente ve su bolsa del mes, con lo usado contra lo incluido:
 - **Tickets complejos y tickets básicos.** El equipo clasifica cada ticket; por defecto es básico.
