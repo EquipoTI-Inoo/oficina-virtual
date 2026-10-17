@@ -10,7 +10,7 @@ import {
   useConsulta, useNavegacion, type S,
 } from "../base";
 import {
-  AvanceLineal, Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
+  Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
@@ -596,11 +596,11 @@ export function PantallaDetallePieza() {
   );
 }
 
-/** Sin diseño propio en Figma: el equipo abre la pieza desde la bandeja con el mismo detalle + acciones internas. */
+/** Sin diseño propio en Figma: el equipo abre la pieza desde el Kanban del proyecto con el mismo detalle + acciones internas. */
 export function PantallaDetallePiezaEquipo() {
   return (
-    <Estructura espacio="equipo" migas="Bandeja de producción">
-      <DetallePieza volver="/equipo/produccion" />
+    <Estructura espacio="equipo" migas="Proyectos">
+      <DetallePieza alProyecto />
     </Estructura>
   );
 }
@@ -614,7 +614,7 @@ const ACCIONES_EQUIPO: Record<string, [string, string]> = {
 
 type PiezaDet = S<"Pieza"> & { formato?: string; diseno?: PiezaUI["diseno"] };
 
-function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
+function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
   const { params } = useNavegacion();
   const avisar = useAviso();
   const portal = usePortal();
@@ -706,8 +706,8 @@ function DetallePieza({ volver = "/entregables" }: { volver?: string }) {
 
   return (
     <>
-      <Enlace a={volver} className="volver">
-        ← {volver === "/entregables" ? "Volver a entregables por revisar" : "Volver a la bandeja de producción"}
+      <Enlace a={alProyecto ? (p.servicioContratadoId ? `/equipo/proyectos/${p.servicioContratadoId}` : "/equipo/proyectos") : "/entregables"} className="volver">
+        ← {alProyecto ? "Volver al proyecto" : "Volver a entregables por revisar"}
       </Enlace>
       <h1 className="titulo titulo--ligero">{p.titulo}</h1>
       <p className="bajada" style={{ marginTop: 6 }}>

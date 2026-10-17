@@ -251,6 +251,7 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 13 | KPIs internos, causa de los atrasos, reporte en Excel, panel del colaborador y panel general por proyectos | Hecha |
 | 14 | Gantt y calendario del proyecto (equipo y cliente); menú del equipo con la sección «Contenido» | Hecha |
 | 15 | Soporte por consumo: sin etapas, bolsa del mes (tickets complejos y básicos, horas de Meet, WhatsApp ilimitado) | Hecha |
+| 15b | El contenido entra al proyecto: Kanban de piezas en Social Media Pro y Paid Media, blogs en una tarjeta del Soporte continuo web, sin Bandeja ni Plan del mes en el menú | Hecha |
 
 **Pendientes:**
 - Responder tickets desde el panel.

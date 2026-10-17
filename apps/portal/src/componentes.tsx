@@ -1,8 +1,7 @@
 "use client";
 import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3,
-  LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound,
+  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLayoutGrid, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
@@ -265,7 +264,7 @@ export function ProveedorAvisos({ children }: { children: ReactNode }) {
   );
 }
 
-export function Modal({ abierto, alCerrar, children, etiqueta }: { abierto: boolean; alCerrar: () => void; children: ReactNode; etiqueta: string }) {
+export function Modal({ abierto, alCerrar, children, etiqueta, ancho }: { abierto: boolean; alCerrar: () => void; children: ReactNode; etiqueta: string; ancho?: number }) {
   useEffect(() => {
     if (!abierto) return;
     const esc = (e: KeyboardEvent) => e.key === "Escape" && alCerrar();
@@ -275,7 +274,7 @@ export function Modal({ abierto, alCerrar, children, etiqueta }: { abierto: bool
   if (!abierto) return null;
   return (
     <div className="velo" onClick={alCerrar}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={etiqueta} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={etiqueta} onClick={(e) => e.stopPropagation()} style={ancho ? { width: `min(${ancho}px, 100%)` } : undefined}>
         <button className="modal-cerrar" aria-label="Cerrar" onClick={alCerrar}>
           <LuX size={18} />
         </button>
@@ -301,10 +300,8 @@ const NAV_EQUIPO = [
   { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound /> },
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
-  // «Contenido» (reunión 15 oct): bandeja, plan del mes y calendarios juntos; solo Social Media Pro y Paid Media.
-  { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 />, grupo: "Contenido" },
-  { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks />, grupo: "Contenido" },
-  { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck />, grupo: "Contenido" },
+  // Fase 15b (17 oct): la bandeja vive dentro del proyecto de Social Media Pro y Paid Media; Plan del mes desapareció.
+  { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
   { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone />, grupo: "Agencia" },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];

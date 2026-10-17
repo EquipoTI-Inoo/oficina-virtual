@@ -1,9 +1,9 @@
 "use client";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  LuBell, LuCalendarDays, LuCheck, LuChevronDown, LuChevronRight, LuCircleCheck, LuClock, LuDownload, LuEllipsis,
+  LuBell, LuCalendarDays, LuCheck, LuChevronDown, LuChevronRight, LuCircleCheck, LuClock, LuDownload,
   LuExternalLink, LuFile, LuFolder, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
-  LuUser, LuBot, LuX, LuCheckCheck,
+  LuX, LuCheckCheck,
 } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_DEMO, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import {
@@ -558,9 +558,9 @@ function Panel() {
         <div className="tarjeta" style={{ padding: "24px 18px", display: "grid", gap: 14 }}>
           <h3 className="tarjeta-titulo">Producción que necesita atención</h3>
           {luma && <p className="negrita" style={{ fontSize: 12 }}>{luma.cliente.nombre} · {luma.atrasadas} piezas atrasadas</p>}
-          <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>Nativa Café · 1 pieza atrasada. Coordina responsables y nuevas fechas en la bandeja de producción.</p>
-          <Enlace a="/equipo/produccion" className="enlace">
-            Abrir bandeja de producción →
+          <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>Nativa Café · 1 pieza atrasada. Coordina responsables y nuevas fechas en el Kanban de piezas de cada proyecto.</p>
+          <Enlace a="/equipo/proyectos" className="enlace">
+            Abrir proyectos →
           </Enlace>
         </div>
         <div className="tarjeta" style={{ padding: "24px 18px", display: "grid", gap: 14 }}>
@@ -799,216 +799,6 @@ function Ficha() {
         </div>
       </div>
     </>
-  );
-}
-
-// ═════════════════════════════════════════════ Equipo · Bandeja de producción
-
-const COLUMNAS: Record<string, [string, string]> = {
-  BORRADOR: ["Borrador", "var(--c-muted)"],
-  EN_REVISION: ["En revisión", "var(--c-primario)"],
-  APROBADO: ["Aprobado", "var(--c-exito)"],
-  CAMBIOS_SOLICITADOS: ["Cambios solicitados", "var(--c-alerta)"],
-  PUBLICADO: ["Publicado", "var(--c-info)"],
-};
-const NOMBRE_SERVICIO: Record<string, string> = {
-  "00000000-0000-4000-8004-000000000001": "Blog",
-  "00000000-0000-4000-8004-000000000002": "Redes sociales",
-  "00000000-0000-4000-8004-000000000003": "Estáticos",
-};
-
-export function PantallaBandeja() {
-  return (
-    <Estructura espacio="equipo" migas="Bandeja de producción">
-      <Bandeja />
-    </Estructura>
-  );
-}
-
-type PiezaBandeja = S<"PiezaResumen"> & { diseno?: { foto?: boolean }; formato?: string };
-
-function Bandeja() {
-  const avisar = useAviso();
-  const [origen, setOrigen] = useState("");
-  const [servicio, setServicio] = useState("");
-  const [expandida, setExpandida] = useState(false);
-  const [nueva, setNueva] = useState(false);
-  const camino = `/panel/piezas?clienteId=${CLIENTE_DEMO}&periodo=${PERIODO_DEMO}${origen ? `&origen=${origen}` : ""}${servicio ? `&servicioContratadoId=${servicio}` : ""}`;
-  const { datos: d, error, recargar } = useConsulta<S<"BandejaProduccion">>(camino);
-  if (error) return <ErrorCarga error={error} reintentar={recargar} />;
-  if (!d) return <Cargando />;
-  const r = d.resumen;
-  return (
-    <>
-      <Cabecera
-        antetitulo="Equipo Inoo · Producción"
-        titulo="Bandeja de producción"
-        bajada="Coordina piezas y responsables. El origen de cada contenido siempre queda visible."
-        accion={
-          <button className="boton boton--primario" onClick={() => setNueva(true)}>
-            <LuPlus size={18} /> Nueva pieza
-          </button>
-        }
-      />
-      <div className="fila" style={{ gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <span className="boton">
-          <LuChevronDown size={16} /> Casa Oliva
-        </span>
-        <span className="boton">
-          <LuCalendarDays size={16} /> Octubre 2026
-        </span>
-        <label className="boton" style={{ position: "relative" }}>
-          <LuChevronDown size={16} />
-          <select aria-label="Servicio" value={servicio} onChange={(e) => setServicio(e.target.value)} style={{ appearance: "none", border: 0, background: "none", fontWeight: 600, outline: "none", cursor: "pointer" }}>
-            <option value="">Todos los servicios</option>
-            {Object.entries(NOMBRE_SERVICIO).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label className="boton" style={{ position: "relative" }}>
-          <LuChevronDown size={16} />
-          <select aria-label="Origen" value={origen} onChange={(e) => setOrigen(e.target.value)} style={{ appearance: "none", border: 0, background: "none", fontWeight: 600, outline: "none", cursor: "pointer" }}>
-            <option value="">Origen: todos</option>
-            <option value="AGENTE">Origen: agente de IA</option>
-            <option value="PERSONA">Origen: persona</option>
-          </select>
-        </label>
-        <span className="texto-xs texto-muted" style={{ marginLeft: "auto" }}>
-          {r.total} piezas · {r.atrasadas} atrasadas
-        </span>
-      </div>
-      {d.alertaGastoIa && (
-        <Aviso tono="alerta" icono={<LuTriangleAlert size={18} />} titulo={`${d.alertaGastoIa.clienteNombre} · Consumo de IA al ${d.alertaGastoIa.pctLimite} %`}>
-          {usd(d.alertaGastoIa.gastoUsd!)} acumulados / {usd(d.alertaGastoIa.limiteUsd!)} de límite mensual. Coordina nuevas ejecuciones con el responsable de cuenta.
-        </Aviso>
-      )}
-      <div className="fila" style={{ gap: 8, margin: "20px 0 18px", flexWrap: "wrap" }}>
-        <Etiqueta tono="verde">{r.aprobadas} aprobadas, incluidas {r.publicadas} publicadas</Etiqueta>
-        <Etiqueta tono="violeta">{r.porRevisar} por revisar</Etiqueta>
-        <span className="etiqueta" style={{ background: "transparent" }}>{r.enProduccion} en producción</span>
-      </div>
-      <div className="kanban">
-        {d.columnas.map((col) => {
-          const [nombre, color] = COLUMNAS[col.columna];
-          const visibles = col.columna === "APROBADO" && !expandida ? col.piezas.slice(0, 3) : col.piezas;
-          return (
-            <section key={col.columna} className="kanban-col" aria-label={nombre} style={{ ["--punto" as string]: color }}>
-              <header className="kanban-cab">
-                {nombre}
-                <span>{col.total}</span>
-              </header>
-              {(visibles as PiezaBandeja[]).map((p) => (
-                <article key={p.id} className="kanban-tarjeta">
-                  <div className="fila entre" style={{ fontSize: 8.5 }}>
-                    <span>{(p.clienteNombre ?? "").toUpperCase()}</span>
-                    <LuEllipsis size={12} />
-                  </div>
-                  {p.titulo === "Tu ritual, tu momento" && <div style={{ height: 64, borderRadius: 6, backgroundImage: "url(/muestras/serum.jpg)", backgroundSize: "cover", backgroundPosition: "center 62%" }} />}
-                  <h4>{p.titulo}</h4>
-                  <span>
-                    {NOMBRE_SERVICIO[p.servicioContratadoId ?? ""] ?? ""} · {p.canal}
-                    {p.tipo === "GUION" ? " · Guion de reel" : ""}
-                  </span>
-                  <div className={`origen${p.origen?.tipo === "AGENTE" ? " origen--agente" : ""}`}>
-                    <strong>
-                      {p.origen?.tipo === "AGENTE" ? <LuBot size={11} /> : <LuUser size={11} />}
-                      {p.origen?.tipo === "AGENTE" ? "Hecha por agente de IA" : "Hecha por una persona"}
-                    </strong>
-                    <span>{p.origen?.nombre}</span>
-                  </div>
-                  <div className="fila entre">
-                    <span>{p.fechaProgramada ? fCorta(p.fechaProgramada) : ""}</span>
-                    <span>Versión {p.numeroVersion}</span>
-                  </div>
-                  <span>{p.notaEstado}</span>
-                  <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: 9.5 }}>
-                    Abrir pieza →
-                  </Enlace>
-                </article>
-              ))}
-              {col.columna === "APROBADO" && col.piezas.length > 3 && (
-                <button className="enlace" style={{ fontSize: 9.5, padding: "2px 6px 6px", justifyContent: "flex-start" }} onClick={() => setExpandida(!expandida)}>
-                  {expandida ? "Ver menos →" : `Ver las otras ${col.piezas.length - 3} aprobadas →`}
-                </button>
-              )}
-            </section>
-          );
-        })}
-      </div>
-      <div className="seccion">
-        <Aviso icono={<LuShieldCheck size={18} />} titulo="IA y personas, con revisión responsable">
-          El agente de IA crea una propuesta; el equipo valida la marca y la calidad. La publicación sigue requiriendo la aprobación del cliente para esa versión.
-        </Aviso>
-      </div>
-      <NuevaPieza
-        abierto={nueva}
-        alCerrar={() => setNueva(false)}
-        alCrear={() => {
-          setNueva(false);
-          avisar({ titulo: "Pieza creada", texto: "Quedó en Borrador con revisión interna pendiente." });
-          void recargar();
-        }}
-      />
-    </>
-  );
-}
-
-function NuevaPieza({ abierto, alCerrar, alCrear }: { abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
-  const [titulo, setTitulo] = useState("");
-  const [tipo, setTipo] = useState("COPY");
-  const [canal, setCanal] = useState("Instagram");
-  const [fecha, setFecha] = useState("2026-10-26");
-  const [error, setError] = useState<string | null>(null);
-  const crear = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    try {
-      await api(`/clientes/${CLIENTE_DEMO}/piezas`, { metodo: "POST", cuerpo: { tipo, titulo, canal, periodo: PERIODO_DEMO, fechaProgramada: `${fecha}T15:00:00Z` }, idempotente: true });
-      setTitulo("");
-      alCrear();
-    } catch (x) {
-      setError((x as ProblemaApi).errores[0]?.mensaje ?? (x as ProblemaApi).titulo);
-    }
-  };
-  return (
-    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nueva pieza">
-      <form onSubmit={crear} style={{ display: "grid", gap: 14 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 600 }}>Nueva pieza</h2>
-        <div className="campo">
-          <label htmlFor="np-titulo">Título</label>
-          <div className="entrada">
-            <input id="np-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ej. Tu ritual de noche" />
-          </div>
-          {error && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{error}</span>}
-        </div>
-        <div className="grid-2" style={{ gap: 10 }}>
-          <div className="campo">
-            <label htmlFor="np-tipo">Tipo</label>
-            <select id="np-tipo" className="input" value={tipo} onChange={(e) => setTipo(e.target.value)}>
-              <option value="COPY">Pieza para redes</option>
-              <option value="CARRUSEL">Carrusel</option>
-              <option value="ESTATICO">Pieza estática</option>
-              <option value="BLOG">Artículo de blog</option>
-              <option value="GUION">Guion de reel</option>
-            </select>
-          </div>
-          <div className="campo">
-            <label htmlFor="np-canal">Canal</label>
-            <select id="np-canal" className="input" value={canal} onChange={(e) => setCanal(e.target.value)}>
-              <option>Instagram</option>
-              <option>Facebook</option>
-              <option>Blog web</option>
-            </select>
-          </div>
-        </div>
-        <div className="campo">
-          <label htmlFor="np-fecha">Publicación prevista</label>
-          <input id="np-fecha" type="date" className="input" value={fecha} onChange={(e) => setFecha(e.target.value)} />
-        </div>
-        <button className="boton boton--primario">Crear pieza</button>
-      </form>
-    </Modal>
   );
 }
 

@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuLock, LuPlus, LuTrash2, LuWallet } from "react-icons/lu";
-import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
 import { CAUSAS_ATRASO, ETIQUETA_CAUSA } from "../dominio/kpis";
@@ -16,6 +16,7 @@ import { TareasDelProyecto } from "./tareas";
 import { CMS, TAMANO } from "./proyecto";
 import { EntregablesEquipo } from "./entregables";
 import { ConsumoDelServicio, TicketsDelSoporte } from "./consumo";
+import { BlogsDelSoporte, KanbanPiezas } from "./piezas-proyecto";
 import { BOLSAS_POR_PLAN, bolsaDe, esPorConsumo } from "../dominio/consumo";
 import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type EventoCalendario, type VistaCronograma } from "./cronograma";
 
@@ -175,6 +176,12 @@ function ProyectoEquipo() {
             </div>
           </section>
           )}
+          {(d.codigo === "SOCIAL_MEDIA_PRO" || d.codigo === "PAID_MEDIA") && (
+            <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 14 }} aria-label="Piezas del mes">
+              <h2 className="tarjeta-titulo">Piezas de {nombreMes(PERIODO_DEMO)}</h2>
+              <KanbanPiezas clienteId={d.clienteId} servicioId={d.servicioContratadoId} />
+            </section>
+          )}
           <TareasDelProyecto servicioId={d.servicioContratadoId} etapas={d.etapas} />
           <EntregablesEquipo servicioId={d.servicioContratadoId} etapas={d.etapas} />
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
@@ -191,6 +198,7 @@ function ProyectoEquipo() {
             ))}
           </div>
           <DetallesDelProyecto d={d} alGuardar={(cuerpo) => actualizar(cuerpo, "Detalles del proyecto guardados")} />
+          {d.codigo === "SOPORTE_CONTINUO" && d.variante?.codigo === "WEB" && <BlogsDelSoporte clienteId={d.clienteId} servicioId={d.servicioContratadoId} incluidos={d.progreso?.totales ?? 0} />}
           <ReunionesEquipo servicioId={d.servicioContratadoId} alCambiar={() => void perfil.recargar()} />
         </aside>
       </div>

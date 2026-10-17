@@ -1784,6 +1784,12 @@ a.avatar:hover {
   gap: 12px;
   align-items: start;
 }
+/* Dentro del proyecto (fase 15b) la columna es más angosta: el tablero se desplaza en horizontal. */
+.kanban--proyecto {
+  grid-template-columns: repeat(5, minmax(170px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
 .kanban-col {
   background: var(--c-fondo);
   border: 1px solid var(--c-borde);

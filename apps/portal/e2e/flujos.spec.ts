@@ -62,15 +62,24 @@ test("CU-07: crear un ticket", async ({ page }) => {
   await expect(page.getByText("#1043")).toBeVisible();
 });
 
-test("plan del mes (equipo): tablero por estado con lo que espera al cliente", async ({ page }) => {
+test("piezas en el proyecto: Kanban en Social Media Pro, blogs en el soporte web; sin bandeja ni plan del mes", async ({ page }) => {
+  test.setTimeout(90_000);
   await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000002");
+  const piezas = page.getByRole("region", { name: "Piezas del mes" });
+  await expect(piezas.getByRole("region", { name: "En revisión" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".nav-item", { hasText: "Bandeja de producción" })).toHaveCount(0);
+  await expect(page.locator(".nav-item", { hasText: "Plan del mes" })).toHaveCount(0);
+  await expect(page.locator(".nav-item", { hasText: "Calendarios" })).toBeVisible();
+  await piezas.getByText("Abrir pieza").first().click();
+  await expect(page.getByText("← Volver al proyecto")).toBeVisible({ timeout: 30_000 });
+  await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000001");
+  await page.getByRole("button", { name: "Ver tablero →" }).click({ timeout: 30_000 });
+  const tablero = page.getByRole("dialog", { name: "Tablero de blogs" });
+  await expect(tablero.getByRole("button", { name: "Nuevo blog" })).toBeVisible();
+  await expect(tablero.locator(".kanban-tarjeta").first()).toContainText("ARTÍCULO DE BLOG");
   await page.goto("/equipo/plan");
-  await expect(page.getByRole("heading", { name: "Plan del mes" })).toBeVisible();
-  const porRevisar = page.locator(".tablero-col--accion");
-  await expect(porRevisar.getByText("Por revisar")).toBeVisible();
-  await expect(page.getByText("Ajustando comentarios").first()).toBeVisible();
-  await porRevisar.locator(".tablero-tarjeta--enlace").first().click();
-  await expect(page).toHaveURL(/\/equipo\/piezas\//);
+  await expect(page).toHaveURL(/\/equipo\/proyectos$/, { timeout: 30_000 });
 });
 
 test("el cliente ya no ve Blog, Plan del mes ni Brief en su menú", async ({ page }) => {
@@ -202,8 +211,8 @@ test("equipo: nueva pieza, revisión interna y liberación al cliente", async ({
   await page.goto("/equipo/panel");
   await page.fill("#buscar-cliente", "luma");
   await expect(page.getByText("1 de 5 cuentas")).toBeVisible();
-  await page.goto("/equipo/produccion");
-  await page.getByRole("button", { name: "Nueva pieza" }).click();
+  await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000002");
+  await page.getByRole("button", { name: "Nueva pieza" }).click({ timeout: 30_000 });
   await page.fill("#np-titulo", "Tu ritual de noche");
   await page.getByRole("button", { name: "Crear pieza" }).click();
   await page.locator("article", { hasText: "Tu ritual de noche" }).getByText("Abrir pieza").click();
@@ -346,7 +355,7 @@ test("cronograma: el equipo ve el proyecto en Gantt y calendario; el cliente tam
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004");
-  await expect(page.locator(".nav-grupo", { hasText: "Contenido" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".nav-grupo", { hasText: "Agencia" })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Gantt" }).click({ timeout: 30_000 });
   const gantt = page.getByRole("table", { name: "Gantt de etapas" });
   await expect(gantt.getByRole("rowheader", { name: "Arquitectura y benchmark" })).toBeVisible();

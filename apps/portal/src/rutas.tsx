@@ -7,7 +7,6 @@
  * En Next.js cada ruta tiene además su archivo en app/ (mismo componente).
  */
 import type { ComponentType } from "react";
-import { PantallaPlanMes } from "./pantallas/planificacion";
 import { PantallaProyecto } from "./pantallas/proyecto";
 import { PantallaRequerimiento, PantallaRequerimientos } from "./pantallas/requerimientos";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
@@ -19,7 +18,7 @@ import { PantallaPipeline } from "./pantallas/pipeline";
 import { PantallaMiPanel } from "./pantallas/mi-panel";
 import { PantallaEntregableCliente, PantallaEntregableEquipo } from "./pantallas/entregables";
 import {
-  PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
+  PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
 } from "./pantallas/soporte-equipo";
 
 export interface Ruta {
@@ -44,7 +43,6 @@ export const RUTAS: Ruta[] = [
   { patron: "/equipo/panel", pantalla: PantallaPanel, figma: "14-panel-general", espacio: "equipo" },
   { patron: "/equipo/clientes", pantalla: PantallaClientesEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/clientes/:id", pantalla: PantallaFichaCliente, figma: "15-ficha-de-cliente", espacio: "equipo" },
-  { patron: "/equipo/produccion", pantalla: PantallaBandeja, figma: "16-bandeja-de-produccion", espacio: "equipo" },
   { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
   { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
   { patron: "/cuenta", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
@@ -52,7 +50,6 @@ export const RUTAS: Ruta[] = [
   { patron: "/cuenta/usuarios", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/notificaciones", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
-  { patron: "/equipo/plan", pantalla: PantallaPlanMes, figma: null, espacio: "equipo" },
   { patron: "/equipo/proyectos", pantalla: PantallaPipeline, figma: null, espacio: "equipo" },
   { patron: "/equipo/mi-panel", pantalla: PantallaMiPanel, figma: null, espacio: "equipo" },
   { patron: "/entregables/documento/:id", pantalla: PantallaEntregableCliente, figma: null, espacio: "cliente" },
