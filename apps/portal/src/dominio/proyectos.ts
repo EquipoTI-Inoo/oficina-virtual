@@ -20,7 +20,7 @@ export const AVANCE_POR_CERRAR = 90;
 
 interface DatosColumna {
   estado: string;
-  avance: { porcentaje: number; etapasCompletadas: number; etapaActual?: { estado: string; atrasada: boolean } | null };
+  avance: { porcentaje: number; etapasCompletadas: number; totalEtapas?: number; etapaActual?: { estado: string; atrasada: boolean } | null };
   /** La etapa actual depende del cliente (brief, revisión, accesos). */
   esperaCliente: boolean;
   requerimientosAtrasados: number;
@@ -29,6 +29,7 @@ interface DatosColumna {
 /** En qué columna del pipeline va un proyecto; ver el orden de prioridad en /panel/proyectos. */
 export function columnaProyecto(p: DatosColumna): ColumnaProyecto {
   if (p.estado === "PAUSADO") return "EN_PAUSA";
+  if (p.avance.totalEtapas === 0) return p.requerimientosAtrasados > 0 ? "ESPERA_CLIENTE" : "EN_CURSO"; // por consumo (soporte): no tiene etapas
   const actual = p.avance.etapaActual;
   if (p.requerimientosAtrasados > 0 || (p.esperaCliente && actual?.atrasada)) return "ESPERA_CLIENTE";
   if (actual?.atrasada) return "CON_RETRASO";

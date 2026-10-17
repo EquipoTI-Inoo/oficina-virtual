@@ -8,6 +8,7 @@
  * relleno hasta que el equipo los defina.
  */
 import type { components } from "../api/tipos-api";
+import { validarBolsa } from "./consumo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 export type CodigoServicio = S<"CodigoServicio">;
@@ -95,8 +96,9 @@ export const PLANTILLAS: PlantillaDemo[] = [
   { servicio: "PAID_MEDIA", variante: null, nombre: "Paid Media · mes", metricas: ["RESULTADOS_CAMPANA", "PIEZAS_APROBADAS", "REUNIONES_REALIZADAS"],
     etapas: [["Estrategia y presupuesto", 25, 3, true, "Reunión de estrategia"], ["Configuración de campañas", 50, 3, false, null], ["Campañas activas", 80, 12, false, null], ["Reporte del mes", 100, 2, false, "Reunión de resultados"]],
     requerimientos: ["ACCESOS_REDES"] },
+  // Soporte por consumo (fase 15): sin etapas; se mide con la bolsa del mes (src/dominio/consumo.ts).
   { servicio: "SOPORTE_CONTINUO", variante: null, nombre: "Soporte continuo · mes", metricas: ["TICKETS_RESUELTOS", "REUNIONES_REALIZADAS", "DOCUMENTOS_A_TIEMPO"],
-    etapas: [["Plan de trabajo del mes", 20, 2, false, null], ["Atención de tickets y tareas", 70, 14, false, null], ["Sesión de seguimiento", 85, 2, false, "Sesión de seguimiento"], ["Entregables e informe", 100, 2, false, null]],
+    etapas: [],
     requerimientos: [] },
   // Branding: tres reuniones obligatorias (brief, propuestas, presentación final) y los ajustes entre medio.
   { servicio: "BRANDFORMANCE", variante: "MARCA_NUEVA", nombre: "Brandformance · marca nueva", metricas: R,
@@ -266,6 +268,7 @@ export function validarDetalle(d: unknown): { campo: string; mensaje: string }[]
   if (x.cms !== undefined && !CMS.includes(x.cms as string)) errores.push({ campo: "detalle.cms", mensaje: "Usa WORDPRESS, SHOPIFY o CODIGO" });
   if (x.alcanceWeb !== undefined && !ALCANCES_WEB.includes(x.alcanceWeb as string)) errores.push({ campo: "detalle.alcanceWeb", mensaje: "Usa SOLO_WEB o WEB_Y_CMS" });
   for (const k of ["agenteIa", "whatsappApi"]) if (x[k] !== undefined && typeof x[k] !== "boolean") errores.push({ campo: `detalle.${k}`, mensaje: "Sí o no" });
+  if (x.bolsa !== undefined) errores.push(...validarBolsa(x.bolsa));
   return errores;
 }
 

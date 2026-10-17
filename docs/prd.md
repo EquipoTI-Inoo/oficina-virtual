@@ -67,7 +67,7 @@ Cada servicio contratado es un **proyecto** con su perfil propio. Se crea desde 
 | Implementación de CRM | Proyecto | — | Avance acumulado 20 % → 60 % → 80 % → 100 % (cada capacitación suma 20 %) |
 | Integración de CRM | Proyecto | — | Conexión con otras plataformas por API, licencias y usuarios |
 | Producción audiovisual | Proyecto | Fotografía; foto y video en crudo; producción y postproducción; cobertura completa | La IA asiste con guiones y storyboards y no genera video |
-| Soporte continuo | Mensual | CRM, web | Los tickets viven dentro de este servicio. El blog del cliente es parte del soporte web |
+| Soporte continuo | Mensual | CRM, web | Por consumo, sin etapas (fase 15): cada mes trae una bolsa de tickets complejos y básicos, horas de Meet y WhatsApp ilimitado. Los tickets viven dentro de este servicio y el equipo clasifica su complejidad. El blog del cliente es parte del soporte web |
 
 **Estructura real de cada servicio (15 oct, instructivos de proceso).** Las plantillas siguen los instructivos de Web, Branding y Marketing:
 - **Reunión clave por etapa.** Cada etapa cierra con su reunión (brief, aprobación del flujograma, presentación del prototipo, presentación final…). Las etapas con reunión clave son las «reuniones óptimas» del proyecto.
@@ -250,6 +250,7 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 12 | Estructura real de cada servicio: reunión clave, requerimientos al inicio, tamaño, personalizado, responsable, cierre de reuniones | Hecha |
 | 13 | KPIs internos, causa de los atrasos, reporte en Excel, panel del colaborador y panel general por proyectos | Hecha |
 | 14 | Gantt y calendario del proyecto (equipo y cliente); menú del equipo con la sección «Contenido» | Hecha |
+| 15 | Soporte por consumo: sin etapas, bolsa del mes (tickets complejos y básicos, horas de Meet, WhatsApp ilimitado) | Hecha |
 
 **Pendientes:**
 - Responder tickets desde el panel.
@@ -422,6 +423,13 @@ Las metas son propuestas iniciales; se ajustan con los datos del piloto.
 | Requerimientos respondidos a tiempo por el cliente | ≥ 80 % | 2 |
 | Prototipos web aprobados por el cliente en ≤ 2 rondas | ≥ 70 % | 1–2 |
 | Piezas reutilizadas en paid media | ≥ 30 % de las aprobadas | 2 |
+
+**Soporte por consumo (reunión 15 oct, fase 15).** El soporte continuo no tiene etapas. El cliente ve su bolsa del mes, con lo usado contra lo incluido:
+- **Tickets complejos y tickets básicos.** El equipo clasifica cada ticket; por defecto es básico.
+- **Horas de Meet.** Salen de la duración de las reuniones realizadas.
+- **WhatsApp.** Ilimitado.
+
+Desde el 80 % de un recurso aparece «Por agotarse», y si pasa lo incluido, «Excedido». La bolsa sale del plan (web o CRM) o la define el contrato; la del plan es de relleno hasta que Comercial la defina (decisión D).
 
 **KPIs internos del proyecto (reunión 15 oct, fase 13).** Solo los ve el equipo. Miden cómo trabaja Inoo, no se muestran al cliente:
 - **Cumplimiento de fechas.** Etapas terminadas a tiempo.

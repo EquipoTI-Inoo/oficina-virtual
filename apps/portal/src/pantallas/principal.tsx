@@ -15,6 +15,7 @@ import {
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
 import { DocumentosPorRevisar } from "./entregables";
+import { AvanceOConsumo } from "./consumo";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
 
@@ -244,7 +245,7 @@ function Inicio() {
                     <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
                     <span className="negrita" style={{ fontSize: 13 }}>{x.titulo}</span>
                   </Enlace>
-                  <AvanceLineal avance={x.avance} compacto />
+                  <AvanceOConsumo s={x} compacto />
                 </div>
               ))}
             </div>
@@ -492,7 +493,7 @@ function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
       </div>
       <h3 style={{ fontSize: 17, fontWeight: 600 }}>{s.titulo}</h3>
       {linea && <p className="negrita" style={{ fontSize: 12.5, marginTop: -4 }}>{linea}</p>}
-      <AvanceLineal avance={s.avance} />
+      <AvanceOConsumo s={s} />
       {p && (
         <span className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>
           Este mes: {p.aprobadas} aprobados · {p.porRevisar} por revisar · {p.enProduccion} en producción

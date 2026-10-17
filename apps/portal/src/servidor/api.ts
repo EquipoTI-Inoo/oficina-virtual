@@ -33,6 +33,7 @@ import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
+import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
@@ -503,6 +504,7 @@ interface FilaTicket {
   pieza_id: string | null;
   servicio_contratado_id: string | null;
   servicio_titulo?: string | null;
+  complejidad: Complejidad;
   sla_primera_respuesta_en: Date;
   primera_respuesta_en: Date | null;
   resuelto_en: Date | null;
@@ -525,6 +527,7 @@ function ticketVista(t: FilaTicket): S<"Ticket"> {
     piezaId: t.pieza_id,
     servicioContratadoId: t.servicio_contratado_id,
     servicioTitulo: t.servicio_titulo ?? null,
+    complejidad: t.complejidad ?? "BASICO",
     slaPrimeraRespuestaEn: iso(t.sla_primera_respuesta_en)!,
     primeraRespuestaEn: iso(t.primera_respuesta_en),
     resueltoEn: iso(t.resuelto_en),
@@ -632,8 +635,14 @@ ruta("POST", "/tickets/:id/mensajes", async (ctx, p, _q, cuerpo) => {
 
 ruta("PATCH", "/tickets/:id", async (ctx, p, _q, cuerpo) => {
   const t = await buscarTicket(ctx, p.id);
-  const b = (await cuerpo()) as { estado?: S<"EstadoTicket">; comentario?: string };
+  const b = (await cuerpo()) as { estado?: S<"EstadoTicket">; complejidad?: Complejidad; comentario?: string };
   const estados: S<"EstadoTicket">[] = ["ABIERTO", "EN_PROCESO", "ESPERANDO_CLIENTE", "RESUELTO", "CERRADO"];
+  if (b.complejidad !== undefined) {
+    if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "La complejidad la define el equipo");
+    if (!COMPLEJIDADES.includes(b.complejidad)) validacion([{ campo: "complejidad", mensaje: "Usa BASICO o COMPLEJO" }]);
+    const fila = (await ctx.c.query<FilaTicket>("UPDATE ticket SET complejidad = $2::complejidad_ticket, actualizado_en = now() WHERE id = $1 RETURNING *", [t.id, b.complejidad])).rows[0];
+    if (b.estado === undefined) return ticketVista({ ...fila, servicio_titulo: t.servicio_titulo });
+  }
   if (!b.estado || !estados.includes(b.estado)) throw new ErrorApi(422, "VALIDACION", "Indica el nuevo estado", undefined, [{ campo: "estado", mensaje: "Estado inválido" }]);
   if (!ctx.esEquipo) {
     // El cliente solo cierra, o reabre un ticket resuelto dentro de 7 días.
@@ -1376,6 +1385,7 @@ async function servicioVista(ctx: Ctx, s: FilaServicio, periodo: string): Promis
     progreso: cantidad ? await progresoPiezas(ctx, s.id, s.cliente_id, periodo, cantidad) : null,
     avance: calcularAvance(etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) })), hoy, s.modalidad === "MENSUAL" ? periodo : null),
     entregables: s.entregables,
+    ...(esPorConsumo(s.codigo) ? { consumo: await consumoDb(ctx, s, periodo) } : {}),
     etapas,
   };
 }
@@ -1679,6 +1689,25 @@ async function kpisDb(ctx: Ctx, s: FilaServicio): Promise<Kpi[]> {
   });
 }
 
+/** Lo usado de la bolsa del soporte en el mes (fase 15). */
+async function consumoDb(ctx: Ctx, s: FilaServicio, periodo: string) {
+  const tickets = (await ctx.c.query<{ complejidad: Complejidad }>(
+    "SELECT complejidad FROM ticket WHERE servicio_contratado_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2", [s.id, periodo],
+  )).rows;
+  const minutos = (await ctx.c.query<{ duracion_min: number }>(
+    "SELECT duracion_min FROM reunion WHERE servicio_contratado_id = $1 AND estado = 'REALIZADA' AND to_char(fecha AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2", [s.id, periodo],
+  )).rows.map((r) => r.duracion_min);
+  return calcularConsumo(s.id, periodo, bolsaDe(s.variante, s.detalle), tickets, minutos);
+}
+
+ruta("GET", "/servicios-contratados/:id/consumo", async (ctx, p, q) => {
+  const s = await buscarServicio(ctx, p.id);
+  if (!esPorConsumo(s.codigo)) throw new ErrorApi(422, "SERVICIO_SIN_BOLSA", "Este servicio no se mide por consumo", "Solo el soporte continuo tiene bolsa mensual.");
+  const periodo = q.get("periodo") ?? PERIODO_ACTUAL();
+  if (!/^\d{4}-\d{2}$/.test(periodo)) validacion([{ campo: "periodo", mensaje: "Usa el formato AAAA-MM" }]);
+  return consumoDb(ctx, s, periodo);
+});
+
 ruta("GET", "/servicios-contratados/:id/kpis", async (ctx, p) => {
   soloEquipo(ctx);
   return { datos: await kpisDb(ctx, await buscarServicio(ctx, p.id)) };
@@ -1961,8 +1990,9 @@ async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<
 
 
 /** Valida una reunión nueva (`parcial` = false) o un cambio. conAcuerdos solo si quedó REALIZADA. */
-function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown; conAcuerdos?: unknown; resumen?: unknown }, parcial: boolean, estadoFinal: string) {
+function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown; conAcuerdos?: unknown; resumen?: unknown; duracionMin?: unknown }, parcial: boolean, estadoFinal: string) {
   const errores: { campo: string; mensaje: string }[] = [];
+  if (b.duracionMin !== undefined && !(Number.isInteger(b.duracionMin) && (b.duracionMin as number) >= 15 && (b.duracionMin as number) <= 480)) errores.push({ campo: "duracionMin", mensaje: "Entre 15 y 480 minutos" });
   if ((!parcial || b.titulo !== undefined) && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Escribe el tema de la reunión" });
   if ((!parcial || b.fecha !== undefined) && (typeof b.fecha !== "string" || Number.isNaN(Date.parse(b.fecha)))) errores.push({ campo: "fecha", mensaje: "Indica fecha y hora" });
   if (b.estado !== undefined && !["PROGRAMADA", "REALIZADA", "CANCELADA"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Estado inválido" });
@@ -1970,8 +2000,8 @@ function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown
   return errores;
 }
 
-interface FilaReunion { id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null }
-const reunionVistaDb = (r: FilaReunion): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen });
+interface FilaReunion { id: string; titulo: string; fecha: Date; estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA"; con_acuerdos: boolean | null; resumen: string | null; duracion_min: number }
+const reunionVistaDb = (r: FilaReunion): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: iso(r.fecha)!, estado: r.estado, conAcuerdos: r.con_acuerdos, resumen: r.resumen, duracionMin: r.duracion_min });
 
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
@@ -2006,14 +2036,14 @@ ruta("GET", "/servicios-contratados/:id/reuniones", async (ctx, p) => {
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
-  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown };
+  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown; duracionMin?: number };
   const estado = b.estado ?? "PROGRAMADA";
   const cierre = validarCierreReunion(b);
   validacion([...validarReunion(b, false, estado), ...cierre.errores, ...(await responsablesDePendientesDb(ctx, cierre.pendientes))]);
   const { rows } = await ctx.c.query<FilaReunion>(
-    `INSERT INTO reunion (servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen, creado_por)
-     VALUES ($1, $2, $3, $4, $5::estado_reunion, $6, $7, $8) RETURNING *`,
-    [s.id, s.cliente_id, b.titulo!.trim(), b.fecha, estado, estado === "REALIZADA" ? b.conAcuerdos ?? null : null, b.resumen?.trim() || null, ctx.u.usuarioId],
+    `INSERT INTO reunion (servicio_contratado_id, cliente_id, titulo, fecha, estado, con_acuerdos, resumen, creado_por, duracion_min)
+     VALUES ($1, $2, $3, $4, $5::estado_reunion, $6, $7, $8, $9) RETURNING *`,
+    [s.id, s.cliente_id, b.titulo!.trim(), b.fecha, estado, estado === "REALIZADA" ? b.conAcuerdos ?? null : null, b.resumen?.trim() || null, ctx.u.usuarioId, b.duracionMin ?? DURACION_REUNION_MIN],
   );
   return { __status: 201, ...reunionVistaDb(rows[0]), ...(await crearPendientesDb(ctx, s.id, s.cliente_id, rows[0].titulo, cierre.pendientes)) };
 });
@@ -2023,15 +2053,15 @@ ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, cuerpo) => {
   if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
   const r = (await ctx.c.query<FilaReunion>("SELECT * FROM reunion WHERE id = $1 FOR UPDATE", [p.id])).rows[0];
   if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
-  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown };
+  const b = (await cuerpo()) as { titulo?: string; fecha?: string; estado?: string; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown; duracionMin?: number };
   const estado = b.estado ?? r.estado;
   const cierre = validarCierreReunion(b, r.resumen);
   validacion([...validarReunion(b, true, estado), ...cierre.errores, ...(await responsablesDePendientesDb(ctx, cierre.pendientes))]);
   const acuerdos = estado !== "REALIZADA" ? null : b.conAcuerdos !== undefined ? b.conAcuerdos : r.con_acuerdos;
   const { rows } = await ctx.c.query<FilaReunion>(
     `UPDATE reunion SET titulo = coalesce($2, titulo), fecha = coalesce($3::timestamptz, fecha), estado = $4::estado_reunion, con_acuerdos = $5,
-            resumen = CASE WHEN $6::boolean THEN $7 ELSE resumen END WHERE id = $1 RETURNING *`,
-    [r.id, b.titulo?.trim() ?? null, b.fecha ?? null, estado, acuerdos, b.resumen !== undefined, b.resumen?.trim() || null],
+            resumen = CASE WHEN $6::boolean THEN $7 ELSE resumen END, duracion_min = coalesce($8, duracion_min) WHERE id = $1 RETURNING *`,
+    [r.id, b.titulo?.trim() ?? null, b.fecha ?? null, estado, acuerdos, b.resumen !== undefined, b.resumen?.trim() || null, b.duracionMin ?? null],
   );
   const sc = (await ctx.c.query<{ servicio_contratado_id: string; cliente_id: string }>("SELECT servicio_contratado_id, cliente_id FROM reunion WHERE id = $1", [r.id])).rows[0];
   return { ...reunionVistaDb(rows[0]), ...(await crearPendientesDb(ctx, sc.servicio_contratado_id, sc.cliente_id, rows[0].titulo, cierre.pendientes)) };

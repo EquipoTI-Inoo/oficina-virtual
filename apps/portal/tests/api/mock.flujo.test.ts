@@ -11,6 +11,7 @@ import { pruebasSinIa } from "./flujo-sin-ia";
 import { pruebasEntregables } from "./flujo-entregables";
 import { pruebasEstructura } from "./flujo-estructura";
 import { pruebasKpis } from "./flujo-kpis";
+import { pruebasConsumo } from "./flujo-consumo";
 import { HOY } from "../../src/mock/datos";
 
 const manejar = (req: Request) => manejarSolicitud(req);
@@ -25,6 +26,7 @@ pruebasSinIa("API simulada", manejar, reiniciarMock);
 pruebasEntregables("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasEstructura("API simulada", manejar, reiniciarMock);
 pruebasKpis("API simulada", manejar, reiniciarMock);
+pruebasConsumo("API simulada", manejar, reiniciarMock);
 
 // El panel general (todavía solo en la API simulada) mira proyectos y requerimientos, no piezas (reunión 15 oct).
 test("panel general: proyectos con retraso y requerimientos atrasados", async () => {

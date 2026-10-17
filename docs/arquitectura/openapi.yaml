@@ -1924,7 +1924,7 @@ paths:
     patch:
       tags: [Soporte]
       operationId: actualizarTicket
-      summary: El cliente solo puede cerrar o reabrir (RESUELTO→ABIERTO dentro de 7 días); el equipo gestiona en InooWork.
+      summary: 'El cliente solo puede cerrar o reabrir (RESUELTO→ABIERTO dentro de 7 días); el equipo cambia el estado y clasifica la complejidad (bolsa del soporte, fase 15).' 
       x-roles: [CLIENTE, EQUIPO]
       requestBody:
         required: true
@@ -1932,9 +1932,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [estado]
+              minProperties: 1
+              description: 'El cliente solo manda estado (CERRADO o ABIERTO). El equipo puede mandar cualquier estado y la complejidad.'
               properties:
-                estado: { type: string, enum: [CERRADO, ABIERTO] }
+                estado: { $ref: '#/components/schemas/EstadoTicket' }
+                complejidad: { $ref: '#/components/schemas/ComplejidadTicket' }
                 comentario: { type: string }
       responses:
         '200':
@@ -2014,6 +2016,25 @@ paths:
                   columnas: { type: array, items: { type: object, required: [clave, titulo], properties: { clave: { $ref: '#/components/schemas/ColumnaProyecto' }, titulo: { type: string } } } }
                   datos: { type: array, items: { $ref: '#/components/schemas/ProyectoPipeline' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /servicios-contratados/{servicioContratadoId}/consumo:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Soporte]
+      operationId: consumoSoporte
+      summary: 'Soporte por consumo (reunión 15 oct): lo usado de la bolsa del mes (tickets complejos y básicos, horas de Meet; WhatsApp ilimitado)'
+      x-roles: [EQUIPO, CLIENTE]
+      parameters:
+        - { name: periodo, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumoSoporte' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /servicios-contratados/{servicioContratadoId}/kpis:
     parameters:
@@ -3119,6 +3140,38 @@ components:
         texto: { type: string }
         menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
         creadoEn: { type: string, format: date-time }
+    ComplejidadTicket:
+      type: string
+      enum: [BASICO, COMPLEJO]
+      description: 'La clasifica el equipo; por defecto BASICO'
+    BolsaSoporte:
+      type: object
+      description: 'Lo incluido cada mes en el soporte continuo (reunión 15 oct). Si el contrato no la define, se usa la del plan (valores de relleno hasta que Comercial los confirme).'
+      required: [ticketsComplejos, ticketsBasicos, horasMeet, whatsappIlimitado]
+      properties:
+        ticketsComplejos: { type: integer, minimum: 0 }
+        ticketsBasicos: { type: integer, minimum: 0 }
+        horasMeet: { type: number, minimum: 0 }
+        whatsappIlimitado: { type: boolean }
+    ConsumoSoporte:
+      type: object
+      required: [servicioContratadoId, periodo, bolsa, recursos, whatsappIlimitado]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        periodo: { type: string, examples: ['2026-10'] }
+        bolsa: { $ref: '#/components/schemas/BolsaSoporte' }
+        recursos:
+          type: array
+          items:
+            type: object
+            required: [clave, etiqueta, usado, incluido, nivel]
+            properties:
+              clave: { type: string, enum: [TICKETS_COMPLEJOS, TICKETS_BASICOS, HORAS_MEET] }
+              etiqueta: { type: string, examples: [Tickets complejos] }
+              usado: { type: number }
+              incluido: { type: number }
+              nivel: { type: string, enum: [OK, ALERTA, EXCEDIDO], description: 'ALERTA desde el 80 % de lo incluido' }
+        whatsappIlimitado: { type: boolean }
     CausaAtraso:
       type: string
       enum: [CLIENTE, INOO, TERCERO]
@@ -3386,6 +3439,7 @@ components:
         licencias: { type: integer, minimum: 0 }
         usuarios: { type: integer, minimum: 0 }
         plataformas: { type: array, items: { type: string } }
+        bolsa: { $ref: '#/components/schemas/BolsaSoporte' }
       additionalProperties: true
     EtapaPlantilla:
       type: object
@@ -3491,6 +3545,7 @@ components:
         cantidadMensual: { type: integer, description: 'Suma de los entregables incluidos (0 si el servicio no entrega piezas mensuales)' }
         progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ], description: 'Piezas del mes; null si no entrega piezas' }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
+        consumo: { $ref: '#/components/schemas/ConsumoSoporte', description: 'Solo el soporte continuo: no tiene etapas, se mide por consumo de su bolsa (fase 15)' }
         entregables:
           type: array
           description: Detalle por tipo de pieza
@@ -3561,6 +3616,7 @@ components:
         estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
         conAcuerdos: { type: [boolean, 'null'], description: 'REALIZADA: si terminó con acuerdos (cuenta como exitosa)' }
         resumen: { type: [string, 'null'], description: 'Lo que se acordó; lo ve el cliente' }
+        duracionMin: { type: integer, description: 'Duración en minutos (las realizadas suman horas de Meet en la bolsa del soporte)' }
         pendientesCreados:
           type: object
           description: 'Solo en la respuesta al marcarla REALIZADA con pendientes'
@@ -3573,6 +3629,7 @@ components:
       properties:
         titulo: { type: string, minLength: 3 }
         fecha: { type: string, format: date-time }
+        duracionMin: { type: integer, minimum: 15, maximum: 480, description: 'Por defecto 60' }
         estado: { type: string, enum: [PROGRAMADA, REALIZADA, CANCELADA] }
         conAcuerdos: { type: [boolean, 'null'] }
         resumen: { type: [string, 'null'], description: 'Obligatorio al marcarla REALIZADA (al menos 10 caracteres)' }
@@ -4115,6 +4172,7 @@ components:
         piezaId: { type: [string, 'null'], format: uuid }
         servicioContratadoId: { type: [string, 'null'], format: uuid }
         servicioTitulo: { type: [string, 'null'], examples: [Soporte continuo - Casa Oliva] }
+        complejidad: { $ref: '#/components/schemas/ComplejidadTicket' }
         slaPrimeraRespuestaEn: { type: string, format: date-time }
         primeraRespuestaEn: { type: [string, 'null'], format: date-time }
         resueltoEn: { type: [string, 'null'], format: date-time }

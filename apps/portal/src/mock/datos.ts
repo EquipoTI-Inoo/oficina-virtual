@@ -177,7 +177,7 @@ export function etapasIniciales(): EtapaDemo[] {
     [uid(4, 3), null, 1], // CRM: levantamiento listo → 20 %
     [uid(4, 4), null, 1], // web e-commerce: brief listo, arquitectura y benchmark en curso → 5 %
     [uid(4, 2), PERIODO, 2], // Social Media Pro de octubre: plan y sesión listos → 50 %
-    [uid(4, 1), PERIODO, 1], // soporte web de octubre: plan listo → 20 %
+    // El soporte web no tiene etapas: se mide por consumo (fase 15).
   ];
   let n = 0;
   return plan.flatMap(([scId, periodo, completas]) => {
@@ -426,7 +426,7 @@ export const TICKETS_INICIALES = [
   { id: uid(8, 1042), numero: 1042, asunto: "Ajuste de pauta en Meta", categoria: "MARKETING", estado: "EN_PROCESO", resumenEstado: "Diego Castro está revisando tu solicitud.", creadoEn: "2026-10-05T16:00:00Z", actualizadoEn: "2026-10-06T14:00:00Z", descripcion: "Queremos mover parte del presupuesto a la campaña de rituales.", servicioContratadoId: null as string | null },
   { id: uid(8, 1041), numero: 1041, asunto: "Consulta sobre factura de octubre", categoria: "FACTURACION", estado: "ABIERTO", resumenEstado: "Recibimos tu consulta. Te responderemos pronto.", creadoEn: "2026-10-05T18:00:00Z", actualizadoEn: "2026-10-05T18:00:00Z", descripcion: "La factura de octubre no incluye el número de orden de compra.", servicioContratadoId: null as string | null },
   { id: uid(8, 1038), numero: 1038, asunto: "Actualización de portada de Facebook", categoria: "DISENO", estado: "RESUELTO", resumenEstado: "La nueva portada ya está disponible.", creadoEn: "2026-09-30T15:00:00Z", actualizadoEn: "2026-10-02T17:00:00Z", descripcion: "Necesitamos la portada de octubre.", servicioContratadoId: null as string | null },
-  { id: uid(8, 1040), numero: 1040, asunto: "El formulario de contacto no envía correos", categoria: "WEB", estado: "EN_PROCESO", resumenEstado: "Estamos revisando la configuración del correo del sitio.", creadoEn: "2026-10-05T14:00:00Z", actualizadoEn: "2026-10-06T13:00:00Z", descripcion: "Desde el viernes no nos llegan los mensajes del formulario de casaoliva.pe.", servicioContratadoId: uid(4, 1) as string | null },
+  { id: uid(8, 1040), numero: 1040, asunto: "El formulario de contacto no envía correos", categoria: "WEB", estado: "EN_PROCESO", resumenEstado: "Estamos revisando la configuración del correo del sitio.", creadoEn: "2026-10-05T14:00:00Z", actualizadoEn: "2026-10-06T13:00:00Z", descripcion: "Desde el viernes no nos llegan los mensajes del formulario de casaoliva.pe.", servicioContratadoId: uid(4, 1) as string | null, complejidad: "COMPLEJO" as "BASICO" | "COMPLEJO" },
   { id: uid(8, 1039), numero: 1039, asunto: "Publicar la página de la línea corporal", categoria: "WEB", estado: "RESUELTO", resumenEstado: "La página ya está publicada.", creadoEn: "2026-10-01T15:00:00Z", actualizadoEn: "2026-10-02T18:00:00Z", descripcion: "Necesitamos una página nueva para la línea corporal con sus 6 productos.", servicioContratadoId: uid(4, 1) as string | null },
 ];
 
@@ -666,6 +666,8 @@ export interface ReunionDemo {
   estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
   conAcuerdos: boolean | null;
   resumen: string | null;
+  /** Minutos; las realizadas del soporte suman horas de Meet (fase 15). Por defecto 60. */
+  duracionMin?: number;
 }
 export const REUNIONES_INICIALES: ReunionDemo[] = [
   { id: uid(23, 1), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), titulo: "Kickoff de implementación", fecha: "2026-09-02T15:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Definimos el equipo de ventas que usará HubSpot y el calendario de trabajo." },
@@ -676,6 +678,7 @@ export const REUNIONES_INICIALES: ReunionDemo[] = [
   { id: uid(23, 6), servicioContratadoId: uid(4, 4), clienteId: uid(2, 1), titulo: "Presentación del diseño", fecha: "2026-10-09T16:00:00Z", estado: "PROGRAMADA", conAcuerdos: null, resumen: null },
   { id: uid(23, 7), servicioContratadoId: uid(4, 2), clienteId: uid(2, 1), titulo: "Sesión de contenido de octubre", fecha: "2026-10-02T14:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Fotografiamos la línea de sérums y grabamos dos reels." },
   { id: uid(23, 8), servicioContratadoId: uid(4, 1), clienteId: uid(2, 1), titulo: "Seguimiento mensual de la web", fecha: "2026-10-26T15:00:00Z", estado: "PROGRAMADA", conAcuerdos: null, resumen: null },
+  { id: uid(23, 9), servicioContratadoId: uid(4, 1), clienteId: uid(2, 1), titulo: "Prioridades de la web en octubre", fecha: "2026-10-01T15:00:00Z", estado: "REALIZADA", conAcuerdos: true, resumen: "Priorizamos el formulario de contacto y la página de la línea corporal.", duracionMin: 90 },
 ];
 
 /** Comentarios y consultas en el perfil del proyecto. */

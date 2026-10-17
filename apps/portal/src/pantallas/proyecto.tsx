@@ -12,6 +12,8 @@ import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_T
 import { AsiVaElMes } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
+import { ConsumoDelServicio } from "./consumo";
+import { esPorConsumo } from "../dominio/consumo";
 import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type VistaCronograma } from "./cronograma";
 
 export const TAMANO: Record<string, string> = { CHICO: "Chico", MEDIANO: "Mediano", GRANDE: "Grande" };
@@ -70,14 +72,22 @@ function Proyecto() {
               <div className="fila" style={{ gap: 10, color: "var(--c-primario)" }}>
                 {ICONO_SERVICIO[d.codigo]}
                 <h2 className="tarjeta-titulo" style={{ color: "var(--c-tinta)" }}>
-                  {d.avance.periodo ? `Etapas de ${nombreMes(d.avance.periodo)}` : "Etapas del proyecto"}
+                  {esPorConsumo(d.codigo) ? `Tu bolsa de ${nombreMes(PERIODO_DEMO)}` : d.avance.periodo ? `Etapas de ${nombreMes(d.avance.periodo)}` : "Etapas del proyecto"}
                 </h2>
               </div>
             </div>
-            <div style={{ marginTop: 14 }}>
-              <AvanceLineal avance={d.avance} />
-            </div>
-            <VistasEtapas d={d} />
+            {esPorConsumo(d.codigo) ? (
+              <div style={{ marginTop: 14 }}>
+                <ConsumoDelServicio servicioId={d.servicioContratadoId} />
+              </div>
+            ) : (
+              <>
+                <div style={{ marginTop: 14 }}>
+                  <AvanceLineal avance={d.avance} />
+                </div>
+                <VistasEtapas d={d} />
+              </>
+            )}
             {d.siguientePaso && (
               <div className="fila-suave" style={{ marginTop: 18, fontSize: 11 }}>
                 <span className="texto-muted">{d.siguientePaso.texto}</span>

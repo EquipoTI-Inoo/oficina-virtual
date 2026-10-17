@@ -1260,7 +1260,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** El cliente solo puede cerrar o reabrir (RESUELTO→ABIERTO dentro de 7 días); el equipo gestiona en InooWork. */
+        /** El cliente solo puede cerrar o reabrir (RESUELTO→ABIERTO dentro de 7 días); el equipo cambia el estado y clasifica la complejidad (bolsa del soporte, fase 15). */
         patch: operations["actualizarTicket"];
         trace?: never;
     };
@@ -1316,6 +1316,25 @@ export interface paths {
          *     POR_INICIAR (nada avanzado) · POR_CERRAR (avance de 90 % o más) · EN_CURSO.
          */
         get: operations["pipelineProyectos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/consumo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Soporte por consumo (reunión 15 oct): lo usado de la bolsa del mes (tickets complejos y básicos, horas de Meet; WhatsApp ilimitado) */
+        get: operations["consumoSoporte"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2279,6 +2298,39 @@ export interface components {
             /** Format: date-time */
             creadoEn: string;
         };
+        /**
+         * @description La clasifica el equipo; por defecto BASICO
+         * @enum {string}
+         */
+        ComplejidadTicket: "BASICO" | "COMPLEJO";
+        /** @description Lo incluido cada mes en el soporte continuo (reunión 15 oct). Si el contrato no la define, se usa la del plan (valores de relleno hasta que Comercial los confirme). */
+        BolsaSoporte: {
+            ticketsComplejos: number;
+            ticketsBasicos: number;
+            horasMeet: number;
+            whatsappIlimitado: boolean;
+        };
+        ConsumoSoporte: {
+            /** Format: uuid */
+            servicioContratadoId: string;
+            /** @example 2026-10 */
+            periodo: string;
+            bolsa: components["schemas"]["BolsaSoporte"];
+            recursos: {
+                /** @enum {string} */
+                clave: "TICKETS_COMPLEJOS" | "TICKETS_BASICOS" | "HORAS_MEET";
+                /** @example Tickets complejos */
+                etiqueta: string;
+                usado: number;
+                incluido: number;
+                /**
+                 * @description ALERTA desde el 80 % de lo incluido
+                 * @enum {string}
+                 */
+                nivel: "OK" | "ALERTA" | "EXCEDIDO";
+            }[];
+            whatsappIlimitado: boolean;
+        };
         /** @enum {string} */
         CausaAtraso: "CLIENTE" | "INOO" | "TERCERO";
         /** @description KPI interno del proyecto (reunión 15 oct). El cliente no los ve. */
@@ -2613,6 +2665,7 @@ export interface components {
             licencias?: number;
             usuarios?: number;
             plataformas?: string[];
+            bolsa?: components["schemas"]["BolsaSoporte"];
         } & {
             [key: string]: unknown;
         };
@@ -2744,6 +2797,8 @@ export interface components {
             /** @description Piezas del mes; null si no entrega piezas */
             progreso?: components["schemas"]["ProgresoPiezas"] | null;
             avance: components["schemas"]["AvanceProyecto"];
+            /** @description Solo el soporte continuo: no tiene etapas, se mide por consumo de su bolsa (fase 15) */
+            consumo?: components["schemas"]["ConsumoSoporte"];
             /** @description Detalle por tipo de pieza */
             entregables?: {
                 tipoPieza: components["schemas"]["TipoPieza"];
@@ -2830,6 +2885,8 @@ export interface components {
             conAcuerdos?: boolean | null;
             /** @description Lo que se acordó; lo ve el cliente */
             resumen?: string | null;
+            /** @description Duración en minutos (las realizadas suman horas de Meet en la bolsa del soporte) */
+            duracionMin?: number;
             /** @description Solo en la respuesta al marcarla REALIZADA con pendientes */
             pendientesCreados?: {
                 requerimientos?: number;
@@ -2841,6 +2898,8 @@ export interface components {
             titulo?: string;
             /** Format: date-time */
             fecha?: string;
+            /** @description Por defecto 60 */
+            duracionMin?: number;
             /** @enum {string} */
             estado?: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
             conAcuerdos?: boolean | null;
@@ -3437,6 +3496,7 @@ export interface components {
             servicioContratadoId?: string | null;
             /** @example Soporte continuo - Casa Oliva */
             servicioTitulo?: string | null;
+            complejidad?: components["schemas"]["ComplejidadTicket"];
             /** Format: date-time */
             slaPrimeraRespuestaEn: string;
             /** Format: date-time */
@@ -6561,8 +6621,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @enum {string} */
-                    estado: "CERRADO" | "ABIERTO";
+                    estado?: components["schemas"]["EstadoTicket"];
+                    complejidad?: components["schemas"]["ComplejidadTicket"];
                     comentario?: string;
                 };
             };
@@ -6664,6 +6724,32 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    consumoSoporte: {
+        parameters: {
+            query?: {
+                periodo?: string;
+            };
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumoSoporte"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     kpisProyecto: {

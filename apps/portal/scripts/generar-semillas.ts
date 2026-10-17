@@ -64,8 +64,8 @@ LEFT JOIN LATERAL (
   insert("entregable_incluido", ["servicio_contratado_id", "tipo_pieza", "cantidad_mensual"], D.SERVICIOS_CONTRATADOS.flatMap((s) => s.entregables.map((e) => [s.id, e.tipoPieza, e.cantidadMensual]))),
   insert(
     "reunion",
-    ["id", "servicio_contratado_id", "cliente_id", "titulo", "fecha", "estado", "con_acuerdos", "resumen"],
-    D.REUNIONES_INICIALES.map((r) => [r.id, r.servicioContratadoId, r.clienteId, r.titulo, r.fecha, r.estado, r.conAcuerdos, r.resumen]),
+    ["id", "servicio_contratado_id", "cliente_id", "titulo", "fecha", "estado", "con_acuerdos", "resumen", "duracion_min"],
+    D.REUNIONES_INICIALES.map((r) => [r.id, r.servicioContratadoId, r.clienteId, r.titulo, r.fecha, r.estado, r.conAcuerdos, r.resumen, r.duracionMin ?? 60]),
   ),
   insert(
     "comentario_proyecto",
@@ -131,10 +131,11 @@ LEFT JOIN LATERAL (
   ),
   insert(
     "ticket",
-    ["id", "numero", "cliente_id", "creado_por", "asunto", "categoria", "descripcion", "estado", "resumen_estado", "asignado_nombre", "sla_primera_respuesta_en", "resuelto_en", "creado_en", "actualizado_en", "servicio_contratado_id"],
+    ["id", "numero", "cliente_id", "creado_por", "asunto", "categoria", "descripcion", "estado", "resumen_estado", "asignado_nombre", "sla_primera_respuesta_en", "resuelto_en", "creado_en", "actualizado_en", "servicio_contratado_id", "complejidad"],
     D.TICKETS_INICIALES.map((t) => [
       t.id, t.numero, D.CLIENTES[0].id, D.USUARIOS[0].id, t.asunto, t.categoria, t.descripcion, t.estado, t.resumenEstado,
       t.estado === "EN_PROCESO" ? "Diego Castro" : null, new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(), t.estado === "RESUELTO" ? t.actualizadoEn : null, t.creadoEn, t.actualizadoEn, t.servicioContratadoId,
+      ("complejidad" in t ? t.complejidad : undefined) ?? "BASICO",
     ]),
     " OVERRIDING SYSTEM VALUE",
   ),

@@ -364,3 +364,19 @@ test("cronograma: el equipo ve el proyecto en Gantt y calendario; el cliente tam
   await expect(cliente.locator(".calendario-evento--tarea")).toHaveCount(0);
   await cliente.close();
 });
+
+test("soporte por consumo: el cliente ve su bolsa y el equipo clasifica los tickets", async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "cliente");
+  await page.goto("/servicios/00000000-0000-4000-8004-000000000001");
+  await expect(page.getByRole("heading", { name: "Tu bolsa de octubre" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("meter", { name: "Tickets complejos: 1 de 2" })).toBeVisible();
+  await expect(page.getByText("WhatsApp ilimitado durante todo el mes")).toBeVisible();
+  const equipo = await browser.newPage();
+  await entrarComo(equipo, "equipo");
+  await equipo.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000001");
+  await equipo.getByLabel("Complejidad de #1039").selectOption("COMPLEJO", { timeout: 30_000 });
+  await expect(equipo.getByRole("meter", { name: "Tickets complejos: 2 de 2" })).toBeVisible();
+  await expect(equipo.getByText("Agotado")).toBeVisible();
+  await equipo.close();
+});

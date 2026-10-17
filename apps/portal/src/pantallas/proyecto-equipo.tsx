@@ -15,6 +15,8 @@ import { archivoReporte } from "../dominio/reporte";
 import { TareasDelProyecto } from "./tareas";
 import { CMS, TAMANO } from "./proyecto";
 import { EntregablesEquipo } from "./entregables";
+import { ConsumoDelServicio, TicketsDelSoporte } from "./consumo";
+import { BOLSAS_POR_PLAN, bolsaDe, esPorConsumo } from "../dominio/consumo";
 import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type EventoCalendario, type VistaCronograma } from "./cronograma";
 
 type Perfil = S<"PerfilProyecto">;
@@ -41,6 +43,7 @@ function ProyectoEquipo() {
   const perfil = useConsulta<Perfil>(`/servicios-contratados/${params.id}`);
   const [paso, setPaso] = useState<string | null>(null);
   const [vista, setVista] = useState<VistaCronograma>("TABLA");
+  const [versionBolsa, setVersionBolsa] = useState(0);
   const d = perfil.datos;
   if (perfil.error) return <ErrorCarga error={perfil.error} reintentar={perfil.recargar} />;
   if (!d) return <Cargando />;
@@ -102,6 +105,13 @@ function ProyectoEquipo() {
       />
       <div className="con-lateral">
         <div className="pila">
+          {esPorConsumo(d.codigo) ? (
+            <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 16 }}>
+              <h2 className="tarjeta-titulo">Bolsa del mes</h2>
+              <ConsumoDelServicio servicioId={d.servicioContratadoId} version={`${versionBolsa}-${JSON.stringify(d.detalle?.bolsa ?? {})}`} />
+              <TicketsDelSoporte clienteId={d.clienteId} servicioId={d.servicioContratadoId} alCambiar={() => setVersionBolsa((v) => v + 1)} />
+            </section>
+          ) : (
           <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 14 }}>
             <div className="fila entre" style={{ gap: 10, flexWrap: "wrap" }}>
               <h2 className="tarjeta-titulo">{d.avance.periodo ? "Etapas del mes" : "Etapas del proyecto"}</h2>
@@ -164,6 +174,7 @@ function ProyectoEquipo() {
               </div>
             </div>
           </section>
+          )}
           <TareasDelProyecto servicioId={d.servicioContratadoId} etapas={d.etapas} />
           <EntregablesEquipo servicioId={d.servicioContratadoId} etapas={d.etapas} />
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
@@ -261,7 +272,7 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
   const lista = useConsulta<{ datos: S<"Reunion">[] }>(`/servicios-contratados/${servicioId}/reuniones`);
   const [nueva, setNueva] = useState(false);
   const [cerrar, setCerrar] = useState<S<"Reunion"> | null>(null);
-  const [f, setF] = useState({ titulo: "", fecha: "", realizada: false, conAcuerdos: true, resumen: "" });
+  const [f, setF] = useState({ titulo: "", fecha: "", duracion: "60", realizada: false, conAcuerdos: true, resumen: "" });
   const [error, setError] = useState<string | null>(null);
   const recargar = () => {
     void lista.recargar();
@@ -272,10 +283,10 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
     try {
       await api(`/servicios-contratados/${servicioId}/reuniones`, {
         metodo: "POST",
-        cuerpo: { titulo: f.titulo, fecha: f.fecha ? new Date(f.fecha).toISOString() : undefined, estado: f.realizada ? "REALIZADA" : "PROGRAMADA", conAcuerdos: f.realizada ? f.conAcuerdos : undefined, resumen: f.resumen || undefined },
+        cuerpo: { titulo: f.titulo, fecha: f.fecha ? new Date(f.fecha).toISOString() : undefined, duracionMin: Number(f.duracion) || undefined, estado: f.realizada ? "REALIZADA" : "PROGRAMADA", conAcuerdos: f.realizada ? f.conAcuerdos : undefined, resumen: f.resumen || undefined },
       });
       setNueva(false);
-      setF({ titulo: "", fecha: "", realizada: false, conAcuerdos: true, resumen: "" });
+      setF({ titulo: "", fecha: "", duracion: "60", realizada: false, conAcuerdos: true, resumen: "" });
       recargar();
     } catch (e) {
       setError(errorDe(e));
@@ -311,7 +322,10 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
                 {r.estado === "REALIZADA" ? (r.conAcuerdos ? "Con acuerdos" : "Sin acuerdos") : r.estado === "CANCELADA" ? "Cancelada" : "Programada"}
               </Etiqueta>
             </span>
-            <span className="texto-xs texto-muted">{fDiaHora(r.fecha)}</span>
+            <span className="texto-xs texto-muted">
+              {fDiaHora(r.fecha)}
+              {r.duracionMin ? ` · ${r.duracionMin} min` : ""}
+            </span>
             {r.resumen && <span className="texto-xs texto-muted">{r.resumen}</span>}
             {r.estado === "PROGRAMADA" && (
               <span className="fila" style={{ gap: 12 }}>
@@ -338,6 +352,12 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
           <label htmlFor="reu-fecha">Fecha y hora</label>
           <div className="entrada">
             <input id="reu-fecha" type="datetime-local" value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.target.value })} />
+          </div>
+        </div>
+        <div className="campo">
+          <label htmlFor="reu-duracion">Duración (minutos)</label>
+          <div className="entrada">
+            <input id="reu-duracion" type="number" min={15} max={480} step={15} value={f.duracion} onChange={(e) => setF({ ...f, duracion: e.target.value })} />
           </div>
         </div>
         <label className="fila texto-sm" style={{ gap: 8 }}>
@@ -448,12 +468,21 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
   const inicial = () => ({
     responsableId: d.responsable?.id ?? "", alcance: d.alcance ?? "", tamano: d.detalle?.tamano ?? "", cms: d.detalle?.cms ?? "", alcanceWeb: d.detalle?.alcanceWeb ?? "",
     paginas: d.detalle?.paginas?.toString() ?? "", productos: d.detalle?.productos?.toString() ?? "", agenteIa: !!d.detalle?.agenteIa, whatsappApi: !!d.detalle?.whatsappApi,
+    ...Object.fromEntries(Object.entries(bolsaDe(d.variante?.codigo, d.detalle)).map(([k, v]) => [`bolsa.${k}`, typeof v === "boolean" ? v : String(v)])),
   });
-  const [f, setF] = useState(inicial);
+  const [f, setF] = useState<ReturnType<typeof inicial> & Record<string, string | boolean>>(inicial);
   const esWeb = d.codigo === "WEB";
   const esCrm = d.codigo === "CRM_IMPLEMENTACION" || d.codigo === "CRM_INTEGRACION";
+  const esSoporte = esPorConsumo(d.codigo);
+  const delPlan = BOLSAS_POR_PLAN[d.variante?.codigo === "CRM" ? "CRM" : "WEB"];
   const guardar = async () => {
     const detalle: Record<string, unknown> = { ...d.detalle };
+    if (esSoporte) {
+      detalle.bolsa = {
+        ticketsComplejos: Number(f["bolsa.ticketsComplejos"]), ticketsBasicos: Number(f["bolsa.ticketsBasicos"]),
+        horasMeet: Number(String(f["bolsa.horasMeet"]).replace(",", ".")), whatsappIlimitado: f["bolsa.whatsappIlimitado"] === true,
+      };
+    }
     const poner = (k: string, v: unknown) => (v === "" || v === undefined ? delete detalle[k] : (detalle[k] = v));
     poner("tamano", f.tamano);
     if (esWeb) {
@@ -530,6 +559,30 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
               </div>
             </div>
           </>
+        )}
+        {esSoporte && (
+          <div className="campo">
+            <span className="rotulo">Bolsa del mes (del plan: {delPlan.ticketsComplejos} complejos, {delPlan.ticketsBasicos} básicos, {delPlan.horasMeet} h de Meet)</span>
+            <div className="fila" style={{ gap: 8 }}>
+              {(
+                [
+                  ["bolsa.ticketsComplejos", "Complejos"],
+                  ["bolsa.ticketsBasicos", "Básicos"],
+                  ["bolsa.horasMeet", "Horas de Meet"],
+                ] as const
+              ).map(([k, t]) => (
+                <div key={k} className="campo" style={{ flex: 1 }}>
+                  <label htmlFor={`dp-${k}`}>{t}</label>
+                  <div className="entrada">
+                    <input id={`dp-${k}`} type="number" min={0} step={k === "bolsa.horasMeet" ? 0.5 : 1} value={String(f[k])} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <label className="fila texto-sm" style={{ gap: 8 }}>
+              <input type="checkbox" checked={f["bolsa.whatsappIlimitado"] === true} onChange={(e) => setF({ ...f, "bolsa.whatsappIlimitado": e.target.checked })} /> WhatsApp ilimitado
+            </label>
+          </div>
         )}
         {esCrm && (
           <>

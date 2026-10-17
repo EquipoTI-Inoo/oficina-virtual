@@ -1167,6 +1167,39 @@ a.avatar:hover {
   text-align: center;
 }
 
+/* Soporte por consumo: bolsa del mes (fase 15). */
+.consumo-fichas { gap: 12px; }
+.consumo-ficha {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--c-borde);
+  border-radius: 12px;
+}
+.consumo-valor { font-size: 24px; font-weight: 600; color: var(--c-tinta); }
+.consumo-linea {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.medidor {
+  display: block;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--c-primario-suave);
+  overflow: hidden;
+}
+.medidor > span { display: block; height: 100%; border-radius: inherit; background: var(--c-primario); }
+.medidor--alerta > span { background: var(--c-semaforo-naranja); }
+.medidor--excedido > span { background: var(--c-semaforo-rojo); }
+.estado-consumo { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.estado-consumo--alerta { color: var(--c-alerta); }
+.estado-consumo--excedido { color: var(--c-semaforo-rojo-intenso); }
+@media (max-width: 640px) {
+  .consumo-fichas { grid-template-columns: 1fr; }
+}
+
 /* Gantt y calendario del proyecto (fase 14). */
 .gantt {
   display: grid;

@@ -15,6 +15,7 @@ import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
+import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
@@ -462,6 +463,13 @@ function avanceDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
   const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
   return calcularAvance(etapasDe(s, periodo), D.HOY, mensual ? periodo : null);
 }
+/** Lo usado de la bolsa del soporte en el mes (fase 15). */
+function consumoDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
+  const tickets = E.tickets.filter((t) => t.servicioContratadoId === s.id && periodoLima(t.creadoEn) === periodo)
+    .map((t) => ({ complejidad: (("complejidad" in t ? t.complejidad : undefined) ?? "BASICO") as Complejidad }));
+  const minutos = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado === "REALIZADA" && periodoLima(r.fecha) === periodo).map((r) => r.duracionMin ?? DURACION_REUNION_MIN);
+  return calcularConsumo(s.id, periodo, bolsaDe(s.variante, s.detalle), tickets, minutos);
+}
 const varianteDe = (s: D.ServicioContratadoDemo) => servicioDeCatalogo(s.codigo)!.variantes.find((v) => v.codigo === s.variante) ?? null;
 const tituloDe = (s: D.ServicioContratadoDemo) => tituloServicio(servicioDeCatalogo(s.codigo)!.nombre, s.marca ?? E.clientes.find((c) => c.id === s.clienteId)!.nombre);
 
@@ -473,6 +481,7 @@ function servicioVista(s: D.ServicioContratadoDemo, periodo = D.PERIODO): S<"Ser
     servicioContratadoId: s.id, estado: s.estado, alcance: s.alcance ?? null, fechaInicio: s.fechaInicio, fechaFin: s.fechaFin, unidad: cat.unidad, cantidadMensual: cantidad,
     progreso: cantidad ? progreso(piezasDelMes(s.clienteId, periodo).filter((x) => x.servicioId === s.id), cantidad) : null,
     avance: avanceDe(s, periodo),
+    ...(esPorConsumo(s.codigo) ? { consumo: consumoDe(s, periodo) } : {}),
     entregables: s.entregables.map((e) => ({ tipoPieza: e.tipoPieza as S<"TipoPieza">, cantidadMensual: e.cantidadMensual })),
   };
 }
@@ -495,6 +504,7 @@ function ticketVista(t: Estado["tickets"][number]): S<"Ticket"> {
     piezaId: null,
     servicioContratadoId: t.servicioContratadoId ?? null,
     servicioTitulo: t.servicioContratadoId ? tituloDe(E.servicios.find((x) => x.id === t.servicioContratadoId)!) : null,
+    complejidad: ("complejidad" in t ? t.complejidad : undefined) ?? "BASICO",
     slaPrimeraRespuestaEn: new Date(new Date(t.creadoEn).getTime() + 86_400_000).toISOString(),
     primeraRespuestaEn: null,
     resueltoEn: t.estado === "RESUELTO" ? t.actualizadoEn : null,
@@ -1829,7 +1839,7 @@ function buscarServicio(ctx: Ctx, id: string) {
   return s;
 }
 
-const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: r.fecha, estado: r.estado, conAcuerdos: r.conAcuerdos, resumen: r.resumen });
+const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.titulo, fecha: r.fecha, estado: r.estado, conAcuerdos: r.conAcuerdos, resumen: r.resumen, duracionMin: r.duracionMin ?? DURACION_REUNION_MIN });
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => perfilVista(ctx, buscarServicio(ctx, p.id), q.get("periodo") ?? D.PERIODO));
@@ -2120,8 +2130,9 @@ function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<
 
 
 /** Valida una reunión nueva (`parcial` = false) o un cambio. conAcuerdos solo si quedó REALIZADA. */
-function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown; conAcuerdos?: unknown; resumen?: unknown }, parcial: boolean, estadoFinal: string) {
+function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown; conAcuerdos?: unknown; resumen?: unknown; duracionMin?: unknown }, parcial: boolean, estadoFinal: string) {
   const errores: { campo: string; mensaje: string }[] = [];
+  if (b.duracionMin !== undefined && !(Number.isInteger(b.duracionMin) && (b.duracionMin as number) >= 15 && (b.duracionMin as number) <= 480)) errores.push({ campo: "duracionMin", mensaje: "Entre 15 y 480 minutos" });
   if ((!parcial || b.titulo !== undefined) && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Escribe el tema de la reunión" });
   if ((!parcial || b.fecha !== undefined) && (typeof b.fecha !== "string" || Number.isNaN(Date.parse(b.fecha)))) errores.push({ campo: "fecha", mensaje: "Indica fecha y hora" });
   if (b.estado !== undefined && !["PROGRAMADA", "REALIZADA", "CANCELADA"].includes(b.estado as string)) errores.push({ campo: "estado", mensaje: "Estado inválido" });
@@ -2157,14 +2168,14 @@ ruta("GET", "/servicios-contratados/:id/reuniones", (ctx, p) => {
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
-  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown }>(req);
+  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown; duracionMin?: number }>(req);
   const estado = b.estado ?? "PROGRAMADA";
   const cierre = validarCierreReunion(b);
   const errores = [...validarReunion(b, false, estado), ...cierre.errores, ...responsablesDePendientes(cierre.pendientes)];
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const r: D.ReunionDemo = {
     id: nuevoId(23), servicioContratadoId: s.id, clienteId: s.clienteId, titulo: b.titulo!.trim(), fecha: new Date(b.fecha!).toISOString(), estado,
-    conAcuerdos: estado === "REALIZADA" ? b.conAcuerdos ?? null : null, resumen: b.resumen?.trim() || null,
+    conAcuerdos: estado === "REALIZADA" ? b.conAcuerdos ?? null : null, resumen: b.resumen?.trim() || null, duracionMin: b.duracionMin ?? DURACION_REUNION_MIN,
   };
   E.reuniones.push(r);
   return { __status: 201, ...reunionVista(r), ...crearPendientes(ctx, s, r, cierre.pendientes) };
@@ -2174,7 +2185,7 @@ ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const r = E.reuniones.find((x) => x.id === p.id);
   if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa reunión");
-  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown }>(req);
+  const b = await cuerpo<{ titulo?: string; fecha?: string; estado?: D.ReunionDemo["estado"]; conAcuerdos?: boolean | null; resumen?: string | null; pendientes?: unknown; duracionMin?: number }>(req);
   const estado = b.estado ?? r.estado;
   const cierre = validarCierreReunion(b, r.resumen);
   const errores = [...validarReunion(b, true, estado), ...cierre.errores, ...responsablesDePendientes(cierre.pendientes)];
@@ -2185,6 +2196,7 @@ ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
   if (b.conAcuerdos !== undefined) r.conAcuerdos = b.conAcuerdos;
   if (estado !== "REALIZADA") r.conAcuerdos = null;
   if (b.resumen !== undefined) r.resumen = b.resumen?.trim() || null;
+  if (b.duracionMin !== undefined) r.duracionMin = b.duracionMin;
   return { ...reunionVista(r), ...crearPendientes(ctx, E.servicios.find((x) => x.id === r.servicioContratadoId)!, r, cierre.pendientes) };
 });
 
@@ -2258,6 +2270,14 @@ function kpisDe(s: D.ServicioContratadoDemo) {
     })),
   });
 }
+
+ruta("GET", "/servicios-contratados/:id/consumo", (ctx, p, q) => {
+  const s = buscarServicio(ctx, p.id);
+  if (!esPorConsumo(s.codigo)) throw new ErrorApi(422, "SERVICIO_SIN_BOLSA", "Este servicio no se mide por consumo", "Solo el soporte continuo tiene bolsa mensual.");
+  const periodo = q.get("periodo") ?? D.PERIODO;
+  if (!/^\d{4}-\d{2}$/.test(periodo)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "periodo", mensaje: "Usa el formato AAAA-MM" }]);
+  return consumoDe(s, periodo);
+});
 
 ruta("GET", "/servicios-contratados/:id/kpis", (ctx, p) => {
   soloEquipo(ctx);
@@ -2502,8 +2522,14 @@ ruta("PATCH", "/tickets/:id", async (ctx, p, _q, req) => {
   const t = E.tickets.find((x) => x.id === p.id);
   if (!t) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   accesoCliente(ctx, E.clientes[0].id);
-  const b = await cuerpo<{ estado?: S<"EstadoTicket">; comentario?: string }>(req);
+  const b = await cuerpo<{ estado?: S<"EstadoTicket">; complejidad?: Complejidad; comentario?: string }>(req);
   const estados: S<"EstadoTicket">[] = ["ABIERTO", "EN_PROCESO", "ESPERANDO_CLIENTE", "RESUELTO", "CERRADO"];
+  if (b.complejidad !== undefined) {
+    if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "La complejidad la define el equipo");
+    if (!COMPLEJIDADES.includes(b.complejidad)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "complejidad", mensaje: "Usa BASICO o COMPLEJO" }]);
+    (t as { complejidad?: Complejidad }).complejidad = b.complejidad;
+    if (b.estado === undefined) return ticketVista(t);
+  }
   if (!b.estado || !estados.includes(b.estado)) throw new ErrorApi(422, "VALIDACION", "Indica el nuevo estado", undefined, [{ campo: "estado", mensaje: "Estado inválido" }]);
   if (!ctx.esEquipo) {
     // El cliente solo cierra, o reabre un ticket resuelto dentro de 7 días.
