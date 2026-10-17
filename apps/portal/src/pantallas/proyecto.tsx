@@ -12,6 +12,7 @@ import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_T
 import { AsiVaElMes } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
+import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type VistaCronograma } from "./cronograma";
 
 export const TAMANO: Record<string, string> = { CHICO: "Chico", MEDIANO: "Mediano", GRANDE: "Grande" };
 export const CMS: Record<string, string> = { WORDPRESS: "WordPress", SHOPIFY: "Shopify", CODIGO: "Desarrollo a medida" };
@@ -76,7 +77,7 @@ function Proyecto() {
             <div style={{ marginTop: 14 }}>
               <AvanceLineal avance={d.avance} />
             </div>
-            <LineaEtapas etapas={d.etapas} actual={d.avance.etapaActual?.orden} />
+            <VistasEtapas d={d} />
             {d.siguientePaso && (
               <div className="fila-suave" style={{ marginTop: 18, fontSize: 11 }}>
                 <span className="texto-muted">{d.siguientePaso.texto}</span>
@@ -265,6 +266,31 @@ const Fila = ({ etiqueta, children }: { etiqueta: string; children: React.ReactN
 );
 
 /** Línea de etapas: hecha, actual (con retraso o esperando al cliente) y pendientes. */
+/** El cliente ve sus etapas como línea; en los proyectos también como Gantt o calendario (fase 14). */
+function VistasEtapas({ d }: { d: S<"PerfilProyecto"> }) {
+  const [vista, setVista] = useState<VistaCronograma>("TABLA");
+  const linea = <LineaEtapas etapas={d.etapas} actual={d.avance.etapaActual?.orden} />;
+  if (d.modalidad !== "PROYECTO" || d.etapas.length < 2) return linea;
+  return (
+    <>
+      <div style={{ marginTop: 14 }}>
+        <SelectorVista vista={vista} alCambiar={setVista} opciones={[["TABLA", "Línea"], ["GANTT", "Gantt"], ["CALENDARIO", "Calendario"]]} />
+      </div>
+      {vista === "TABLA" && linea}
+      {vista === "GANTT" && (
+        <div style={{ marginTop: 14 }}>
+          <GanttEtapas etapas={d.etapas} reuniones={d.reuniones.filter((r) => r.estado !== "CANCELADA")} />
+        </div>
+      )}
+      {vista === "CALENDARIO" && (
+        <div style={{ marginTop: 14 }}>
+          <CalendarioProyecto eventos={[...eventosDeEtapas(d.etapas), ...eventosDeReuniones(d.reuniones)]} />
+        </div>
+      )}
+    </>
+  );
+}
+
 export function LineaEtapas({ etapas, actual }: { etapas: S<"EtapaProyecto">[]; actual?: number }) {
   return (
     <div className="hitos" style={{ gridTemplateColumns: `repeat(${Math.min(etapas.length, 6)}, 1fr)` }}>

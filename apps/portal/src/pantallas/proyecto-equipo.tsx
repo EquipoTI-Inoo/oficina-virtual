@@ -15,6 +15,7 @@ import { archivoReporte } from "../dominio/reporte";
 import { TareasDelProyecto } from "./tareas";
 import { CMS, TAMANO } from "./proyecto";
 import { EntregablesEquipo } from "./entregables";
+import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type EventoCalendario, type VistaCronograma } from "./cronograma";
 
 type Perfil = S<"PerfilProyecto">;
 const ESTADOS_ETAPA: [S<"EstadoHito">, string][] = [
@@ -39,6 +40,7 @@ function ProyectoEquipo() {
   const avisar = useAviso();
   const perfil = useConsulta<Perfil>(`/servicios-contratados/${params.id}`);
   const [paso, setPaso] = useState<string | null>(null);
+  const [vista, setVista] = useState<VistaCronograma>("TABLA");
   const d = perfil.datos;
   if (perfil.error) return <ErrorCarga error={perfil.error} reintentar={perfil.recargar} />;
   if (!d) return <Cargando />;
@@ -101,48 +103,55 @@ function ProyectoEquipo() {
       <div className="con-lateral">
         <div className="pila">
           <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 14 }}>
-            <h2 className="tarjeta-titulo">{d.avance.periodo ? "Etapas del mes" : "Etapas del proyecto"}</h2>
-            <AvanceLineal avance={d.avance} />
-            <div className="tabla-envoltura">
-              <table className="tabla" style={{ fontSize: 12 }}>
-                <thead>
-                  <tr>
-                    <th>Etapa</th>
-                    <th style={{ width: 150 }}>Estado</th>
-                    <th style={{ width: 150 }}>Fin previsto</th>
-                    <th style={{ width: 100 }}>Lista el</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.etapas.map((e) => (
-                    <tr key={e.id} style={{ cursor: "default" }}>
-                      <td>
-                        <span className="negrita">{e.nombre}</span>
-                        <span className="texto-xs texto-muted" style={{ display: "block" }}>
-                          {e.avancePct} %{e.esperaCliente ? " · depende del cliente" : ""}
-                          {e.atrasada ? " · con retraso" : ""}
-                        </span>
-                        {e.reunionClave && <span className="texto-xs texto-primario" style={{ display: "block" }}>Reunión clave: {e.reunionClave}</span>}
-                        {(e.atrasada || e.causaAtraso) && <CausaAtraso etapa={e} alGuardar={(cuerpo) => moverEtapa(e, cuerpo)} />}
-                      </td>
-                      <td>
-                        <select className="input" aria-label={`Estado de ${e.nombre}`} value={e.estado} onChange={(x) => void moverEtapa(e, { estado: x.target.value })}>
-                          {ESTADOS_ETAPA.map(([v, t]) => (
-                            <option key={v} value={v}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input className="input" type="date" aria-label={`Fin previsto de ${e.nombre}`} value={e.fechaEstimada ?? ""} onChange={(x) => x.target.value && void moverEtapa(e, { fechaEstimada: x.target.value })} />
-                      </td>
-                      <td className="texto-muted">{e.fechaFin ? fCorta(e.fechaFin) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="fila entre" style={{ gap: 10, flexWrap: "wrap" }}>
+              <h2 className="tarjeta-titulo">{d.avance.periodo ? "Etapas del mes" : "Etapas del proyecto"}</h2>
+              <SelectorVista vista={vista} alCambiar={setVista} opciones={[["TABLA", "Tabla"], ["GANTT", "Gantt"], ["CALENDARIO", "Calendario"]]} />
             </div>
+            <AvanceLineal avance={d.avance} />
+            {vista === "GANTT" && <GanttEtapas etapas={d.etapas} reuniones={d.reuniones.filter((r) => r.estado !== "CANCELADA")} />}
+            {vista === "CALENDARIO" && <CalendarioEquipo d={d} />}
+            {vista === "TABLA" && (
+              <div className="tabla-envoltura">
+                <table className="tabla" style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Etapa</th>
+                      <th style={{ width: 150 }}>Estado</th>
+                      <th style={{ width: 150 }}>Fin previsto</th>
+                      <th style={{ width: 100 }}>Lista el</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.etapas.map((e) => (
+                      <tr key={e.id} style={{ cursor: "default" }}>
+                        <td>
+                          <span className="negrita">{e.nombre}</span>
+                          <span className="texto-xs texto-muted" style={{ display: "block" }}>
+                            {e.avancePct} %{e.esperaCliente ? " · depende del cliente" : ""}
+                            {e.atrasada ? " · con retraso" : ""}
+                          </span>
+                          {e.reunionClave && <span className="texto-xs texto-primario" style={{ display: "block" }}>Reunión clave: {e.reunionClave}</span>}
+                          {(e.atrasada || e.causaAtraso) && <CausaAtraso etapa={e} alGuardar={(cuerpo) => moverEtapa(e, cuerpo)} />}
+                        </td>
+                        <td>
+                          <select className="input" aria-label={`Estado de ${e.nombre}`} value={e.estado} onChange={(x) => void moverEtapa(e, { estado: x.target.value })}>
+                            {ESTADOS_ETAPA.map(([v, t]) => (
+                              <option key={v} value={v}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <input className="input" type="date" aria-label={`Fin previsto de ${e.nombre}`} value={e.fechaEstimada ?? ""} onChange={(x) => x.target.value && void moverEtapa(e, { fechaEstimada: x.target.value })} />
+                        </td>
+                        <td className="texto-muted">{e.fechaFin ? fCorta(e.fechaFin) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <div className="campo">
               <label htmlFor="siguiente-paso">Siguiente paso (lo ve el cliente)</label>
               <div className="fila" style={{ gap: 8 }}>
@@ -176,6 +185,20 @@ function ProyectoEquipo() {
       </div>
     </>
   );
+}
+
+/** Calendario del equipo: fines de etapa, reuniones, tareas y lo que se le pidió al cliente. */
+function CalendarioEquipo({ d }: { d: Perfil }) {
+  const tareas = useConsulta<{ datos: S<"Tarea">[] }>(`/servicios-contratados/${d.servicioContratadoId}/tareas`);
+  const reqs = useConsulta<{ datos: S<"Requerimiento">[] }>(`/clientes/${d.clienteId}/requerimientos?servicioContratadoId=${d.servicioContratadoId}`);
+  const reuniones = useConsulta<{ datos: S<"Reunion">[] }>(`/servicios-contratados/${d.servicioContratadoId}/reuniones`);
+  const eventos: EventoCalendario[] = [
+    ...eventosDeEtapas(d.etapas),
+    ...eventosDeReuniones(reuniones.datos?.datos ?? d.reuniones),
+    ...(tareas.datos?.datos ?? []).filter((t) => t.fechaLimite && t.estado !== "HECHA").map((t): EventoCalendario => ({ fecha: t.fechaLimite!, texto: t.titulo, tipo: "TAREA", alerta: t.vencida })),
+    ...(reqs.datos?.datos ?? []).filter((r) => r.estado === "PENDIENTE" || r.estado === "OBSERVADO").map((r): EventoCalendario => ({ fecha: r.fechaLimite, texto: r.titulo, tipo: "REQUERIMIENTO", alerta: r.diasAtraso > 0 })),
+  ];
+  return <CalendarioProyecto eventos={eventos} />;
 }
 
 const TONO_NIVEL: Record<S<"KpiProyecto">["nivel"], "verde" | "ambar" | "rojo"> = { OK: "verde", ALERTA: "ambar", CRITICO: "rojo" };

@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuColumns3,
   LuHouse, LuLayers, LuLayoutGrid, LuListChecks, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound,
@@ -301,10 +301,11 @@ const NAV_EQUIPO = [
   { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound /> },
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
-  { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 /> },
-  { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks /> },
-  { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
-  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone /> },
+  // «Contenido» (reunión 15 oct): bandeja, plan del mes y calendarios juntos; solo Social Media Pro y Paid Media.
+  { a: "/equipo/produccion", texto: "Bandeja de producción", icono: <LuColumns3 />, grupo: "Contenido" },
+  { a: "/equipo/plan", texto: "Plan del mes", icono: <LuListChecks />, grupo: "Contenido" },
+  { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck />, grupo: "Contenido" },
+  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone />, grupo: "Agencia" },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
@@ -332,14 +333,19 @@ function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "
         {espacio === "cliente" && <LuChevronsUpDown className="icono-final" size={14} />}
       </button>
       <nav className="nav" onClick={alNavegar}>
-        {nav.map((n) => {
+        {nav.map((n, i) => {
           const activo = ruta === n.a || ruta.startsWith(`${n.a}/`) || (n.a === "/equipo/clientes" && ruta.startsWith("/equipo/clientes"));
+          const grupo = "grupo" in n ? n.grupo : undefined;
+          const anterior = i > 0 && "grupo" in nav[i - 1] ? (nav[i - 1] as { grupo?: string }).grupo : undefined;
           return (
-            <Enlace key={n.a} a={n.a} className="nav-item" aria-current={activo ? "page" : undefined}>
-              {n.icono}
-              <span>{n.texto}</span>
-              {"contador" in n && typeof n.contador === "string" && (contadores[n.contador] ?? 0) > 0 && <span className="nav-contador">{contadores[n.contador]}</span>}
-            </Enlace>
+            <Fragment key={n.a}>
+              {grupo && grupo !== anterior && <span className="nav-grupo">{grupo}</span>}
+              <Enlace a={n.a} className="nav-item" aria-current={activo ? "page" : undefined}>
+                {n.icono}
+                <span>{n.texto}</span>
+                {"contador" in n && typeof n.contador === "string" && (contadores[n.contador] ?? 0) > 0 && <span className="nav-contador">{contadores[n.contador]}</span>}
+              </Enlace>
+            </Fragment>
           );
         })}
       </nav>

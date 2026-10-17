@@ -341,3 +341,26 @@ test("KPIs: mi panel, KPIs internos del proyecto y reporte en Excel", async ({ p
   await page.getByRole("button", { name: "Reporte en Excel" }).click();
   expect((await descarga).suggestedFilename()).toBe("reporte-diseno-y-desarrollo-web-casa-oliva.xlsx");
 });
+
+test("cronograma: el equipo ve el proyecto en Gantt y calendario; el cliente también", async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004");
+  await expect(page.locator(".nav-grupo", { hasText: "Contenido" })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Gantt" }).click({ timeout: 30_000 });
+  const gantt = page.getByRole("table", { name: "Gantt de etapas" });
+  await expect(gantt.getByRole("rowheader", { name: "Arquitectura y benchmark" })).toBeVisible();
+  await expect(gantt.locator(".gantt-barra--atrasada").first()).toBeVisible();
+  await page.getByRole("button", { name: "Calendario" }).click();
+  await expect(page.getByRole("grid", { name: "Calendario de octubre 2026" })).toBeVisible();
+  await expect(page.locator(".calendario-evento--tarea", { hasText: "Pedir las credenciales" })).toBeVisible();
+  await page.getByRole("button", { name: "Mes siguiente" }).click();
+  await expect(page.getByRole("grid", { name: "Calendario de noviembre 2026" })).toBeVisible();
+  const cliente = await browser.newPage();
+  await entrarComo(cliente, "cliente");
+  await cliente.goto("/servicios/00000000-0000-4000-8004-000000000004");
+  await cliente.getByRole("button", { name: "Gantt" }).click({ timeout: 30_000 });
+  await expect(cliente.getByRole("table", { name: "Gantt de etapas" })).toBeVisible();
+  await expect(cliente.locator(".calendario-evento--tarea")).toHaveCount(0);
+  await cliente.close();
+});

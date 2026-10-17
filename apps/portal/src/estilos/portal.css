@@ -383,6 +383,14 @@ a.avatar:hover {
   color: var(--c-muted);
   transition: background 0.15s;
 }
+.nav-grupo {
+  margin: 12px 12px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-tenue);
+}
 .nav-item:hover {
   background: var(--c-fondo);
 }
@@ -1157,6 +1165,129 @@ a.avatar:hover {
 .pipeline-vacio {
   padding: 14px 4px;
   text-align: center;
+}
+
+/* Gantt y calendario del proyecto (fase 14). */
+.gantt {
+  display: grid;
+  gap: 6px;
+  overflow-x: auto;
+}
+.gantt-fila {
+  display: grid;
+  grid-template-columns: minmax(110px, 30%) 1fr;
+  align-items: center;
+  gap: 10px;
+  min-width: 480px;
+}
+.gantt-nombre {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gantt-pista {
+  position: relative;
+  height: 22px;
+  background: var(--c-fondo);
+  border-radius: 6px;
+}
+.gantt-regla .gantt-pista {
+  background: none;
+  height: 16px;
+}
+.gantt-mes {
+  position: absolute;
+  top: 0;
+  font-size: 10.5px;
+  color: var(--c-muted);
+  padding-left: 4px;
+  border-left: 1px solid var(--c-borde);
+}
+.gantt-barra {
+  position: absolute;
+  top: 4px;
+  height: 14px;
+  border-radius: 4px;
+}
+.gantt-barra--hecha { background: var(--c-barra-verde); }
+.gantt-barra--curso { background: var(--c-primario); }
+.gantt-barra--atrasada { background: var(--c-semaforo-naranja); }
+.gantt-barra--pendiente { background: var(--c-primario-borde); }
+.gantt-hoy {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--c-semaforo-rojo);
+  z-index: 1;
+}
+.gantt-reunion {
+  position: absolute;
+  top: 5px;
+  width: 11px;
+  height: 11px;
+  margin-left: -5px;
+  background: var(--c-info);
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+.gantt-leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+.gantt-leyenda i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.gantt-leyenda i[class*="calendario-evento--"] { border: 1px solid currentColor; }
+.gantt-leyenda .gantt-hoy-muestra { width: 2px; background: var(--c-semaforo-rojo); border-radius: 0; }
+.calendario-grilla {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.calendario-dia-semana {
+  font-size: 10.5px;
+  color: var(--c-muted);
+  text-align: center;
+}
+.calendario-celda {
+  min-height: 72px;
+  padding: 4px;
+  border: 1px solid var(--c-borde);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+.calendario-celda--vacia { border-style: dashed; opacity: 0.4; }
+.calendario-celda--hoy { border-color: var(--c-primario); box-shadow: inset 0 0 0 1px var(--c-primario); }
+.calendario-numero { font-size: 11px; color: var(--c-muted); }
+.calendario-evento {
+  font-size: 10px;
+  line-height: 1.25;
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.calendario-evento--etapa { background: var(--c-primario-suave); color: var(--c-primario); }
+.calendario-evento--reunion { background: var(--c-info-suave); color: var(--c-info); }
+.calendario-evento--tarea { background: var(--c-neutro-suave); color: var(--c-texto); }
+.calendario-evento--requerimiento { background: var(--c-alerta-suave); color: var(--c-alerta); }
+.calendario-evento--alerta { background: var(--c-semaforo-rojo-suave); color: var(--c-semaforo-rojo-intenso); }
+@media (max-width: 640px) {
+  .calendario-celda { min-height: 52px; }
+  .calendario-evento { font-size: 9px; }
 }
 
 /* Causa del atraso de una etapa (interna). */
