@@ -157,6 +157,10 @@ export interface EtapaDemo {
   avancePct: number;
   esperaCliente: boolean;
   reunionClave?: string | null;
+  /** Fase 13: por qué se atrasó (CLIENTE se pone solo al correr el cronograma) y cuántos días se corrió por el cliente. */
+  causaAtraso?: "CLIENTE" | "INOO" | "TERCERO" | null;
+  justificacionAtraso?: string | null;
+  diasCorridosCliente?: number;
   estado: EstadoEtapa;
   fechaInicio: string | null;
   fechaEstimada: string | null;

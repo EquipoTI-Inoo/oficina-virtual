@@ -32,6 +32,9 @@ import { diasNoLaborables } from "../dominio/calendario";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
+import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
+import { archivoReporte, hojasReporte } from "../dominio/reporte";
+import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
@@ -1301,6 +1304,9 @@ interface FilaEtapa {
   estado: S<"EstadoHito">;
   espera_cliente: boolean;
   reunion_clave: string | null;
+  causa_atraso: S<"CausaAtraso"> | null;
+  justificacion_atraso: string | null;
+  dias_corridos_cliente: number;
   fecha_inicio: Date | null;
   fecha_estimada: Date | null;
   fecha_fin: Date | null;
@@ -1339,10 +1345,12 @@ async function etapasDelServicio(ctx: Ctx, s: FilaServicio, periodo: string): Pr
   return rows;
 }
 
-const etapaVista = (e: FilaEtapa, hoy: string): S<"EtapaProyecto"> => ({
+/** La causa y la justificación del atraso son internas: solo las ve el equipo. */
+const etapaVista = (e: FilaEtapa, hoy: string, equipo = false): S<"EtapaProyecto"> => ({
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: e.descripcion, periodo: e.periodo, avancePct: e.avance_pct, estado: e.estado, esperaCliente: e.espera_cliente,
   reunionClave: e.reunion_clave, fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin),
   atrasada: etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy),
+  ...(equipo ? { causaAtraso: e.causa_atraso, justificacionAtraso: e.justificacion_atraso, diasCorridosCliente: e.dias_corridos_cliente } : {}),
 });
 
 async function progresoPiezas(ctx: Ctx, servicioId: string | null, clienteId: string, periodo: string, totales: number): Promise<S<"ProgresoPiezas">> {
@@ -1381,7 +1389,7 @@ async function avanceServicio(ctx: Ctx, s: FilaServicio, periodo: string): Promi
   return {
     servicioContratadoId: s.id, codigo: s.codigo, nombre: v.nombre, titulo: v.titulo, variante: v.variante, detalle: s.detalle,
     estado: a.totalEtapas > 0 && a.etapasCompletadas === a.totalEtapas ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
-    progreso: v.progreso, avance: a, etapas: etapas.map((e) => etapaVista(e, HOY_LIMA())),
+    progreso: v.progreso, avance: a, etapas: etapas.map((e) => etapaVista(e, HOY_LIMA(), ctx.esEquipo)),
     hitos: hitos.map((h) => ({ id: h.id, grupo: h.grupo, titulo: h.titulo, estado: h.estado, fechaInicio: fechaIso(h.fecha_inicio), fechaFin: fechaIso(h.fecha_estimada), esperaCliente: h.espera_cliente, nota: h.nota_cliente, responsableNombre: h.responsable_nombre })),
     siguientePaso: s.siguiente_paso ? { texto: `Siguiente paso: ${s.siguiente_paso}`, responsable: s.paso_id ? { id: s.paso_id, nombre: s.paso_nombre ?? "", cargo: s.paso_cargo, email: s.paso_email ?? undefined } : (undefined as never) } : null,
     sincronizadoEn: iso(hitos[0]?.sincronizado_en ?? null) ?? new Date().toISOString(),
@@ -1654,6 +1662,73 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, cuerpo) => {
 
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
+// ───────────────────────────────────────────── KPIs, reporte y panel del colaborador (reunión 15 oct)
+
+async function kpisDb(ctx: Ctx, s: FilaServicio): Promise<Kpi[]> {
+  const etapas = await etapasDelServicio(ctx, s, PERIODO_ACTUAL());
+  const reuniones = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM reunion WHERE servicio_contratado_id = $1 AND estado = 'REALIZADA'", [s.id])).rows[0].n;
+  const entregables = (await ctx.c.query<{ rebotes: number; etapa_nombre: string | null; enviadas: number }>(
+    `SELECT e.rebotes, ep.nombre AS etapa_nombre, (SELECT count(*)::int FROM version_entregable v WHERE v.entregable_id = e.id AND v.enviada_en IS NOT NULL) AS enviadas
+     FROM entregable e LEFT JOIN etapa_proyecto ep ON ep.id = e.etapa_id WHERE e.servicio_contratado_id = $1`, [s.id],
+  )).rows;
+  return calcularKpis({
+    codigo: s.codigo, hoy: HOY_LIMA(), feriados: ctx.feriados,
+    etapas: etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin), reunionClave: e.reunion_clave })),
+    reunionesRealizadas: reuniones,
+    entregables: entregables.map((e) => ({ rebotes: e.rebotes, etapaNombre: e.etapa_nombre, versionesEnviadas: e.enviadas })),
+  });
+}
+
+ruta("GET", "/servicios-contratados/:id/kpis", async (ctx, p) => {
+  soloEquipo(ctx);
+  return { datos: await kpisDb(ctx, await buscarServicio(ctx, p.id)) };
+});
+
+ruta("GET", "/servicios-contratados/:id/reporte", async (ctx, p) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const perfil = await perfilVista(ctx, s, PERIODO_ACTUAL());
+  const reqs = (await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.servicio_contratado_id = $1 ORDER BY r.fecha_limite`, [s.id])).rows.map((r) => reqVista(r, ctx.feriados));
+  const hojas = hojasReporte(perfil, s.cliente_nombre, await kpisDb(ctx, s), reqs, HOY_LIMA());
+  return new Response(libroXlsx(hojas), { headers: { "content-type": TIPO_XLSX, "content-disposition": `attachment; filename="${archivoReporte(perfil.titulo)}"` } });
+});
+
+ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const quien = q.get("usuarioId") ?? ctx.u.usuarioId;
+  const persona = (await ctx.c.query<{ id: string; nombre: string; cargo: string | null; email: string }>(
+    "SELECT id, nombre, cargo, email::text FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [esUuid(quien) ? quien : null],
+  )).rows[0];
+  if (!persona) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const hoy = HOY_LIMA();
+  const tareas = ordenarTareas((await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.responsable_id = $1 AND t.estado <> 'HECHA'`, [quien])).rows.map(tareaVistaDb));
+  const suyos = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.responsable_id = $1 ORDER BY c.nombre, s.orden`, [quien])).rows;
+  const activos = suyos.filter((s) => s.estado !== "FINALIZADO");
+  const pipeline = new Map<string, S<"ColumnaProyecto">>();
+  const proyectos: S<"PanelColaborador">["proyectos"] = [];
+  let conRetraso = 0;
+  for (const s of activos) {
+    const etapas = await etapasDelServicio(ctx, s, PERIODO_ACTUAL());
+    const avance = calcularAvance(etapas.map((e) => ({ orden: e.orden, nombre: e.nombre, avancePct: e.avance_pct, estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) })), hoy, s.modalidad === "MENSUAL" ? PERIODO_ACTUAL() : null);
+    const actual = etapas.find((e) => e.orden === avance.etapaActual?.orden);
+    const atrasados = (await ctx.c.query<{ fecha_limite: Date }>("SELECT fecha_limite FROM requerimiento WHERE servicio_contratado_id = $1 AND estado IN ('PENDIENTE', 'OBSERVADO')", [s.id])).rows
+      .filter((r) => diasAtraso(fechaIso(r.fecha_limite)!, hoy, ctx.feriados) > 0).length;
+    pipeline.set(s.id, columnaProyecto({ estado: s.estado, avance, esperaCliente: !!actual?.espera_cliente, requerimientosAtrasados: atrasados }));
+    if (etapas.some((e) => etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy))) conRetraso++;
+    proyectos.push({ servicioContratadoId: s.id, titulo: tituloServicio(s.nombre, s.marca ?? s.cliente_nombre), clienteNombre: s.cliente_nombre, avance, columna: pipeline.get(s.id)!, kpis: await kpisDb(ctx, s) });
+  }
+  const rebotes = activos.length
+    ? (await ctx.c.query<{ n: number }>("SELECT coalesce(sum(rebotes), 0)::int AS n FROM entregable WHERE servicio_contratado_id = ANY($1::uuid[])", [`{${activos.map((s) => s.id).join(",")}}`])).rows[0].n
+    : 0;
+  return {
+    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, tareas, proyectos,
+    resumen: {
+      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length,
+      proyectosCerrados: suyos.length - activos.length, rebotes, conRetraso,
+    },
+  } satisfies S<"PanelColaborador">;
+});
+
 ruta("GET", "/panel/equipo", async (ctx) => {
   soloEquipo(ctx);
   const { rows } = await ctx.c.query<{ id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null }>(
@@ -1692,7 +1767,7 @@ ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
       servicioContratadoId: sc.id, clienteId: sc.cliente_id, clienteNombre: sc.cliente_nombre, titulo: tituloServicio(sc.nombre, sc.marca ?? sc.cliente_nombre),
       codigo: sc.codigo, estado: sc.estado,
       columna: columnaProyecto({ estado: sc.estado, avance, esperaCliente: !!actual?.espera_cliente, requerimientosAtrasados: atrasados }),
-      avance, responsable: am.get(sc.cliente_id) ?? null,
+      avance, responsable: sc.responsable_id ? { id: sc.responsable_id, nombre: sc.resp_nombre ?? "" } : am.get(sc.cliente_id) ?? null,
       tareas: { abiertas: abiertas.length, vencidas: abiertas.filter((t) => tareaVencida({ estado: t.estado, fechaLimite: fechaIso(t.fecha_limite) }, hoy)).length },
       requerimientosPendientes: suyos.length, requerimientosAtrasados: atrasados,
     });
@@ -2099,8 +2174,8 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   if (!esUuid(p.etapa)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
   const e = (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2 FOR UPDATE", [p.etapa, s.id])).rows[0];
   if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null };
-  const errores: { campo: string; mensaje: string }[] = [];
+  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null };
+  const errores: { campo: string; mensaje: string }[] = validarAtraso(b);
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
@@ -2119,8 +2194,10 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   } else if (b.fechaFin !== undefined) fin = b.fechaFin;
   await ctx.c.query(
     `UPDATE etapa_proyecto SET estado = $2, fecha_fin = $3, fecha_inicio = coalesce($4, fecha_inicio), fecha_estimada = coalesce($5, fecha_estimada),
-            actualizado_por = $6, actualizado_en = now() WHERE id = $1`,
-    [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId],
+            actualizado_por = $6, actualizado_en = now(),
+            causa_atraso = CASE WHEN $7::boolean THEN $8::causa_atraso ELSE causa_atraso END,
+            justificacion_atraso = CASE WHEN $9::boolean THEN $10 ELSE justificacion_atraso END WHERE id = $1`,
+    [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId, b.causaAtraso !== undefined, b.causaAtraso ?? null, b.justificacionAtraso !== undefined, b.justificacionAtraso?.trim() || null],
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
@@ -2192,8 +2269,10 @@ async function aplicarAtrasoDb(ctx: Ctx, r: FilaReq, hasta: string, dias: Readon
     "SELECT id, fecha_inicio, fecha_estimada FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND estado <> 'COMPLETADO' FOR UPDATE", [r.servicio_contratado_id],
   )).rows;
   for (const e of etapas) {
-    await ctx.c.query("UPDATE etapa_proyecto SET fecha_inicio = $2, fecha_estimada = $3, actualizado_en = now() WHERE id = $1", [
-      e.id, correrFecha(fechaIso(e.fecha_inicio), delta, dias), correrFecha(fechaIso(e.fecha_estimada), delta, dias),
+    await ctx.c.query(
+      `UPDATE etapa_proyecto SET fecha_inicio = $2, fecha_estimada = $3, actualizado_en = now(),
+              dias_corridos_cliente = dias_corridos_cliente + $4, causa_atraso = coalesce(causa_atraso, 'CLIENTE') WHERE id = $1`, [
+      e.id, correrFecha(fechaIso(e.fecha_inicio), delta, dias), correrFecha(fechaIso(e.fecha_estimada), delta, dias), delta,
     ]);
   }
   await ctx.c.query("UPDATE requerimiento SET dias_corridos = dias_corridos + $2 WHERE id = $1", [r.id, delta]);
@@ -2517,6 +2596,7 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
       const ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
       ctx.feriados = await noHabilesDb(ctx);
       const resultado = await encontrada.fn(ctx, encontrada.params!, url.searchParams, cuerpo);
+      if (resultado instanceof Response) return resultado;
       let status = 200;
       let datos = resultado;
       if (resultado && typeof resultado === "object" && !Array.isArray(resultado) && "__status" in resultado) {

@@ -1159,6 +1159,13 @@ a.avatar:hover {
   text-align: center;
 }
 
+/* Causa del atraso de una etapa (interna). */
+.causa-atraso {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
 /* Reunión clave de cada etapa (reunión 15 oct). */
 .hito-reunion {
   display: flex;

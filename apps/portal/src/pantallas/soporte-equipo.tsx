@@ -490,7 +490,7 @@ function Panel() {
       <Cabecera
         antetitulo="Equipo Inoo · Visión de agencia"
         titulo="Panel general"
-        bajada="Todas las cuentas, sus pendientes y el consumo de IA en un solo lugar."
+        bajada={`${r.clientesActivos} cuentas activas: cómo van sus proyectos, lo que nos deben y el consumo de IA.`}
         accion={
           <button className="boton" onClick={exportar}>
             <LuDownload size={18} /> Exportar resumen
@@ -498,15 +498,15 @@ function Panel() {
         }
       />
       <div className="grid-4">
+        <Enlace a="/equipo/proyectos" className="tarjeta kpi" style={{ color: "inherit", textDecoration: "none" }}>
+          <div className="kpi-cab">Proyectos con retraso</div>
+          <div className="kpi-valor">{r.proyectosConRetraso ?? 0}</div>
+          <div className="kpi-pie">{r.retrasoPorCliente?.length ? r.retrasoPorCliente.map((a) => `${a.proyectos} de ${a.clienteNombre}`).join(" · ") : "Todos al día"}</div>
+        </Enlace>
         <div className="tarjeta kpi">
-          <div className="kpi-cab">Clientes activos</div>
-          <div className="kpi-valor">{r.clientesActivos}</div>
-          <div className="kpi-pie">Todas las cuentas de la agencia</div>
-        </div>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Piezas atrasadas</div>
-          <div className="kpi-valor">{r.piezasAtrasadas}</div>
-          <div className="kpi-pie">{r.atrasadasPorCliente?.map((a) => `${a.atrasadas} de ${a.clienteNombre?.split(" ")[0] === "Luma" ? "Luma" : a.clienteNombre}`).join(" · ")}</div>
+          <div className="kpi-cab">Requerimientos atrasados</div>
+          <div className="kpi-valor">{r.requerimientosAtrasados ?? 0}</div>
+          <div className="kpi-pie">Lo que los clientes nos deben</div>
         </div>
         <div className="tarjeta kpi kpi--destacado">
           <div className="kpi-cab">Aprobaciones pendientes</div>

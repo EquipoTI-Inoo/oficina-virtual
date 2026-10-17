@@ -14,6 +14,9 @@ import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
+import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
+import { archivoReporte, hojasReporte } from "../dominio/reporte";
+import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
@@ -449,9 +452,11 @@ function etapasDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
   const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
   return E.etapas.filter((e) => e.servicioContratadoId === s.id && (mensual ? e.periodo === periodo : e.periodo === null)).sort((a, b) => a.orden - b.orden);
 }
-const etapaVista = (e: D.EtapaDemo): S<"EtapaProyecto"> => ({
+/** La causa y la justificación del atraso son internas: solo las ve el equipo. */
+const etapaVista = (e: D.EtapaDemo, equipo = false): S<"EtapaProyecto"> => ({
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: null, periodo: e.periodo, avancePct: e.avancePct, estado: e.estado, esperaCliente: e.esperaCliente,
   reunionClave: e.reunionClave ?? null, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: e.fechaFin, atrasada: etapaAtrasada(e, D.HOY),
+  ...(equipo ? { causaAtraso: e.causaAtraso ?? null, justificacionAtraso: e.justificacionAtraso ?? null, diasCorridosCliente: e.diasCorridosCliente ?? 0 } : {}),
 });
 function avanceDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
   const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
@@ -1142,6 +1147,8 @@ function aplicarAtraso(r: D.RequerimientoDemo, hasta: string) {
   for (const e of E.etapas.filter((x) => x.servicioContratadoId === r.servicioContratadoId && x.estado !== "COMPLETADO")) {
     e.fechaInicio = correrFecha(e.fechaInicio, delta, dias);
     e.fechaEstimada = correrFecha(e.fechaEstimada, delta, dias);
+    e.diasCorridosCliente = (e.diasCorridosCliente ?? 0) + delta;
+    e.causaAtraso ??= "CLIENTE";
   }
   r.diasCorridos += delta;
   return delta;
@@ -1271,7 +1278,7 @@ ruta("GET", "/clientes/:id/reportes/informe", (ctx, p) => {
   return { url: "/muestras/informe-demo.pdf", metodo: "GET", expiraEn: new Date(Date.now() + 900_000).toISOString() };
 });
 /** Avance de un servicio: etapas de su plantilla (o del mes) e ítems sincronizados de InooWork si los hay. */
-function avanceServicio(s: D.ServicioContratadoDemo): S<"AvanceServicio"> {
+function avanceServicio(s: D.ServicioContratadoDemo, equipo = false): S<"AvanceServicio"> {
   const v = servicioVista(s);
   const a = v.avance;
   return {
@@ -1284,7 +1291,7 @@ function avanceServicio(s: D.ServicioContratadoDemo): S<"AvanceServicio"> {
     estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
     progreso: v.progreso,
     avance: a,
-    etapas: etapasDe(s).map(etapaVista),
+    etapas: etapasDe(s).map((e) => etapaVista(e, equipo)),
     hitos: E.hitosInooWork[s.id] ?? [],
     siguientePaso: s.siguientePaso ? { texto: `Siguiente paso: ${s.siguientePaso}`, responsable: persona(E.usuarios[2].id)! } : null,
     sincronizadoEn: E.sincronizadoEn[s.id] ?? "2026-10-06T14:55:00Z",
@@ -1298,7 +1305,7 @@ ruta("GET", "/clientes/:id/avance", (ctx, p) => {
     periodo: D.PERIODO,
     resumenMes: progreso(ps, cuotaMensual(c.id)),
     piezasPorRevisar: ps.filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).map((x) => ({ id: x.id, titulo: x.titulo, fechaProgramada: iso(x.fecha) })),
-    servicios: ordenados(serviciosDe(c.id)).map(avanceServicio),
+    servicios: ordenados(serviciosDe(c.id)).map((s) => avanceServicio(s, ctx.esEquipo)),
   };
   return r;
 });
@@ -1385,8 +1392,14 @@ ruta("GET", "/panel/clientes", (ctx, _p, q) => {
   let filas = E.clientes.map(filaPanel);
   const gasto = E.clientes.reduce((s, c) => s + gastoDe(c), 0);
   const limite = E.clientes.reduce((s, c) => s + c.limiteGastoIaUsd, 0);
+  const conRetraso = E.servicios.filter((s) => s.estado === "ACTIVO" && etapasDe(s).some((e) => etapaAtrasada(e, D.HOY)));
   const resumen: S<"ResumenAgencia"> = {
     clientesActivos: E.clientes.length,
+    proyectosConRetraso: conRetraso.length,
+    retrasoPorCliente: E.clientes
+      .map((c) => ({ clienteNombre: c.nombre, proyectos: conRetraso.filter((s) => s.clienteId === c.id).length }))
+      .filter((x) => x.proyectos),
+    requerimientosAtrasados: E.requerimientos.filter((r) => pendienteParaCliente(r.estado) && diasAtraso(r.fechaLimite, D.HOY, noHabiles()) > 0).length,
     piezasAtrasadas: filas.reduce((s, f) => s + f.atrasadas, 0),
     atrasadasPorCliente: filas.filter((f) => f.atrasadas).map((f) => ({ clienteNombre: f.cliente.nombre, atrasadas: f.atrasadas })),
     aprobacionesPendientes: filas.reduce((s, f) => s + f.porAprobar, 0),
@@ -1786,8 +1799,8 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   const s = E.servicios.find((x) => x.id === p.id);
   const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
   if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null }>(req);
-  const errores: { campo: string; mensaje: string }[] = [];
+  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null }>(req);
+  const errores: { campo: string; mensaje: string }[] = validarAtraso(b);
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
@@ -1802,8 +1815,10 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   } else if (b.fechaFin !== undefined) e.fechaFin = b.fechaFin;
   if (b.fechaInicio !== undefined) e.fechaInicio = b.fechaInicio;
   if (b.fechaEstimada !== undefined) e.fechaEstimada = b.fechaEstimada;
+  if (b.causaAtraso !== undefined) e.causaAtraso = b.causaAtraso;
+  if (b.justificacionAtraso !== undefined) e.justificacionAtraso = b.justificacionAtraso?.trim() || null;
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
-  return avanceServicio(s);
+  return avanceServicio(s, true);
 });
 
 /** Servicio contratado visible para quien llama (404 si no existe o es de otro cliente). */
@@ -1960,7 +1975,7 @@ function proyectoPipeline(s: D.ServicioContratadoDemo): S<"ProyectoPipeline"> {
   return {
     servicioContratadoId: s.id, clienteId: s.clienteId, clienteNombre: c.nombre, titulo: tituloDe(s), codigo: s.codigo as S<"CodigoServicio">, estado: s.estado,
     columna: columnaProyecto({ estado: s.estado, avance, esperaCliente: !!etapaActual?.esperaCliente, requerimientosAtrasados: atrasados }),
-    avance, responsable: persona(c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId),
+    avance, responsable: persona(s.responsableId ?? (c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId)),
     tareas: { abiertas: tareas.length, vencidas: tareas.filter((t) => tareaVencida(t, D.HOY)).length },
     requerimientosPendientes: reqs.length, requerimientosAtrasados: atrasados,
   };
@@ -2076,7 +2091,7 @@ ruta("POST", "/tareas/:id/comentarios", async (ctx, p, _q, req) => {
 
 function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<"PerfilProyecto"> {
   const cat = servicioDeCatalogo(s.codigo)!;
-  const av = avanceServicio(s);
+  const av = avanceServicio(s, ctx.esEquipo);
   const reuniones = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado !== "CANCELADA");
   const proximas = reuniones.filter((r) => r.estado === "PROGRAMADA").sort((a, b) => a.fecha.localeCompare(b.fecha));
   const pasadas = reuniones.filter((r) => r.estado === "REALIZADA").sort((a, b) => b.fecha.localeCompare(a.fecha));
@@ -2228,7 +2243,56 @@ ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {
   const s = E.servicios.find((x) => x.id === p.id);
   if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   accesoCliente(ctx, s.clienteId);
-  return avanceServicio(s);
+  return avanceServicio(s, ctx.esEquipo);
+});
+
+// ───────────────────────────────────────────── KPIs, reporte y panel del colaborador (reunión 15 oct)
+
+function kpisDe(s: D.ServicioContratadoDemo) {
+  return calcularKpis({
+    codigo: s.codigo, hoy: D.HOY, feriados: noHabiles(),
+    etapas: etapasDe(s).map((e) => ({ ...e, reunionClave: e.reunionClave ?? null })),
+    reunionesRealizadas: E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado === "REALIZADA").length,
+    entregables: E.entregables.filter((e) => e.servicioContratadoId === s.id).map((e) => ({
+      rebotes: e.rebotes, etapaNombre: E.etapas.find((x) => x.id === e.etapaId)?.nombre ?? null, versionesEnviadas: e.versiones.filter((v) => v.enviadaEn).length,
+    })),
+  });
+}
+
+ruta("GET", "/servicios-contratados/:id/kpis", (ctx, p) => {
+  soloEquipo(ctx);
+  return { datos: kpisDe(buscarServicio(ctx, p.id)) };
+});
+
+ruta("GET", "/servicios-contratados/:id/reporte", (ctx, p) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  const perfil = perfilVista(ctx, s, D.PERIODO);
+  const reqs = E.requerimientos.filter((r) => r.servicioContratadoId === s.id).map(requerimientoVista).sort((a, b) => a.fechaLimite.localeCompare(b.fechaLimite));
+  const hojas = hojasReporte(perfil, E.clientes.find((c) => c.id === s.clienteId)!.nombre, kpisDe(s), reqs, D.HOY.slice(0, 10));
+  return new Response(libroXlsx(hojas), { headers: { "content-type": TIPO_XLSX, "content-disposition": `attachment; filename="${archivoReporte(perfil.titulo)}"` } });
+});
+
+ruta("GET", "/panel/colaborador", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const quien = q.get("usuarioId") ?? ctx.usuario.id;
+  if (!esDelEquipo(quien)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const tareas = ordenarTareas(E.tareas.filter((t) => t.responsableId === quien && t.estado !== "HECHA")).map(tareaVista);
+  const suyos = E.servicios.filter((s) => s.responsableId === quien);
+  const activos = suyos.filter((s) => s.estado !== "FINALIZADO");
+  const proyectos = activos.map((s) => ({
+    servicioContratadoId: s.id, titulo: tituloDe(s), clienteNombre: E.clientes.find((c) => c.id === s.clienteId)!.nombre,
+    avance: avanceDe(s), columna: proyectoPipeline(s).columna, kpis: kpisDe(s),
+  }));
+  return {
+    persona: persona(quien)!, tareas, proyectos,
+    resumen: {
+      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length,
+      proyectosCerrados: suyos.length - activos.length,
+      rebotes: E.entregables.filter((e) => activos.some((s) => s.id === e.servicioContratadoId)).reduce((t, e) => t + e.rebotes, 0),
+      conRetraso: activos.filter((s) => etapasDe(s).some((e) => etapaAtrasada(e, D.HOY))).length,
+    },
+  } satisfies S<"PanelColaborador">;
 });
 
 // ───────────────────────────────────────────── piezas: metadatos, versiones manuales e historial

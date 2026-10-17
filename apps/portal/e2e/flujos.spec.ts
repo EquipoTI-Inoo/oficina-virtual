@@ -326,3 +326,18 @@ test("calendarios: el AM aprueba la propuesta del Jefe de Marketing", async ({ p
   await page.getByRole("button", { name: "Aprobar plan" }).click();
   await expect(page.getByText("Plan aprobado").first()).toBeVisible();
 });
+
+test("KPIs: mi panel, KPIs internos del proyecto y reporte en Excel", async ({ page }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/mi-panel");
+  await expect(page.getByRole("heading", { name: "Mi panel · Diego Castro" })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ }).click();
+  await expect(page.getByText("KPIs internos")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Avance vs plan")).toBeVisible();
+  await page.selectOption("[aria-label='Causa del atraso de Arquitectura y benchmark']", "INOO");
+  await expect(page.locator("[aria-label='Causa del atraso de Arquitectura y benchmark']")).toHaveValue("INOO");
+  const descarga = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Reporte en Excel" }).click();
+  expect((await descarga).suggestedFilename()).toBe("reporte-diseno-y-desarrollo-web-casa-oliva.xlsx");
+});

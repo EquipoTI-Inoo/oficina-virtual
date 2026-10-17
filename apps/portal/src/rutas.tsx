@@ -16,6 +16,7 @@ import { PantallaCuenta } from "./pantallas/cuenta";
 import { PantallaAvisosEquipo } from "./pantallas/avisos";
 import { PantallaProyectoEquipo } from "./pantallas/proyecto-equipo";
 import { PantallaPipeline } from "./pantallas/pipeline";
+import { PantallaMiPanel } from "./pantallas/mi-panel";
 import { PantallaEntregableCliente, PantallaEntregableEquipo } from "./pantallas/entregables";
 import {
   PantallaBandeja, PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
@@ -53,6 +54,7 @@ export const RUTAS: Ruta[] = [
   { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/equipo/plan", pantalla: PantallaPlanMes, figma: null, espacio: "equipo" },
   { patron: "/equipo/proyectos", pantalla: PantallaPipeline, figma: null, espacio: "equipo" },
+  { patron: "/equipo/mi-panel", pantalla: PantallaMiPanel, figma: null, espacio: "equipo" },
   { patron: "/entregables/documento/:id", pantalla: PantallaEntregableCliente, figma: null, espacio: "cliente" },
   { patron: "/equipo/entregables/:id", pantalla: PantallaEntregableEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/proyectos/:id", pantalla: PantallaProyectoEquipo, figma: null, espacio: "equipo" },

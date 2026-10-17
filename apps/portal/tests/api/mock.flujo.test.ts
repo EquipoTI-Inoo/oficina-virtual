@@ -1,6 +1,8 @@
 /** Suites compartidas contra la API simulada (las mismas corren contra Postgres en db.test.ts). */
+import assert from "node:assert/strict";
+import { test } from "node:test";
 import { manejarSolicitud, reiniciarMock } from "../../src/mock/api";
-import { pruebasFlujoPiezas } from "./flujo-piezas";
+import { crearLlamar, DIEGO, pruebasFlujoPiezas } from "./flujo-piezas";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
@@ -8,6 +10,7 @@ import { pruebasProyectos } from "./flujo-proyectos";
 import { pruebasSinIa } from "./flujo-sin-ia";
 import { pruebasEntregables } from "./flujo-entregables";
 import { pruebasEstructura } from "./flujo-estructura";
+import { pruebasKpis } from "./flujo-kpis";
 import { HOY } from "../../src/mock/datos";
 
 const manejar = (req: Request) => manejarSolicitud(req);
@@ -21,3 +24,13 @@ pruebasProyectos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 1
 pruebasSinIa("API simulada", manejar, reiniciarMock);
 pruebasEntregables("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasEstructura("API simulada", manejar, reiniciarMock);
+pruebasKpis("API simulada", manejar, reiniciarMock);
+
+// El panel general (todavía solo en la API simulada) mira proyectos y requerimientos, no piezas (reunión 15 oct).
+test("panel general: proyectos con retraso y requerimientos atrasados", async () => {
+  reiniciarMock();
+  const r = (await crearLlamar(manejar)("GET", "/panel/clientes", DIEGO)).json.resumen;
+  assert.equal(r.proyectosConRetraso, 1, "la web de Casa Oliva pasó la fecha de su arquitectura");
+  assert.deepEqual(r.retrasoPorCliente, [{ clienteNombre: "Casa Oliva", proyectos: 1 }]);
+  assert.ok(r.requerimientosAtrasados >= 1);
+});

@@ -1324,6 +1324,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/kpis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** KPIs internos del proyecto (reunión 15 oct): cumplimiento de fechas, avance vs plan, rebotes, tiempo de implementación (CRM), reuniones vs óptimas y rondas de propuesta (branding) */
+        get: operations["kpisProyecto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/reporte": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Reporte del proyecto en Excel (reunión 15 oct): resumen y KPIs, etapas con atrasos y su causa, entregables y requerimientos */
+        get: operations["reporteProyecto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/colaborador": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Panel de una persona del equipo (reunión 15 oct): sus tareas, sus proyectos y sus KPIs */
+        get: operations["panelColaborador"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/panel/equipo": {
         parameters: {
             query?: never;
@@ -2224,6 +2279,49 @@ export interface components {
             /** Format: date-time */
             creadoEn: string;
         };
+        /** @enum {string} */
+        CausaAtraso: "CLIENTE" | "INOO" | "TERCERO";
+        /** @description KPI interno del proyecto (reunión 15 oct). El cliente no los ve. */
+        KpiProyecto: {
+            /** @enum {string} */
+            clave: "CUMPLIMIENTO_FECHAS" | "AVANCE_VS_PLAN" | "REBOTES" | "TIEMPO_IMPLEMENTACION" | "REUNIONES_VS_OPTIMAS" | "RONDAS_PROPUESTA";
+            /** @example Cumplimiento de fechas */
+            etiqueta: string;
+            /** @example 75 % */
+            valor: string;
+            numero: number | null;
+            /** @example 3 de 4 etapas a tiempo */
+            detalle: string;
+            /** @enum {string} */
+            nivel: "OK" | "ALERTA" | "CRITICO";
+        };
+        /** @description Lo de una persona del equipo (reunión 15 oct): sus tareas, sus proyectos y sus KPIs */
+        PanelColaborador: {
+            persona: components["schemas"]["PersonaMini"];
+            /** @description Abiertas, asignadas a la persona; vencidas primero */
+            tareas: components["schemas"]["Tarea"][];
+            /** @description Activos o en pausa donde es responsable */
+            proyectos: {
+                /** Format: uuid */
+                servicioContratadoId: string;
+                titulo: string;
+                clienteNombre: string;
+                avance: components["schemas"]["AvanceProyecto"];
+                columna: components["schemas"]["ColumnaProyecto"];
+                kpis: components["schemas"]["KpiProyecto"][];
+            }[];
+            resumen: {
+                tareasAbiertas: number;
+                tareasVencidas: number;
+                proyectosActivos: number;
+                /** @description Finalizados donde fue responsable */
+                proyectosCerrados: number;
+                /** @description Pedidos de cambio del cliente en los entregables de sus proyectos */
+                rebotes: number;
+                /** @description Proyectos suyos con una etapa atrasada */
+                conRetraso: number;
+            };
+        };
         ProyectoPipeline: {
             /** Format: uuid */
             servicioContratadoId: string;
@@ -2236,7 +2334,7 @@ export interface components {
             estado: components["schemas"]["EstadoServicio"];
             columna: components["schemas"]["ColumnaProyecto"];
             avance: components["schemas"]["AvanceProyecto"];
-            /** @description Quien lleva la cuenta */
+            /** @description Responsable del proyecto (o, si no tiene, quien lleva la cuenta) */
             responsable?: components["schemas"]["PersonaMini"] | null;
             tareas: {
                 abiertas: number;
@@ -2565,6 +2663,12 @@ export interface components {
             esperaCliente: boolean;
             /** @description La reunión que cierra la etapa */
             reunionClave?: string | null;
+            /** @description Solo equipo. CLIENTE se pone solo cuando un requerimiento atrasado corre el cronograma */
+            causaAtraso?: components["schemas"]["CausaAtraso"] | null;
+            /** @description Solo equipo */
+            justificacionAtraso?: string | null;
+            /** @description Solo equipo. Días hábiles que la etapa se corrió por atrasos del cliente */
+            diasCorridosCliente?: number;
             /** Format: date */
             fechaInicio?: string | null;
             /** Format: date */
@@ -3388,6 +3492,14 @@ export interface components {
         };
         ResumenAgencia: {
             clientesActivos: number;
+            /** @description Proyectos activos con una etapa atrasada (reunión 15 oct: el panel mira proyectos, no piezas) */
+            proyectosConRetraso?: number;
+            retrasoPorCliente?: {
+                clienteNombre?: string;
+                proyectos?: number;
+            }[];
+            /** @description Requerimientos abiertos que pasaron su fecha límite */
+            requerimientosAtrasados?: number;
             piezasAtrasadas: number;
             atrasadasPorCliente?: {
                 clienteNombre?: string;
@@ -5236,6 +5348,8 @@ export interface operations {
                     fechaEstimada?: string | null;
                     /** Format: date */
                     fechaFin?: string | null;
+                    causaAtraso?: components["schemas"]["CausaAtraso"] | null;
+                    justificacionAtraso?: string | null;
                 };
             };
         };
@@ -6550,6 +6664,81 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    kpisProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["KpiProyecto"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    reporteProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archivo .xlsx */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    panelColaborador: {
+        parameters: {
+            query?: {
+                /** @description Otra persona del equipo (por defecto, quien consulta) */
+                usuarioId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PanelColaborador"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     listarEquipo: {

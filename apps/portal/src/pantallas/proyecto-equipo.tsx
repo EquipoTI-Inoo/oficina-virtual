@@ -6,10 +6,12 @@
  * nuevos a partir de su plantilla.
  */
 import { useState } from "react";
-import { LuCalendarPlus, LuExternalLink, LuLock, LuPlus, LuTrash2, LuWallet } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuLock, LuPlus, LuTrash2, LuWallet } from "react-icons/lu";
 import { api, Enlace, fCorta, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
+import { CAUSAS_ATRASO, ETIQUETA_CAUSA } from "../dominio/kpis";
+import { archivoReporte } from "../dominio/reporte";
 import { TareasDelProyecto } from "./tareas";
 import { CMS, TAMANO } from "./proyecto";
 import { EntregablesEquipo } from "./entregables";
@@ -58,6 +60,19 @@ function ProyectoEquipo() {
     }
   };
   const textoPaso = (d.siguientePaso?.texto ?? "").replace(/^Siguiente paso: /, "") ?? "";
+  const descargarReporte = async () => {
+    try {
+      const xlsx = await api<Blob>(`/servicios-contratados/${d.servicioContratadoId}/reporte`);
+      const url = URL.createObjectURL(xlsx);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = archivoReporte(d.titulo);
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      avisar({ titulo: "No pudimos generar el reporte", texto: errorDe(e) });
+    }
+  };
 
   return (
     <>
@@ -74,6 +89,9 @@ function ProyectoEquipo() {
               <option value="PAUSADO">En pausa</option>
               <option value="FINALIZADO">Finalizado</option>
             </select>
+            <button className="boton boton--chico" onClick={() => void descargarReporte()}>
+              <LuFileSpreadsheet size={14} /> Reporte en Excel
+            </button>
             <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico">
               <LuExternalLink size={14} /> Ver como cliente
             </Enlace>
@@ -105,6 +123,7 @@ function ProyectoEquipo() {
                           {e.atrasada ? " · con retraso" : ""}
                         </span>
                         {e.reunionClave && <span className="texto-xs texto-primario" style={{ display: "block" }}>Reunión clave: {e.reunionClave}</span>}
+                        {(e.atrasada || e.causaAtraso) && <CausaAtraso etapa={e} alGuardar={(cuerpo) => moverEtapa(e, cuerpo)} />}
                       </td>
                       <td>
                         <select className="input" aria-label={`Estado de ${e.nombre}`} value={e.estado} onChange={(x) => void moverEtapa(e, { estado: x.target.value })}>
@@ -141,6 +160,7 @@ function ProyectoEquipo() {
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
         </div>
         <aside className="pila">
+          <KpisDelProyecto servicioId={d.servicioContratadoId} version={d.etapas.map((e) => e.estado + e.fechaEstimada).join()} />
           <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Métricas que ve el cliente</h3>
             {d.metricas.map((m) => (
@@ -155,6 +175,61 @@ function ProyectoEquipo() {
         </aside>
       </div>
     </>
+  );
+}
+
+const TONO_NIVEL: Record<S<"KpiProyecto">["nivel"], "verde" | "ambar" | "rojo"> = { OK: "verde", ALERTA: "ambar", CRITICO: "rojo" };
+
+/** KPIs internos (reunión 15 oct): miden cómo trabaja Inoo. El cliente no los ve. */
+export function KpisDelProyecto({ servicioId, version = "" }: { servicioId: string; version?: string }) {
+  const { datos } = useConsulta<{ datos: S<"KpiProyecto">[] }>(`/servicios-contratados/${servicioId}/kpis?v=${encodeURIComponent(version)}`);
+  return (
+    <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>
+        KPIs internos <span className="texto-xs texto-muted">· <LuLock size={11} /> el cliente no los ve</span>
+      </h3>
+      {!datos ? (
+        <Cargando />
+      ) : (
+        datos.datos.map((k) => (
+          <div key={k.clave} style={{ display: "grid", gap: 2 }}>
+            <div className="fila entre texto-sm">
+              <span className="texto-muted">{k.etiqueta}</span>
+              <Etiqueta tono={TONO_NIVEL[k.nivel]}>{k.valor}</Etiqueta>
+            </div>
+            <span className="texto-xs texto-muted">{k.detalle}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** Por qué se atrasó la etapa (reunión 15 oct). CLIENTE se pone solo cuando un requerimiento atrasado corre el cronograma. */
+function CausaAtraso({ etapa: e, alGuardar }: { etapa: S<"EtapaProyecto">; alGuardar: (cuerpo: Record<string, unknown>) => Promise<void> }) {
+  const [texto, setTexto] = useState(e.justificacionAtraso ?? "");
+  return (
+    <span className="causa-atraso">
+      {!!e.diasCorridosCliente && (
+        <span className="texto-xs texto-muted">
+          Se corrió {e.diasCorridosCliente} {e.diasCorridosCliente === 1 ? "día" : "días"} por el cliente
+        </span>
+      )}
+      <span className="fila" style={{ gap: 6 }}>
+        <select className="input" aria-label={`Causa del atraso de ${e.nombre}`} value={e.causaAtraso ?? ""} style={{ width: 120 }} onChange={(x) => void alGuardar({ causaAtraso: x.target.value || null })}>
+          <option value="">¿Causa?</option>
+          {CAUSAS_ATRASO.map((c) => (
+            <option key={c} value={c}>
+              {ETIQUETA_CAUSA[c]}
+            </option>
+          ))}
+        </select>
+        <span className="entrada" style={{ flex: 1 }}>
+          <input aria-label={`Justificación del atraso de ${e.nombre}`} placeholder="Justificación (interna)" value={texto} onChange={(x) => setTexto(x.target.value)}
+            onBlur={() => texto !== (e.justificacionAtraso ?? "") && void alGuardar({ justificacionAtraso: texto || null })} />
+        </span>
+      </span>
+    </span>
   );
 }
 

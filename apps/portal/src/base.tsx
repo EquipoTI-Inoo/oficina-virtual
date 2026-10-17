@@ -112,7 +112,7 @@ export async function api<T = unknown>(
     }
     throw new ProblemaApi(res.status, p.codigo ?? "ERROR", p.title ?? "No pudimos completar la acción", p.detail, p.errores ?? []);
   }
-  return (tipo.includes("json") ? res.json() : res.text()) as Promise<T>;
+  return (tipo.includes("json") ? res.json() : tipo.startsWith("text/") ? res.text() : res.blob()) as Promise<T>;
 }
 
 export function useConsulta<T>(camino: string | null) {

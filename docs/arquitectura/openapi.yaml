@@ -1107,6 +1107,8 @@ paths:
                 fechaInicio: { type: [string, 'null'], format: date }
                 fechaEstimada: { type: [string, 'null'], format: date }
                 fechaFin: { type: [string, 'null'], format: date }
+                causaAtraso: { oneOf: [ { $ref: '#/components/schemas/CausaAtraso' }, { type: 'null' } ] }
+                justificacionAtraso: { type: [string, 'null'], maxLength: 500 }
       responses:
         '200':
           description: OK
@@ -2012,6 +2014,61 @@ paths:
                   columnas: { type: array, items: { type: object, required: [clave, titulo], properties: { clave: { $ref: '#/components/schemas/ColumnaProyecto' }, titulo: { type: string } } } }
                   datos: { type: array, items: { $ref: '#/components/schemas/ProyectoPipeline' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /servicios-contratados/{servicioContratadoId}/kpis:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: kpisProyecto
+      summary: 'KPIs internos del proyecto (reunión 15 oct): cumplimiento de fechas, avance vs plan, rebotes, tiempo de implementación (CRM), reuniones vs óptimas y rondas de propuesta (branding)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/KpiProyecto' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /servicios-contratados/{servicioContratadoId}/reporte:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: reporteProyecto
+      summary: 'Reporte del proyecto en Excel (reunión 15 oct): resumen y KPIs, etapas con atrasos y su causa, entregables y requerimientos'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: Archivo .xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /panel/colaborador:
+    get:
+      tags: [Panel interno]
+      operationId: panelColaborador
+      summary: 'Panel de una persona del equipo (reunión 15 oct): sus tareas, sus proyectos y sus KPIs'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: usuarioId, in: query, description: 'Otra persona del equipo (por defecto, quien consulta)', schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PanelColaborador' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /panel/equipo:
     get:
@@ -3062,6 +3119,50 @@ components:
         texto: { type: string }
         menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
         creadoEn: { type: string, format: date-time }
+    CausaAtraso:
+      type: string
+      enum: [CLIENTE, INOO, TERCERO]
+    KpiProyecto:
+      type: object
+      description: 'KPI interno del proyecto (reunión 15 oct). El cliente no los ve.'
+      required: [clave, etiqueta, valor, numero, detalle, nivel]
+      properties:
+        clave: { type: string, enum: [CUMPLIMIENTO_FECHAS, AVANCE_VS_PLAN, REBOTES, TIEMPO_IMPLEMENTACION, REUNIONES_VS_OPTIMAS, RONDAS_PROPUESTA] }
+        etiqueta: { type: string, examples: [Cumplimiento de fechas] }
+        valor: { type: string, examples: ['75 %'] }
+        numero: { type: [number, 'null'] }
+        detalle: { type: string, examples: [3 de 4 etapas a tiempo] }
+        nivel: { type: string, enum: [OK, ALERTA, CRITICO] }
+    PanelColaborador:
+      type: object
+      description: 'Lo de una persona del equipo (reunión 15 oct): sus tareas, sus proyectos y sus KPIs'
+      required: [persona, tareas, proyectos, resumen]
+      properties:
+        persona: { $ref: '#/components/schemas/PersonaMini' }
+        tareas: { type: array, description: 'Abiertas, asignadas a la persona; vencidas primero', items: { $ref: '#/components/schemas/Tarea' } }
+        proyectos:
+          type: array
+          description: 'Activos o en pausa donde es responsable'
+          items:
+            type: object
+            required: [servicioContratadoId, titulo, clienteNombre, avance, columna, kpis]
+            properties:
+              servicioContratadoId: { type: string, format: uuid }
+              titulo: { type: string }
+              clienteNombre: { type: string }
+              avance: { $ref: '#/components/schemas/AvanceProyecto' }
+              columna: { $ref: '#/components/schemas/ColumnaProyecto' }
+              kpis: { type: array, items: { $ref: '#/components/schemas/KpiProyecto' } }
+        resumen:
+          type: object
+          required: [tareasAbiertas, tareasVencidas, proyectosActivos, proyectosCerrados, rebotes, conRetraso]
+          properties:
+            tareasAbiertas: { type: integer }
+            tareasVencidas: { type: integer }
+            proyectosActivos: { type: integer }
+            proyectosCerrados: { type: integer, description: 'Finalizados donde fue responsable' }
+            rebotes: { type: integer, description: 'Pedidos de cambio del cliente en los entregables de sus proyectos' }
+            conRetraso: { type: integer, description: 'Proyectos suyos con una etapa atrasada' }
     ProyectoPipeline:
       type: object
       required: [servicioContratadoId, clienteId, clienteNombre, titulo, codigo, estado, columna, avance, tareas, requerimientosPendientes, requerimientosAtrasados]
@@ -3074,7 +3175,7 @@ components:
         estado: { $ref: '#/components/schemas/EstadoServicio' }
         columna: { $ref: '#/components/schemas/ColumnaProyecto' }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
-        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: Quien lleva la cuenta }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ], description: 'Responsable del proyecto (o, si no tiene, quien lleva la cuenta)' }
         tareas:
           type: object
           required: [abiertas, vencidas]
@@ -3322,6 +3423,9 @@ components:
         estado: { $ref: '#/components/schemas/EstadoHito' }
         esperaCliente: { type: boolean }
         reunionClave: { type: [string, 'null'], description: 'La reunión que cierra la etapa' }
+        causaAtraso: { oneOf: [ { $ref: '#/components/schemas/CausaAtraso' }, { type: 'null' } ], description: 'Solo equipo. CLIENTE se pone solo cuando un requerimiento atrasado corre el cronograma' }
+        justificacionAtraso: { type: [string, 'null'], description: 'Solo equipo' }
+        diasCorridosCliente: { type: integer, description: 'Solo equipo. Días hábiles que la etapa se corrió por atrasos del cliente' }
         fechaInicio: { type: [string, 'null'], format: date }
         fechaEstimada: { type: [string, 'null'], format: date }
         fechaFin: { type: [string, 'null'], format: date }
@@ -4063,6 +4167,9 @@ components:
       required: [clientesActivos, piezasAtrasadas, aprobacionesPendientes, gastoIaUsd, limiteIaUsd]
       properties:
         clientesActivos: { type: integer }
+        proyectosConRetraso: { type: integer, description: 'Proyectos activos con una etapa atrasada (reunión 15 oct: el panel mira proyectos, no piezas)' }
+        retrasoPorCliente: { type: array, items: { type: object, properties: { clienteNombre: { type: string }, proyectos: { type: integer } } } }
+        requerimientosAtrasados: { type: integer, description: 'Requerimientos abiertos que pasaron su fecha límite' }
         piezasAtrasadas: { type: integer }
         atrasadasPorCliente: { type: array, items: { type: object, properties: { clienteNombre: { type: string }, atrasadas: { type: integer } } } }
         aprobacionesPendientes: { type: integer }

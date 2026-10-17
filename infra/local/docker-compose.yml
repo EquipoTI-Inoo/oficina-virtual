@@ -36,6 +36,7 @@ services:
       - ../../database/migraciones/0015_ia_solo_crm.sql:/docker-entrypoint-initdb.d/01o_ia_solo_crm.sql:ro
       - ../../database/migraciones/0016_entregables.sql:/docker-entrypoint-initdb.d/01p_entregables.sql:ro
       - ../../database/migraciones/0017_estructura_servicios.sql:/docker-entrypoint-initdb.d/01q_estructura_servicios.sql:ro
+      - ../../database/migraciones/0018_kpis_atrasos.sql:/docker-entrypoint-initdb.d/01r_kpis_atrasos.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

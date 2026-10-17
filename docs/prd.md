@@ -248,6 +248,7 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 10 | La IA no se nota (salvo CRM) | Hecha |
 | 11 | Entregables genéricos con versiones, aprobación y rebotes | Hecha |
 | 12 | Estructura real de cada servicio: reunión clave, requerimientos al inicio, tamaño, personalizado, responsable, cierre de reuniones | Hecha |
+| 13 | KPIs internos, causa de los atrasos, reporte en Excel, panel del colaborador y panel general por proyectos | Hecha |
 
 **Pendientes:**
 - Responder tickets desde el panel.
@@ -420,6 +421,16 @@ Las metas son propuestas iniciales; se ajustan con los datos del piloto.
 | Requerimientos respondidos a tiempo por el cliente | ≥ 80 % | 2 |
 | Prototipos web aprobados por el cliente en ≤ 2 rondas | ≥ 70 % | 1–2 |
 | Piezas reutilizadas en paid media | ≥ 30 % de las aprobadas | 2 |
+
+**KPIs internos del proyecto (reunión 15 oct, fase 13).** Solo los ve el equipo. Miden cómo trabaja Inoo, no se muestran al cliente:
+- **Cumplimiento de fechas.** Etapas terminadas a tiempo.
+- **Avance vs plan.** El % real contra el % que el cronograma dice que ya debería tener.
+- **Rebotes.** Pedidos de cambio del cliente; alerta desde 3 en un mismo entregable.
+- **Tiempo de implementación (CRM).** Meta: 2 semanas.
+- **Reuniones vs óptimas.** Realizadas contra las reuniones clave de la plantilla.
+- **Rondas de propuesta (branding).** Alerta en la 2.ª ronda y crítica en la 4.ª.
+
+Cada etapa atrasada registra su causa (cliente, Inoo o un tercero) y una justificación interna. La causa «cliente» se pone sola cuando un requerimiento atrasado corre el cronograma, y se guardan los días que se corrió. El proyecto se baja en Excel con cuatro hojas: resumen y KPIs, etapas, entregables y requerimientos. Cada persona del equipo tiene «Mi panel», con sus tareas y sus proyectos. El panel general cuenta proyectos con retraso y requerimientos atrasados, en vez de piezas. Las metas y los umbrales son de relleno hasta que cada área los confirme.
 
 ## Riesgos y preguntas abiertas
 
