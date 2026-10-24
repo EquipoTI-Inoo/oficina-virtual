@@ -44,6 +44,7 @@ services:
       - ../../database/migraciones/0018_kpis_atrasos.sql:/docker-entrypoint-initdb.d/01r_kpis_atrasos.sql:ro
       - ../../database/migraciones/0019_soporte_consumo.sql:/docker-entrypoint-initdb.d/01s_soporte_consumo.sql:ro
       - ../../database/migraciones/0020_ia_cliente.sql:/docker-entrypoint-initdb.d/01t_ia_cliente.sql:ro
+      - ../../database/migraciones/0021_taller_web.sql:/docker-entrypoint-initdb.d/01u_taller_web.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

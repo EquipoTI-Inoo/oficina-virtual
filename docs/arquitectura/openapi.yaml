@@ -65,6 +65,8 @@ tags:
   - name: Panel interno
   - name: IA del cliente
     description: 'Fase 16a (17 oct): agentes de IA y Content AI que el cliente crea y usa por voluntad propia. Es la única sección donde el cliente ve IA y montos (consumo en soles, tarifas de relleno).'
+  - name: Taller web
+    description: 'Fase 19: flujo web con IA del equipo (benchmark, flujograma, prototipo en Stitch y demo). Solo equipo; al cliente le llegan el PDF y la demo como entregables, sin rastros de IA.'
   - name: Integraciones
 
 paths:
@@ -2644,6 +2646,207 @@ paths:
         '409': { description: 'ENTREGABLE_NO_ESPERA_REVISION', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /servicios-contratados/{servicioContratadoId}/taller-web:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Taller web]
+      operationId: obtenerTallerWeb
+      summary: 'Taller web del proyecto (solo equipo): benchmark, flujograma, prototipo y demos. Se crea al abrirlo, con las referencias del brief web'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TallerWeb' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { description: 'NO_ES_WEB: el proyecto no es de Diseño y desarrollo web', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+    put:
+      tags: [Taller web]
+      operationId: editarTallerWeb
+      summary: 'El equipo corrige referencias, puntajes, hallazgos, recomendaciones, flujograma y el prompt del prototipo. Las capturas se conservan por id de referencia'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TallerWebEdicion' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TallerWeb' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/capturas:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: capturarReferenciasWeb
+      summary: 'Capturas de escritorio y móvil de las referencias pedidas (o de las que no tienen). Con NAVEGADOR_MODO=simulado son bocetos de relleno'
+      x-roles: [EQUIPO]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                referenciaIds: { type: array, items: { type: string }, maxItems: 8 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '409': { description: 'TALLER_SIN_REFERENCIAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/analisis:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: analizarBenchmarkWeb
+      summary: 'Puntaje de 1 a 5 por dimensión de cada referencia (mirando sus capturas), hallazgos clave y recomendaciones UX. Reemplaza los puntajes anteriores'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '409': { description: 'TALLER_SIN_REFERENCIAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '502': { description: 'IA_NO_DISPONIBLE: el modelo no respondió', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/flujograma:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: generarFlujogramaWeb
+      summary: 'Propone el flujograma (navegación por niveles + secciones de cada página) desde el brief, el resumen de la reunión, el alcance y las recomendaciones'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '502': { description: 'IA_NO_DISPONIBLE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/documento:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: generarDocumentoWeb
+      summary: 'Arma el PDF «Benchmark y flujograma» y lo deja como entregable (o nueva versión) de la etapa Arquitectura y benchmark, EN_PREPARACION. Se envía al cliente con POST /entregables/{id}/enviar'
+      x-roles: [EQUIPO]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nota: { type: [string, 'null'], maxLength: 500 }
+      responses:
+        '201':
+          description: Entregable listo para revisar internamente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '409': { description: 'TALLER_INCOMPLETO (sin referencias analizadas ni flujograma) o ENTREGABLE_APROBADO', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/prototipo:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: generarPantallaPrototipo
+      summary: 'Genera una pantalla en Stitch desde el prompt (el guardado o el sugerido por el flujograma). El paso a Figma lo hace una persona. Sin STITCH_API_KEY, pantalla de relleno'
+      x-roles: [EQUIPO]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt: { type: string, maxLength: 4000, description: 'Sin prompt (o vacío), el estándar armado desde el flujograma' }
+                paginaId: { type: string, description: 'Página del flujograma a diseñar; por defecto, la de entrada' }
+                dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
+      responses:
+        '201':
+          description: Pantalla agregada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '409': { description: 'TALLER_SIN_FLUJOGRAMA o LIMITE_PANTALLAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '502': { description: 'STITCH_NO_DISPONIBLE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/demos:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: crearDemoWeb
+      summary: 'Publica la demo navegable (generada desde el flujograma o el HTML que pega el equipo, siempre sin rastros de IA) en un link que vence, noindex, con límite por IP y vistas contadas. La deja como entregable PROTOTIPO de la etapa Prototipo, EN_PREPARACION'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                origen: { type: string, enum: [GENERAR, HTML], default: GENERAR }
+                html: { type: string, description: 'Solo con origen HTML (hasta 1,5 MB)' }
+                diasVigencia: { type: integer, minimum: 1, maximum: 30, default: 7 }
+                nota: { type: [string, 'null'], maxLength: 500 }
+      responses:
+        '201':
+          description: Demo publicada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '409': { description: 'TALLER_SIN_FLUJOGRAMA o ENTREGABLE_APROBADO', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/demos/{demoId}:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: demoId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Taller web]
+      operationId: revocarDemoWeb
+      summary: 'Da de baja el link de una demo antes de que venza'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TallerWeb' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /publico/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } }
+    get:
+      tags: [Taller web]
+      operationId: archivoPublico
+      summary: 'Archivo generado por el taller (captura, pantalla, informe o demo) por su enlace con token. Sin sesión. Las demos también se sirven en /demo/{token}: noindex, CSP sandbox, límite por IP y vistas contadas'
+      security: []
+      responses:
+        '200': { description: El archivo, con su tipo }
+        '404': { description: No existe }
+        '410': { description: Venció o se dio de baja }
+        '429': { description: Demasiadas solicitudes desde esta IP }
+
   /tareas/{tareaId}:
     parameters:
       - { name: tareaId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -3399,6 +3602,181 @@ components:
         enviadoEn: { type: [string, 'null'], format: date-time }
         aprobadoEn: { type: [string, 'null'], format: date-time }
         creadoEn: { type: string, format: date-time }
+    DispositivoWeb: { type: string, enum: [ESCRITORIO, MOVIL] }
+    DimensionBenchmark:
+      type: string
+      enum: [IDENTIDAD_VISUAL, JERARQUIA_VISUAL, USABILIDAD_MOVIL, ARQUITECTURA_INFORMACION, PROPUESTA_VALOR, FICHA_PRODUCTO, FLUJO_COMPRA, CONVERSION]
+    PuntajeBenchmark:
+      type: object
+      required: [dimension, puntaje, comentario]
+      properties:
+        dimension: { $ref: '#/components/schemas/DimensionBenchmark' }
+        puntaje: { type: integer, minimum: 1, maximum: 5 }
+        comentario: { type: string, maxLength: 160, examples: [Menú claro, bien segmentado] }
+    ReferenciaWeb:
+      type: object
+      required: [id, nombre, url, origen, capturas, puntajes, resumen, analizadaEn, puntajeGlobal]
+      properties:
+        id: { type: string }
+        nombre: { type: string, examples: [Aesop] }
+        url: { type: string, examples: ['https://www.aesop.com/'] }
+        origen: { type: string, enum: [BRIEF, EQUIPO], description: 'BRIEF = salió de «Sitios que te gustan» del brief web' }
+        capturas:
+          type: array
+          items:
+            type: object
+            required: [tipo, url, simulada]
+            properties:
+              tipo: { $ref: '#/components/schemas/DispositivoWeb' }
+              url: { type: string, description: 'Enlace /api/v1/publico/{token} o data: URI (las de relleno)' }
+              simulada: { type: boolean }
+        puntajes: { type: array, items: { $ref: '#/components/schemas/PuntajeBenchmark' } }
+        resumen: { type: [string, 'null'] }
+        analizadaEn: { type: [string, 'null'], format: date-time }
+        puntajeGlobal: { type: [number, 'null'], description: Promedio de los puntajes con un decimal }
+    PuntoTaller:
+      type: object
+      required: [titulo, texto]
+      properties:
+        titulo: { type: string, maxLength: 80 }
+        texto: { type: string, maxLength: 400 }
+    PaginaFlujograma:
+      type: object
+      required: [id, titulo, descripcion, nivel, padreId, secciones]
+      properties:
+        id: { type: string, examples: [ficha-producto] }
+        titulo: { type: string }
+        descripcion: { type: string }
+        nivel: { type: integer, minimum: 0, maximum: 3, description: '0 = entrada (una sola), 1 = menú principal…' }
+        padreId: { type: [string, 'null'] }
+        secciones: { type: array, items: { type: string }, maxItems: 12, description: Flujograma estructural (de arriba hacia abajo) }
+    PantallaPrototipo:
+      type: object
+      required: [id, nombre, dispositivo, imagenUrl, conHtml, simulada, creadaEn]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
+        imagenUrl: { type: string }
+        conHtml: { type: boolean, description: Stitch devolvió también el HTML (se usa como guía de la demo) }
+        paginaId: { type: [string, 'null'], description: Página del flujograma que se diseñó }
+        prompt: { type: string, description: El prompt exacto que recibió Stitch }
+        simulada: { type: boolean }
+        creadaEn: { type: string, format: date-time }
+    DemoWeb:
+      type: object
+      required: [id, url, venceEn, vistas, revocada, simulada, creadaEn]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, examples: ['/demo/3f2a…'] }
+        venceEn: { type: string, format: date-time }
+        vistas: { type: integer }
+        revocada: { type: boolean }
+        simulada: { type: boolean }
+        creadaEn: { type: string, format: date-time }
+    ResumenEntregableTaller:
+      type: object
+      required: [id, titulo, estado, version, formato]
+      properties:
+        id: { type: string, format: uuid }
+        titulo: { type: string }
+        estado: { $ref: '#/components/schemas/EstadoEntregable' }
+        version: { type: integer }
+        formato: { $ref: '#/components/schemas/FormatoEntregable' }
+    TallerWeb:
+      type: object
+      description: 'Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables'
+      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, documento, demoEntregable, demos, modos, actualizadoEn]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        servicioTitulo: { type: string }
+        variante: { type: [string, 'null'] }
+        version: { type: integer, description: 'Para PUT: 409 VERSION_DESACTUALIZADA si otra persona guardó antes' }
+        insumos:
+          type: object
+          required: [marca, objetivo, publico, secciones, resumenReunion, alcance, cms, mensajeCentral, tono, paleta, tipografias]
+          properties:
+            marca: { type: string }
+            mensajeCentral: { type: [string, 'null'] }
+            tono: { type: [string, 'null'] }
+            paleta: { type: array, items: { type: string }, description: Del manual de marca del cliente }
+            tipografias: { type: array, items: { type: string } }
+            objetivo: { type: [string, 'null'] }
+            publico: { type: [string, 'null'] }
+            secciones: { type: array, items: { type: string } }
+            resumenReunion: { type: [string, 'null'] }
+            alcance: { type: [string, 'null'] }
+            cms: { type: [string, 'null'] }
+        dimensiones:
+          type: array
+          items:
+            type: object
+            required: [codigo, nombre, pregunta]
+            properties:
+              codigo: { $ref: '#/components/schemas/DimensionBenchmark' }
+              nombre: { type: string }
+              pregunta: { type: string }
+        referencias: { type: array, items: { $ref: '#/components/schemas/ReferenciaWeb' } }
+        hallazgos: { type: array, items: { $ref: '#/components/schemas/PuntoTaller' } }
+        recomendaciones: { type: array, items: { $ref: '#/components/schemas/PuntoTaller' } }
+        flujograma: { type: array, items: { $ref: '#/components/schemas/PaginaFlujograma' } }
+        prototipo:
+          type: object
+          required: [prompt, promptSugerido, proyectoStitch, pantallas]
+          properties:
+            prompt: { type: [string, 'null'] }
+            promptSugerido: { type: string, description: 'Prompt estándar (lo arma el código, no la IA) para la página de entrada en escritorio. El portal lo vuelve a armar en pantalla con dominio/taller-web.ts promptStitch() para la página y el dispositivo elegidos' }
+            proyectoStitch: { type: [string, 'null'] }
+            pantallas: { type: array, items: { $ref: '#/components/schemas/PantallaPrototipo' } }
+        documento: { oneOf: [ { $ref: '#/components/schemas/ResumenEntregableTaller' }, { type: 'null' } ], description: Entregable «Benchmark y flujograma» }
+        demoEntregable: { oneOf: [ { $ref: '#/components/schemas/ResumenEntregableTaller' }, { type: 'null' } ], description: Entregable PROTOTIPO con la última demo }
+        demos: { type: array, items: { $ref: '#/components/schemas/DemoWeb' } }
+        modos:
+          type: object
+          required: [ia, navegador, stitch]
+          description: 'SIMULADO = respuestas, capturas o pantallas de relleno (IA_MODO, NAVEGADOR_MODO, STITCH_API_KEY)'
+          properties:
+            ia: { type: string, enum: [REAL, SIMULADO] }
+            navegador: { type: string, enum: [REAL, SIMULADO] }
+            stitch: { type: string, enum: [REAL, SIMULADO] }
+        actualizadoEn: { type: string, format: date-time }
+    TallerWebEdicion:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer }
+        referencias:
+          type: array
+          maxItems: 8
+          items:
+            type: object
+            required: [url]
+            properties:
+              id: { type: [string, 'null'], description: Sin id = referencia nueva }
+              nombre: { type: string }
+              url: { type: string }
+              puntajes: { type: array, items: { $ref: '#/components/schemas/PuntajeBenchmark' } }
+              resumen: { type: [string, 'null'] }
+        hallazgos: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/PuntoTaller' } }
+        recomendaciones: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/PuntoTaller' } }
+        flujograma: { type: array, maxItems: 40, items: { $ref: '#/components/schemas/PaginaFlujograma' } }
+        promptPrototipo: { type: [string, 'null'], maxLength: 4000 }
+    ResultadoTallerWeb:
+      type: object
+      required: [taller, avisos, simulado]
+      properties:
+        taller: { $ref: '#/components/schemas/TallerWeb' }
+        avisos:
+          type: array
+          description: Lo que no salió (por ejemplo, un sitio que no abrió); el resto sí se guardó
+          items:
+            type: object
+            required: [mensaje]
+            properties:
+              referenciaId: { type: string }
+              mensaje: { type: string }
+        simulado: { type: boolean, description: El paso usó respuestas, capturas o pantallas de relleno }
+        entregableId: { type: string, format: uuid, description: 'documento y demos: el entregable creado o versionado' }
     EntregableDetalle:
       allOf:
         - { $ref: '#/components/schemas/Entregable' }

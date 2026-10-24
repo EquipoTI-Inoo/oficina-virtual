@@ -18,6 +18,10 @@ import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
 import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
 import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "../servidor/ia-cliente";
 import { ErrorIa } from "../servidor/ia-modelos";
+import { nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
+import {
+  dentroDelLimite, ErrorTaller, type EstadoTaller, ipDe, type OperacionTaller, operarTaller, type RepoTaller, respuestaPublica, type TipoArchivo, tokenDeUrl, urlArchivo,
+} from "../servidor/taller-web";
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
@@ -111,6 +115,15 @@ interface Estado {
   hitosInooWork: Record<string, S<"Hito">[]>;
   sincronizadoEn: Record<string, string>;
   outbox: S<"EventoSaliente">[];
+  /** Taller web por servicio contratado (fase 19). */
+  talleres: Record<string, EstadoTaller>;
+  /** Capturas, pantallas, informes y demos del taller, servidos por token en /publico/{token}. */
+  archivosGenerados: ArchivoGeneradoDemo[];
+}
+
+interface ArchivoGeneradoDemo {
+  id: string; token: string; servicioContratadoId: string; clienteId: string; tipo: TipoArchivo; mime: string; nombre: string; bytes: Uint8Array;
+  venceEn: string | null; vistas: number; revocadoEn: string | null; simulada: boolean; creadoEn: string;
 }
 
 /** Historial de estados que corresponde a los datos de prueba (envíos y decisiones de cada versión). */
@@ -174,6 +187,8 @@ function estadoInicial(): Estado {
     hitosInooWork: {},
     sincronizadoEn: {},
     outbox: [],
+    talleres: {},
+    archivosGenerados: [],
   };
 }
 
@@ -1978,6 +1993,150 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, req) => {
   return entregableDetalle(ctx, e);
 });
 
+// ───────────────────────────────────────────── taller web (fase 19): solo equipo
+
+/** El repositorio del taller sobre el estado en memoria (las reglas están en servidor/taller-web.ts). */
+function repoTaller(ctx: Ctx, s: D.ServicioContratadoDemo): RepoTaller {
+  const cliente = E.clientes.find((c) => c.id === s.clienteId)!;
+  const archivo = (a: { tipo: TipoArchivo; mime: string; nombre: string; bytes: Uint8Array; venceEn?: string | null }) => {
+    const token = nuevoToken();
+    const fila: ArchivoGeneradoDemo = {
+      id: crypto.randomUUID(), token, servicioContratadoId: s.id, clienteId: s.clienteId, tipo: a.tipo, mime: a.mime, nombre: a.nombre, bytes: a.bytes,
+      venceEn: a.venceEn ?? null, vistas: 0, revocadoEn: null, simulada: false, creadoEn: new Date().toISOString(),
+    };
+    E.archivosGenerados.push(fila);
+    return fila;
+  };
+  const resumen = (x: D.EntregableDemo) => ({ id: x.id, titulo: x.titulo, estado: x.estado, version: x.versionActual, formato: x.formato });
+  const demoVista = (a: ArchivoGeneradoDemo) => ({ id: a.id, url: urlArchivo("DEMO", a.token), venceEn: a.venceEn!, vistas: a.vistas, revocada: !!a.revocadoEn, simulada: a.simulada, creadaEn: a.creadoEn });
+  return {
+    servicio: { id: s.id, clienteId: s.clienteId, codigo: s.codigo, variante: s.variante, titulo: tituloDe(s) },
+    async insumos() {
+      const brief = E.requerimientos.filter((r) => r.servicioContratadoId === s.id && r.plantillaCodigo === "BRIEF_WEB").at(-1)?.respuestas ?? {};
+      const reuniones = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado === "REALIZADA" && r.resumen).sort((a, b) => a.fecha.localeCompare(b.fecha));
+      const ficha = E.fichas[s.clienteId];
+      const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      return {
+        marca: s.marca ?? cliente.nombre, variante: s.variante, objetivo: txt(brief.objetivo), publico: txt(brief.publico),
+        secciones: (txt(brief.secciones) ?? "").split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean),
+        resumenReunion: reuniones.map((r) => `${r.titulo}: ${r.resumen}`).join(" · ") || null, alcance: s.alcance ?? null, cms: txt(s.detalle.cms),
+        mensajeCentral: ficha?.marca.mensajeCentral ?? null, tono: ficha?.tono.descripcion ?? null,
+        paleta: (ficha?.marca as { paleta?: string[] } | undefined)?.paleta ?? [], tipografias: (ficha?.marca as { tipografias?: string[] } | undefined)?.tipografias ?? [],
+      };
+    },
+    async referenciasBrief() {
+      return referenciasDelBrief(E.requerimientos.filter((r) => r.servicioContratadoId === s.id && r.plantillaCodigo === "BRIEF_WEB").at(-1)?.respuestas);
+    },
+    async leer() {
+      return E.talleres[s.id] ? structuredClone(E.talleres[s.id]) : null;
+    },
+    async guardar(e) {
+      E.talleres[s.id] = structuredClone(e);
+    },
+    almacen: {
+      async guardar(a) {
+        const f = archivo(a);
+        return { id: f.id, url: urlArchivo(a.tipo, f.token) };
+      },
+      async leer(url) {
+        const token = tokenDeUrl(url);
+        const f = E.archivosGenerados.find((x) => x.token === token && x.servicioContratadoId === s.id);
+        return f ? { mime: f.mime, bytes: f.bytes } : null;
+      },
+    },
+    async demos() {
+      return E.archivosGenerados.filter((a) => a.servicioContratadoId === s.id && a.tipo === "DEMO").sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)).map(demoVista);
+    },
+    async guardarDemo(d) {
+      const f = archivo({ tipo: "DEMO", mime: "text/html; charset=utf-8", nombre: "demo.html", bytes: new TextEncoder().encode(d.html), venceEn: d.venceEn });
+      f.simulada = d.simulada;
+      return demoVista(f);
+    },
+    async revocarDemo(id) {
+      const f = E.archivosGenerados.find((a) => a.id === id && a.servicioContratadoId === s.id && a.tipo === "DEMO" && !a.revocadoEn);
+      if (f) f.revocadoEn = new Date().toISOString();
+      return !!f;
+    },
+    async entregable(id) {
+      const x = E.entregables.find((e) => e.id === id && e.servicioContratadoId === s.id);
+      return x ? resumen(x) : null;
+    },
+    async etapaId(nombre) {
+      return E.etapas.find((x) => x.servicioContratadoId === s.id && nombre.test(x.nombre))?.id ?? null;
+    },
+    async entregableReutilizable(etapaId, formato, titulo) {
+      const ok = (x: D.EntregableDemo) => x.servicioContratadoId === s.id && x.etapaId === etapaId && x.estado !== "APROBADO" && titulo.test(x.titulo);
+      return (E.entregables.find((x) => ok(x) && x.formato === formato) ?? E.entregables.find(ok))?.id ?? null;
+    },
+    async crearEntregable(n) {
+      const ahora = new Date().toISOString();
+      const id = nuevoId(29);
+      E.entregables.push({
+        id, servicioContratadoId: s.id, clienteId: s.clienteId, etapaId: n.etapaId, titulo: n.titulo, descripcion: n.descripcion, formato: n.formato, estado: "EN_PREPARACION",
+        versionActual: 1, versionCliente: null, rebotes: 0, aprobadoEn: null, creadoPorId: ctx.usuario.id, creadoEn: ahora,
+        versiones: [{ numero: 1, url: n.url, nombreArchivo: n.nombreArchivo, nota: n.nota, enviadaEn: null, enviadaPorId: null, creadoEn: ahora }], decisiones: [],
+      });
+      return id;
+    },
+    async nuevaVersion(id, v) {
+      const x = E.entregables.find((e) => e.id === id)!;
+      x.versionActual += 1;
+      x.versiones.push({ numero: x.versionActual, url: v.url, nombreArchivo: v.nombreArchivo, nota: v.nota, enviadaEn: null, enviadaPorId: null, creadoEn: new Date().toISOString() });
+      x.estado = "EN_PREPARACION";
+      x.formato = v.formato;
+    },
+  };
+}
+
+/** Cuerpo JSON opcional (los POST del taller pueden ir sin cuerpo). */
+async function cuerpoOpcional(req: Request): Promise<Record<string, unknown>> {
+  const t = await req.text();
+  if (!t.trim()) return {};
+  try {
+    const j = JSON.parse(t);
+    return j && typeof j === "object" && !Array.isArray(j) ? j : {};
+  } catch {
+    throw new ErrorApi(400, "VALIDACION", "El cuerpo debe ser JSON válido");
+  }
+}
+
+async function taller(ctx: Ctx, servicioId: string, op: OperacionTaller, req?: Request, demoId?: string) {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, servicioId);
+  const b = req ? await cuerpoOpcional(req) : {};
+  try {
+    return await operarTaller(repoTaller(ctx, s), op, b, demoId);
+  } catch (e) {
+    if (e instanceof ErrorTaller) throw new ErrorApi(e.status, e.codigo, e.titulo, e.detalle, e.errores);
+    throw e;
+  }
+}
+
+ruta("GET", "/servicios-contratados/:id/taller-web", (ctx, p) => taller(ctx, p.id, "VER"));
+ruta("PUT", "/servicios-contratados/:id/taller-web", (ctx, p, _q, req) => taller(ctx, p.id, "EDITAR", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/capturas", (ctx, p, _q, req) => taller(ctx, p.id, "CAPTURAS", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/analisis", (ctx, p, _q, req) => taller(ctx, p.id, "ANALISIS", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/flujograma", (ctx, p, _q, req) => taller(ctx, p.id, "FLUJOGRAMA", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/documento", (ctx, p, _q, req) => taller(ctx, p.id, "DOCUMENTO", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/prototipo", (ctx, p, _q, req) => taller(ctx, p.id, "PROTOTIPO", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/demos", (ctx, p, _q, req) => taller(ctx, p.id, "DEMO", req));
+ruta("DELETE", "/servicios-contratados/:id/taller-web/demos/:demoId", (ctx, p) => taller(ctx, p.id, "REVOCAR_DEMO", undefined, p.demoId));
+
+/**
+ * GET /publico/{token} y /demo/{token}: los archivos del taller por su enlace, sin sesión. Las demos
+ * cuentan vistas y tienen límite de solicitudes por IP.
+ */
+export function archivoPublicoMock(token: string, req: Request): Response {
+  const a = E.archivosGenerados.find((x) => x.token === token) ?? null;
+  if (a?.tipo === "DEMO") {
+    if (!dentroDelLimite(token, ipDe(req))) return new Response("Demasiadas solicitudes", { status: 429, headers: { "retry-after": "600", "x-robots-tag": "noindex, nofollow" } });
+    const r = respuestaPublica({ ...a, revocado: !!a.revocadoEn });
+    if (r.ok) a.vistas += 1;
+    return r;
+  }
+  return respuestaPublica(a ? { ...a, revocado: !!a.revocadoEn } : null);
+}
+
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
 const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo });
@@ -3180,6 +3339,8 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       return Response.json({ datos: E.outbox.filter((e) => e.id > desde) });
     }
     if (req.method === "POST" && camino === "/webhooks/inoowork") return await webhookInooWork(req);
+    const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;
+    if (publico) return archivoPublicoMock(publico[1], req);
     if (req.method === "PUT" && camino.startsWith("/__pruebas/subidas/")) {
       // Simula el PUT directo a S3 con URL prefirmada: no lleva el token del portal.
       return new Response(null, { status: 200 });

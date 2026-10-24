@@ -23,6 +23,7 @@ import { pruebasEstructura } from "./flujo-estructura";
 import { pruebasKpis } from "./flujo-kpis";
 import { pruebasConsumo } from "./flujo-consumo";
 import { pruebasIaCliente } from "./flujo-ia-cliente";
+import { pruebasTallerWeb } from "./flujo-taller-web";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -62,6 +63,7 @@ before(async () => {
   await db.exec(sql("migraciones/0018_kpis_atrasos.sql"));
   await db.exec(sql("migraciones/0019_soporte_consumo.sql"));
   await db.exec(sql("migraciones/0020_ia_cliente.sql"));
+  await db.exec(sql("migraciones/0021_taller_web.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -87,6 +89,7 @@ pruebasEstructura("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasKpis("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasConsumo("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasIaCliente("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasTallerWeb("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {

@@ -485,7 +485,11 @@ export const REQUERIMIENTOS_INICIALES: RequerimientoDemo[] = [
   req(3, uid(4, 2), "BRIEF_SOCIAL", "Brief de contenido de noviembre", "2026-10-06T14:00:00Z"),
   req(4, uid(4, 4), "BRIEF_WEB", "Brief de la tienda online", "2026-09-21T15:00:00Z", {
     estado: "APROBADO", enviadoEn: "2026-09-24T20:00:00Z", enviadoPorId: VALERIA, revisadoEn: "2026-09-25T14:00:00Z",
-    respuestas: { objetivo: "Vender en línea nuestra línea de cuidado facial.", publico: "Mujeres de 25 a 45 que cuidan su piel.", secciones: "Inicio\nTienda\nNosotros\nContacto", dominio: "Solo dominio" },
+    // Referencias de relleno (fase 19): sitios reales de cuidado de la piel para el benchmark.
+    respuestas: {
+      objetivo: "Vender en línea nuestra línea de cuidado facial.", publico: "Mujeres de 25 a 45 que cuidan su piel.", secciones: "Inicio\nTienda\nNosotros\nContacto",
+      referencias: "https://www.aesop.com — fichas de producto limpias\nhttps://www.rituals.com — rituales y tono sereno\nhttps://www.natura.com.pe", dominio: "Solo dominio",
+    },
   }),
   req(5, uid(4, 1), "ACCESOS_WEB", "Acceso a casaoliva.pe", "2026-09-01T15:00:00Z", {
     estado: "APROBADO", enviadoEn: "2026-09-02T18:00:00Z", enviadoPorId: VALERIA, revisadoEn: "2026-09-03T14:00:00Z", respuestas: { url: "https://casaoliva.pe", usuario: true },

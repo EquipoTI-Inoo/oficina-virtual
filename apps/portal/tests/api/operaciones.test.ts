@@ -359,7 +359,7 @@ test("el mock implementa exactamente las operaciones del contrato (método + rut
     if (m) enContrato.add(`${m[1].toUpperCase()} ${camino}`);
   }
   // El webhook de InooWork se atiende antes del enrutador (firma HMAC en lugar de token).
-  const implementadas = new Set([...RUTAS_IMPLEMENTADAS.map((r) => r.replace(/\{\w+\}/g, "{}")), "POST /webhooks/inoowork"]);
+  const implementadas = new Set([...RUTAS_IMPLEMENTADAS.map((r) => r.replace(/\{\w+\}/g, "{}")), "POST /webhooks/inoowork", "GET /publico/{}"]);
   assert.deepEqual([...enContrato].filter((o) => !implementadas.has(o)), [], "operaciones del contrato sin implementar");
   assert.deepEqual([...implementadas].filter((o) => !enContrato.has(o)), [], "rutas del mock que no están en el contrato");
 });

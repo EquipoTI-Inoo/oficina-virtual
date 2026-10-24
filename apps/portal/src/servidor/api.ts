@@ -17,7 +17,9 @@
  * PATCH /servicios-contratados/{id} · GET|POST /servicios-contratados/{id}/reuniones · PATCH /reuniones/{id} ·
  * proyecto como eje (GET /panel/proyectos, GET /panel/equipo, GET|POST /servicios-contratados/{id}/tareas,
  * PATCH|DELETE /tareas/{id}, GET|POST /tareas/{id}/comentarios) · entregables (GET|POST /servicios-contratados/{id}/entregables,
- * GET /clientes/{id}/entregables, GET /entregables/{id}, POST /entregables/{id}/versiones|enviar|decision).
+ * GET /clientes/{id}/entregables, GET /entregables/{id}, POST /entregables/{id}/versiones|enviar|decision) ·
+ * taller web (GET|PUT /servicios-contratados/{id}/taller-web, POST …/capturas|analisis|flujograma|documento|prototipo|demos,
+ * DELETE …/demos/{id}) y GET /publico/{token} (sin sesión).
  * El resto del contrato responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
@@ -36,6 +38,11 @@ import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../domi
 import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
 import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "./ia-cliente";
 import { ErrorIa } from "./ia-modelos";
+import { nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
+import {
+  type DemoGuardada, dentroDelLimite, ErrorTaller, type EstadoTaller, ipDe, type OperacionTaller, operarTaller, type RepoTaller, respuestaPublica,
+  type ResumenEntregable, type TipoArchivo, tokenDeUrl, urlArchivo,
+} from "./taller-web";
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
@@ -1673,6 +1680,184 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, cuerpo) => {
   return entregableDetalleDb(ctx, e.id);
 });
 
+// ───────────────────────────────────────────── taller web (fase 19): solo equipo
+// Las reglas viven en taller-web.ts (las comparte la API simulada); aquí solo se guarda en Postgres.
+
+const bytesDb = (v: unknown) => new Uint8Array(v as ArrayBufferLike);
+const isoZ = (v: unknown) => iso(v)!.replace(/\.\d{3}Z$/, "Z");
+
+function repoTallerDb(ctx: Ctx, s: FilaServicio): RepoTaller {
+  const autor = ctx.esServicio ? null : ctx.u.usuarioId;
+  const archivo = async (a: { tipo: TipoArchivo; mime: string; nombre: string; bytes: Uint8Array; venceEn?: string | null; simulado?: boolean }) => {
+    const token = nuevoToken();
+    const { rows } = await ctx.c.query<{ id: string; creado_en: Date }>(
+      `INSERT INTO archivo_generado (token, servicio_contratado_id, cliente_id, tipo, mime, nombre, contenido, vence_en, simulado, creado_por)
+       VALUES ($1, $2, $3, $4::tipo_archivo_generado, $5, $6, $7, $8, $9, $10) RETURNING id, creado_en`,
+      [token, s.id, s.cliente_id, a.tipo, a.mime, a.nombre, Buffer.from(a.bytes), a.venceEn ?? null, a.simulado ?? false, autor],
+    );
+    return { id: rows[0].id, token, creadoEn: rows[0].creado_en };
+  };
+  const brief = async () =>
+    (await ctx.c.query<{ respuestas: Record<string, unknown> }>(
+      "SELECT respuestas FROM requerimiento WHERE servicio_contratado_id = $1 AND plantilla_codigo = 'BRIEF_WEB' ORDER BY emitido_en DESC LIMIT 1",
+      [s.id],
+    )).rows[0]?.respuestas;
+  type FilaDemo = { id: string; token: string; vence_en: Date; vistas: number; revocado_en: Date | null; simulado: boolean; creado_en: Date };
+  const demoVista = (d: FilaDemo): DemoGuardada => ({ id: d.id, url: urlArchivo("DEMO", d.token), venceEn: isoZ(d.vence_en), vistas: d.vistas, revocada: !!d.revocado_en, simulada: d.simulado, creadaEn: isoZ(d.creado_en) });
+  const resumen = async (id: string): Promise<ResumenEntregable | null> =>
+    esUuid(id)
+      ? ((await ctx.c.query<ResumenEntregable>("SELECT id, titulo, estado::text AS estado, version_actual AS version, formato::text AS formato FROM entregable WHERE id = $1 AND servicio_contratado_id = $2", [id, s.id])).rows[0] ?? null)
+      : null;
+  return {
+    servicio: { id: s.id, clienteId: s.cliente_id, codigo: s.codigo, variante: s.variante, titulo: tituloServicio(s.nombre, s.marca ?? s.cliente_nombre) },
+    async insumos(): Promise<Insumos> {
+      const b = (await brief()) ?? {};
+      const reuniones = (await ctx.c.query<{ titulo: string; resumen: string }>(
+        "SELECT titulo, resumen FROM reunion WHERE servicio_contratado_id = $1 AND estado = 'REALIZADA' AND resumen IS NOT NULL ORDER BY fecha",
+        [s.id],
+      )).rows;
+      const ficha = (await ctx.c.query<{ mensaje: string | null; tono: string | null; paleta: unknown; tipografias: unknown }>(
+        "SELECT marca->>'mensajeCentral' AS mensaje, tono->>'descripcion' AS tono, marca->'paleta' AS paleta, marca->'tipografias' AS tipografias FROM cliente WHERE id = $1",
+        [s.cliente_id],
+      )).rows[0];
+      const lista = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+      const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      return {
+        marca: s.marca ?? s.cliente_nombre, variante: s.variante, objetivo: txt(b.objetivo), publico: txt(b.publico),
+        secciones: (txt(b.secciones) ?? "").split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean),
+        resumenReunion: reuniones.map((r) => `${r.titulo}: ${r.resumen}`).join(" · ") || null, alcance: s.alcance, cms: txt(s.detalle?.cms),
+        mensajeCentral: ficha?.mensaje ?? null, tono: ficha?.tono ?? null, paleta: lista(ficha?.paleta), tipografias: lista(ficha?.tipografias),
+      };
+    },
+    async referenciasBrief() {
+      return referenciasDelBrief(await brief());
+    },
+    async leer() {
+      const t = (await ctx.c.query<{ version: number; referencias: Referencia[]; hallazgos: Punto[]; recomendaciones: Punto[]; flujograma: PaginaFlujo[]; prototipo: EstadoTaller["prototipo"]; entregable_documento_id: string | null; entregable_demo_id: string | null; actualizado_en: Date }>(
+        "SELECT * FROM taller_web WHERE servicio_contratado_id = $1",
+        [s.id],
+      )).rows[0];
+      return t
+        ? {
+          version: t.version, referencias: t.referencias, hallazgos: t.hallazgos, recomendaciones: t.recomendaciones, flujograma: t.flujograma, prototipo: t.prototipo,
+          documentoEntregableId: t.entregable_documento_id, demoEntregableId: t.entregable_demo_id, actualizadoEn: isoZ(t.actualizado_en),
+        }
+        : null;
+    },
+    async guardar(e) {
+      await ctx.c.query(
+        `INSERT INTO taller_web (servicio_contratado_id, cliente_id, version, referencias, hallazgos, recomendaciones, flujograma, prototipo, entregable_documento_id, entregable_demo_id, actualizado_por, actualizado_en)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (servicio_contratado_id) DO UPDATE SET version = EXCLUDED.version, referencias = EXCLUDED.referencias, hallazgos = EXCLUDED.hallazgos,
+           recomendaciones = EXCLUDED.recomendaciones, flujograma = EXCLUDED.flujograma, prototipo = EXCLUDED.prototipo, entregable_documento_id = EXCLUDED.entregable_documento_id,
+           entregable_demo_id = EXCLUDED.entregable_demo_id, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en`,
+        [s.id, s.cliente_id, e.version, JSON.stringify(e.referencias), JSON.stringify(e.hallazgos), JSON.stringify(e.recomendaciones), JSON.stringify(e.flujograma),
+          JSON.stringify(e.prototipo), e.documentoEntregableId, e.demoEntregableId, autor, e.actualizadoEn],
+      );
+    },
+    almacen: {
+      async guardar(a) {
+        const f = await archivo(a);
+        return { id: f.id, url: urlArchivo(a.tipo, f.token) };
+      },
+      async leer(url) {
+        const token = tokenDeUrl(url);
+        if (!token) return null;
+        const f = (await ctx.c.query<{ mime: string; contenido: unknown }>("SELECT mime, contenido FROM archivo_generado WHERE token = $1 AND servicio_contratado_id = $2", [token, s.id])).rows[0];
+        return f ? { mime: f.mime, bytes: bytesDb(f.contenido) } : null;
+      },
+    },
+    async demos() {
+      const { rows } = await ctx.c.query<FilaDemo>(
+        "SELECT id, token, vence_en, vistas, revocado_en, simulado, creado_en FROM archivo_generado WHERE servicio_contratado_id = $1 AND tipo = 'DEMO' ORDER BY creado_en DESC, id",
+        [s.id],
+      );
+      return rows.map(demoVista);
+    },
+    async guardarDemo(d) {
+      const f = await archivo({ tipo: "DEMO", mime: "text/html; charset=utf-8", nombre: "demo.html", bytes: new TextEncoder().encode(d.html), venceEn: d.venceEn, simulado: d.simulada });
+      return demoVista({ id: f.id, token: f.token, vence_en: new Date(d.venceEn), vistas: 0, revocado_en: null, simulado: d.simulada, creado_en: f.creadoEn });
+    },
+    async revocarDemo(id) {
+      if (!esUuid(id)) return false;
+      const { rows } = await ctx.c.query("UPDATE archivo_generado SET revocado_en = now() WHERE id = $1 AND servicio_contratado_id = $2 AND tipo = 'DEMO' AND revocado_en IS NULL RETURNING id", [id, s.id]);
+      return rows.length > 0;
+    },
+    entregable: resumen,
+    async etapaId(nombre) {
+      const { rows } = await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM etapa_proyecto WHERE servicio_contratado_id = $1 ORDER BY orden", [s.id]);
+      return rows.find((x) => nombre.test(x.nombre))?.id ?? null;
+    },
+    async entregableReutilizable(etapaId, formato, titulo) {
+      const { rows } = await ctx.c.query<{ id: string; titulo: string; formato: string }>(
+        "SELECT id, titulo, formato::text AS formato FROM entregable WHERE servicio_contratado_id = $1 AND etapa_id IS NOT DISTINCT FROM $2 AND estado <> 'APROBADO' ORDER BY creado_en",
+        [s.id, etapaId],
+      );
+      const ok = rows.filter((x) => titulo.test(x.titulo));
+      return (ok.find((x) => x.formato === formato) ?? ok[0])?.id ?? null;
+    },
+    async crearEntregable(n) {
+      const id = (await ctx.c.query<{ id: string }>(
+        `INSERT INTO entregable (servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, formato, creado_por)
+         VALUES ($1, $2, $3, $4, $5, $6::formato_entregable, $7) RETURNING id`,
+        [s.id, s.cliente_id, n.etapaId, n.titulo, n.descripcion, n.formato, autor],
+      )).rows[0].id;
+      await ctx.c.query("INSERT INTO version_entregable (entregable_id, numero, cliente_id, url, nombre_archivo, nota, creado_por) VALUES ($1, 1, $2, $3, $4, $5, $6)", [id, s.cliente_id, n.url, n.nombreArchivo, n.nota, autor]);
+      return id;
+    },
+    async nuevaVersion(id, v) {
+      const { rows } = await ctx.c.query<{ numero: number }>(
+        "UPDATE entregable SET version_actual = version_actual + 1, estado = 'EN_PREPARACION', formato = $2::formato_entregable, actualizado_en = now() WHERE id = $1 RETURNING version_actual AS numero",
+        [id, v.formato],
+      );
+      await ctx.c.query("INSERT INTO version_entregable (entregable_id, numero, cliente_id, url, nombre_archivo, nota, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7)", [id, rows[0].numero, s.cliente_id, v.url, v.nombreArchivo, v.nota, autor]);
+    },
+  };
+}
+
+async function tallerDb(ctx: Ctx, servicioId: string, op: OperacionTaller, cuerpo?: () => Promise<Record<string, unknown>>, demoId?: string) {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, servicioId);
+  try {
+    return await operarTaller(repoTallerDb(ctx, s), op, cuerpo ? await cuerpo() : {}, demoId);
+  } catch (e) {
+    if (e instanceof ErrorTaller) throw new ErrorApi(e.status, e.codigo, e.titulo, e.detalle, e.errores);
+    throw e;
+  }
+}
+
+ruta("GET", "/servicios-contratados/:id/taller-web", (ctx, p) => tallerDb(ctx, p.id, "VER"));
+ruta("PUT", "/servicios-contratados/:id/taller-web", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "EDITAR", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/capturas", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "CAPTURAS", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/analisis", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "ANALISIS", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/flujograma", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "FLUJOGRAMA", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/documento", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "DOCUMENTO", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/prototipo", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "PROTOTIPO", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/demos", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "DEMO", cuerpo));
+ruta("DELETE", "/servicios-contratados/:id/taller-web/demos/:demoId", (ctx, p) => tallerDb(ctx, p.id, "REVOCAR_DEMO", undefined, p.demoId));
+
+/**
+ * GET /publico/{token} y /demo/{token}, sin sesión: se busca el archivo por su token con una sesión de
+ * servicio (RLS: solo_equipo). Las demos cuentan vistas y tienen límite de solicitudes por IP.
+ */
+export async function archivoPublicoDb(token: string, req: Request): Promise<Response> {
+  if (!/^[0-9a-f]{64}$/.test(token)) return respuestaPublica(null);
+  const ip = ipDe(req);
+  const db = await baseDatos();
+  return db.transaccion(async (c) => {
+    await comoUsuario(c, { usuarioId: "", tipo: "SERVICIO", clienteIds: [] });
+    const a = (await c.query<{ id: string; tipo: TipoArchivo; mime: string; nombre: string; contenido: unknown; vence_en: Date | null; revocado_en: Date | null }>(
+      "SELECT id, tipo::text AS tipo, mime, nombre, contenido, vence_en, revocado_en FROM archivo_generado WHERE token = $1",
+      [token],
+    )).rows[0];
+    if (!a) return respuestaPublica(null);
+    if (a.tipo === "DEMO" && !dentroDelLimite(token, ip)) return new Response("Demasiadas solicitudes", { status: 429, headers: { "retry-after": "600", "x-robots-tag": "noindex, nofollow" } });
+    const r = respuestaPublica({ tipo: a.tipo, mime: a.mime, nombre: a.nombre, bytes: bytesDb(a.contenido), venceEn: a.vence_en ? isoZ(a.vence_en) : null, revocado: !!a.revocado_en });
+    if (a.tipo === "DEMO" && r.ok) await c.query("UPDATE archivo_generado SET vistas = vistas + 1, ultima_vista_en = now() WHERE id = $1", [a.id]);
+    return r;
+  });
+}
+
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
 // ───────────────────────────────────────────── IA del cliente (fase 16a): agentes, conocimiento y Content AI
@@ -2957,6 +3142,15 @@ export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}
 export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promise<Response> {
   const url = new URL(req.url, "http://localhost");
   const camino = url.pathname.startsWith(base) ? url.pathname.slice(base.length) || "/" : url.pathname;
+  const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;
+  if (publico) {
+    try {
+      return await archivoPublicoDb(publico[1], req);
+    } catch (e) {
+      console.error(e);
+      return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+    }
+  }
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);
   if (!encontrada) {
     return problema(new ErrorApi(501, "RUTA_NO_IMPLEMENTADA", `El backend todavía no implementa ${req.method} ${camino}`, "Usa API_MODO=mock para el resto del contrato mientras se completa el backend."));

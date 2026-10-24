@@ -13,7 +13,9 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export type ModeloIa = "GEMINI_FLASH" | "CLAUDE_SONNET";
 export type MotivoSimulado = "MODO_SIMULADO" | "SIN_CLAVE" | "TOPE_DIARIO";
-export interface MensajeIa { rol: "user" | "assistant"; texto: string }
+export interface ImagenIa { mime: "image/jpeg" | "image/png" | "image/webp"; base64: string }
+/** `imagenes`: solo en mensajes del usuario (capturas del taller web, fase 19). */
+export interface MensajeIa { rol: "user" | "assistant"; texto: string; imagenes?: ImagenIa[] }
 export interface ResultadoIa {
   texto: string;
   modelo: string;
@@ -80,7 +82,10 @@ async function llamarGemini(p: { sistema: string; mensajes: MensajeIa[]; maxToke
     headers: { "content-type": "application/json", "x-goog-api-key": env("GEMINI_API_KEY")! },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: p.sistema }] },
-      contents: p.mensajes.map((m) => ({ role: m.rol === "user" ? "user" : "model", parts: [{ text: m.texto }] })),
+      contents: p.mensajes.map((m) => ({
+        role: m.rol === "user" ? "user" : "model",
+        parts: [...(m.imagenes ?? []).map((i) => ({ inline_data: { mime_type: i.mime, data: i.base64 } })), { text: m.texto }],
+      })),
       // Sin razonamiento: en Gemini Flash los tokens de razonamiento cuentan dentro de maxOutputTokens.
       generationConfig: { maxOutputTokens: p.maxTokens, thinkingConfig: { thinkingBudget: 0 } },
     }),
@@ -108,7 +113,12 @@ async function llamarClaude(p: { sistema: string; mensajes: MensajeIa[]; maxToke
       max_tokens: p.maxTokens,
       // Las instrucciones fijas se cachean para no volver a pagarlas en cada llamada.
       system: [{ type: "text", text: p.sistema, cache_control: { type: "ephemeral" } }],
-      messages: p.mensajes.map((m) => ({ role: m.rol, content: m.texto })),
+      messages: p.mensajes.map((m) => ({
+        role: m.rol,
+        content: m.imagenes?.length
+          ? [...m.imagenes.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.mime, data: i.base64 } })), { type: "text" as const, text: m.texto }]
+          : m.texto,
+      })),
       output_config: { effort: "low", ...(p.esquema ? { format: { type: "json_schema" as const, schema: p.esquema } } : {}) },
       // Si Claude declina por políticas, la API reintenta con el modelo de respaldo que corresponda.
       betas: ["server-side-fallback-2026-07-01"],

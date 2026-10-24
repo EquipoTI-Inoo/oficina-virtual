@@ -17,6 +17,7 @@ import { PantallaProyectoEquipo } from "./pantallas/proyecto-equipo";
 import { PantallaPipeline } from "./pantallas/pipeline";
 import { PantallaMiPanel } from "./pantallas/mi-panel";
 import { PantallaIa } from "./pantallas/ia";
+import { PantallaTallerWeb } from "./pantallas/taller-web";
 import { PantallaEntregableCliente, PantallaEntregableEquipo } from "./pantallas/entregables";
 import {
   PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
@@ -63,6 +64,7 @@ export const RUTAS: Ruta[] = [
   { patron: "/entregables/documento/:id", pantalla: PantallaEntregableCliente, figma: null, espacio: "cliente" },
   { patron: "/equipo/entregables/:id", pantalla: PantallaEntregableEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/proyectos/:id", pantalla: PantallaProyectoEquipo, figma: null, espacio: "equipo" },
+  { patron: "/equipo/proyectos/:id/taller-web", pantalla: PantallaTallerWeb, figma: null, espacio: "equipo" },
   { patron: "/equipo/avisos", pantalla: PantallaAvisosEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/costos", pantalla: PantallaCostosIa, figma: null, espacio: "equipo" },

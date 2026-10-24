@@ -32,6 +32,10 @@ desde memoria con los datos de Figma; cada reinicio del servidor vuelve a los da
 | `API_URL_BACKEND` | URL | — | Destino del proxy (Prism en `http://localhost:4010` o el backend real) |
 | `MOCK_LATENCIA_MS` | número | `0` | Retraso artificial de cada respuesta simulada, para ver estados de carga |
 | `PERMITIR_MOCK` | `true`, `false` | `false` | En un build de producción la API simulada responde 404 salvo que sea `true` (solo contenedores de prueba) |
+| `NAVEGADOR_MODO` | `simulado`, `real` | `simulado` | Taller web (fase 19): `real` saca capturas de verdad y arma el PDF con Chromium (Playwright). En `simulado`, capturas de relleno y el informe en HTML |
+| `CHROMIUM_PATH` | ruta | — | Chromium del sistema. La imagen Docker (Alpine) usa el de `apk`; en local basta `npx playwright install chromium` |
+| `STITCH_API_KEY` | clave | — | Prototipo con Stitch (MCP de Google). Solo se usa con `IA_MODO=real`; sin clave, pantallas de relleno. No es la clave de Gemini |
+| `STITCH_URL` | URL | `https://stitch.googleapis.com/mcp` | Servidor MCP de Stitch |
 
 > La API simulada nunca debe quedar activa en un despliegue real. Por eso un build de producción
 > la bloquea si no se activa `PERMITIR_MOCK=true` explícitamente.
@@ -113,6 +117,14 @@ moverla a `tests/api/flujo-piezas.ts` (o a una suite compartida nueva) para que 
 | `AUTH_MODO` | `demo`, `cognito` | `demo`: token `demo.<usuario_id>` (bloqueado en producción salvo `PERMITIR_AUTH_DEMO=true`). `cognito`: JWT de los dos pools, verificado con su JWKS |
 | `COGNITO_REGION`, `COGNITO_POOL_EQUIPO`, `COGNITO_POOL_CLIENTES`, `COGNITO_CLIENT_IDS` | | Pools y apps de Cognito; el `sub` se busca en `usuario.cognito_sub` |
 | `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRETO` | | Destino y secreto del despachador del outbox (`npm run outbox`) |
+
+**Taller web (fase 19).** `GET|PUT /servicios-contratados/{id}/taller-web` y sus pasos (`capturas`, `analisis`,
+`flujograma`, `documento`, `prototipo`, `demos`) están implementados contra la base (migración `0021_taller_web.sql`).
+Las reglas viven en `src/servidor/taller-web.ts` y las comparten la API simulada y Postgres. Los archivos generados
+(capturas, pantallas, informe y demos) se guardan por ahora en `archivo_generado` (bytea) y se sirven por token en
+`/api/v1/publico/{token}` y `/demo/{token}`, sin sesión. Cuando estén las URLs prefirmadas de S3, pasan ahí.
+Algunos sitios (por ejemplo, los que están detrás de Akamai) bloquean las capturas automáticas: el taller no lo
+esquiva, avisa y deja calificar esa referencia a mano.
 
 **Despachador del outbox.** `npm run outbox` entrega a n8n los eventos pendientes, en orden y firmados
 (`X-Inoo-Firma` = HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>`), con reintentos exponenciales hasta 24 h.

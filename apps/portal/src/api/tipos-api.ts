@@ -1839,6 +1839,179 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/taller-web": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Taller web del proyecto (solo equipo): benchmark, flujograma, prototipo y demos. Se crea al abrirlo, con las referencias del brief web */
+        get: operations["obtenerTallerWeb"];
+        /** El equipo corrige referencias, puntajes, hallazgos, recomendaciones, flujograma y el prompt del prototipo. Las capturas se conservan por id de referencia */
+        put: operations["editarTallerWeb"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/capturas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Capturas de escritorio y móvil de las referencias pedidas (o de las que no tienen). Con NAVEGADOR_MODO=simulado son bocetos de relleno */
+        post: operations["capturarReferenciasWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/analisis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Puntaje de 1 a 5 por dimensión de cada referencia (mirando sus capturas), hallazgos clave y recomendaciones UX. Reemplaza los puntajes anteriores */
+        post: operations["analizarBenchmarkWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/flujograma": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propone el flujograma (navegación por niveles + secciones de cada página) desde el brief, el resumen de la reunión, el alcance y las recomendaciones */
+        post: operations["generarFlujogramaWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/documento": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Arma el PDF «Benchmark y flujograma» y lo deja como entregable (o nueva versión) de la etapa Arquitectura y benchmark, EN_PREPARACION. Se envía al cliente con POST /entregables/{id}/enviar */
+        post: operations["generarDocumentoWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/prototipo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Genera una pantalla en Stitch desde el prompt (el guardado o el sugerido por el flujograma). El paso a Figma lo hace una persona. Sin STITCH_API_KEY, pantalla de relleno */
+        post: operations["generarPantallaPrototipo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/demos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publica la demo navegable (generada desde el flujograma o el HTML que pega el equipo, siempre sin rastros de IA) en un link que vence, noindex, con límite por IP y vistas contadas. La deja como entregable PROTOTIPO de la etapa Prototipo, EN_PREPARACION */
+        post: operations["crearDemoWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/demos/{demoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                demoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Da de baja el link de una demo antes de que venza */
+        delete: operations["revocarDemoWeb"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publico/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** Archivo generado por el taller (captura, pantalla, informe o demo) por su enlace con token. Sin sesión. Las demos también se sirven en /demo/{token}: noindex, CSP sandbox, límite por IP y vistas contadas */
+        get: operations["archivoPublico"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tareas/{tareaId}": {
         parameters: {
             query?: never;
@@ -2490,6 +2663,179 @@ export interface components {
             aprobadoEn?: string | null;
             /** Format: date-time */
             creadoEn: string;
+        };
+        /** @enum {string} */
+        DispositivoWeb: "ESCRITORIO" | "MOVIL";
+        /** @enum {string} */
+        DimensionBenchmark: "IDENTIDAD_VISUAL" | "JERARQUIA_VISUAL" | "USABILIDAD_MOVIL" | "ARQUITECTURA_INFORMACION" | "PROPUESTA_VALOR" | "FICHA_PRODUCTO" | "FLUJO_COMPRA" | "CONVERSION";
+        PuntajeBenchmark: {
+            dimension: components["schemas"]["DimensionBenchmark"];
+            puntaje: number;
+            /**
+             * @example Menú claro
+             * @example bien segmentado
+             */
+            comentario: string;
+        };
+        ReferenciaWeb: {
+            id: string;
+            /** @example Aesop */
+            nombre: string;
+            /** @example https://www.aesop.com/ */
+            url: string;
+            /**
+             * @description BRIEF = salió de «Sitios que te gustan» del brief web
+             * @enum {string}
+             */
+            origen: "BRIEF" | "EQUIPO";
+            capturas: {
+                tipo: components["schemas"]["DispositivoWeb"];
+                /** @description Enlace /api/v1/publico/{token} o data: URI (las de relleno) */
+                url: string;
+                simulada: boolean;
+            }[];
+            puntajes: components["schemas"]["PuntajeBenchmark"][];
+            resumen: string | null;
+            /** Format: date-time */
+            analizadaEn: string | null;
+            /** @description Promedio de los puntajes con un decimal */
+            puntajeGlobal: number | null;
+        };
+        PuntoTaller: {
+            titulo: string;
+            texto: string;
+        };
+        PaginaFlujograma: {
+            /** @example ficha-producto */
+            id: string;
+            titulo: string;
+            descripcion: string;
+            /** @description 0 = entrada (una sola), 1 = menú principal… */
+            nivel: number;
+            padreId: string | null;
+            /** @description Flujograma estructural (de arriba hacia abajo) */
+            secciones: string[];
+        };
+        PantallaPrototipo: {
+            id: string;
+            nombre: string;
+            dispositivo: components["schemas"]["DispositivoWeb"];
+            imagenUrl: string;
+            /** @description Stitch devolvió también el HTML (se usa como guía de la demo) */
+            conHtml: boolean;
+            /** @description Página del flujograma que se diseñó */
+            paginaId?: string | null;
+            /** @description El prompt exacto que recibió Stitch */
+            prompt?: string;
+            simulada: boolean;
+            /** Format: date-time */
+            creadaEn: string;
+        };
+        DemoWeb: {
+            /** Format: uuid */
+            id: string;
+            /** @example /demo/3f2a… */
+            url: string;
+            /** Format: date-time */
+            venceEn: string;
+            vistas: number;
+            revocada: boolean;
+            simulada: boolean;
+            /** Format: date-time */
+            creadaEn: string;
+        };
+        ResumenEntregableTaller: {
+            /** Format: uuid */
+            id: string;
+            titulo: string;
+            estado: components["schemas"]["EstadoEntregable"];
+            version: number;
+            formato: components["schemas"]["FormatoEntregable"];
+        };
+        /** @description Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables */
+        TallerWeb: {
+            /** Format: uuid */
+            servicioContratadoId: string;
+            servicioTitulo: string;
+            variante: string | null;
+            /** @description Para PUT: 409 VERSION_DESACTUALIZADA si otra persona guardó antes */
+            version: number;
+            insumos: {
+                marca: string;
+                mensajeCentral: string | null;
+                tono: string | null;
+                /** @description Del manual de marca del cliente */
+                paleta: string[];
+                tipografias: string[];
+                objetivo: string | null;
+                publico: string | null;
+                secciones: string[];
+                resumenReunion: string | null;
+                alcance: string | null;
+                cms: string | null;
+            };
+            dimensiones: {
+                codigo: components["schemas"]["DimensionBenchmark"];
+                nombre: string;
+                pregunta: string;
+            }[];
+            referencias: components["schemas"]["ReferenciaWeb"][];
+            hallazgos: components["schemas"]["PuntoTaller"][];
+            recomendaciones: components["schemas"]["PuntoTaller"][];
+            flujograma: components["schemas"]["PaginaFlujograma"][];
+            prototipo: {
+                prompt: string | null;
+                /** @description Prompt estándar (lo arma el código, no la IA) para la página de entrada en escritorio. El portal lo vuelve a armar en pantalla con dominio/taller-web.ts promptStitch() para la página y el dispositivo elegidos */
+                promptSugerido: string;
+                proyectoStitch: string | null;
+                pantallas: components["schemas"]["PantallaPrototipo"][];
+            };
+            /** @description Entregable «Benchmark y flujograma» */
+            documento: components["schemas"]["ResumenEntregableTaller"] | null;
+            /** @description Entregable PROTOTIPO con la última demo */
+            demoEntregable: components["schemas"]["ResumenEntregableTaller"] | null;
+            demos: components["schemas"]["DemoWeb"][];
+            /** @description SIMULADO = respuestas, capturas o pantallas de relleno (IA_MODO, NAVEGADOR_MODO, STITCH_API_KEY) */
+            modos: {
+                /** @enum {string} */
+                ia: "REAL" | "SIMULADO";
+                /** @enum {string} */
+                navegador: "REAL" | "SIMULADO";
+                /** @enum {string} */
+                stitch: "REAL" | "SIMULADO";
+            };
+            /** Format: date-time */
+            actualizadoEn: string;
+        };
+        TallerWebEdicion: {
+            version: number;
+            referencias?: {
+                /** @description Sin id = referencia nueva */
+                id?: string | null;
+                nombre?: string;
+                url: string;
+                puntajes?: components["schemas"]["PuntajeBenchmark"][];
+                resumen?: string | null;
+            }[];
+            hallazgos?: components["schemas"]["PuntoTaller"][];
+            recomendaciones?: components["schemas"]["PuntoTaller"][];
+            flujograma?: components["schemas"]["PaginaFlujograma"][];
+            promptPrototipo?: string | null;
+        };
+        ResultadoTallerWeb: {
+            taller: components["schemas"]["TallerWeb"];
+            /** @description Lo que no salió (por ejemplo, un sitio que no abrió); el resto sí se guardó */
+            avisos: {
+                referenciaId?: string;
+                mensaje: string;
+            }[];
+            /** @description El paso usó respuestas */
+            simulado: boolean;
+            /**
+             * Format: uuid
+             * @description documento y demos: el entregable creado o versionado
+             */
+            entregableId?: string;
         };
         EntregableDetalle: components["schemas"]["Entregable"] & {
             versiones: {
@@ -8181,6 +8527,375 @@ export interface operations {
                 };
             };
             422: components["responses"]["Validacion"];
+        };
+    };
+    obtenerTallerWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TallerWeb"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description NO_ES_WEB: el proyecto no es de Diseño y desarrollo web */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarTallerWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TallerWebEdicion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TallerWeb"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    capturarReferenciasWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    referenciaIds?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description TALLER_SIN_REFERENCIAS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    analizarBenchmarkWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description TALLER_SIN_REFERENCIAS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description IA_NO_DISPONIBLE: el modelo no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarFlujogramaWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description IA_NO_DISPONIBLE */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarDocumentoWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    nota?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Entregable listo para revisar internamente */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description TALLER_INCOMPLETO (sin referencias analizadas ni flujograma) o ENTREGABLE_APROBADO */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    generarPantallaPrototipo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Sin prompt (o vacío), el estándar armado desde el flujograma */
+                    prompt?: string;
+                    /** @description Página del flujograma a diseñar; por defecto, la de entrada */
+                    paginaId?: string;
+                    dispositivo?: components["schemas"]["DispositivoWeb"];
+                };
+            };
+        };
+        responses: {
+            /** @description Pantalla agregada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description TALLER_SIN_FLUJOGRAMA o LIMITE_PANTALLAS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description STITCH_NO_DISPONIBLE */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearDemoWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @default GENERAR
+                     * @enum {string}
+                     */
+                    origen?: "GENERAR" | "HTML";
+                    /** @description Solo con origen HTML (hasta 1,5 MB) */
+                    html?: string;
+                    /** @default 7 */
+                    diasVigencia?: number;
+                    nota?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Demo publicada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description TALLER_SIN_FLUJOGRAMA o ENTREGABLE_APROBADO */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    revocarDemoWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                demoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TallerWeb"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    archivoPublico: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El archivo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No existe */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Venció o se dio de baja */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Demasiadas solicitudes desde esta IP */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     eliminarTarea: {

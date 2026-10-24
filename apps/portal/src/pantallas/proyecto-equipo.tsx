@@ -6,7 +6,7 @@
  * nuevos a partir de su plantilla.
  */
 import { useState } from "react";
-import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuLock, LuPlus, LuTrash2, LuWallet } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
@@ -98,6 +98,11 @@ function ProyectoEquipo() {
             <button className="boton boton--chico" onClick={() => void descargarReporte()}>
               <LuFileSpreadsheet size={14} /> Reporte en Excel
             </button>
+            {d.codigo === "WEB" && (
+              <Enlace a={`/equipo/proyectos/${d.servicioContratadoId}/taller-web`} className="boton boton--chico boton--primario">
+                <LuSparkles size={14} /> Taller web
+              </Enlace>
+            )}
             <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico">
               <LuExternalLink size={14} /> Ver como cliente
             </Enlace>

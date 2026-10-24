@@ -160,6 +160,18 @@ Los requerimientos van **de la agencia al cliente**: lo que el equipo necesita p
 - El cliente aprueba una **demo navegable**, nunca el Figma, y no debe notarse que se generó con IA.
 - El sitio final lo construye el equipo a mano.
 
+**Cómo quedó (fase 19, 24 oct): el taller web.** Cada proyecto web tiene un «Taller web» que solo ve el equipo (`/equipo/proyectos/{id}/taller-web`):
+
+| **Paso** | **Quién** | **Qué pasa** |
+| --- | --- | --- |
+| 1. Benchmark | Equipo + IA | Las referencias salen de «Sitios que te gustan» del brief web y el equipo suma otras (hasta 8). El servidor saca capturas de escritorio y móvil, y Claude califica de 1 a 5 cada dimensión según el tipo de web (un e-commerce mira la ficha y el checkout). Luego propone hallazgos y recomendaciones. Todo se edita a mano |
+| 2. Flujograma | Equipo + IA | Claude propone el árbol de páginas por nivel (navegación) y las secciones de cada página (estructural) desde el brief, el resumen de la reunión de brief, el alcance y las recomendaciones. El equipo lo corrige |
+| 3. PDF al cliente | Equipo | Benchmark y flujograma salen en un PDF con la línea de Inoo (como el de Instituto Palestra) y quedan como entregable de «Arquitectura y benchmark». Se revisa y se envía como cualquier entregable; el cliente lo aprueba antes del prototipo (decisión B) |
+| 4. Prototipo | Equipo + Stitch | El prompt lo arma un script, no la IA, con una estructura estándar: Proyecto → Marca → Navegación del sitio → Pantalla a diseñar (sus secciones, en orden) → Tener en cuenta (recomendaciones del benchmark) → Reglas. Sale del flujograma tal como está en pantalla, para la página y el dispositivo que se elijan; el equipo puede editarlo. Stitch genera la pantalla y cada una guarda el prompt exacto que recibió. El paso a Figma sigue siendo de una persona |
+| 5. Demo | Equipo + IA | Demo HTML generada desde el flujograma (con el HTML de Stitch como guía) o pegada por el equipo. Siempre se limpia de rastros de IA. Link `/demo/{token}` que vence (7 días por defecto, hasta 30), `noindex`, aislado del portal, con límite por IP y vistas contadas. Queda como entregable PROTOTIPO de la etapa Prototipo |
+
+El plan original del 10 y 13 oct, como referencia:
+
 | **Paso** | **Quién** | **Qué pasa** |
 | --- | --- | --- |
 | 1. Prompt visual | Agente | Lee el brief web del cliente, elige componentes de referencia en 21st.dev y arma el prompt (con capturas) |
@@ -173,7 +185,7 @@ Los requerimientos van **de la agencia al cliente**: lo que el equipo necesita p
 - **Qué permite:** crear proyectos; generar, editar y variar pantallas; crear y aplicar design systems.
 - **Qué no hace:** no exporta a Figma ni a código. El paso a Figma es manual a propósito, porque es la aprobación interna. El código lo escribe el agente leyendo el diseño.
 - **API key:** es de la cuenta de Inoo. Se guarda en la configuración personal de Claude Code (`claude mcp add ... -s user`) o como secreto de n8n, nunca en el repositorio.
-- **Cuota gratuita aproximada:** 350 generaciones al mes en modo estándar y 50 en experimental. Alcanza para los proyectos web actuales, pero no para generar en masa.
+- **Cuota:** la cuenta de Inoo tiene 400 créditos diarios; una pantalla de escritorio gastó 3 (prueba del 24 oct). Da para más de 100 pantallas al día: sobra para los proyectos web actuales.
 - **Tiempos:** cada generación puede tardar varios minutos. Los flujos automáticos usan timeouts largos y no reintentan a ciegas, porque cada reintento gasta cuota.
 
 **Demos (demos.inoo.pe):** contenedor nginx aparte en el VPS de Hostinger. Link firmado que vence a los pocos días, `noindex`, límite de solicitudes por IP y conteo de vistas.
@@ -253,6 +265,7 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 15 | Soporte por consumo: sin etapas, bolsa del mes (tickets complejos y básicos, horas de Meet, WhatsApp ilimitado) | Hecha |
 | 15b | El contenido entra al proyecto: Kanban de piezas en Social Media Pro y Paid Media, blogs en una tarjeta del Soporte continuo web, sin Bandeja ni Plan del mes en el menú | Hecha |
 | 16a | IA para el cliente: agentes con chat de prueba, conocimiento, plantillas, Content AI (texto), conversaciones y consumo en soles | Hecha |
+| 19 | Flujo web con IA (taller web del equipo): benchmark con capturas y puntaje por dimensión, hallazgos y recomendaciones, flujograma de navegación y estructural, PDF como entregable, pantallas en Stitch y demo con link que vence | Hecha (Stitch probado el 24 oct con la clave de Inoo: una pantalla en unos 3 min) |
 
 **Pendientes:**
 - Responder tickets desde el panel.
@@ -263,7 +276,7 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 - Backend real del Inicio y del panel.
 - Reemplazar los datos de relleno (fechas de pago, preguntas de los briefs, números de WhatsApp).
 - Despliegue.
-- Flujo web con Stitch (WEB-02, WEB-03).
+- Flujo web (fase 19): exportar a Elementor o Shopify (coordinar con Hugo) y comparar Claude, Stitch, Figma AI y Codex con el mismo prompt (quedaron fuera por ahora); permitir subir capturas a mano para los sitios que bloquean las capturas automáticas.
 
 ## Requisitos no funcionales
 
