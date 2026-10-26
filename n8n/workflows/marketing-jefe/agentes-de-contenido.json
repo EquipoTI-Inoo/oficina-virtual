@@ -1,0 +1,1076 @@
+{
+  "id": "AgentesInoo00001",
+  "name": "Agentes · Jefe de Marketing y producción del mes",
+  "nodes": [
+    {
+      "id": "74a4a790-a386-5c9a-b1f5-03e507cfad47",
+      "name": "Evento del portal",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inoo-eventos",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "7b2a1f0e-1c4d-4f6a-9b3e-inoo-eventos"
+    },
+    {
+      "id": "e52e00b9-dccd-50f3-954b-ce222c94c288",
+      "name": "Pedido manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agentes/planificar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "8c3b2a1f-2d5e-4a7b-8c4f-inoo-manual"
+    },
+    {
+      "id": "fd7735ac-ffc8-5659-88bd-b8f066f867ba",
+      "name": "Verificar firma y decidir",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\n// Firma del despachador del outbox (src/servidor/outbox.ts): sha256=HMAC(secreto, \"<timestamp>.<cuerpo>\").\nconst crypto = require('crypto');\nconst item = $input.first();\nconst h = item.json.headers || {};\nconst secreto = $env.INOO_WEBHOOK_SECRETO;\nif (!secreto) throw new Error('Falta INOO_WEBHOOK_SECRETO en las variables de n8n');\nconst crudo = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8');\nconst ts = String(h['x-inoo-timestamp'] || '');\nconst firma = String(h['x-inoo-firma'] || '');\nconst esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(ts + '.' + crudo).digest('hex');\nconst reciente = Math.abs(Date.now() / 1000 - Number(ts)) < 300;\nconst igual = firma.length === esperada.length && crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperada));\nif (!reciente || !igual) return [{ json: { valido: false } }];\nconst e = JSON.parse(crudo);\nconst d = e.datos || {};\n// Qué hace cada evento: el brief confirmado y los cambios al calendario los planifica el Jefe de Marketing;\n// el calendario aprobado pasa a producción. El resto se ignora (los correos los manda el portal).\nlet accion = 'IGNORAR';\nif (e.tipo === 'brief.confirmado' || e.tipo === 'calendario.cambios_solicitados') accion = 'PLANIFICAR';\nif (e.tipo === 'calendario.aprobado') accion = 'PRODUCIR';\nreturn [{ json: { valido: true, accion, evento: e.tipo, clienteId: e.clienteId, periodo: d.periodo, comentario: d.comentario || '', piezaIds: d.piezaIds || [] } }];"
+      }
+    },
+    {
+      "id": "c3a32dc5-dd1b-5c1c-845e-2e30dd3facfb",
+      "name": "Verificar pedido manual",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\n// Pedido manual (el equipo relanza a un agente): mismo secreto que los eventos, en la cabecera X-Inoo-Interno.\nconst item = $input.first();\nconst h = item.json.headers || {};\nconst b = item.json.body || {};\nconst valido = Boolean($env.INOO_WEBHOOK_SECRETO) && h['x-inoo-interno'] === $env.INOO_WEBHOOK_SECRETO;\nconst accion = b.accion === 'PRODUCIR' ? 'PRODUCIR' : 'PLANIFICAR';\nreturn [{ json: { valido, accion, evento: 'manual', clienteId: b.clienteId, periodo: b.periodo, comentario: b.comentario || '', piezaIds: b.piezaIds || [] } }];"
+      }
+    },
+    {
+      "id": "215f61a6-ef45-5a8d-a84c-d706897d4730",
+      "name": "¿Válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        420
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "6edc10de-05ad-5dfb-b107-529dec57a4b3",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3c4e304a-df5b-5a5b-94f2-14985ff06c88",
+      "name": "Rechazar (401)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        560
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"firma o secreto inválido\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "4daf6eef-bbe3-554e-9aa5-be5a288a7825",
+      "name": "Recibido (200)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"accion\": $json.accion } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "ac26374d-3bc4-52e0-88ad-a40a9945f222",
+      "name": "Pedido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        160
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "11808831-e93f-5142-9174-358287fc2ba0",
+      "name": "¿Planificar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "8ff63c8c-285e-5e8f-aa82-8e851bc5d8cd",
+              "leftValue": "={{ $json.accion === 'PLANIFICAR' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "04707613-b42d-510d-822d-5930ae56e498",
+      "name": "¿Producir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c6de122b-f661-5c15-ae38-2a42aeaaf48b",
+              "leftValue": "={{ $json.accion === 'PRODUCIR' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f0c3bb57-2e49-54b9-b1c4-1db9fdb3df0c",
+      "name": "Leer cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "76fd9a29-5fd0-5496-9153-aa747cbe0287",
+      "name": "Leer servicios",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}/servicios?periodo={{ $node[\"Pedido\"].json.periodo }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "977ffd55-bbb8-5b5a-addb-adf99d0ec60f",
+      "name": "Leer brief",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}/briefs/{{ $node[\"Pedido\"].json.periodo }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "ed9b5922-8813-5a62-9afe-d58dd785baec",
+      "name": "Leer referencias",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}/referencias",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "3273c637-85fb-5e05-80b8-838007efddc9",
+      "name": "Prompt del Jefe de Marketing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\nconst P = {\"sistema\": \"Eres el Jefe de Marketing de Inoo, una agencia de marketing digital en Perú. Planificas el contenido\\nmensual de un cliente a partir de su brief, su perfil de marca y sus referencias. Tu propuesta la revisa\\nuna persona del equipo (account manager) antes de que los demás agentes produzcan: nada se publica sin\\naprobación humana.\\n\\nReglas:\\n\\n- Respeta exactamente la cuota mensual de cada servicio contratado (cuántas piezas de cada tipo).\\n  No propongas servicios que el cliente no contrató.\\n- Usa el tono de voz y el mensaje central del cliente. No inventes productos, precios, promociones ni\\n  datos que no estén en el brief o en el perfil.\\n- Las referencias de otras marcas son solo inspiración: nunca copies sus textos ni sus campañas.\\n- Reparte las fechas en días hábiles del mes, sin dos publicaciones del mismo canal el mismo día,\\n  y deja al menos 3 días entre artículos de blog.\\n- Cada pieza tiene un objetivo concreto (alcance, interacción, tráfico al sitio o conversión) y un pilar\\n  de contenido tomado de los intereses del público.\\n- Si el brief pide cambios a una versión anterior, aplica esos comentarios y mantén lo que no se objetó.\\n- Responde solo con el JSON pedido, en español neutro de Perú, sin texto antes ni después.\", \"usuario\": \"Cliente: {{cliente.nombre}}\\nPeriodo: {{periodo}}\\n\\nPerfil de marca:\\n- Descripción: {{cliente.marca.descripcion}}\\n- Mensaje central: {{cliente.marca.mensajeCentral}}\\n- Campaña actual: {{cliente.marca.campanaActual}}\\n- Tono: {{cliente.tono.etiquetas}} — {{cliente.tono.descripcion}}\\n- Ejemplo de voz: {{cliente.tono.ejemplo}}\\n- Público: {{cliente.publico.descripcion}}\\n- Pilares (intereses): {{cliente.publico.intereses}}\\n- Canales: {{cliente.canales}}\\n\\nServicios contratados y cuota del mes:\\n{{servicios}}\\n\\nReferencias (solo inspiración):\\n{{referencias}}\\n\\nBrief del mes:\\n- Objetivo de comunicación: {{brief.objetivoComunicacion}}\\n- Consideraciones: {{brief.consideraciones}}\\n\\nComentarios del account manager sobre la versión anterior (vacío si es la primera):\\n{{comentarios}}\\n\\nDevuelve este JSON:\\n\\n```json\\n{\\n  \\\"resumen\\\": \\\"una o dos frases con el enfoque del mes\\\",\\n  \\\"entradas\\\": [\\n    {\\n      \\\"tipo\\\": \\\"BLOG | COPY | CARRUSEL | ESTATICO | GUION\\\",\\n      \\\"titulo\\\": \\\"título de trabajo\\\",\\n      \\\"canal\\\": \\\"Instagram | Facebook | LinkedIn | TikTok | Blog web\\\",\\n      \\\"fechaProgramada\\\": \\\"AAAA-MM-DD\\\",\\n      \\\"objetivo\\\": \\\"qué debe lograr la pieza\\\",\\n      \\\"pilar\\\": \\\"uno de los pilares\\\",\\n      \\\"servicioContratadoId\\\": \\\"id del servicio de la lista\\\"\\n    }\\n  ]\\n}\\n```\"};\nconst pedido = $('Pedido').first().json;\nconst cliente = $('Leer cliente').first().json;\nconst servicios = ($('Leer servicios').first().json.servicios || []).filter((s) => s.estado === 'ACTIVO' && (s.entregables || []).length);\nconst brief = $('Leer brief').first().json || {};\nconst refs = ($('Leer referencias').first().json.datos || []);\nif (!servicios.length) throw new Error('El cliente no tiene servicios con piezas mensuales');\nconst datos = {\n  cliente,\n  periodo: pedido.periodo,\n  servicios: servicios.map((s) => '- ' + s.titulo + ' (servicioContratadoId: ' + s.servicioContratadoId + '): ' + s.entregables.map((e) => e.cantidadMensual + ' ' + e.tipoPieza).join(', ')).join('\\n'),\n  referencias: refs.length ? refs.map((r) => '- ' + r.titulo + (r.notas ? ': ' + r.notas : '') + (r.url ? ' (' + r.url + ')' : '')).join('\\n') : '(sin referencias)',\n  brief: { objetivoComunicacion: brief.objetivoComunicacion, consideraciones: brief.consideraciones },\n  comentarios: pedido.comentario || '',\n};\nconst usuario = rellenar(P.usuario, datos) + '\\n\\nLos tipos válidos son exactamente los de la cuota (' + [...new Set(servicios.flatMap((s) => s.entregables.map((e) => e.tipoPieza)))].join(', ') + '). Las fechas, dentro de ' + pedido.periodo + '.';\nreturn [{ json: { cuerpo: { model: 'claude-sonnet-5-5', max_tokens: 8000, system: P.sistema, messages: [{ role: 'user', content: usuario }] } } }];"
+      }
+    },
+    {
+      "id": "48a5aa52-f5f9-5799-b0ae-d00d33899a3f",
+      "name": "Claude · Jefe de Marketing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.cuerpo) }}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "AnthropicInoo001",
+          "name": "Anthropic · Inoo"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "2bee5f95-0bbf-5bb6-b1e2-5bde311592a7",
+      "name": "Leer la propuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\nconst pedido = $('Pedido').first().json;\nconst r = $input.first().json;\nconst texto = (r.content || []).map((c) => c.text || '').join('');\nconst j = leerJson(texto);\nconst servicios = ($('Leer servicios').first().json.servicios || []).map((s) => s.servicioContratadoId);\nconst TIPOS = ['BLOG', 'COPY', 'ESTATICO', 'CARRUSEL', 'PORTADA', 'GUION', 'SHOTLIST', 'STORYBOARD', 'ANUNCIO'];\nconst entradas = (j.entradas || [])\n  .filter((e) => TIPOS.includes(e.tipo) && String(e.fechaProgramada || '').startsWith(pedido.periodo) && e.titulo)\n  .map((e) => ({\n    tipo: e.tipo, titulo: String(e.titulo).slice(0, 200), canal: e.canal || undefined,\n    // 10:00 de Lima: la hora la ajusta el equipo al programar.\n    fechaProgramada: String(e.fechaProgramada).slice(0, 10) + 'T15:00:00Z',\n    objetivo: e.objetivo || undefined, pilar: e.pilar || undefined,\n    servicioContratadoId: servicios.includes(e.servicioContratadoId) ? e.servicioContratadoId : undefined,\n  }));\nif (!entradas.length) throw new Error('La propuesta del modelo no trajo publicaciones válidas');\nreturn [{ json: {\n  propuesta: { clienteId: pedido.clienteId, periodo: pedido.periodo, resumen: j.resumen || undefined, entradas },\n  consumo: { proveedor: 'anthropic', modelo: tarifa(r.model), tokensEntrada: r.usage?.input_tokens || 0, tokensSalida: r.usage?.output_tokens || 0 },\n} }];"
+      }
+    },
+    {
+      "id": "7442252b-4788-53ea-9352-26c2c80c65f3",
+      "name": "Guardar propuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/calendarios",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.propuesta) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f5318f7b-479d-5d73-89ad-db32f3c9f650",
+      "name": "Ejecución del Jefe de Marketing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\nconst p = $('Leer la propuesta').first().json;\nreturn [{ json: { ejecucion: {\n  clienteId: p.propuesta.clienteId, agente: 'marketing-jefe', n8nWorkflowId: $workflow.id, n8nExecutionId: String($execution.id),\n  estado: 'OK', consumos: [p.consumo],\n} } }];"
+      }
+    },
+    {
+      "id": "c280229f-99f2-5acf-ba5f-005b22ee0c60",
+      "name": "Registrar ejecución (Jefe de Marketing)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/ejecuciones",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.ejecucion) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "6f414b8b-c278-5028-8cb1-ee4b2ac763d1",
+      "name": "Leer cliente (producción)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        760
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f00a4b41-0fc4-5f74-9d3d-0711bf6aee99",
+      "name": "Leer referencias (producción)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        760
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}/referencias",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "bb72a9ed-44dd-5054-afc3-48ce0ef2e1c7",
+      "name": "Leer piezas del mes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1800,
+        940
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/clientes/{{ $node[\"Pedido\"].json.clienteId }}/piezas?periodo={{ $node[\"Pedido\"].json.periodo }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "abff3f01-d151-5b1c-b123-397f412625a8",
+      "name": "Una pieza por ítem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        760
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\nconst ids = $('Pedido').first().json.piezaIds || [];\nconst delMes = ($input.first().json.datos || []).map((p) => p.id);\nreturn (ids.length ? ids : delMes).map((piezaId) => ({ json: { piezaId } }));"
+      }
+    },
+    {
+      "id": "90176e46-27a9-5354-b96c-1b207fb21f70",
+      "name": "Leer pieza",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        760
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/piezas/{{ $json.piezaId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "ca251da7-b83d-5a20-ae07-4fb329cafe9c",
+      "name": "Prompt de cada pieza",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        760
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\nconst P = {\"copies\": {\"sistema\": \"Eres el redactor de redes sociales de Inoo. Escribes el texto de una publicación para la marca de un\\ncliente, adaptado al canal. Un community manager humano lo revisa antes de enviarlo al cliente.\\n\\nReglas:\\n\\n- Instagram: hasta 2 200 caracteres, primera línea que enganche, saltos de línea cortos, 3 a 6 hashtags.\\n- Facebook: hasta 600 caracteres, 0 a 3 hashtags. LinkedIn: tono profesional, sin emojis en exceso.\\n- Un solo llamado a la acción, claro y en imperativo amable.\\n- Respeta el tono de voz y el mensaje central. No inventes promociones, precios ni datos.\\n- La sugerencia visual describe la imagen para el diseñador (no generes la imagen).\\n- Responde solo con el JSON pedido.\", \"usuario\": \"Cliente: {{cliente.nombre}}\\nTono: {{cliente.tono.etiquetas}} — {{cliente.tono.descripcion}}\\nEjemplo de voz: {{cliente.tono.ejemplo}}\\nMensaje central: {{cliente.marca.mensajeCentral}}\\n\\nPieza del calendario:\\n- Título de trabajo: {{pieza.titulo}}\\n- Canal: {{pieza.canal}}\\n- Objetivo: {{pieza.resumen}}\\n\\nCambios pedidos sobre la versión anterior (vacío si es la primera):\\n{{comentarios}}\\n\\nDevuelve este JSON:\\n\\n```json\\n{\\n  \\\"tipo\\\": \\\"COPY\\\",\\n  \\\"red\\\": \\\"Instagram | Facebook | LinkedIn\\\",\\n  \\\"copy\\\": \\\"…\\\",\\n  \\\"hashtags\\\": [\\\"#…\\\"],\\n  \\\"cta\\\": \\\"…\\\",\\n  \\\"sugerenciaVisual\\\": \\\"…\\\",\\n  \\\"enfoque\\\": \\\"beneficio | emoción | educación | prueba social\\\"\\n}\\n```\"}, \"blog\": {\"sistema\": \"Eres el redactor de blogs de Inoo. Escribes artículos útiles y bien estructurados para la marca de un\\ncliente. Un editor humano revisa cada borrador antes de enviarlo al cliente.\\n\\nReglas:\\n\\n- Entre 1 200 y 1 800 palabras, en Markdown: un H1, H2 para cada sección, listas cuando ayuden.\\n- Respeta el tono de voz del cliente. Habla de hábitos y beneficios sin promesas absolutas ni\\n  afirmaciones médicas o legales.\\n- Cada dato o afirmación verificable debe venir de una de las fuentes listadas, citada con un enlace en\\n  el texto. Si no tienes fuente para algo, no lo afirmes.\\n- No menciones a competidores ni copies textos de las referencias.\\n- Título SEO de máximo 60 caracteres y meta descripción de máximo 155, con la palabra clave.\\n- Responde solo con el JSON pedido.\", \"usuario\": \"Cliente: {{cliente.nombre}}\\nTono: {{cliente.tono.etiquetas}} — {{cliente.tono.descripcion}}\\nMensaje central: {{cliente.marca.mensajeCentral}}\\nPúblico: {{cliente.publico.descripcion}}\\n\\nPieza del calendario:\\n- Título de trabajo: {{pieza.titulo}}\\n- Objetivo: {{pieza.resumen}}\\n- Publicación prevista: {{pieza.fechaProgramada}}\\n\\nFuentes permitidas:\\n{{fuentes}}\\n\\nCambios pedidos sobre la versión anterior (vacío si es la primera):\\n{{comentarios}}\\n\\nDevuelve este JSON:\\n\\n```json\\n{\\n  \\\"tipo\\\": \\\"BLOG\\\",\\n  \\\"tituloSeo\\\": \\\"…\\\",\\n  \\\"metaDescripcion\\\": \\\"…\\\",\\n  \\\"slug\\\": \\\"palabras-separadas-por-guiones\\\",\\n  \\\"cuerpoMd\\\": \\\"# Título\\\\n\\\\n…\\\",\\n  \\\"palabras\\\": 0,\\n  \\\"fuentes\\\": [{ \\\"titulo\\\": \\\"…\\\", \\\"url\\\": \\\"https://…\\\" }]\\n}\\n```\"}, \"guion\": {\"sistema\": \"Eres el guionista de video de Inoo. Preparas el paquete para que el equipo audiovisual grabe un video corto\\n(reel o TikTok) de la marca de un cliente: guion, shotlist y storyboard en texto. No generas el video: lo\\ngraba una persona del equipo, que además revisa este borrador.\\n\\nReglas:\\n\\n- Duración entre 15 y 45 segundos. El gancho de los primeros 3 segundos tiene que detener el scroll.\\n- Entre 4 y 8 escenas. Cada una con lo que se ve (plano y acción), lo que se dice o el texto en pantalla,\\n  y su duración. Planos que se puedan grabar con un celular y luz natural.\\n- Respeta el tono de voz y el mensaje central. No inventes promociones, precios, testimonios ni datos.\\n- Un solo llamado a la acción al final.\\n- Responde solo con el JSON pedido.\", \"usuario\": \"Cliente: {{cliente.nombre}}\\nTono: {{cliente.tono.etiquetas}} — {{cliente.tono.descripcion}}\\nMensaje central: {{cliente.marca.mensajeCentral}}\\nPúblico: {{cliente.publico.descripcion}}\\n\\nPieza del calendario:\\n- Título de trabajo: {{pieza.titulo}}\\n- Canal: {{pieza.canal}}\\n- Objetivo: {{pieza.resumen}}\\n\\nCambios pedidos sobre la versión anterior (vacío si es la primera):\\n{{comentarios}}\\n\\nDevuelve este JSON:\\n\\n```json\\n{\\n  \\\"tipo\\\": \\\"GUION\\\",\\n  \\\"objetivo\\\": \\\"…\\\",\\n  \\\"gancho\\\": \\\"lo que pasa y se dice en los primeros 3 segundos\\\",\\n  \\\"duracionSeg\\\": 30,\\n  \\\"cta\\\": \\\"…\\\",\\n  \\\"escenas\\\": [\\n    { \\\"orden\\\": 1, \\\"plano\\\": \\\"…\\\", \\\"accion\\\": \\\"…\\\", \\\"texto\\\": \\\"voz o texto en pantalla\\\", \\\"duracionSeg\\\": 4 }\\n  ]\\n}\\n```\"}, \"visual\": {\"sistema\": \"Eres el director de arte de Inoo. Para un post estático o un carrusel de la marca de un cliente, preparas el\\nbrief que el diseñador va a armar con la plantilla del cliente: el texto exacto de cada lámina y qué debe\\nmostrar. No generas imágenes: el diseño lo hace una persona del equipo.\\n\\nReglas:\\n\\n- Estático: una sola lámina. Carrusel: entre 4 y 7 láminas; la primera engancha y la última lleva el llamado\\n  a la acción.\\n- Textos en imagen cortos: título de hasta 8 palabras y, si hace falta, una bajada de hasta 20.\\n- Usa la paleta y el estilo de las referencias del cliente si los hay. No copies piezas de otras marcas.\\n- Respeta el tono de voz y el mensaje central. No inventes promociones, precios ni datos.\\n- Incluye también el copy de la publicación, con las reglas del canal.\\n- Responde solo con el JSON pedido.\", \"usuario\": \"Cliente: {{cliente.nombre}}\\nTono: {{cliente.tono.etiquetas}} — {{cliente.tono.descripcion}}\\nMensaje central: {{cliente.marca.mensajeCentral}}\\nReferencias visuales: {{referencias}}\\n\\nPieza del calendario:\\n- Tipo: {{pieza.tipo}}\\n- Título de trabajo: {{pieza.titulo}}\\n- Canal: {{pieza.canal}}\\n- Objetivo: {{pieza.resumen}}\\n\\nCambios pedidos sobre la versión anterior (vacío si es la primera):\\n{{comentarios}}\\n\\nDevuelve este JSON:\\n\\n```json\\n{\\n  \\\"tipo\\\": \\\"ESTATICO | CARRUSEL\\\",\\n  \\\"formato\\\": \\\"1080x1350\\\",\\n  \\\"laminas\\\": [\\n    { \\\"orden\\\": 1, \\\"etiqueta\\\": \\\"Portada\\\", \\\"textoEnImagen\\\": \\\"…\\\", \\\"indicacionVisual\\\": \\\"qué se ve: foto, fondo, elementos\\\" }\\n  ],\\n  \\\"copy\\\": \\\"texto de la publicación\\\",\\n  \\\"hashtags\\\": [\\\"#…\\\"],\\n  \\\"cta\\\": \\\"…\\\"\\n}\\n```\"}};\nconst cliente = $('Leer cliente (producción)').first().json;\nconst refs = ($('Leer referencias (producción)').first().json.datos || []);\nconst referencias = refs.length ? refs.map((r) => r.titulo + (r.notas ? ': ' + r.notas : '') + (r.paleta?.length ? ' (paleta ' + r.paleta.join(', ') + ')' : '')).join('; ') : '(sin referencias)';\n// Qué agente hace cada tipo de pieza.\nconst AGENTE = {\n  COPY: ['contenido-copies', 'copies', 1500], ANUNCIO: ['contenido-copies', 'copies', 1500],\n  BLOG: ['contenido-blog', 'blog', 8000],\n  GUION: ['audiovisual-asistido', 'guion', 2500], SHOTLIST: ['audiovisual-asistido', 'guion', 2500], STORYBOARD: ['audiovisual-asistido', 'guion', 2500],\n  ESTATICO: ['estaticos', 'visual', 2500], CARRUSEL: ['estaticos', 'visual', 2500], PORTADA: ['estaticos', 'visual', 2500],\n};\nconst salida = [];\nfor (const it of $input.all()) {\n  const pieza = it.json;\n  const a = AGENTE[pieza.tipo];\n  // Solo las piezas sin contenido: las que ya tienen una versión no se pisan.\n  if (!a || (pieza.versionActual || 0) > 0) continue;\n  const [agente, plantilla, maxTokens] = a;\n  const datos = {\n    cliente, referencias, comentarios: '',\n    pieza: { ...pieza, resumen: pieza.resumen || pieza.titulo, fechaProgramada: String(pieza.fechaProgramada || '').slice(0, 10) },\n    fuentes: '(sin fuentes: no incluyas cifras, estudios ni datos verificables; escribe desde hábitos y experiencia)',\n  };\n  salida.push({ json: {\n    pieza: { id: pieza.id, tipo: pieza.tipo, titulo: pieza.titulo, periodo: pieza.periodo, canal: pieza.canal }, agente, clienteId: cliente.id,\n    cuerpo: {\n      systemInstruction: { parts: [{ text: P[plantilla].sistema }] },\n      contents: [{ role: 'user', parts: [{ text: rellenar(P[plantilla].usuario, datos) }] }],\n      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: maxTokens, thinkingConfig: { thinkingLevel: 'low' } },\n    },\n  } });\n}\nreturn salida;"
+      }
+    },
+    {
+      "id": "543b65f6-8d08-5049-8db9-612c41a23d0d",
+      "name": "Gemini · cada pieza",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        760
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.cuerpo) }}",
+        "options": {
+          "timeout": 240000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 7000
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "GeminiInooKey001",
+          "name": "Gemini · Inoo"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "fa8a00e1-735a-5206-bc7e-5332364efb0f",
+      "name": "Contenido de cada pieza",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        760
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\nconst pedidos = $('Prompt de cada pieza').all();\nconst RED = { instagram: 'INSTAGRAM', facebook: 'FACEBOOK', linkedin: 'LINKEDIN', tiktok: 'TIKTOK' };\nconst salida = [];\n$input.all().forEach((it, i) => {\n  const p = pedidos[i].json;\n  const r = it.json;\n  if (r.error || !r.candidates?.length) return;\n  const j = leerJson((r.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join(''));\n  const tipo = p.pieza.tipo;\n  let c;\n  if (tipo === 'BLOG') {\n    c = { tipo: 'BLOG', tituloSeo: j.tituloSeo, metaDescripcion: j.metaDescripcion, slug: j.slug, cuerpoMd: j.cuerpoMd, palabras: String(j.cuerpoMd || '').split(/\\s+/).filter(Boolean).length };\n  } else if (tipo === 'COPY' || tipo === 'ANUNCIO') {\n    c = { tipo, red: RED[String(j.red || p.pieza.canal || 'instagram').toLowerCase()] || 'INSTAGRAM', copy: j.copy, hashtags: j.hashtags || [], cta: j.cta, sugerenciaVisual: j.sugerenciaVisual, enfoque: j.enfoque };\n  } else if (['GUION', 'SHOTLIST', 'STORYBOARD'].includes(tipo)) {\n    // Los campos que muestra el portal (pantalla de la pieza: tiempo, plano, indicación y audio).\n    let t = 0;\n    const escenas = (j.escenas || []).map((e, k) => {\n      const d = Number(e.duracionSeg) || 3;\n      const fila = { orden: e.orden || k + 1, tiempo: t + '-' + (t + d) + ' s', tipoPlano: e.plano || '', indicacionVisual: e.accion || '', audio: e.texto || '' };\n      t += d;\n      return fila;\n    });\n    c = { tipo, objetivo: j.objetivo, gancho: j.gancho, cta: j.cta, duracionSeg: j.duracionSeg || t, escenas };\n  } else {\n    // Estáticos: el brief de cada lámina para el diseñador (las imágenes las sube el equipo con la nueva versión).\n    const laminas = (j.laminas || []).map((l, k) => ({ orden: l.orden || k + 1, etiqueta: l.etiqueta || 'Lámina ' + (k + 1), textoEnImagen: l.textoEnImagen || '', indicacionVisual: l.indicacionVisual || '' }));\n    c = { tipo, formato: j.formato || '1080x1350', imagenes: laminas, copy: [j.copy, (j.hashtags || []).join(' ')].filter(Boolean).join('\\n\\n'), cta: j.cta };\n  }\n  const nota = tipo === 'ESTATICO' || tipo === 'CARRUSEL' || tipo === 'PORTADA'\n    ? 'Brief visual: ' + c.imagenes.map((l) => l.orden + '. ' + l.etiqueta + ': «' + l.textoEnImagen + '» (' + l.indicacionVisual + ')').join(' · ')\n    : undefined;\n  salida.push({ json: {\n    agente: p.agente, clienteId: p.clienteId,\n    cuerpo: {\n      clienteId: p.clienteId, tipo, titulo: p.pieza.titulo, periodo: p.pieza.periodo, piezaExistenteId: p.pieza.id,\n      version: { contenido: c, agente: p.agente, notaCambios: nota, enviarARevisionInterna: true },\n    },\n    consumo: { proveedor: 'google', modelo: tarifa(r.modelVersion), tokensEntrada: r.usageMetadata?.promptTokenCount || 0, tokensSalida: r.usageMetadata?.candidatesTokenCount || 0 },\n  } });\n});\nreturn salida;"
+      }
+    },
+    {
+      "id": "196285bd-0738-56a2-8bc4-c030e8096eaf",
+      "name": "Guardar versión de cada pieza",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        760
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/piezas",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.cuerpo) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "67069c04-7f63-5c00-b6c0-f82a9c7a06a0",
+      "name": "Ejecuciones de producción",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        760
+      ],
+      "parameters": {
+        "jsCode": "// Rellena {{a.b.c}} con los datos; listas separadas por coma y vacío como «—».\nconst rellenar = (t, d) => t.replace(/{{\\s*([\\w.]+)\\s*}}/g, (_, k) => {\n  const v = k.split('.').reduce((o, x) => (o == null ? undefined : o[x]), d);\n  return Array.isArray(v) ? v.join(', ') : v == null || v === '' ? '—' : String(v);\n});\n// El JSON de la respuesta del modelo, aunque venga entre ``` o con texto alrededor.\nconst leerJson = (t) => {\n  const limpio = String(t || '').replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\n  try { return JSON.parse(limpio); } catch (e) {}\n  return JSON.parse(limpio.slice(limpio.indexOf('{'), limpio.lastIndexOf('}') + 1));\n};\n// Nombre del modelo en la tabla de tarifas del portal (tarifa_modelo).\nconst tarifa = (m) => {\n  m = String(m || '');\n  if (m.startsWith('claude')) return m.replace(/-(\\d+)-(\\d+)$/, '-$1.$2');\n  if (m.includes('flash-lite')) return 'gemini-3.5-flash-lite';\n  return 'gemini-3.8-flash';\n};\n\n// Una ejecución por agente (el portal la identifica por n8nExecutionId + agente), con el consumo sumado.\nconst porAgente = {};\nfor (const it of $('Contenido de cada pieza').all()) {\n  const x = it.json;\n  porAgente[x.agente] ??= { clienteId: x.clienteId, agente: x.agente, n8nWorkflowId: $workflow.id, n8nExecutionId: String($execution.id), estado: 'OK', consumos: [] };\n  porAgente[x.agente].consumos.push(x.consumo);\n}\nreturn Object.values(porAgente).map((ejecucion) => ({ json: { ejecucion } }));"
+      }
+    },
+    {
+      "id": "358893f2-d264-517d-8463-fd52af25563b",
+      "name": "Registrar ejecución (producción)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3600,
+        760
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/ejecuciones",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.ejecucion) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PortalApiKey0001",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Evento del portal": {
+      "main": [
+        [
+          {
+            "node": "Verificar firma y decidir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedido manual": {
+      "main": [
+        [
+          {
+            "node": "Verificar pedido manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar firma y decidir": {
+      "main": [
+        [
+          {
+            "node": "¿Válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar pedido manual": {
+      "main": [
+        [
+          {
+            "node": "¿Válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Válido?": {
+      "main": [
+        [
+          {
+            "node": "Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rechazar (401)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedido": {
+      "main": [
+        [
+          {
+            "node": "Recibido (200)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibido (200)": {
+      "main": [
+        [
+          {
+            "node": "¿Planificar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Planificar?": {
+      "main": [
+        [
+          {
+            "node": "Leer cliente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Producir?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer cliente": {
+      "main": [
+        [
+          {
+            "node": "Leer servicios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer servicios": {
+      "main": [
+        [
+          {
+            "node": "Leer brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer brief": {
+      "main": [
+        [
+          {
+            "node": "Leer referencias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer referencias": {
+      "main": [
+        [
+          {
+            "node": "Prompt del Jefe de Marketing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prompt del Jefe de Marketing": {
+      "main": [
+        [
+          {
+            "node": "Claude · Jefe de Marketing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude · Jefe de Marketing": {
+      "main": [
+        [
+          {
+            "node": "Leer la propuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer la propuesta": {
+      "main": [
+        [
+          {
+            "node": "Guardar propuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar propuesta": {
+      "main": [
+        [
+          {
+            "node": "Ejecución del Jefe de Marketing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecución del Jefe de Marketing": {
+      "main": [
+        [
+          {
+            "node": "Registrar ejecución (Jefe de Marketing)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer cliente (producción)": {
+      "main": [
+        [
+          {
+            "node": "Leer referencias (producción)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer referencias (producción)": {
+      "main": [
+        [
+          {
+            "node": "Leer piezas del mes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer piezas del mes": {
+      "main": [
+        [
+          {
+            "node": "Una pieza por ítem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Una pieza por ítem": {
+      "main": [
+        [
+          {
+            "node": "Leer pieza",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer pieza": {
+      "main": [
+        [
+          {
+            "node": "Prompt de cada pieza",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prompt de cada pieza": {
+      "main": [
+        [
+          {
+            "node": "Gemini · cada pieza",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini · cada pieza": {
+      "main": [
+        [
+          {
+            "node": "Contenido de cada pieza",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contenido de cada pieza": {
+      "main": [
+        [
+          {
+            "node": "Guardar versión de cada pieza",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar versión de cada pieza": {
+      "main": [
+        [
+          {
+            "node": "Ejecuciones de producción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecuciones de producción": {
+      "main": [
+        [
+          {
+            "node": "Registrar ejecución (producción)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Producir?": {
+      "main": [
+        [
+          {
+            "node": "Leer cliente (producción)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Lima",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "agentes"
+    },
+    {
+      "name": "portal"
+    }
+  ],
+  "pinData": {}
+}

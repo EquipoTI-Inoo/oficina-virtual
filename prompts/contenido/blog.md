@@ -1,8 +1,8 @@
 ---
 agente: contenido-blog
 tarea: blog
-modelo: gpt-6.1-sol
-proveedor: openai
+modelo: gemini-flash-latest
+proveedor: google
 temperatura: 0.6
 requisitos: [CON-01, CU-03, US-05]
 salida: json

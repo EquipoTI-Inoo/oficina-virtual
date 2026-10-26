@@ -1,8 +1,8 @@
 ---
 agente: marketing-jefe
 tarea: calendario-mensual
-modelo: gpt-6.1-sol
-proveedor: openai
+modelo: claude-sonnet-5-5
+proveedor: anthropic
 temperatura: 0.4
 requisitos: [MKT-01, MKT-02, CU-02]
 salida: json

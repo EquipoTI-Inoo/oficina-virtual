@@ -376,7 +376,7 @@ function resumenPieza(ctx: Ctx, p: D.PiezaDemo, conCliente = false): S<"PiezaRes
     titulo: p.titulo,
     resumen: p.resumen,
     canal: p.canal,
-    periodo: D.PERIODO,
+    periodo: new Date(Date.parse(p.fecha) - 5 * 3_600_000).toISOString().slice(0, 7),
     fechaProgramada: iso(p.fecha),
     estado: estadoVisible(ctx, p.estado),
     numeroVersion: ctx.esEquipo ? p.versionActual : p.versionCliente,

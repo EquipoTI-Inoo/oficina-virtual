@@ -1,8 +1,8 @@
 ---
 agente: contenido-copies
 tarea: copies
-modelo: gpt-6.1-sol
-proveedor: openai
+modelo: gemini-flash-latest
+proveedor: google
 temperatura: 0.7
 requisitos: [CON-02, US-06]
 salida: json
