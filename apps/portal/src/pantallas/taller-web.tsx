@@ -8,11 +8,11 @@
  * navegación y estructural) · Prototipo (pantallas de Stitch; a Figma lo pasa una persona) · Demo (link
  * que vence, sin indexar, con vistas contadas).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LuCamera, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPlus, LuSave, LuSparkles, LuTrash2, LuWandSparkles } from "react-icons/lu";
 import { api, Enlace, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso } from "../componentes";
-import { type Insumos, paginaParaPrompt, promptStitch } from "../dominio/taller-web";
+import { type Insumos, LIMITES_TALLER, paginaParaPrompt, promptStitch } from "../dominio/taller-web";
 
 type Taller = S<"TallerWeb">;
 type Resultado = S<"ResultadoTallerWeb">;
@@ -58,6 +58,9 @@ function TallerWeb() {
   const [pestana, setPestana] = useState<Pestana>("BENCHMARK");
   const [b, setB] = useState<Borrador | null>(null);
   const [sucio, setSucio] = useState(false);
+  // Para pasos encadenados (todas las pantallas): cada uno mira si todavía hay cambios sin guardar.
+  const sucioRef = useRef(sucio);
+  sucioRef.current = sucio;
   const [ocupado, setOcupado] = useState<string | null>(null);
   const t = consulta.datos;
 
@@ -91,16 +94,19 @@ function TallerWeb() {
   };
 
   /** Corre un paso (capturas, análisis…). Si hay cambios sin guardar, se guardan antes. */
+  /** Corre un paso del taller; devuelve si salió bien (el lote de pantallas se detiene en el primer error). */
   const paso = async (clave: string, camino: string, cuerpo: Record<string, unknown> = {}, exito?: (r: Resultado) => string) => {
-    if (sucio && !(await guardar(true))) return;
+    if (sucioRef.current && !(await guardar(true))) return false;
     setOcupado(clave);
     try {
       const r = await api<Resultado>(`${ruta}${camino}`, { metodo: "POST", cuerpo, idempotente: true });
       aplicar(r.taller);
       if (r.avisos.length) avisar({ titulo: "Listo, con observaciones", texto: r.avisos.map((a) => a.mensaje).join(" · ") });
       else if (exito) avisar({ titulo: exito(r), texto: r.simulado ? "Modo de prueba: es contenido de relleno." : undefined });
+      return true;
     } catch (e) {
       avisar({ titulo: "No se pudo completar", texto: errorDe(e) });
+      return false;
     } finally {
       setOcupado(null);
     }
@@ -150,7 +156,7 @@ function TallerWeb() {
   );
 }
 
-type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, exito?: (r: Resultado) => string) => Promise<void>;
+type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, exito?: (r: Resultado) => string) => Promise<boolean>;
 
 // ───────────────────────────── lateral: insumos y entregables
 
@@ -477,6 +483,19 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
   // El estándar se arma con lo que hay en pantalla (también lo que todavía no se guardó).
   const estandar = sinFlujo ? "" : promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: pagina?.id, dispositivo });
   const prompt = b.promptPrototipo ?? estandar;
+  // «Todas las páginas»: una pantalla por página del flujograma, en orden y con su prompt estándar, hasta el tope.
+  const libres = Math.max(0, LIMITES_TALLER.pantallas - t.prototipo.pantallas.length);
+  const lote = b.flujograma.slice(0, libres);
+  const [progreso, setProgreso] = useState<string | null>(null);
+  const todas = async () => {
+    for (const [i, p] of lote.entries()) {
+      setProgreso(`${i + 1} de ${lote.length}: ${p.titulo}`);
+      const cuerpo = { prompt: promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: p.id, dispositivo }), paginaId: p.id, dispositivo };
+      const ultima = i === lote.length - 1;
+      if (!(await paso("prototipo", "/prototipo", cuerpo, ultima ? () => `${lote.length} pantallas generadas` : undefined))) break;
+    }
+    setProgreso(null);
+  };
   return (
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
@@ -519,8 +538,11 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
           </span>
         </div>
         <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-          <button className="boton boton--chico boton--primario" disabled={!!ocupado || sinFlujo || t.prototipo.pantallas.length >= 12} onClick={() => void paso("prototipo", "/prototipo", { prompt, paginaId: pagina?.id, dispositivo }, () => "Pantalla generada")}>
-            <LuSparkles size={14} /> {ocupado === "prototipo" ? "Stitch está diseñando… (puede tardar)" : "Generar pantalla"}
+          <button className="boton boton--chico boton--primario" disabled={!!ocupado || sinFlujo || t.prototipo.pantallas.length >= LIMITES_TALLER.pantallas} onClick={() => void paso("prototipo", "/prototipo", { prompt, paginaId: pagina?.id, dispositivo }, () => "Pantalla generada")}>
+            <LuSparkles size={14} /> {ocupado === "prototipo" && !progreso ? "Stitch está diseñando… (puede tardar)" : "Generar pantalla"}
+          </button>
+          <button className="boton boton--chico" disabled={!!ocupado || !!progreso || sinFlujo || lote.length === 0} onClick={() => void todas()}>
+            <LuLayoutTemplate size={14} /> {progreso ? `Diseñando ${progreso}…` : `Todas las páginas (${lote.length})`}
           </button>
           {t.prototipo.proyectoStitch && (
             <a className="enlace" href={`https://stitch.withgoogle.com/projects/${t.prototipo.proyectoStitch}`} target="_blank" rel="noreferrer">
@@ -528,6 +550,12 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
             </a>
           )}
         </div>
+        {!sinFlujo && (
+          <span className="ayuda-campo" style={{ marginTop: -6 }}>
+            «Todas las páginas» usa el prompt estándar de cada página ({dispositivo === "MOVIL" ? "móvil" : "escritorio"}), una por una; cada pantalla gasta créditos de Stitch.
+            {b.flujograma.length > libres && ` Caben ${libres} de ${b.flujograma.length}: el tope es ${LIMITES_TALLER.pantallas} pantallas por proyecto.`}
+          </span>
+        )}
       </section>
       {t.prototipo.pantallas.length > 0 && (
         <section className="tarjeta" style={{ display: "grid", gap: 12 }}>

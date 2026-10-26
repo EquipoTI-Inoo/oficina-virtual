@@ -326,7 +326,7 @@ export class ErrorTaller extends Error {
 }
 
 const ahoraIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-const MAX_PANTALLAS = 12;
+const MAX_PANTALLAS = LIMITES_TALLER.pantallas;
 
 async function cargar(repo: RepoTaller): Promise<EstadoTaller> {
   if (repo.servicio.codigo !== "WEB") throw new ErrorTaller(409, "NO_ES_WEB", "El taller web es solo para proyectos de Diseño y desarrollo web");

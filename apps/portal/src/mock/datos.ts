@@ -480,6 +480,11 @@ export interface RequerimientoDemo {
   enviadoPorId: string | null;
   revisadoEn: string | null;
   creadoPorId: string;
+  /** Enlace para responder sin cuenta (src/dominio/requerimientos.ts, ENLACE_FORMULARIO). */
+  enlaceToken?: string | null;
+  enlaceVenceEn?: string | null;
+  /** Quien lo envió por el enlace, sin cuenta. */
+  respondidoPorNombre?: string | null;
 }
 
 const req = (n: number, sc: string, plantilla: string, titulo: string, emitidoEn: string, x: Partial<RequerimientoDemo> = {}): RequerimientoDemo => ({

@@ -201,6 +201,19 @@ export function prepararIngreso(v: unknown): { respuestas: Respuestas; errores: 
   return { respuestas: soloVisibles(CAMPOS_INGRESO, r), errores };
 }
 
+// ───────────────────────────── enlace para responder sin cuenta
+
+/** Vigencia del enlace de un formulario (días corridos). */
+export const ENLACE_FORMULARIO = { diasDefecto: 14, diasMax: 60 } as const;
+
+/** Página pública del formulario (fuera del portal). */
+export const urlFormularioPublico = (token: string) => `/f/${token}`;
+
+/** Al enviar por el enlace se pide el nombre de quien responde (no tiene cuenta). */
+export function validarNombreEnlace(v: unknown): { campo: string; mensaje: string }[] {
+  return typeof v === "string" && v.trim().length >= 3 && v.trim().length <= 120 ? [] : [{ campo: "nombre", mensaje: "Escribe tu nombre y apellido" }];
+}
+
 // ───────────────────────────── plazos y atrasos
 
 /** Fecha límite: `dias` hábiles después de la emisión (emitido el viernes con 2 días → martes 23:59). */

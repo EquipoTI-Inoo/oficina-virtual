@@ -556,6 +556,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/requerimientos/{requerimientoId}/enlace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Crea (o reemplaza) el enlace para responder sin cuenta del portal */
+        post: operations["crearEnlaceRequerimiento"];
+        /** Revoca el enlace (deja de funcionar al instante) */
+        delete: operations["revocarEnlaceRequerimiento"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publico/formularios/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** El formulario de un requerimiento por su enlace, sin sesión */
+        get: operations["leerFormularioPublico"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publico/formularios/{token}/respuesta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Guarda el borrador o envía el formulario por su enlace (al enviar, con el nombre de quien responde) */
+        put: operations["responderFormularioPublico"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publico/formularios/{token}/archivos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inicia la subida de un archivo del formulario (URL prefirmada), sin sesión */
+        post: operations["subirArchivoFormularioPublico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publico/formularios/{token}/archivos/{archivoId}/confirmar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirma que el archivo se subió */
+        post: operations["confirmarArchivoFormularioPublico"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plantillas-requerimiento": {
         parameters: {
             query?: never;
@@ -3623,6 +3720,27 @@ export interface components {
                 valores: string[];
             };
         };
+        /** @description Lo que ve quien abre el enlace de un requerimiento (sin datos internos) */
+        FormularioPublico: {
+            titulo: string;
+            descripcion?: string | null;
+            mensaje?: string | null;
+            clienteNombre: string;
+            servicioTitulo: string;
+            campos: components["schemas"]["CampoFormulario"][];
+            respuestas: {
+                [key: string]: unknown;
+            };
+            estado: components["schemas"]["EstadoRequerimiento"];
+            notaEquipo?: string | null;
+            /** Format: date */
+            fechaLimite: string;
+            /**
+             * Format: date-time
+             * @description Cuándo deja de funcionar el enlace
+             */
+            venceEn: string;
+        };
         PlantillaRequerimiento: {
             /** @example BRIEF_WEB */
             codigo: string;
@@ -3684,6 +3802,16 @@ export interface components {
             /** Format: date-time */
             revisadoEn?: string | null;
             creadoPor?: components["schemas"]["PersonaMini"] | null;
+            /** @description Enlace para responder sin cuenta del portal (lo crea el equipo; vence o se revoca) */
+            enlace?: {
+                /** @description Ruta de la página pública: /f/{token} */
+                url: string;
+                /** Format: date-time */
+                venceEn: string;
+                vigente: boolean;
+            } | null;
+            /** @description Nombre de quien lo envió por el enlace, sin cuenta */
+            enviadoPorEnlace?: string | null;
         };
         /** @description Crea el proyecto con las etapas de la plantilla del servicio (y variante), escaladas por el tamaño, o con etapas personalizadas. Las fechas previstas se calculan en días hábiles desde `fechaInicio`. Se le piden al cliente los requerimientos de la plantilla (reunión 15 oct: todo al inicio). */
         ServicioContratadoEntrada: {
@@ -6206,6 +6334,190 @@ export interface operations {
                         campos: components["schemas"]["CampoFormulario"][];
                     };
                 };
+            };
+        };
+    };
+    crearEnlaceRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Por defecto 14 */
+                    diasVigencia?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Requerimiento"];
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    revocarEnlaceRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Requerimiento"];
+                };
+            };
+        };
+    };
+    leerFormularioPublico: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormularioPublico"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            /** @description El enlace venció */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    responderFormularioPublico: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    respuestas: {
+                        [key: string]: unknown;
+                    };
+                    enviar?: boolean;
+                    /** @description Obligatorio al enviar */
+                    nombre?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormularioPublico"];
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    subirArchivoFormularioPublico: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    mime: string;
+                    bytes: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        archivo?: {
+                            id?: string;
+                            nombre?: string;
+                            estado?: string;
+                        };
+                        subida?: {
+                            metodo?: string;
+                            url?: string;
+                            headers?: {
+                                [key: string]: string;
+                            };
+                            /** Format: date-time */
+                            expiraEn?: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    confirmarArchivoFormularioPublico: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

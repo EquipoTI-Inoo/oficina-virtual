@@ -862,6 +862,105 @@ paths:
                 properties:
                   campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
 
+  /requerimientos/{requerimientoId}/enlace:
+    parameters: [ { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    post:
+      tags: [Requerimientos]
+      operationId: crearEnlaceRequerimiento
+      summary: Crea (o reemplaza) el enlace para responder sin cuenta del portal
+      x-roles: [EQUIPO]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                diasVigencia: { type: integer, minimum: 1, maximum: 60, description: 'Por defecto 14' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Requerimiento' } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Requerimientos]
+      operationId: revocarEnlaceRequerimiento
+      summary: Revoca el enlace (deja de funcionar al instante)
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Requerimiento' } } } }
+
+  /publico/formularios/{token}:
+    parameters: [ { name: token, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } } ]
+    get:
+      tags: [Requerimientos]
+      operationId: leerFormularioPublico
+      summary: El formulario de un requerimiento por su enlace, sin sesión
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FormularioPublico' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '410': { description: El enlace venció }
+  /publico/formularios/{token}/respuesta:
+    parameters: [ { name: token, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } } ]
+    put:
+      tags: [Requerimientos]
+      operationId: responderFormularioPublico
+      summary: Guarda el borrador o envía el formulario por su enlace (al enviar, con el nombre de quien responde)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [respuestas]
+              properties:
+                respuestas: { type: object, additionalProperties: true }
+                enviar: { type: boolean }
+                nombre: { type: string, description: Obligatorio al enviar }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FormularioPublico' } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+  /publico/formularios/{token}/archivos:
+    parameters: [ { name: token, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } } ]
+    post:
+      tags: [Requerimientos]
+      operationId: subirArchivoFormularioPublico
+      summary: Inicia la subida de un archivo del formulario (URL prefirmada), sin sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, mime, bytes]
+              properties:
+                nombre: { type: string }
+                mime: { type: string }
+                bytes: { type: integer }
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  archivo: { type: object, properties: { id: { type: string }, nombre: { type: string }, estado: { type: string } } }
+                  subida: { type: object, properties: { metodo: { type: string }, url: { type: string }, headers: { type: object, additionalProperties: { type: string } }, expiraEn: { type: string, format: date-time } } }
+  /publico/formularios/{token}/archivos/{archivoId}/confirmar:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Requerimientos]
+      operationId: confirmarArchivoFormularioPublico
+      summary: Confirma que el archivo se subió
+      security: []
+      responses:
+        '200': { description: OK }
+
   /plantillas-requerimiento:
     get:
       tags: [Requerimientos]
@@ -4586,6 +4685,22 @@ components:
           properties:
             campo: { type: string }
             valores: { type: array, minItems: 1, items: { type: string } }
+    FormularioPublico:
+      description: Lo que ve quien abre el enlace de un requerimiento (sin datos internos)
+      type: object
+      required: [titulo, clienteNombre, servicioTitulo, campos, respuestas, estado, fechaLimite, venceEn]
+      properties:
+        titulo: { type: string }
+        descripcion: { type: [string, 'null'] }
+        mensaje: { type: [string, 'null'] }
+        clienteNombre: { type: string }
+        servicioTitulo: { type: string }
+        campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
+        respuestas: { type: object, additionalProperties: true }
+        estado: { $ref: '#/components/schemas/EstadoRequerimiento' }
+        notaEquipo: { type: [string, 'null'] }
+        fechaLimite: { type: string, format: date }
+        venceEn: { type: string, format: date-time, description: Cuándo deja de funcionar el enlace }
     PlantillaRequerimiento:
       type: object
       required: [codigo, nombre, diasHabiles, servicios, campos]
@@ -4629,6 +4744,17 @@ components:
         enviadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
         revisadoEn: { type: [string, 'null'], format: date-time }
         creadoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+        enlace:
+          description: 'Enlace para responder sin cuenta del portal (lo crea el equipo; vence o se revoca)'
+          oneOf:
+            - type: object
+              required: [url, venceEn, vigente]
+              properties:
+                url: { type: string, description: 'Ruta de la página pública: /f/{token}' }
+                venceEn: { type: string, format: date-time }
+                vigente: { type: boolean }
+            - type: 'null'
+        enviadoPorEnlace: { type: [string, 'null'], description: 'Nombre de quien lo envió por el enlace, sin cuenta' }
     ServicioContratadoEntrada:
       type: object
       description: 'Crea el proyecto con las etapas de la plantilla del servicio (y variante), escaladas por el tamaño, o con etapas personalizadas. Las fechas previstas se calculan en días hábiles desde `fechaInicio`. Se le piden al cliente los requerimientos de la plantilla (reunión 15 oct: todo al inicio).'

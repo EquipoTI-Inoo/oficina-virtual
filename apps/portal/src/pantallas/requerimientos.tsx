@@ -6,10 +6,10 @@
  * El equipo pide requerimientos desde la ficha del cliente y revisa lo enviado en esta misma pantalla.
  */
 import { Fragment, useRef, useState, type ReactNode } from "react";
-import { LuCheck, LuCircleAlert, LuClipboardList, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
+import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
-import { camposVisibles, semaforoRequerimiento } from "../dominio/requerimientos";
+import { camposVisibles, ENLACE_FORMULARIO, semaforoRequerimiento } from "../dominio/requerimientos";
 
 type Req = S<"Requerimiento">;
 type Lista = { datos: Req[]; pendientes: number; atrasados: number };
@@ -36,7 +36,8 @@ export function LuzSemaforo({ r }: { r: Req }) {
 /** «A tiempo · vence el 8 oct», «Vence hoy», «Vence mañana» o «Atrasado 2 días hábiles»; con su color. */
 export function PlazoRequerimiento({ r }: { r: Req }) {
   const color = semaforoRequerimiento(r);
-  if (!color) return <span className="texto-xs texto-muted">{r.enviadoEn ? `Enviado el ${fDiaMes(r.enviadoEn)}` : ""}</span>;
+  const quien = r.enviadoPor?.nombre ?? (r.enviadoPorEnlace ? `${r.enviadoPorEnlace} (por enlace, sin cuenta)` : null);
+  if (!color) return <span className="texto-xs texto-muted">{r.enviadoEn ? `Enviado el ${fDiaMes(r.enviadoEn)}${quien ? ` por ${quien}` : ""}` : ""}</span>;
   const texto =
     color === "ROJO"
       ? `Atrasado ${plural(r.diasAtraso, "día hábil", "días hábiles")}`
@@ -218,6 +219,7 @@ function Requerimiento() {
             )}
           </section>
           {esEquipo && r.estado === "ENVIADO" && <RevisionEquipo r={r} alRevisar={(x) => setDatos(x)} />}
+          {esEquipo && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO") && <EnlaceSinCuenta r={r} alCambiar={(x) => setDatos(x)} />}
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
@@ -241,8 +243,10 @@ function Requerimiento() {
  * Las preguntas de un formulario (requerimiento o ingreso de cliente): con sus títulos de sección y solo las del camino
  * que eligió quien responde (`mostrarSi`, src/dominio/requerimientos.ts).
  */
-export function CamposFormulario({ campos, valores, errores, soloLectura, alCambiar }: {
+export function CamposFormulario({ campos, valores, errores, soloLectura, alCambiar, subida }: {
   campos: S<"CampoFormulario">[]; valores: Record<string, unknown>; errores: Record<string, string>; soloLectura: boolean; alCambiar: (clave: string, v: unknown) => void;
+  /** Cómo se suben los archivos; por defecto, a la cuenta del cliente con su sesión. */
+  subida?: Subida;
 }) {
   const visibles = camposVisibles(campos, valores);
   return (
@@ -250,14 +254,14 @@ export function CamposFormulario({ campos, valores, errores, soloLectura, alCamb
       {campos.filter((c) => visibles.has(c.clave)).map((c) => (
         <Fragment key={c.clave}>
           {c.seccion && <h3 className="tarjeta-titulo" style={{ fontSize: 15, marginTop: 6 }}>{c.seccion}</h3>}
-          <CampoRequerimiento campo={c} valor={valores[c.clave]} error={errores[c.clave]} soloLectura={soloLectura} alCambiar={(v) => alCambiar(c.clave, v)} />
+          <CampoRequerimiento campo={c} valor={valores[c.clave]} error={errores[c.clave]} soloLectura={soloLectura} alCambiar={(v) => alCambiar(c.clave, v)} subida={subida} />
         </Fragment>
       ))}
     </>
   );
 }
 
-function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar }: { campo: S<"CampoFormulario">; valor: unknown; error?: string; soloLectura: boolean; alCambiar: (v: unknown) => void }) {
+function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar, subida }: { campo: S<"CampoFormulario">; valor: unknown; error?: string; soloLectura: boolean; alCambiar: (v: unknown) => void; subida?: Subida }) {
   const id = `campo-${c.clave}`;
   const ayuda = error ?? c.ayuda;
   const etiqueta = (
@@ -322,7 +326,7 @@ function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar }: 
       </div>
     );
   } else if (c.tipo === "ARCHIVOS") {
-    control = <SubirArchivos id={id} valor={(valor as Archivo[]) ?? []} alCambiar={alCambiar} />;
+    control = <SubirArchivos id={id} valor={(valor as Archivo[]) ?? []} alCambiar={alCambiar} subida={subida ?? SUBIDA_CLIENTE} />;
   } else {
     control = (
       <div className="entrada">
@@ -340,6 +344,76 @@ function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar }: 
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * El equipo comparte el formulario con alguien sin cuenta del portal (26 oct): un enlace que vence, se copia y se
+ * revoca. Quien lo abre responde en /f/{token} y deja su nombre al enviar.
+ */
+function EnlaceSinCuenta({ r, alCambiar }: { r: Req; alCambiar: (r: Req) => void }) {
+  const avisar = useAviso();
+  const [dias, setDias] = useState(String(ENLACE_FORMULARIO.diasDefecto));
+  const [ocupado, setOcupado] = useState(false);
+  const url = r.enlace && typeof window !== "undefined" ? `${window.location.origin}${r.enlace.url}` : null;
+  const accion = async (metodo: "POST" | "DELETE") => {
+    setOcupado(true);
+    try {
+      const x = await api<Req>(`/requerimientos/${r.id}/enlace`, { metodo, cuerpo: metodo === "POST" ? { diasVigencia: Number(dias) } : undefined });
+      alCambiar(x);
+      avisar(metodo === "POST" ? { titulo: "Enlace listo", texto: "Cópialo y compártelo. El anterior, si había, ya no funciona." } : { titulo: "Enlace revocado", texto: "Ya nadie puede responder con él." });
+    } catch (e) {
+      avisar({ titulo: "No se pudo completar", texto: (e as ProblemaApi).titulo });
+    } finally {
+      setOcupado(false);
+    }
+  };
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(url!);
+      avisar({ titulo: "Enlace copiado" });
+    } catch {
+      avisar({ titulo: "No se pudo copiar", texto: "Selecciona el enlace y cópialo a mano." });
+    }
+  };
+  return (
+    <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
+      <div>
+        <h3 className="tarjeta-titulo" style={{ fontSize: 15 }}>Enlace para responder sin cuenta</h3>
+        <p className="texto-xs texto-muted" style={{ margin: "4px 0 0" }}>Para quien no tiene acceso al portal. Al enviar, deja su nombre y llega aquí como cualquier respuesta.</p>
+      </div>
+      {r.enlace && url && (
+        <div style={{ display: "grid", gap: 6 }}>
+          <div className="entrada">
+            <input readOnly aria-label="Enlace del formulario" value={url} onFocus={(e) => e.target.select()} />
+          </div>
+          <span className="texto-xs" style={{ color: r.enlace.vigente ? undefined : "var(--c-alerta)" }}>
+            {r.enlace.vigente ? `Vence el ${fDiaMes(r.enlace.venceEn)}.` : `Venció el ${fDiaMes(r.enlace.venceEn)}: crea uno nuevo.`}
+          </span>
+        </div>
+      )}
+      <div className="fila" style={{ gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+        {r.enlace?.vigente && (
+          <button className="boton boton--chico boton--primario" onClick={() => void copiar()}>
+            <LuCopy size={14} /> Copiar enlace
+          </button>
+        )}
+        <div className="campo" style={{ width: 120 }}>
+          <label htmlFor="enlace-dias">Vigencia (días)</label>
+          <div className="entrada">
+            <input id="enlace-dias" type="number" min={1} max={ENLACE_FORMULARIO.diasMax} value={dias} onChange={(e) => setDias(e.target.value)} />
+          </div>
+        </div>
+        <button className="boton boton--chico" disabled={ocupado} onClick={() => void accion("POST")}>
+          <LuLink size={14} /> {r.enlace ? "Crear uno nuevo" : "Crear enlace"}
+        </button>
+        {r.enlace && (
+          <button className="boton boton--chico" disabled={ocupado} onClick={() => void accion("DELETE")}>
+            <LuLink2Off size={14} /> Revocar
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -364,7 +438,17 @@ function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; va
 
 const MIME_OK = ["image/jpeg", "image/png", "video/mp4", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 
-function SubirArchivos({ id, valor, alCambiar }: { id: string; valor: Archivo[]; alCambiar: (v: Archivo[]) => void }) {
+export interface Subida {
+  iniciar: (a: { nombre: string; mime: string; bytes: number }) => Promise<{ archivo: { id: string }; subida: { url: string; headers: Record<string, string> } }>;
+  confirmar: (archivoId: string) => Promise<unknown>;
+}
+
+const SUBIDA_CLIENTE: Subida = {
+  iniciar: (a) => api(`/clientes/${clienteActivo()}/archivos`, { metodo: "POST", cuerpo: { ...a, uso: "REQUERIMIENTO" }, idempotente: true }),
+  confirmar: (id) => api(`/archivos/${id}/confirmar`, { metodo: "POST", cuerpo: {} }),
+};
+
+function SubirArchivos({ id, valor, alCambiar, subida }: { id: string; valor: Archivo[]; alCambiar: (v: Archivo[]) => void; subida: Subida }) {
   const avisar = useAviso();
   const input = useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -378,13 +462,9 @@ function SubirArchivos({ id, valor, alCambiar }: { id: string; valor: Archivo[];
         continue;
       }
       try {
-        const r = await api<{ archivo: { id: string }; subida: { url: string; headers: Record<string, string> } }>(`/clientes/${clienteActivo()}/archivos`, {
-          metodo: "POST",
-          cuerpo: { nombre: f.name, mime: f.type, bytes: f.size, uso: "REQUERIMIENTO" },
-          idempotente: true,
-        });
+        const r = await subida.iniciar({ nombre: f.name, mime: f.type, bytes: f.size });
         await fetch(r.subida.url, { method: "PUT", headers: r.subida.headers, body: f });
-        await api(`/archivos/${r.archivo.id}/confirmar`, { metodo: "POST", cuerpo: {} });
+        await subida.confirmar(r.archivo.id);
         nuevos.push({ archivoId: r.archivo.id, nombre: f.name });
       } catch (e) {
         avisar({ titulo: `${f.name} no se subió`, texto: (e as ProblemaApi).titulo });

@@ -50,6 +50,8 @@ export const LIMITES_TALLER = {
   paginas: 40,
   seccionesPorPagina: 12,
   promptPrototipo: 4000,
+  /** Pantallas de Stitch por proyecto (cada una gasta créditos diarios de Stitch). */
+  pantallas: 12,
   /** Vigencia del link de la demo (decisión del 10 oct: vence por días). */
   diasDemoDefecto: 7,
   diasDemoMax: 30,

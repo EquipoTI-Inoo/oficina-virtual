@@ -60,7 +60,9 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
-import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, validarRespuestas, type Campo } from "../dominio/requerimientos";
+import {
+  correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
+} from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
@@ -1918,6 +1920,106 @@ export async function archivoPublicoDb(token: string, req: Request): Promise<Res
   });
 }
 
+/**
+ * /publico/formularios/{token}[/respuesta | /archivos | /archivos/{id}/confirmar], sin sesión: el requerimiento
+ * que se responde por su enlace. Corre con una sesión de servicio y solo toca ese requerimiento y sus archivos.
+ */
+export async function formularioPublicoDb(req: Request, token: string, resto: string): Promise<Response> {
+  const cabeceras = { "x-robots-tag": "noindex, nofollow", "cache-control": "no-store" };
+  const json = (datos: unknown, status = 200) => Response.json(datos, { status, headers: cabeceras });
+  try {
+    if (req.method !== "GET" && !dentroDelLimite(`formulario:${token}`, ipDe(req))) throw new ErrorApi(429, "DEMASIADAS_SOLICITUDES", "Demasiados intentos", "Espera unos minutos y vuelve a intentarlo.");
+    const db = await baseDatos();
+    return await db.transaccion(async (c) => {
+      await comoUsuario(c, { usuarioId: "", tipo: "SERVICIO", clienteIds: [] });
+      const ctx: Ctx = { u: { usuarioId: "", tipo: "SERVICIO", clienteIds: [], nombre: "Enlace del formulario", email: "", cargo: null, rolEquipo: null, roles: {} }, c, esEquipo: true, esServicio: true, feriados: new Set() };
+      const r = (await c.query<FilaReq>(`${SELECT_REQ} WHERE r.enlace_token = $1 FOR UPDATE OF r`, [token])).rows[0];
+      if (!r) throw new ErrorApi(404, "ENLACE_NO_VALIDO", "Este enlace no funciona", "Puede que lo hayan reemplazado. Pide uno nuevo a tu equipo Inoo.");
+      if (r.enlace_vence_en && r.enlace_vence_en.getTime() <= Date.now()) throw new ErrorApi(410, "ENLACE_VENCIDO", "Este enlace venció", "Pide uno nuevo a tu equipo Inoo.");
+      ctx.feriados = await noHabilesDb(ctx);
+      const vista = (x: FilaReq): S<"FormularioPublico"> => ({
+        titulo: x.titulo, descripcion: x.plantilla_descripcion, mensaje: x.mensaje, clienteNombre: x.cliente_nombre,
+        servicioTitulo: tituloServicio(x.servicio_nombre, x.servicio_marca ?? x.cliente_nombre), campos: x.campos, respuestas: x.respuestas,
+        estado: x.estado, notaEquipo: x.nota_equipo, fechaLimite: fechaIso(x.fecha_limite)!, venceEn: isoZ(x.enlace_vence_en!),
+      });
+      const texto = req.method === "GET" ? "" : await req.text();
+      let b: Record<string, unknown> = {};
+      try {
+        b = texto ? (JSON.parse(texto) as Record<string, unknown>) : {};
+      } catch {
+        throw new ErrorApi(400, "VALIDACION", "El cuerpo debe ser JSON válido");
+      }
+      if (req.method === "GET" && resto === "") return json(vista(r));
+
+      if (req.method === "PUT" && resto === "/respuesta") {
+        if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
+        const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? (b.respuestas as Record<string, unknown>) : {};
+        const enviar = b.enviar === true;
+        const errores = [...validarRespuestas(r.campos, respuestas, enviar), ...(enviar ? validarNombreEnlace(b.nombre) : [])];
+        if (errores.length) throw new ErrorApi(422, "VALIDACION", enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
+        const guardadas = JSON.stringify(soloVisibles(r.campos, respuestas));
+        if (!enviar) {
+          await c.query("UPDATE requerimiento SET respuestas = $2 WHERE id = $1", [r.id, guardadas]);
+        } else {
+          const nombre = (b.nombre as string).trim();
+          await c.query("UPDATE requerimiento SET respuestas = $2, estado = 'ENVIADO', enviado_en = now(), enviado_por = NULL, respondido_por_nombre = $3 WHERE id = $1", [r.id, guardadas, nombre]);
+          const corridos = await aplicarAtrasoDb(ctx, r, HOY_LIMA(), ctx.feriados);
+          await emitirOutbox(ctx, "requerimiento.enviado", r.cliente_id, {
+            requerimientoId: r.id, diasAtraso: diasAtraso(fechaIso(r.fecha_limite)!, HOY_LIMA(), ctx.feriados), diasCorridos: corridos, usuarioId: null, nombreSinCuenta: nombre,
+          });
+        }
+        return json(vista((await c.query<FilaReq>(`${SELECT_REQ} WHERE r.id = $1`, [r.id])).rows[0]));
+      }
+
+      if (req.method === "POST" && resto === "/archivos") {
+        if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió");
+        const errores: { campo: string; mensaje: string }[] = [];
+        if (typeof b.nombre !== "string" || !b.nombre.trim() || b.nombre.length > 255) errores.push({ campo: "nombre", mensaje: "Indica el nombre del archivo (máximo 255 caracteres)" });
+        if (typeof b.mime !== "string") errores.push({ campo: "mime", mensaje: "Indica el tipo de archivo" });
+        if (!Number.isInteger(b.bytes) || (b.bytes as number) < 1) errores.push({ campo: "bytes", mensaje: "Indica el tamaño en bytes" });
+        validacion(errores);
+        if ((b.bytes as number) > 100 * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", "El archivo supera 100 MB");
+        if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", "Usa JPG, PNG, MP4, PDF, DOCX o XLSX.");
+        const id = crypto.randomUUID();
+        const nombre = (b.nombre as string).trim();
+        const clave = `clientes/${r.cliente_id}/requerimiento/${id}/${nombreEnClave(nombre)}`;
+        const subida = almacen().urlSubida(clave, b.mime as string);
+        await c.query(
+          `INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, bytes, uso) VALUES ($1, $2, 'CLIENTE', 'S3', $3, $4, $5, $6, 'REQUERIMIENTO')`,
+          [id, r.cliente_id, clave, nombre, b.mime, b.bytes],
+        );
+        return json({ archivo: { id, nombre, estado: "PENDIENTE_SUBIDA" }, subida: { metodo: "PUT", url: subida.url, headers: subida.headers, expiraEn: subida.expiraEn } }, 201);
+      }
+
+      const confirmar = req.method === "POST" ? resto.match(/^\/archivos\/([0-9a-f-]{36})\/confirmar$/) : null;
+      if (confirmar) {
+        const a = (await c.query<{ id: string; s3_key: string; estado: string; nombre: string }>(
+          "SELECT id, s3_key, estado::text AS estado, nombre FROM archivo WHERE id = $1 AND cliente_id = $2 AND uso = 'REQUERIMIENTO'", [confirmar[1], r.cliente_id],
+        )).rows[0];
+        if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese archivo");
+        if (a.estado === "PENDIENTE_SUBIDA") {
+          const bytes = await almacen().tamano(a.s3_key);
+          if (bytes === null) throw new ErrorApi(409, "ARCHIVO_NO_SUBIDO", "Todavía no recibimos el archivo", "Vuelve a subirlo e inténtalo de nuevo.");
+          await c.query("UPDATE archivo SET estado = 'SUBIDO', bytes = $2 WHERE id = $1", [a.id, bytes]);
+          await emitirOutbox(ctx, "archivo.subido", r.cliente_id, { archivoId: a.id, uso: "REQUERIMIENTO", usuarioId: null });
+        }
+        return json({ id: a.id, nombre: a.nombre, estado: "SUBIDO" });
+      }
+      throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa ruta");
+    });
+  } catch (e) {
+    if (e instanceof ErrorApi) {
+      const r = problema(e);
+      for (const [k, v] of Object.entries(cabeceras)) r.headers.set(k, v);
+      return r;
+    }
+    const traducido = traducirErrorDb(e);
+    if (traducido) return problema(traducido);
+    console.error(e);
+    return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+  }
+}
+
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
 // ───────────────────────────────────────────── IA del cliente (fase 16a): agentes, conocimiento y Content AI
@@ -2869,6 +2971,9 @@ interface FilaReq {
   revisado_en: Date | null;
   creado_por: string | null;
   creado_por_nombre: string | null;
+  enlace_token: string | null;
+  enlace_vence_en: Date | null;
+  respondido_por_nombre: string | null;
 }
 const SELECT_REQ = `
   SELECT r.*, pr.descripcion AS plantilla_descripcion, s.nombre AS servicio_nombre, sc.marca AS servicio_marca, c.nombre AS cliente_nombre,
@@ -2890,6 +2995,10 @@ function reqVista(r: FilaReq, dias: ReadonlySet<string>): S<"Requerimiento"> {
     emitidoEn: iso(r.emitido_en)!, fechaLimite: limite, diasAtraso: diasAtraso(limite, hasta, dias), diasParaVencer: diasParaVencer(limite, HOY_LIMA(), dias), diasCorridos: r.dias_corridos, campos: r.campos, respuestas: r.respuestas,
     notaEquipo: r.nota_equipo, enviadoEn: iso(r.enviado_en), enviadoPor: persona(r.enviado_por, r.enviado_por_nombre), revisadoEn: iso(r.revisado_en),
     creadoPor: persona(r.creado_por, r.creado_por_nombre),
+    enlace: r.enlace_token && r.enlace_vence_en
+      ? { url: urlFormularioPublico(r.enlace_token), venceEn: isoZ(r.enlace_vence_en), vigente: r.enlace_vence_en.getTime() > Date.now() }
+      : null,
+    enviadoPorEnlace: r.respondido_por_nombre,
   };
 }
 
@@ -3005,6 +3114,25 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
   const corridos = await aplicarAtrasoDb(ctx, r, HOY_LIMA(), dias);
   await emitirOutbox(ctx, "requerimiento.enviado", r.cliente_id, { requerimientoId: r.id, diasAtraso: diasAtraso(fechaIso(r.fecha_limite)!, HOY_LIMA(), dias), diasCorridos: corridos, usuarioId: ctx.u.usuarioId });
   return reqVista(await buscarReq(ctx, r.id), dias);
+});
+
+// Enlace para responder sin cuenta del portal (26 oct): lo crea el equipo, vence y se puede revocar o reemplazar.
+ruta("POST", "/requerimientos/:id/enlace", async (ctx, p, _q, cuerpo) => {
+  const r = await buscarReq(ctx, p.id, true);
+  soloEquipo(ctx);
+  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este requerimiento ya se envió", "El enlace solo sirve mientras el cliente tiene algo por responder.");
+  const b = (await cuerpo()) as { diasVigencia?: unknown };
+  const dias = b.diasVigencia ?? ENLACE_FORMULARIO.diasDefecto;
+  if (!Number.isInteger(dias) || (dias as number) < 1 || (dias as number) > ENLACE_FORMULARIO.diasMax) validacion([{ campo: "diasVigencia", mensaje: `Entre 1 y ${ENLACE_FORMULARIO.diasMax} días` }]);
+  await ctx.c.query("UPDATE requerimiento SET enlace_token = $2, enlace_vence_en = now() + make_interval(days => $3::int) WHERE id = $1", [r.id, nuevoToken(), dias]);
+  return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
+});
+
+ruta("DELETE", "/requerimientos/:id/enlace", async (ctx, p) => {
+  const r = await buscarReq(ctx, p.id, true);
+  soloEquipo(ctx);
+  await ctx.c.query("UPDATE requerimiento SET enlace_token = NULL, enlace_vence_en = NULL WHERE id = $1", [r.id]);
+  return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
 });
 
 ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
@@ -4540,6 +4668,8 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
       return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
     }
   }
+  const formulario = camino.match(/^\/publico\/formularios\/([0-9a-f]{64})(\/.*)?$/);
+  if (formulario) return formularioPublicoDb(req, formulario[1], formulario[2] ?? "");
   if (req.method === "POST" && camino === "/__pruebas/ingresar") return ingresarDemo(req);
   if (req.method === "POST" && RUTAS_SESION.includes(camino)) return sesion(camino, req);
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);

@@ -107,6 +107,42 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal(existente.json.estado, "ENVIADO");
     });
 
+    test("enlace para responder sin cuenta: lo crea el equipo, se responde con nombre y se puede revocar", async () => {
+      await reiniciar();
+      const ruta = `/requerimientos/${CATALOGO}/enlace`;
+      assert.equal((await llamar("POST", ruta, VALERIA, {})).status, 403, "el cliente no crea enlaces");
+      assert.deepEqual((await llamar("POST", ruta, DIEGO, { diasVigencia: 99 })).json.errores.map((e: any) => e.campo), ["diasVigencia"]);
+      const conEnlace = (await llamar("POST", ruta, DIEGO, {})).json;
+      assert.match(conEnlace.enlace.url, /^\/f\/[0-9a-f]{64}$/);
+      assert.equal(conEnlace.enlace.vigente, true);
+      const token = conEnlace.enlace.url.slice(3);
+      const publico = `/publico/formularios/${token}`;
+      const f = await llamar("GET", publico);
+      assert.equal(f.status, 200, "sin sesión");
+      assert.equal(f.headers.get("x-robots-tag"), "noindex, nofollow");
+      assert.deepEqual([f.json.clienteNombre, f.json.titulo, f.json.campos.length, f.json.creadoPor], ["Casa Oliva", "Catálogo de productos para la tienda", 2, undefined]);
+      assert.equal((await llamar("GET", `/publico/formularios/${"0".repeat(64)}`)).status, 404);
+      const subida = await llamar("POST", `${publico}/archivos`, undefined, { nombre: "catalogo.pdf", mime: "application/pdf", bytes: 2048 });
+      assert.equal(subida.status, 201);
+      assert.ok(subida.json.subida.url);
+      const sinNombre = await llamar("PUT", `${publico}/respuesta`, undefined, { respuestas: { lista: "Sérum de noche, S/ 89" }, enviar: true });
+      assert.deepEqual(sinNombre.json.errores.map((e: any) => e.campo), ["nombre"], "quien responde sin cuenta deja su nombre");
+      const enviado = await llamar("PUT", `${publico}/respuesta`, undefined, { respuestas: { lista: "Sérum de noche, S/ 89" }, enviar: true, nombre: "Rosa Quispe" });
+      assert.deepEqual([enviado.status, enviado.json.estado], [200, "ENVIADO"]);
+      assert.equal((await llamar("PUT", `${publico}/respuesta`, undefined, { respuestas: {} })).status, 409, "ya se envió");
+      const r = (await llamar("GET", `/requerimientos/${CATALOGO}`, DIEGO)).json;
+      assert.deepEqual([r.estado, r.enviadoPorEnlace, r.enviadoPor], ["ENVIADO", "Rosa Quispe", null]);
+      assert.equal((await eventos()).find((e) => e.tipo === "requerimiento.enviado" && e.datos.requerimientoId === CATALOGO)?.datos.nombreSinCuenta, "Rosa Quispe");
+      // Reemplazar y revocar: el enlace anterior deja de funcionar al instante.
+      const otro = `/requerimientos/${USUARIOS_CRM}/enlace`;
+      const primero = (await llamar("POST", otro, DIEGO, { diasVigencia: 3 })).json.enlace.url.slice(3);
+      const segundo = (await llamar("POST", otro, DIEGO, {})).json.enlace.url.slice(3);
+      assert.equal((await llamar("GET", `/publico/formularios/${primero}`)).status, 404);
+      assert.equal((await llamar("GET", `/publico/formularios/${segundo}`)).status, 200);
+      assert.equal((await llamar("DELETE", otro, DIEGO)).json.enlace, null);
+      assert.equal((await llamar("GET", `/publico/formularios/${segundo}`)).status, 404);
+    });
+
     test("el cliente guarda un borrador y lo envía con los obligatorios completos", async () => {
       await reiniciar();
       const ruta = `/requerimientos/${USUARIOS_CRM}/respuesta`;

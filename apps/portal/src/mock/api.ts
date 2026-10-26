@@ -28,7 +28,8 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
-import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles, validarRespuestas } from "../dominio/requerimientos";
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
+  ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
@@ -1198,6 +1199,8 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
     diasAtraso: diasAtraso(r.fechaLimite, hasta, noHabiles()), diasParaVencer: diasParaVencer(r.fechaLimite, D.HOY, noHabiles()),
     diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
     notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: persona(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
+    enlace: r.enlaceToken && r.enlaceVenceEn ? { url: urlFormularioPublico(r.enlaceToken), venceEn: r.enlaceVenceEn, vigente: r.enlaceVenceEn > D.HOY } : null,
+    enviadoPorEnlace: r.respondidoPorNombre ?? null,
   };
 }
 
@@ -1299,6 +1302,77 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
   }
   return requerimientoVista(r);
 });
+
+// Enlace para responder sin cuenta del portal (26 oct): lo crea el equipo, vence y se puede revocar o reemplazar.
+ruta("POST", "/requerimientos/:id/enlace", async (ctx, p, _q, req) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  soloEquipo(ctx);
+  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este requerimiento ya se envió", "El enlace solo sirve mientras el cliente tiene algo por responder.");
+  const b = await cuerpo<{ diasVigencia?: number }>(req);
+  const dias = b.diasVigencia ?? ENLACE_FORMULARIO.diasDefecto;
+  if (!Number.isInteger(dias) || dias < 1 || dias > ENLACE_FORMULARIO.diasMax) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "diasVigencia", mensaje: `Entre 1 y ${ENLACE_FORMULARIO.diasMax} días` }]);
+  }
+  r.enlaceToken = nuevoToken();
+  r.enlaceVenceEn = new Date(Date.parse(D.HOY) + dias * 86_400_000).toISOString();
+  return requerimientoVista(r);
+});
+
+ruta("DELETE", "/requerimientos/:id/enlace", (ctx, p) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  soloEquipo(ctx);
+  r.enlaceToken = null;
+  r.enlaceVenceEn = null;
+  return requerimientoVista(r);
+});
+
+/** /publico/formularios/{token}[/respuesta | /archivos | /archivos/{id}/confirmar], sin sesión (ver src/servidor/api.ts). */
+async function formularioPublicoMock(req: Request, token: string, resto: string): Promise<Response> {
+  const r = E.requerimientos.find((x) => x.enlaceToken === token);
+  if (!r) throw new ErrorApi(404, "ENLACE_NO_VALIDO", "Este enlace no funciona", "Puede que lo hayan reemplazado. Pide uno nuevo a tu equipo Inoo.");
+  if (r.enlaceVenceEn && r.enlaceVenceEn <= D.HOY) throw new ErrorApi(410, "ENLACE_VENCIDO", "Este enlace venció", "Pide uno nuevo a tu equipo Inoo.");
+  const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
+  const sc = E.servicios.find((x) => x.id === r.servicioContratadoId)!;
+  const vista = (): S<"FormularioPublico"> => ({
+    titulo: r.titulo, descripcion: plantillaRequerimiento(r.plantillaCodigo)?.descripcion ?? null, mensaje: r.mensaje, clienteNombre: E.clientes.find((c) => c.id === r.clienteId)!.nombre,
+    servicioTitulo: tituloDe(sc), campos, respuestas: r.respuestas, estado: r.estado, notaEquipo: r.notaEquipo, fechaLimite: r.fechaLimite, venceEn: r.enlaceVenceEn!,
+  });
+  const cabeceras = { "x-robots-tag": "noindex, nofollow", "cache-control": "no-store" };
+  if (req.method === "GET" && resto === "") return Response.json(vista(), { headers: cabeceras });
+  if (req.method === "PUT" && resto === "/respuesta") {
+    if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
+    const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean; nombre?: string }>(req);
+    const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {};
+    const errores = [...validarRespuestas(campos, respuestas, b.enviar === true), ...(b.enviar ? validarNombreEnlace(b.nombre) : [])];
+    if (errores.length) throw new ErrorApi(422, "VALIDACION", b.enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
+    r.respuestas = soloVisibles(campos, respuestas);
+    if (b.enviar) {
+      const nombre = b.nombre!.trim();
+      Object.assign(r, { estado: "ENVIADO", enviadoEn: D.HOY, enviadoPorId: null, respondidoPorNombre: nombre });
+      const corridos = aplicarAtraso(r, D.HOY);
+      emitir("requerimiento.enviado", r.clienteId, { requerimientoId: r.id, diasAtraso: diasAtraso(r.fechaLimite, D.HOY, noHabiles()), diasCorridos: corridos, usuarioId: null, nombreSinCuenta: nombre });
+      registrarCorreo(E.usuarios[2].email, `${nombre} envió «${r.titulo}»`, "requerimiento.enviado");
+    }
+    return Response.json(vista(), { headers: cabeceras });
+  }
+  if (req.method === "POST" && resto === "/archivos") {
+    if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió");
+    const b = await cuerpo<{ nombre?: string; mime?: string; bytes?: number }>(req);
+    if (!b.nombre || !b.mime || typeof b.bytes !== "number") throw new ErrorApi(422, "VALIDACION", "Faltan datos del archivo");
+    if (b.bytes > 100 * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", "El archivo supera 100 MB");
+    if (!/^(image\/(jpeg|png)|video\/mp4|application\/pdf|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/.test(b.mime)) {
+      throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", "Usa JPG, PNG, MP4, PDF, DOCX o XLSX.");
+    }
+    const id = crypto.randomUUID();
+    return Response.json({
+      archivo: { id, nombre: b.nombre, estado: "PENDIENTE_SUBIDA" },
+      subida: { url: `/api/v1/__pruebas/subidas/${id}`, metodo: "PUT", headers: { "Content-Type": b.mime }, expiraEn: new Date(Date.now() + 900_000).toISOString() },
+    }, { status: 201, headers: cabeceras });
+  }
+  const confirmar = req.method === "POST" ? resto.match(/^\/archivos\/([0-9a-f-]{36})\/confirmar$/) : null;
+  if (confirmar) return Response.json({ id: confirmar[1], estado: "SUBIDO" }, { headers: cabeceras });
+  throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa ruta");
+}
 
 ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
@@ -3479,6 +3553,8 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
     if (req.method === "POST" && camino === "/webhooks/inoowork") return await webhookInooWork(req);
     const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;
     if (publico) return archivoPublicoMock(publico[1], req);
+    const formulario = camino.match(/^\/publico\/formularios\/([0-9a-f]{64})(\/.*)?$/);
+    if (formulario) return await formularioPublicoMock(req, formulario[1], formulario[2] ?? "");
     if (req.method === "PUT" && camino.startsWith("/__pruebas/subidas/")) {
       // Simula el PUT directo a S3 con URL prefirmada: no lleva el token del portal.
       return new Response(null, { status: 200 });
