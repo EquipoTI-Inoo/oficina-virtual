@@ -35,10 +35,12 @@
 import { createHash } from "node:crypto";
 import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
+import type { EnviarCorreo } from "./correo-smtp";
+import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideClave, type Pool, renovar, restablecerClave, type Tokens } from "./cognito";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
-import { almacen } from "./almacen";
+import { almacen, almacenOpcional } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
@@ -58,7 +60,7 @@ import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
-import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, validarContratacion, validarDetalle, validarEtapasPersonalizadas } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -1718,7 +1720,7 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, cuerpo) => {
       : "UPDATE entregable SET estado = 'CAMBIOS_SOLICITADOS', rebotes = rebotes + 1, actualizado_en = now() WHERE id = $1 RETURNING rebotes",
     [e.id],
   );
-  await emitirOutbox(ctx, "entregable.decidido", e.cliente_id, { entregableId: e.id, decision: b.decision, version: e.version_cliente, rebotes: rows[0].rebotes, usuarioId: ctx.u.usuarioId });
+  await emitirOutbox(ctx, "entregable.decidido", e.cliente_id, { entregableId: e.id, decision: b.decision, comentario: b.comentario?.trim() || null, version: e.version_cliente, rebotes: rows[0].rebotes, usuarioId: ctx.u.usuarioId });
   return entregableDetalleDb(ctx, e.id);
 });
 
@@ -1726,16 +1728,24 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, cuerpo) => {
 // Las reglas viven en taller-web.ts (las comparte la API simulada); aquí solo se guarda en Postgres.
 
 const bytesDb = (v: unknown) => new Uint8Array(v as ArrayBufferLike);
+
+type FilaArchivoGenerado = { mime: string; contenido: unknown; s3_key: string | null };
+/** Los bytes de un archivo del taller: del bucket (migración 0027) o de la base. */
+const bytesArchivoGenerado = async (f: FilaArchivoGenerado) => (f.s3_key ? almacen().leer(f.s3_key) : bytesDb(f.contenido));
 const isoZ = (v: unknown) => iso(v)!.replace(/\.\d{3}Z$/, "Z");
 
 function repoTallerDb(ctx: Ctx, s: FilaServicio): RepoTaller {
   const autor = ctx.esServicio ? null : ctx.u.usuarioId;
   const archivo = async (a: { tipo: TipoArchivo; mime: string; nombre: string; bytes: Uint8Array; venceEn?: string | null; simulado?: boolean }) => {
     const token = nuevoToken();
+    // Con S3 configurado el archivo va al bucket y la base guarda la clave; sin S3, queda en la base.
+    const bucket = almacenOpcional();
+    const clave = bucket ? `taller/${s.cliente_id}/${s.id}/${token}` : null;
+    if (bucket && clave) await bucket.subir(clave, a.mime, a.bytes);
     const { rows } = await ctx.c.query<{ id: string; creado_en: Date }>(
-      `INSERT INTO archivo_generado (token, servicio_contratado_id, cliente_id, tipo, mime, nombre, contenido, vence_en, simulado, creado_por)
-       VALUES ($1, $2, $3, $4::tipo_archivo_generado, $5, $6, $7, $8, $9, $10) RETURNING id, creado_en`,
-      [token, s.id, s.cliente_id, a.tipo, a.mime, a.nombre, Buffer.from(a.bytes), a.venceEn ?? null, a.simulado ?? false, autor],
+      `INSERT INTO archivo_generado (token, servicio_contratado_id, cliente_id, tipo, mime, nombre, contenido, s3_key, vence_en, simulado, creado_por)
+       VALUES ($1, $2, $3, $4::tipo_archivo_generado, $5, $6, $7, $8, $9, $10, $11) RETURNING id, creado_en`,
+      [token, s.id, s.cliente_id, a.tipo, a.mime, a.nombre, clave ? null : Buffer.from(a.bytes), clave, a.venceEn ?? null, a.simulado ?? false, autor],
     );
     return { id: rows[0].id, token, creadoEn: rows[0].creado_en };
   };
@@ -1805,8 +1815,9 @@ function repoTallerDb(ctx: Ctx, s: FilaServicio): RepoTaller {
       async leer(url) {
         const token = tokenDeUrl(url);
         if (!token) return null;
-        const f = (await ctx.c.query<{ mime: string; contenido: unknown }>("SELECT mime, contenido FROM archivo_generado WHERE token = $1 AND servicio_contratado_id = $2", [token, s.id])).rows[0];
-        return f ? { mime: f.mime, bytes: bytesDb(f.contenido) } : null;
+        const f = (await ctx.c.query<FilaArchivoGenerado>("SELECT mime, contenido, s3_key FROM archivo_generado WHERE token = $1 AND servicio_contratado_id = $2", [token, s.id])).rows[0];
+        const bytes = f ? await bytesArchivoGenerado(f) : null;
+        return f && bytes ? { mime: f.mime, bytes } : null;
       },
     },
     async demos() {
@@ -1888,13 +1899,15 @@ export async function archivoPublicoDb(token: string, req: Request): Promise<Res
   const db = await baseDatos();
   return db.transaccion(async (c) => {
     await comoUsuario(c, { usuarioId: "", tipo: "SERVICIO", clienteIds: [] });
-    const a = (await c.query<{ id: string; tipo: TipoArchivo; mime: string; nombre: string; contenido: unknown; vence_en: Date | null; revocado_en: Date | null }>(
-      "SELECT id, tipo::text AS tipo, mime, nombre, contenido, vence_en, revocado_en FROM archivo_generado WHERE token = $1",
+    const a = (await c.query<FilaArchivoGenerado & { id: string; tipo: TipoArchivo; nombre: string; vence_en: Date | null; revocado_en: Date | null }>(
+      "SELECT id, tipo::text AS tipo, mime, nombre, contenido, s3_key, vence_en, revocado_en FROM archivo_generado WHERE token = $1",
       [token],
     )).rows[0];
     if (!a) return respuestaPublica(null);
     if (a.tipo === "DEMO" && !dentroDelLimite(token, ip)) return new Response("Demasiadas solicitudes", { status: 429, headers: { "retry-after": "600", "x-robots-tag": "noindex, nofollow" } });
-    const r = respuestaPublica({ tipo: a.tipo, mime: a.mime, nombre: a.nombre, bytes: bytesDb(a.contenido), venceEn: a.vence_en ? isoZ(a.vence_en) : null, revocado: !!a.revocado_en });
+    const bytes = await bytesArchivoGenerado(a);
+    if (!bytes) return respuestaPublica(null);
+    const r = respuestaPublica({ tipo: a.tipo, mime: a.mime, nombre: a.nombre, bytes, venceEn: a.vence_en ? isoZ(a.vence_en) : null, revocado: !!a.revocado_en });
     if (a.tipo === "DEMO" && r.ok) await c.query("UPDATE archivo_generado SET vistas = vistas + 1, ultima_vista_en = now() WHERE id = $1", [a.id]);
     return r;
   });
@@ -3019,6 +3032,41 @@ ruta("POST", "/integraciones/requerimientos/atrasos", async (ctx) => {
   return { revisados: rows.length, corridos };
 });
 
+// Etapas del mes: n8n la llama el día 1 (o unos días antes, con el mes siguiente). Los servicios mensuales
+// vigentes sin etapas en ese mes las reciben de su plantilla. Repetirla no duplica nada.
+ruta("POST", "/integraciones/servicios/etapas-del-mes", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "servicios:write");
+  const b = (await cuerpo()) as { periodo?: unknown };
+  const periodo = b.periodo === undefined ? PERIODO_ACTUAL() : b.periodo;
+  const error = validarPeriodoEtapas(periodo, PERIODO_ACTUAL());
+  if (error) validacion([{ campo: "periodo", mensaje: error }]);
+  const p = periodo as string;
+  const { rows } = await ctx.c.query<{ id: string; cliente_id: string; codigo: string; variante: string | null; estado: string; fecha_inicio: Date | string; fecha_fin: Date | string | null; detalle: Record<string, unknown>; plantilla_id: string | null; ya: boolean }>(
+    `SELECT sc.id, sc.cliente_id, s.codigo, sc.variante, sc.estado::text AS estado, sc.fecha_inicio, sc.fecha_fin, sc.detalle, sc.plantilla_id,
+            EXISTS (SELECT 1 FROM etapa_proyecto ep WHERE ep.servicio_contratado_id = sc.id AND ep.periodo = $1) AS ya
+     FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id FOR UPDATE OF sc`,
+    [p],
+  );
+  const toca = rows.filter((s) => tocaEtapasDelMes({ codigo: s.codigo, estado: s.estado, fechaInicio: fechaIso(s.fecha_inicio)!, fechaFin: fechaIso(s.fecha_fin) }, p));
+  const feriados = await noHabilesDb(ctx);
+  const creados: string[] = [];
+  for (const s of toca.filter((x) => !x.ya)) {
+    const etapas = etapasDelProyectoNuevo(plantillaPara(s.codigo, s.variante)!, null, `${p}-01`, feriados, s.detalle);
+    if (!etapas.length) continue;
+    const dePlantilla = s.plantilla_id ? (await ctx.c.query<{ id: string; orden: number }>("SELECT id, orden FROM etapa_plantilla WHERE plantilla_id = $1", [s.plantilla_id])).rows : [];
+    for (const e of etapas) {
+      await ctx.c.query(
+        `INSERT INTO etapa_proyecto (servicio_contratado_id, cliente_id, etapa_plantilla_id, periodo, orden, nombre, avance_pct, espera_cliente, reunion_clave, fecha_inicio, fecha_estimada, actualizado_por)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [s.id, s.cliente_id, dePlantilla.find((x) => x.orden === e.orden)?.id ?? null, p, e.orden, e.nombre, e.avancePct, e.esperaCliente, e.reunionClave, e.fechaInicio, e.fechaEstimada, ctx.u.usuarioId],
+      );
+    }
+    creados.push(s.id);
+    await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, periodo: p, motivo: "MES_NUEVO", etapas: etapas.length });
+  }
+  return { periodo: p, revisados: toca.length, creados: creados.length, servicioIds: creados };
+});
+
 // Standby por inactividad (16 oct): n8n la llama una vez al día. Si nadie del cliente usa el portal en
 // DIAS_STANDBY días, sus servicios activos pasan a STANDBY; una semana antes se avisa una sola vez. Al
 // volver a usar el portal se reactivan solos (registrar_actividad_cliente). `fecha` simula otro día.
@@ -4103,7 +4151,17 @@ const URL_PORTAL = () => (process.env.PORTAL_URL ?? "http://localhost:3000").rep
 
 ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
   soloServicio(ctx, "correos:write");
-  const ev = (await cuerpo()) as { id?: unknown; tipo?: unknown; clienteId?: unknown; datos?: unknown };
+  // Con CORREOS_POR=portal los manda el propio portal (despacharCorreos): si n8n también los preparara, saldrían dobles.
+  if (process.env.CORREOS_POR === "portal") {
+    throw new ErrorApi(409, "CORREOS_LOS_ENVIA_EL_PORTAL", "Los correos los envía el portal", "Desactiva el workflow correos-por-evento de n8n o usa CORREOS_POR=n8n.");
+  }
+  return { correos: await prepararCorreosDb(ctx, (await cuerpo()) as EventoCorreo) };
+});
+
+interface EventoCorreo { id?: unknown; tipo?: unknown; clienteId?: unknown; datos?: unknown }
+
+/** Arma y registra los correos de un evento del outbox. Devuelve los que todavía no salieron (idempotente). */
+async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<S<"CorreoPreparado">[]> {
   const errores: { campo: string; mensaje: string }[] = [];
   if (!Number.isInteger(ev.id)) errores.push({ campo: "id", mensaje: "Id del evento del outbox" });
   if (typeof ev.tipo !== "string") errores.push({ campo: "tipo", mensaje: "Tipo del evento" });
@@ -4115,9 +4173,9 @@ ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
   // El evento tiene que existir: así nadie con la llave puede mandar correos arbitrarios.
   const outbox = (await ctx.c.query<{ id: string }>("SELECT id FROM outbox_evento WHERE id = $1 AND tipo = $2 AND cliente_id IS NOT DISTINCT FROM $3", [ev.id, ev.tipo, clienteId])).rows[0];
   if (!outbox) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese evento en el outbox");
-  if (!regla || !clienteId) return { correos: [] };
+  if (!regla || !clienteId) return [];
   const r = (await reglasDe(ctx, clienteId)).find((x) => x.evento === regla);
-  if (!r?.activa) return { correos: [] };
+  if (!r?.activa) return [];
   const plantilla = PLANTILLAS_CORREO[r.plantilla] ? r.plantilla : regla;
 
   const cli = (await ctx.c.query<{ nombre: string; am_id: string | null }>("SELECT nombre, account_manager_id AS am_id FROM cliente WHERE id = $1", [clienteId])).rows[0];
@@ -4136,6 +4194,13 @@ ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
     enlaceCliente = `/entregables/${datos.piezaId}`;
     enlaceEquipo = `/equipo/piezas/${datos.piezaId}`;
   }
+  if (esUuid(datos.entregableId)) {
+    const en = (await ctx.c.query<{ titulo: string; servicio_contratado_id: string }>("SELECT titulo, servicio_contratado_id FROM entregable WHERE id = $1", [datos.entregableId])).rows[0];
+    c.entregable = en?.titulo ?? null;
+    if (en) servicioIds.add(en.servicio_contratado_id);
+    enlaceCliente = `/entregables/documento/${datos.entregableId}`;
+    enlaceEquipo = `/equipo/entregables/${datos.entregableId}`;
+  }
   if (esUuid(datos.requerimientoId)) {
     const q = (await ctx.c.query<{ titulo: string; fecha_limite: Date; servicio_contratado_id: string | null }>("SELECT titulo, fecha_limite, servicio_contratado_id FROM requerimiento WHERE id = $1", [datos.requerimientoId])).rows[0];
     if (q?.servicio_contratado_id) servicioIds.add(q.servicio_contratado_id);
@@ -4150,7 +4215,10 @@ ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
     if (t?.sla) c.respuestaAntesDe = `${fechaLarga(new Date(t.sla.getTime() - 5 * 3_600_000).toISOString())} a las ${new Date(t.sla.getTime() - 5 * 3_600_000).toISOString().slice(11, 16)}`;
     enlaceCliente = "/soporte";
   }
-  if (regla === "miembro.invitado") enlaceCliente = "/ingresar";
+  if (regla === "miembro.invitado") {
+    enlaceCliente = "/ingresar";
+    c.conClaveTemporal = process.env.AUTH_MODO === "cognito";
+  }
   const servicios = servicioIds.size ? (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.id = ANY($1::uuid[]) ORDER BY s.orden, sc.fecha_inicio`, [[...servicioIds]])).rows : [];
   if (regla.startsWith("servicio.standby")) {
     c.servicios = servicios.map((s) => tituloServicio(s.nombre, s.marca ?? s.cliente_nombre));
@@ -4201,8 +4269,8 @@ ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
     )).rows[0];
     if (fila.estado !== "ENVIADO") correos.push({ id: fila.id, para, nombre, asunto: fila.asunto, html: fila.html, texto: fila.texto, evento: regla });
   }
-  return { correos };
-});
+  return correos;
+}
 
 ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) => {
   soloServicio(ctx, "correos:write");
@@ -4218,6 +4286,78 @@ ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) 
   );
   return null;
 });
+
+// ───────────────────────────────────────────── correos directos por SMTP (26 oct)
+
+/**
+ * Despachador de correos (CORREOS_POR=portal, por defecto): recorre los eventos del outbox que todavía no
+ * mandaron sus correos, los arma con prepararCorreosDb (los mismos que recibía n8n) y los envía por SMTP.
+ * Cada correo queda ENVIADO o FALLIDO en correo_enviado; si alguno falla, el evento se reintenta con espera
+ * exponencial hasta 24 h y los que ya salieron no se repiten. Es independiente de la entrega a n8n.
+ */
+export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number } = {}): Promise<{ eventos: number; enviados: number; fallidos: number }> {
+  const db = await baseDatos();
+  const ids = await db.transaccion(async (c) =>
+    (await c.query<{ id: string }>(
+      `SELECT id FROM outbox_evento
+       WHERE correos_procesados_en IS NULL AND creado_en > now() - interval '24 hours'
+         AND (correos_intentos = 0 OR creado_en + interval '30 seconds' * power(2, correos_intentos - 1) <= now())
+       ORDER BY id LIMIT $1`,
+      [o.lote ?? 50],
+    )).rows.map((r) => r.id),
+  );
+  const total = { eventos: 0, enviados: 0, fallidos: 0 };
+  for (const id of ids) {
+    await db.transaccion(async (c) => {
+      const ev = (await c.query<{ id: string; tipo: string; cliente_id: string | null; payload: Record<string, unknown> }>(
+        "SELECT id, tipo, cliente_id, payload FROM outbox_evento WHERE id = $1 AND correos_procesados_en IS NULL FOR UPDATE SKIP LOCKED",
+        [id],
+      )).rows[0];
+      if (!ev) return;
+      total.eventos++;
+      // Se arma con el rol de la API (RLS) y una sesión de servicio, como si lo pidiera n8n.
+      const u: Usuario = { usuarioId: "", tipo: "SERVICIO", clienteIds: [], nombre: "Despachador de correos", email: "", cargo: null, rolEquipo: null, roles: {}, scopes: ["correos:write"] };
+      await comoUsuario(c, u);
+      const ctx: Ctx = { u, c, esEquipo: true, esServicio: true, feriados: new Set() };
+      let error: string | null = null;
+      // Con Cognito, la persona invitada se crea en el user pool antes de mandarle la bienvenida.
+      if (ev.tipo === "miembro.invitado" && process.env.AUTH_MODO === "cognito") {
+        try {
+          const sub = await crearUsuarioCognito(String(ev.payload.email), (ev.payload.nombre as string | null) ?? null, "CLIENTES");
+          if (sub) {
+            await c.query("RESET ROLE");
+            await c.query("UPDATE usuario SET cognito_sub = $1 WHERE id = $2 AND cognito_sub IS NULL", [sub, ev.payload.usuarioId]);
+            await comoUsuario(c, u);
+          }
+        } catch (x) {
+          await c.query("RESET ROLE");
+          await c.query("UPDATE outbox_evento SET correos_intentos = correos_intentos + 1, correos_error = $2 WHERE id = $1", [ev.id, (x as Error).message.slice(0, 2000)]);
+          total.fallidos++;
+          return;
+        }
+      }
+      for (const m of await prepararCorreosDb(ctx, { id: Number(ev.id), tipo: ev.tipo, clienteId: ev.cliente_id, datos: ev.payload })) {
+        try {
+          const messageId = await enviar({ para: m.para, nombre: m.nombre ?? null, asunto: m.asunto, html: m.html, texto: m.texto });
+          await c.query("UPDATE correo_enviado SET estado = 'ENVIADO', ses_message_id = $2, error = NULL, enviado_en = now() WHERE id = $1", [m.id, messageId]);
+          total.enviados++;
+        } catch (x) {
+          error = (x as Error).message.slice(0, 2000);
+          await c.query("UPDATE correo_enviado SET estado = 'FALLIDO', error = $2 WHERE id = $1", [m.id, error]);
+          total.fallidos++;
+        }
+      }
+      await c.query("RESET ROLE");
+      await c.query(
+        error
+          ? "UPDATE outbox_evento SET correos_intentos = correos_intentos + 1, correos_error = $2 WHERE id = $1"
+          : "UPDATE outbox_evento SET correos_procesados_en = now(), correos_intentos = correos_intentos + 1, correos_error = NULL WHERE id = $1",
+        error ? [ev.id, error] : [ev.id],
+      );
+    });
+  }
+  return total;
+}
 
 // ───────────────────────────────────────────── despachador
 
@@ -4251,6 +4391,76 @@ export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}
  * API simulada, así se prueba el portal completo en local. Clave única CLAVE_DEMO (por defecto demo1234).
  * Bloqueado con Cognito y en producción salvo PERMITIR_AUTH_DEMO=true, igual que los tokens demo.
  */
+// ───────────────────────────────────────────── sesión: ingreso con Cognito (INO-01)
+
+const RUTAS_SESION = ["/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar"];
+
+/** Con los tokens de Cognito, quién es en la base: tipo y primer cliente (para la sesión del portal). */
+async function sesionDeTokens(t: Tokens): Promise<Response> {
+  const db = await baseDatos();
+  return db.transaccion(async (c) => {
+    const u = await autenticar(new Request("http://interno/", { headers: { authorization: `Bearer ${t.idToken}` } }), c);
+    if (u.tipo === "SERVICIO") throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+    if (u.tipo === "CLIENTE" && u.clienteIds.length) await c.query("SELECT registrar_actividad_cliente($1::uuid[])", [u.clienteIds]);
+    return Response.json({
+      token: t.idToken, refreshToken: t.refreshToken, pool: t.pool, expiraEn: t.expiraEn,
+      tipo: u.tipo, clienteId: u.tipo === "CLIENTE" ? u.clienteIds[0] ?? null : null,
+    });
+  });
+}
+
+/** POST /sesion/*: sin token. Con AUTH_MODO=demo, ingresar es el ingreso de prueba y el resto no aplica. */
+async function sesion(camino: string, req: Request): Promise<Response> {
+  try {
+    if ((process.env.AUTH_MODO ?? "demo") !== "cognito") {
+      if (camino === "/sesion/ingresar") return await ingresarDemo(req);
+      if (camino === "/sesion/olvide-clave") return new Response(null, { status: 204 });
+      throw new ErrorApi(409, "SOLO_COGNITO", "Disponible solo con el ingreso de producción (Cognito)");
+    }
+    let b: Record<string, unknown> = {};
+    try {
+      b = (await req.json()) as Record<string, unknown>;
+    } catch {
+      /* se valida abajo */
+    }
+    const t = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : "");
+    const email = t("email").toLowerCase();
+    const errores: { campo: string; mensaje: string }[] = [];
+    const pedir = (...campos: string[]) => {
+      for (const k of campos) if (!t(k)) errores.push({ campo: k, mensaje: k === "email" ? "Escribe tu correo" : "Completa este campo" });
+      if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+    };
+    const pool = (): Pool => (b.pool === "EQUIPO" ? "EQUIPO" : "CLIENTES");
+    switch (camino) {
+      case "/sesion/ingresar": {
+        pedir("email", "clave");
+        const r = await ingresarCognito(email, b.clave as string);
+        return "desafio" in r ? Response.json(r) : await sesionDeTokens(r.tokens);
+      }
+      case "/sesion/nueva-clave":
+        pedir("email", "sesion", "clave");
+        return await sesionDeTokens(await nuevaClave(email, t("sesion"), pool(), b.clave as string));
+      case "/sesion/olvide-clave":
+        pedir("email");
+        await olvideClave(email);
+        return new Response(null, { status: 204 });
+      case "/sesion/restablecer":
+        pedir("email", "codigo", "clave");
+        await restablecerClave(email, t("codigo"), b.clave as string);
+        return new Response(null, { status: 204 });
+      default: {
+        pedir("refreshToken");
+        const nuevo = await renovar(t("refreshToken"), pool());
+        return Response.json({ token: nuevo.idToken, refreshToken: nuevo.refreshToken, pool: nuevo.pool, expiraEn: nuevo.expiraEn });
+      }
+    }
+  } catch (e) {
+    if (e instanceof ErrorApi) return problema(e);
+    console.error(e);
+    return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+  }
+}
+
 async function ingresarDemo(req: Request): Promise<Response> {
   try {
     if ((process.env.AUTH_MODO ?? "demo") !== "demo" || (process.env.NODE_ENV === "production" && process.env.PERMITIR_AUTH_DEMO !== "true")) {
@@ -4294,6 +4504,7 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     }
   }
   if (req.method === "POST" && camino === "/__pruebas/ingresar") return ingresarDemo(req);
+  if (req.method === "POST" && RUTAS_SESION.includes(camino)) return sesion(camino, req);
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);
   if (!encontrada) {
     return problema(new ErrorApi(501, "RUTA_NO_IMPLEMENTADA", `El backend todavía no implementa ${req.method} ${camino}`, "Usa API_MODO=mock para el resto del contrato mientras se completa el backend."));

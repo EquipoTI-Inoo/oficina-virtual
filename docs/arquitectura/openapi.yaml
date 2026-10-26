@@ -70,6 +70,139 @@ tags:
   - name: Integraciones
 
 paths:
+  /sesion/ingresar:
+    post:
+      tags: [Sesión]
+      operationId: ingresar
+      summary: 'Ingreso con correo y contraseña. Con AUTH_MODO=cognito valida contra los user pools (clientes y equipo); en desarrollo, las credenciales de prueba'
+      description: |
+        Devuelve el ID token de Cognito (va en `Authorization: Bearer`) y el refresh token para renovarlo, o el
+        desafío `NUEVA_CLAVE` si es el primer ingreso de una persona invitada (contraseña temporal): se completa
+        con `POST /sesion/nueva-clave`. Nunca dice si el correo existe.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, clave]
+              properties:
+                email: { type: string, format: email }
+                clave: { type: string }
+      responses:
+        '200':
+          description: 'Sesión iniciada, o el desafío de contraseña nueva'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/SesionIniciada' }
+                  - { $ref: '#/components/schemas/DesafioNuevaClave' }
+        '401': { description: 'CREDENCIALES_INVALIDAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '409': { description: 'RESTABLECER_CLAVE: Cognito pide restablecerla', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '429': { description: 'DEMASIADOS_INTENTOS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /sesion/nueva-clave:
+    post:
+      tags: [Sesión]
+      operationId: crearClaveNueva
+      summary: 'Primer ingreso de una persona invitada: cambia la contraseña temporal por la suya (solo Cognito)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, sesion, pool, clave]
+              properties:
+                email: { type: string, format: email }
+                sesion: { type: string, description: 'La `sesion` del desafío' }
+                pool: { $ref: '#/components/schemas/PoolCognito' }
+                clave: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SesionIniciada' }
+        '409': { description: 'SOLO_COGNITO: con el ingreso de prueba no aplica', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /sesion/olvide-clave:
+    post:
+      tags: [Sesión]
+      operationId: olvideClave
+      summary: 'Manda un código al correo para restablecer la contraseña. Responde 204 aunque el correo no exista'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '204': { description: 'Si el correo existe, le llega el código' }
+        '429': { description: 'DEMASIADOS_INTENTOS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /sesion/restablecer:
+    post:
+      tags: [Sesión]
+      operationId: restablecerClave
+      summary: 'Contraseña nueva con el código que llegó por correo (solo Cognito)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, codigo, clave]
+              properties:
+                email: { type: string, format: email }
+                codigo: { type: string }
+                clave: { type: string, minLength: 8 }
+      responses:
+        '204': { description: 'Contraseña cambiada: ya puede ingresar' }
+        '409': { description: 'SOLO_COGNITO', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /sesion/renovar:
+    post:
+      tags: [Sesión]
+      operationId: renovarSesion
+      summary: 'ID token nuevo con el refresh token (el de Cognito vence a la hora). El portal lo pide solo cuando recibe un 401'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken, pool]
+              properties:
+                refreshToken: { type: string }
+                pool: { $ref: '#/components/schemas/PoolCognito' }
+      responses:
+        '200':
+          description: Token renovado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiraEn]
+                properties:
+                  token: { type: string }
+                  refreshToken: { type: [string, 'null'] }
+                  pool: { $ref: '#/components/schemas/PoolCognito' }
+                  expiraEn: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '409': { description: 'SOLO_COGNITO', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
   # ------------------------------------------------------------------ Sesión
   /me:
     get:
@@ -868,6 +1001,43 @@ paths:
                 properties:
                   revisados: { type: integer, description: Requerimientos vencidos revisados }
                   corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
+
+  /integraciones/servicios/etapas-del-mes:
+    post:
+      tags: [Integraciones]
+      operationId: generarEtapasDelMes
+      summary: 'n8n, el día 1 (o unos días antes, con el mes siguiente): arma las etapas del mes de los servicios mensuales'
+      description: |
+        A cada servicio mensual ACTIVO y vigente ese mes (Social Media Pro, Paid Media…) que todavía no tenga
+        etapas en el periodo se le crean las de su plantilla, con fechas en días hábiles desde el día 1. El soporte
+        continuo no tiene etapas (se mide por consumo). Emite `etapa.actualizada` con `motivo: MES_NUEVO` por
+        servicio. Idempotente: repetirla no duplica etapas. Scope `servicios:write`.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      x-scopes: [servicios:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                periodo: { type: string, pattern: '^\d{4}-\d{2}$', description: 'El mes en curso (por defecto) o el siguiente' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [periodo, revisados, creados, servicioIds]
+                properties:
+                  periodo: { type: string, examples: ['2026-11'] }
+                  revisados: { type: integer, description: 'Servicios mensuales vigentes ese mes' }
+                  creados: { type: integer, description: 'Servicios a los que se les crearon las etapas' }
+                  servicioIds: { type: array, items: { type: string, format: uuid } }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /integraciones/servicios/inactividad:
     post:
@@ -3878,6 +4048,24 @@ components:
               mensaje: { type: string }
         simulado: { type: boolean, description: 'El paso usó respuestas, capturas o pantallas de relleno' }
         entregableId: { type: string, format: uuid, description: 'documento y demos: el entregable creado o versionado' }
+    PoolCognito: { type: string, enum: [CLIENTES, EQUIPO] }
+    SesionIniciada:
+      type: object
+      required: [token, tipo, clienteId]
+      properties:
+        token: { type: string, description: 'ID token de Cognito (o demo.<usuario_id> con el ingreso de prueba)' }
+        refreshToken: { type: [string, 'null'], description: 'Solo Cognito' }
+        pool: { $ref: '#/components/schemas/PoolCognito' }
+        expiraEn: { type: string, format: date-time }
+        tipo: { type: string, enum: [CLIENTE, EQUIPO] }
+        clienteId: { type: [string, 'null'], format: uuid, description: 'Cliente con el que entra (solo usuarios CLIENTE)' }
+    DesafioNuevaClave:
+      type: object
+      required: [desafio, sesion, pool]
+      properties:
+        desafio: { type: string, enum: [NUEVA_CLAVE] }
+        sesion: { type: string }
+        pool: { $ref: '#/components/schemas/PoolCognito' }
     EntregableDetalle:
       allOf:
         - { $ref: '#/components/schemas/Entregable' }

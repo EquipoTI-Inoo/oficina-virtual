@@ -13,6 +13,10 @@ export interface ContextoCorreo {
   cliente: string;
   actor?: string | null;
   pieza?: string | null;
+  /** Con Cognito, el invitado recibe aparte su contraseña temporal. */
+  conClaveTemporal?: boolean;
+  /** Título del entregable del proyecto (flujograma, demo, manual…; fase 11). */
+  entregable?: string | null;
   numero?: number | null;
   periodo?: string | null;
   requerimiento?: string | null;
@@ -44,6 +48,33 @@ export function fechaLarga(f: string | null | undefined): string {
 }
 
 export const PLANTILLAS_CORREO: Record<string, Plantilla> = {
+  // Entregables del proyecto (fase 11): el PDF de benchmark y flujograma, la demo, el manual… Igual que las
+  // piezas, pero sin «publicar»: lo aprobado avanza el proyecto.
+  "entregable.listo_revision": {
+    destinos: ["DECISORES"],
+    asunto: (c) => `«${c.entregable}» está listo para tu revisión`,
+    parrafos: (c) => [`Tu equipo Inoo te envió «${c.entregable}» para ${c.cliente}.`, "Revísalo y apruébalo o pide cambios desde el portal: con tu respuesta seguimos con la siguiente etapa."],
+    boton: "Revisar el entregable",
+  },
+  "entregable.aprobado": {
+    destinos: ["ACTOR", "AM"],
+    asunto: (c, d) => (d === "AM" ? `${c.actor} aprobó «${c.entregable}»` : `Aprobaste «${c.entregable}»`),
+    parrafos: (c, d) => (d === "AM"
+      ? [`${c.actor} (${c.cliente}) aprobó «${c.entregable}» desde el portal.`, "Ya puedes pasar a la siguiente etapa del proyecto."]
+      : [`Registramos tu aprobación de «${c.entregable}».`, "Seguimos con la siguiente etapa y te contamos cómo avanza."]),
+    boton: "Ver el entregable",
+  },
+  "entregable.cambios_solicitados": {
+    destinos: ["ACTOR", "AM"],
+    asunto: (c, d) => (d === "AM" ? `${c.actor} pidió cambios en «${c.entregable}»` : `Recibimos tus cambios para «${c.entregable}»`),
+    parrafos: (c, d) => {
+      const nota = c.comentario ? [`Comentario: «${c.comentario}»`] : [];
+      return d === "AM"
+        ? [`${c.actor} (${c.cliente}) pidió cambios en «${c.entregable}».`, ...nota]
+        : [`Recibimos tus cambios para «${c.entregable}». Te avisamos cuando la nueva versión esté lista.`, ...nota];
+    },
+    boton: "Ver el entregable",
+  },
   "pieza.lista_revision": {
     destinos: ["DECISORES"],
     asunto: (c) => `«${c.pieza}» está lista para tu revisión`,
@@ -96,7 +127,9 @@ export const PLANTILLAS_CORREO: Record<string, Plantilla> = {
     parrafos: (c) => [
       c.actor ? `${c.actor} te dio acceso al portal de ${c.cliente} en Inoo.` : `Ya tienes acceso al portal de ${c.cliente} en Inoo.`,
       "Ahí revisas y apruebas los contenidos, sigues el avance de tus servicios y hablas con tu equipo.",
-      "Ingresa con este mismo correo.",
+      c.conClaveTemporal
+        ? "Te llega otro correo con una contraseña temporal: úsala en tu primer ingreso y ahí eliges la tuya."
+        : "Ingresa con este mismo correo.",
     ],
     boton: "Entrar al portal",
   },
@@ -158,6 +191,7 @@ export function reglaDeEvento(tipo: string, datos: Record<string, unknown>): str
     if (datos.canal === "PORTAL" && datos.estado === "CAMBIOS_SOLICITADOS") return "pieza.cambios_solicitados";
     return null;
   }
+  if (tipo === "entregable.decidido") return datos.decision === "APROBADO" ? "entregable.aprobado" : datos.decision === "CAMBIOS_SOLICITADOS" ? "entregable.cambios_solicitados" : null;
   if (tipo === "ticket.estado_cambiado") return datos.estado === "RESUELTO" && datos.deEstado !== "RESUELTO" ? "ticket.resuelto" : null;
   return PLANTILLAS_CORREO[tipo] ? tipo : null;
 }

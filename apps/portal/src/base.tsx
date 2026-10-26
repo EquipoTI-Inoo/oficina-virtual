@@ -46,6 +46,9 @@ export interface SesionLocal {
   token: string;
   tipo: "CLIENTE" | "EQUIPO" | "SERVICIO";
   clienteId: string | null;
+  /** Solo con Cognito: para renovar el token (vence a la hora) sin volver a pedir la contraseña. */
+  refreshToken?: string | null;
+  pool?: "CLIENTES" | "EQUIPO";
 }
 
 export function leerSesion(): SesionLocal | null {
@@ -89,9 +92,24 @@ export class ProblemaApi extends Error {
 
 const BASE = "/api/v1";
 
+/** Pide un token nuevo con el refresh token de Cognito y lo guarda donde estaba la sesión. */
+async function renovarSesion(s: SesionLocal): Promise<boolean> {
+  if (!s.refreshToken || !s.pool) return false;
+  const r = await fetch(`${BASE}/sesion/renovar`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ refreshToken: s.refreshToken, pool: s.pool }),
+  }).catch(() => null);
+  if (!r?.ok) return false;
+  const j = (await r.json()) as { token: string; refreshToken?: string | null };
+  guardarSesion({ ...s, token: j.token, refreshToken: j.refreshToken ?? s.refreshToken }, window.localStorage.getItem(CLAVE_SESION) !== null);
+  return true;
+}
+
 export async function api<T = unknown>(
   camino: string,
   opciones: { metodo?: string; cuerpo?: unknown; idempotente?: boolean } = {},
+  reintento = false,
 ): Promise<T> {
   const sesion = leerSesion();
   const headers: Record<string, string> = { accept: "application/json" };
@@ -107,7 +125,9 @@ export async function api<T = unknown>(
   const tipo = res.headers.get("content-type") ?? "";
   if (!res.ok) {
     const p = tipo.includes("json") ? await res.json() : {};
-    if (res.status === 401 && typeof window !== "undefined" && !camino.startsWith("/__pruebas")) {
+    if (res.status === 401 && typeof window !== "undefined" && !camino.startsWith("/__pruebas") && !camino.startsWith("/sesion/")) {
+      // Con Cognito el token vence a la hora: se renueva una vez y se repite la llamada.
+      if (!reintento && sesion && (await renovarSesion(sesion))) return api<T>(camino, opciones, true);
       cerrarSesion();
     }
     throw new ProblemaApi(res.status, p.codigo ?? "ERROR", p.title ?? "No pudimos completar la acción", p.detail, p.errores ?? []);

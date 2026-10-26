@@ -268,14 +268,13 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 19 | Flujo web con IA (taller web del equipo): benchmark con capturas y puntaje por dimensión, hallazgos y recomendaciones, flujograma de navegación y estructural, PDF como entregable, pantallas en Stitch y demo con link que vence | Hecha (Stitch probado el 24 oct con la clave de Inoo: una pantalla en unos 3 min) |
 
 **Pendientes:**
-- Responder tickets desde el panel.
 - Conectar el requerimiento "Brief de contenido" con el brief mensual que lee el agente Jefe de Marketing.
-- Generar solas las etapas del mes siguiente en los servicios mensuales.
-- Correos por n8n: los workflows de `n8n/workflows/comunes` (correos por evento y atrasos diarios) están hechos; falta importarlos en el n8n del VPS con sus credenciales SMTP.
+- Programar en n8n el proceso de etapas del mes (`POST /integraciones/servicios/etapas-del-mes`, el día 1).
+- Correos: los manda el portal por SMTP (despachador `npm run outbox`, 26 oct); falta configurar el SMTP de producción (SES o Workspace). El workflow de atrasos diarios de n8n sigue haciendo falta.
 - Actualizar los snapshots de las pruebas visuales.
 - Reemplazar los datos de relleno (fechas de pago, preguntas de los briefs, números de WhatsApp).
 - Despliegue (el backend real ya cubre todo el contrato salvo InooWork).
-- Pasar los archivos del taller web (capturas, PDF, demos) de la base a S3.
+- Crear los user pools de Cognito y probar el ingreso real (implementado el 26 oct con la API simulada de Cognito).
 - Flujo web (fase 19): exportar a Elementor o Shopify (coordinar con Hugo) y comparar Claude, Stitch, Figma AI y Codex con el mismo prompt (quedaron fuera por ahora); permitir subir capturas a mano para los sitios que bloquean las capturas automáticas.
 
 ## Requisitos no funcionales

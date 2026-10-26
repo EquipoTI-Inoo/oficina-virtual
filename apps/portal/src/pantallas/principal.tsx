@@ -30,20 +30,32 @@ export function PantallaIngreso() {
   const [recordar, setRecordar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Pasos además del ingreso (Cognito): contraseña nueva del invitado y «¿Olvidaste tu contraseña?».
+  const [modo, setModo] = useState<ModoIngreso>("INGRESAR");
+  const [desafio, setDesafio] = useState<{ sesion: string; pool: "CLIENTES" | "EQUIPO" } | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   useEffect(() => {
     const s = leerSesion();
     if (s) ir(s.tipo === "EQUIPO" ? "/equipo/panel" : "/inicio");
   }, [ir]);
 
+  const entrar = (r: S<"SesionIniciada">) => {
+    guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: r.refreshToken ?? null, pool: r.pool }, recordar);
+    ir(r.tipo === "EQUIPO" ? "/equipo/panel" : "/inicio");
+  };
+
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setAviso(null);
     setEnviando(true);
     try {
-      const r = await api<{ token: string; tipo: "CLIENTE" | "EQUIPO"; clienteId: string | null }>("/__pruebas/ingresar", { metodo: "POST", cuerpo: { email, clave } });
-      guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId }, recordar);
-      ir(r.tipo === "EQUIPO" ? "/equipo/panel" : "/inicio");
+      const r = await api<S<"SesionIniciada"> | S<"DesafioNuevaClave">>("/sesion/ingresar", { metodo: "POST", cuerpo: { email, clave } });
+      if ("desafio" in r) {
+        setDesafio({ sesion: r.sesion, pool: r.pool });
+        setModo("NUEVA_CLAVE");
+      } else entrar(r);
     } catch (err) {
       setError((err as ProblemaApi).titulo);
     } finally {
@@ -102,6 +114,21 @@ export function PantallaIngreso() {
         <p className="texto-xs texto-muted" style={{ textAlign: "right", textTransform: "uppercase", letterSpacing: "0.02em", marginBottom: 74, width: "min(480px, 100%)" }}>
           Portal de clientes
         </p>
+        {modo !== "INGRESAR" ? (
+          <FormularioClave
+            modo={modo}
+            email={email}
+            setEmail={setEmail}
+            desafio={desafio}
+            alEntrar={entrar}
+            alTerminar={(texto) => {
+              setModo("INGRESAR");
+              setClave("");
+              setAviso(texto);
+            }}
+            alCambiarModo={setModo}
+          />
+        ) : (
         <form className="ingreso-form" onSubmit={enviar} noValidate>
           <div>
             <h2 style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.02em" }}>Qué bueno tenerte aquí.</h2>
@@ -131,10 +158,15 @@ export function PantallaIngreso() {
             <label className="casilla">
               <input type="checkbox" checked={recordar} onChange={(e) => setRecordar(e.target.checked)} /> Recordar mi sesión
             </label>
-            <a className="enlace" href="#olvide" onClick={(e) => e.preventDefault()}>
+            <a className="enlace" href="#olvide" onClick={(e) => { e.preventDefault(); setError(null); setModo("OLVIDE"); }}>
               ¿Olvidaste tu contraseña?
             </a>
           </div>
+          {aviso && (
+            <p role="status" className="texto-sm" style={{ color: "var(--c-exito)" }}>
+              {aviso}
+            </p>
+          )}
           {error && (
             <p role="alert" className="texto-sm" style={{ color: "var(--c-alerta)" }}>
               {error}
@@ -147,6 +179,7 @@ export function PantallaIngreso() {
             <LuShieldCheck size={14} /> Acceso privado a los contenidos y proyectos de tu empresa.
           </p>
         </form>
+        )}
         <div style={{ width: "min(480px, 100%)", textAlign: "center", marginTop: 72, display: "grid", gap: 10 }}>
           <span className="texto-sm texto-muted">¿Aún no tienes acceso?</span>
           <a className="enlace" style={{ justifyContent: "center" }} href="mailto:hola@inoo.pe">
@@ -156,6 +189,105 @@ export function PantallaIngreso() {
         </div>
       </section>
     </div>
+  );
+}
+
+type ModoIngreso = "INGRESAR" | "NUEVA_CLAVE" | "OLVIDE" | "RESTABLECER";
+
+/** Contraseña nueva del invitado (primer ingreso con Cognito) y restablecer con el código del correo. */
+function FormularioClave({ modo, email, setEmail, desafio, alEntrar, alTerminar, alCambiarModo }: {
+  modo: Exclude<ModoIngreso, "INGRESAR">;
+  email: string;
+  setEmail: (v: string) => void;
+  desafio: { sesion: string; pool: "CLIENTES" | "EQUIPO" } | null;
+  alEntrar: (r: S<"SesionIniciada">) => void;
+  alTerminar: (aviso: string) => void;
+  alCambiarModo: (m: ModoIngreso) => void;
+}) {
+  const [codigo, setCodigo] = useState("");
+  const [clave, setClave] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const pideClave = modo !== "OLVIDE";
+  const enviar = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (pideClave && clave !== repetir) return setError("Las contraseñas no coinciden");
+    setEnviando(true);
+    try {
+      if (modo === "NUEVA_CLAVE") alEntrar(await api<S<"SesionIniciada">>("/sesion/nueva-clave", { metodo: "POST", cuerpo: { email, sesion: desafio?.sesion, pool: desafio?.pool, clave } }));
+      else if (modo === "OLVIDE") {
+        await api("/sesion/olvide-clave", { metodo: "POST", cuerpo: { email } });
+        alCambiarModo("RESTABLECER");
+      } else {
+        await api("/sesion/restablecer", { metodo: "POST", cuerpo: { email, codigo, clave } });
+        alTerminar("Listo: ya puedes ingresar con tu contraseña nueva.");
+      }
+    } catch (err) {
+      const p = err as ProblemaApi;
+      setError(p.errores?.[0]?.mensaje ?? p.titulo);
+    } finally {
+      setEnviando(false);
+    }
+  };
+  const titulo = { NUEVA_CLAVE: "Crea tu contraseña", OLVIDE: "Restablece tu contraseña", RESTABLECER: "Revisa tu correo" }[modo];
+  const bajada = {
+    NUEVA_CLAVE: "Es tu primer ingreso: elige la contraseña con la que vas a entrar desde ahora.",
+    OLVIDE: "Te mandamos un código a tu correo para crear una contraseña nueva.",
+    RESTABLECER: `Si ${email || "el correo"} tiene acceso al portal, te llegó un código. Escríbelo junto con tu contraseña nueva.`,
+  }[modo];
+  return (
+    <form className="ingreso-form" onSubmit={enviar} noValidate>
+      <div>
+        <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em" }}>{titulo}</h2>
+        <p className="texto-muted" style={{ marginTop: 12, fontSize: 13.5 }}>{bajada}</p>
+      </div>
+      {modo === "OLVIDE" && (
+        <div className="campo">
+          <label htmlFor="email-olvide">Correo electrónico</label>
+          <div className="entrada">
+            <input id="email-olvide" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+        </div>
+      )}
+      {modo === "RESTABLECER" && (
+        <div className="campo">
+          <label htmlFor="codigo">Código</label>
+          <div className="entrada">
+            <input id="codigo" inputMode="numeric" autoComplete="one-time-code" value={codigo} onChange={(e) => setCodigo(e.target.value)} required />
+          </div>
+        </div>
+      )}
+      {pideClave && (
+        <>
+          <div className="campo">
+            <label htmlFor="clave-nueva">Contraseña nueva</label>
+            <div className="entrada">
+              <input id="clave-nueva" type="password" autoComplete="new-password" value={clave} onChange={(e) => setClave(e.target.value)} required />
+            </div>
+            <span className="ayuda-campo">Al menos 8 caracteres, con mayúsculas, minúsculas y números.</span>
+          </div>
+          <div className="campo">
+            <label htmlFor="clave-repetir">Repite la contraseña</label>
+            <div className="entrada">
+              <input id="clave-repetir" type="password" autoComplete="new-password" value={repetir} onChange={(e) => setRepetir(e.target.value)} required />
+            </div>
+          </div>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="texto-sm" style={{ color: "var(--c-alerta)" }}>
+          {error}
+        </p>
+      )}
+      <button className="boton boton--primario boton--bloque" disabled={enviando} style={{ height: 40, borderRadius: 10 }}>
+        <LuArrowRight size={16} /> {enviando ? "Un momento…" : modo === "OLVIDE" ? "Enviar el código" : modo === "NUEVA_CLAVE" ? "Guardar y entrar" : "Cambiar la contraseña"}
+      </button>
+      <button type="button" className="enlace" style={{ justifySelf: "center" }} onClick={() => alCambiarModo("INGRESAR")}>
+        ← Volver al ingreso
+      </button>
+    </form>
   );
 }
 

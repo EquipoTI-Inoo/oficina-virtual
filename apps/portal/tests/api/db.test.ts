@@ -9,7 +9,9 @@ import { before, describe, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
-import { manejarSolicitudDb } from "../../src/servidor/api";
+import { despacharCorreos, manejarSolicitudDb } from "../../src/servidor/api";
+import { usarVerificadorCognito } from "../../src/servidor/auth";
+import { usarFetchCognito } from "../../src/servidor/cognito";
 import { comoUsuario, desdePglite, usarBaseDatos } from "../../src/servidor/db";
 import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
@@ -75,6 +77,9 @@ before(async () => {
   await db.exec(sql("migraciones/0023_paid_media_por_tipo.sql"));
   await db.exec(sql("migraciones/0024_correos.sql"));
   await db.exec(sql("migraciones/0025_standby.sql"));
+  await db.exec(sql("migraciones/0026_correos_entregables.sql"));
+  await db.exec(sql("migraciones/0027_taller_en_s3.sql"));
+  await db.exec(sql("migraciones/0028_correos_directos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -100,10 +105,13 @@ pruebasEquipo("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOu
 
 // Almacén falso: el "bucket" es un mapa clave → bytes; las URLs llevan la clave para poder subir.
 const bucket = new Map<string, number>();
+const objetos = new Map<string, Uint8Array>();
 const almacenFalso: Almacen = {
   urlSubida: (clave, mime) => ({ url: `https://bucket.prueba/${clave}`, headers: { "Content-Type": mime }, expiraEn: new Date(Date.now() + 900_000).toISOString() }),
   urlDescarga: (clave, nombre) => ({ url: `https://bucket.prueba/${clave}?descarga=${encodeURIComponent(nombre)}`, expiraEn: new Date(Date.now() + 900_000).toISOString() }),
-  tamano: async (clave) => bucket.get(clave) ?? null,
+  tamano: async (clave) => bucket.get(clave) ?? objetos.get(clave)?.length ?? null,
+  subir: async (clave, _mime, bytes) => void objetos.set(clave, bytes),
+  leer: async (clave) => objetos.get(clave) ?? null,
 };
 usarAlmacen(almacenFalso);
 const subirAlBucket = async (url: string, bytes: number) => void bucket.set(decodeURIComponent(new URL(url).pathname.slice(1)), bytes);
@@ -563,6 +571,231 @@ describe("archivos, descargas y resultados · solo backend real", () => {
   });
 });
 
+describe("taller web: archivos en S3 o en la base · solo backend real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const RUTA = `/servicios-contratados/${uid(4, 4)}/taller-web`;
+  const ultimo = async () => (await db.query<{ s3_key: string | null; en_base: boolean }>("SELECT s3_key, contenido IS NOT NULL AS en_base FROM archivo_generado ORDER BY creado_en DESC, id LIMIT 1")).rows[0];
+
+  test("con S3 la demo va al bucket y se sirve igual, con sus protecciones", async () => {
+    await reiniciar();
+    await llamar("POST", `${RUTA}/flujograma`, DIEGO);
+    const demo = (await llamar("POST", `${RUTA}/demos`, DIEGO, {})).json.taller.demos[0];
+    const fila = await ultimo();
+    assert.match(fila.s3_key ?? "", new RegExp(`^taller/${CASA_OLIVA}/${uid(4, 4)}/[0-9a-f]{64}$`));
+    assert.equal(fila.en_base, false, "la base guarda solo la clave");
+    assert.ok(objetos.has(fila.s3_key!));
+    const r = await llamar("GET", `/publico/${demo.url.slice(-64)}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get("x-robots-tag"), "noindex, nofollow");
+    assert.match(String(r.json), /<meta name="robots"/);
+  });
+
+  test("sin S3 configurado, el archivo queda en la base", async () => {
+    await reiniciar();
+    usarAlmacen(null);
+    const env = process.env.S3_BUCKET;
+    delete process.env.S3_BUCKET;
+    try {
+      await llamar("POST", `${RUTA}/flujograma`, DIEGO);
+      const demo = (await llamar("POST", `${RUTA}/demos`, DIEGO, {})).json.taller.demos[0];
+      assert.deepEqual(await ultimo(), { s3_key: null, en_base: true });
+      assert.equal((await llamar("GET", `/publico/${demo.url.slice(-64)}`)).status, 200);
+    } finally {
+      if (env !== undefined) process.env.S3_BUCKET = env;
+      usarAlmacen(almacenFalso);
+    }
+  });
+});
+
+describe("ingreso con Cognito (AUTH_MODO=cognito) · solo backend real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const ENV = { AUTH_MODO: "cognito", COGNITO_REGION: "us-east-1", COGNITO_APP_CLIENTES: "app-clientes", COGNITO_APP_EQUIPO: "app-equipo" } as const;
+  const llamadas: { accion: string; cuerpo: any }[] = [];
+  // Cognito simulado: Valeria y Martín (invitado) en el pool de clientes; Diego en el del equipo.
+  const cognitoFalso: typeof fetch = async (_url, init) => {
+    const accion = String((init!.headers as Record<string, string>)["x-amz-target"]).split(".").pop()!;
+    const b = JSON.parse(String(init!.body));
+    llamadas.push({ accion, cuerpo: b });
+    const ok = (j: unknown) => Response.json(j);
+    const error = (tipo: string) => Response.json({ __type: tipo, message: tipo }, { status: 400 });
+    const tokens = (quien: string, refresh = true) => ok({ AuthenticationResult: { IdToken: `id-${quien}`, ...(refresh ? { RefreshToken: `r-${quien}` } : {}), ExpiresIn: 3600 } });
+    const pool = b.ClientId === "app-clientes" ? "CLIENTES" : "EQUIPO";
+    if (accion === "InitiateAuth" && b.AuthFlow === "USER_PASSWORD_AUTH") {
+      const { USERNAME: u, PASSWORD: c } = b.AuthParameters;
+      const de: Record<string, string> = { "valeria@casaoliva.pe": "CLIENTES", "martin@casaoliva.pe": "CLIENTES", "diego.castro@inoo.pe": "EQUIPO" };
+      if (de[u] !== pool) return error("UserNotFoundException");
+      if (u === "martin@casaoliva.pe") return ok({ ChallengeName: "NEW_PASSWORD_REQUIRED", Session: "sesion-martin" });
+      return c === "Clave1234" ? tokens(u.split(/[.@]/)[0]) : error("NotAuthorizedException");
+    }
+    if (accion === "InitiateAuth") return b.AuthParameters.REFRESH_TOKEN === "r-valeria" ? tokens("valeria", false) : error("NotAuthorizedException");
+    if (accion === "RespondToAuthChallenge") return b.ChallengeResponses.NEW_PASSWORD.length < 8 ? error("InvalidPasswordException") : tokens("martin");
+    if (accion === "ForgotPassword") return pool === "CLIENTES" && b.Username === "valeria@casaoliva.pe" ? ok({}) : error("UserNotFoundException");
+    if (accion === "ConfirmForgotPassword") return b.ConfirmationCode === "123456" ? ok({}) : error("CodeMismatchException");
+    return error("InvalidAction");
+  };
+
+  const conCognito = async (fn: () => Promise<void>) => {
+    await reiniciar();
+    await db.exec(`UPDATE usuario SET cognito_sub = 'sub-' || split_part(split_part(email::text, '@', 1), '.', 1) WHERE tipo <> 'SERVICIO'`);
+    Object.assign(process.env, ENV);
+    usarFetchCognito(cognitoFalso);
+    usarVerificadorCognito(async (t) => {
+      if (!t.startsWith("id-")) throw new Error("firma inválida");
+      return { sub: `sub-${t.slice(3)}` };
+    });
+    llamadas.length = 0;
+    try {
+      await fn();
+    } finally {
+      for (const k of Object.keys(ENV)) delete process.env[k];
+      usarFetchCognito(null);
+      usarVerificadorCognito(null);
+    }
+  };
+
+  test("ingresa con correo y contraseña: el pool de clientes o el del equipo; el token sirve en la API", () =>
+    conCognito(async () => {
+      const v = await llamar("POST", "/sesion/ingresar", undefined, { email: "Valeria@casaoliva.pe", clave: "Clave1234" });
+      assert.deepEqual([v.status, v.json.token, v.json.refreshToken, v.json.pool, v.json.tipo, v.json.clienteId], [200, "id-valeria", "r-valeria", "CLIENTES", "CLIENTE", CASA_OLIVA]);
+      assert.equal((await llamar("GET", "/me", "id-valeria")).json.usuario.nombre, "Valeria Mendoza");
+      assert.equal((await llamar("GET", "/me", "demo.algo")).status, 401, "con Cognito no valen los tokens de prueba");
+      const d = await llamar("POST", "/sesion/ingresar", undefined, { email: "diego.castro@inoo.pe", clave: "Clave1234" });
+      assert.deepEqual([d.json.pool, d.json.tipo, d.json.clienteId], ["EQUIPO", "EQUIPO", null]);
+      assert.deepEqual(llamadas.filter((x) => x.accion === "InitiateAuth").map((x) => x.cuerpo.ClientId), ["app-clientes", "app-clientes", "app-equipo"], "prueba primero clientes");
+      const mala = await llamar("POST", "/sesion/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "otra" });
+      assert.deepEqual([mala.status, mala.json.codigo], [401, "CREDENCIALES_INVALIDAS"]);
+      const nadie = await llamar("POST", "/sesion/ingresar", undefined, { email: "nadie@x.pe", clave: "Clave1234" });
+      assert.deepEqual([nadie.status, nadie.json.codigo], [401, "CREDENCIALES_INVALIDAS"], "no dice si el correo existe");
+      assert.deepEqual((await llamar("POST", "/sesion/ingresar", undefined, {})).json.errores.map((e: any) => e.campo), ["email", "clave"]);
+    }));
+
+  test("invitado: primer ingreso con contraseña temporal y luego la suya", () =>
+    conCognito(async () => {
+      const r = (await llamar("POST", "/sesion/ingresar", undefined, { email: "martin@casaoliva.pe", clave: "Temporal1" })).json;
+      assert.deepEqual(r, { desafio: "NUEVA_CLAVE", sesion: "sesion-martin", pool: "CLIENTES" });
+      const debil = await llamar("POST", "/sesion/nueva-clave", undefined, { email: "martin@casaoliva.pe", sesion: r.sesion, pool: r.pool, clave: "corta" });
+      assert.deepEqual([debil.status, debil.json.errores[0].campo], [422, "clave"]);
+      const ok = await llamar("POST", "/sesion/nueva-clave", undefined, { email: "martin@casaoliva.pe", sesion: r.sesion, pool: r.pool, clave: "MiClave2026" });
+      assert.deepEqual([ok.status, ok.json.token, ok.json.tipo], [200, "id-martin", "CLIENTE"]);
+    }));
+
+  test("olvidé mi contraseña: código por correo; no dice si el correo existe", () =>
+    conCognito(async () => {
+      assert.equal((await llamar("POST", "/sesion/olvide-clave", undefined, { email: "valeria@casaoliva.pe" })).status, 204);
+      assert.equal((await llamar("POST", "/sesion/olvide-clave", undefined, { email: "nadie@x.pe" })).status, 204);
+      const mal = await llamar("POST", "/sesion/restablecer", undefined, { email: "valeria@casaoliva.pe", codigo: "000", clave: "Nueva2026" });
+      assert.deepEqual([mal.status, mal.json.errores[0].campo], [422, "codigo"]);
+      assert.equal((await llamar("POST", "/sesion/restablecer", undefined, { email: "valeria@casaoliva.pe", codigo: "123456", clave: "Nueva2026" })).status, 204);
+    }));
+
+  test("primer ingreso: el usuario sin sub de Cognito se vincula por su correo verificado", () =>
+    conCognito(async () => {
+      await db.exec("UPDATE usuario SET cognito_sub = NULL WHERE email = 'valeria@casaoliva.pe'");
+      usarVerificadorCognito(async (t) => (t === "id-valeria" ? { sub: "sub-nuevo", email: "Valeria@CasaOliva.pe", email_verified: true } : { sub: `sub-${t.slice(3)}` }));
+      assert.equal((await llamar("GET", "/me", "id-valeria")).json.usuario.nombre, "Valeria Mendoza");
+      assert.equal((await db.query<{ s: string }>("SELECT cognito_sub AS s FROM usuario WHERE email = 'valeria@casaoliva.pe'")).rows[0].s, "sub-nuevo");
+      usarVerificadorCognito(async () => ({ sub: "otro-sub", email: "valeria@casaoliva.pe", email_verified: false }));
+      assert.equal((await llamar("GET", "/me", "id-x")).status, 401, "sin correo verificado no se vincula");
+    }));
+
+  test("invitar: el despachador crea a la persona en Cognito, la vincula y le da la bienvenida", () =>
+    conCognito(async () => {
+      Object.assign(process.env, { COGNITO_POOL_CLIENTES: "us-east-1_clientes", AWS_ACCESS_KEY_ID: "AKIDPRUEBA", AWS_SECRET_ACCESS_KEY: "secreto" });
+      const altas: { pool: string; usuario: string; firma: string }[] = [];
+      usarFetchCognito(async (url, init) => {
+        const h = init!.headers as Record<string, string>;
+        if (h["x-amz-target"].endsWith("AdminCreateUser")) {
+          const b = JSON.parse(String(init!.body));
+          altas.push({ pool: b.UserPoolId, usuario: b.Username, firma: h.authorization });
+          return Response.json({ User: { Username: b.Username, Attributes: [{ Name: "sub", Value: "sub-rosa-cognito" }] } });
+        }
+        return cognitoFalso(url, init);
+      });
+      try {
+        const inv = await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, "id-diego", { email: "rosa@casaoliva.pe", nombre: "Rosa Paz", rol: "APROBADOR" });
+        assert.equal(inv.status, 201);
+        const correos: { para: string; texto: string }[] = [];
+        await despacharCorreos(async (m) => (correos.push({ para: m.para, texto: m.texto }), null));
+        assert.deepEqual(altas.map((a) => [a.pool, a.usuario]), [["us-east-1_clientes", "rosa@casaoliva.pe"]]);
+        assert.match(altas[0].firma, /^AWS4-HMAC-SHA256 Credential=AKIDPRUEBA\/\d{8}\/us-east-1\/cognito-idp\/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=[0-9a-f]{64}$/);
+        assert.equal((await db.query<{ s: string }>("SELECT cognito_sub AS s FROM usuario WHERE email = 'rosa@casaoliva.pe'")).rows[0].s, "sub-rosa-cognito");
+        const bienvenida = correos.find((c) => c.para === "rosa@casaoliva.pe")!;
+        assert.match(bienvenida.texto, /contraseña temporal/);
+        await despacharCorreos(async () => null);
+        assert.equal(altas.length, 1, "no la vuelve a crear");
+      } finally {
+        for (const k of ["COGNITO_POOL_CLIENTES", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]) delete process.env[k];
+      }
+    }));
+
+  test("renovar: token nuevo con el refresh token; si venció, 401", () =>
+    conCognito(async () => {
+      const r = await llamar("POST", "/sesion/renovar", undefined, { refreshToken: "r-valeria", pool: "CLIENTES" });
+      assert.deepEqual([r.status, r.json.token, r.json.refreshToken], [200, "id-valeria", "r-valeria"], "conserva el refresh token");
+      assert.equal((await llamar("POST", "/sesion/renovar", undefined, { refreshToken: "viejo", pool: "CLIENTES" })).status, 401);
+    }));
+
+  test("con el ingreso de prueba (AUTH_MODO=demo), /sesion/ingresar usa las credenciales de prueba", async () => {
+    await reiniciar();
+    const r = await llamar("POST", "/sesion/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "demo1234" });
+    assert.deepEqual([r.status, r.json.token], [200, `demo.${uid(1, 1)}`]);
+    assert.equal((await llamar("POST", "/sesion/nueva-clave", undefined, {})).json.codigo, "SOLO_COGNITO");
+    assert.equal((await llamar("POST", "/sesion/olvide-clave", undefined, { email: "x@y.pe" })).status, 204);
+  });
+});
+
+describe("correos directos por SMTP (CORREOS_POR=portal) · solo backend real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const enviados: { para: string; asunto: string }[] = [];
+  const smtpOk = async (c: { para: string; asunto: string }) => (enviados.push({ para: c.para, asunto: c.asunto }), `<${enviados.length}@prueba>`);
+
+  test("cada evento manda sus correos una sola vez y queda registrado", async () => {
+    await reiniciar();
+    enviados.length = 0;
+    await llamar("POST", `/entregables/${uid(29, 2)}/enviar`, DIEGO);
+    const r = await despacharCorreos(smtpOk);
+    assert.deepEqual([r.enviados, r.fallidos], [1, 0]);
+    assert.deepEqual(enviados, [{ para: "valeria@casaoliva.pe", asunto: "«Prototipo del inicio y la ficha de producto» está listo para tu revisión" }]);
+    const fila = (await db.query<{ estado: string; ses_message_id: string }>("SELECT estado, ses_message_id FROM correo_enviado WHERE evento = 'entregable.listo_revision'")).rows;
+    assert.deepEqual(fila, [{ estado: "ENVIADO", ses_message_id: "<1@prueba>" }]);
+    assert.deepEqual(await despacharCorreos(smtpOk), { eventos: 0, enviados: 0, fallidos: 0 }, "no se repite");
+    const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json;
+    assert.equal(vista.recientes[0].estado, "ENVIADO");
+  });
+
+  test("si el SMTP falla, queda FALLIDO y se reintenta sin duplicar lo que ya salió", async () => {
+    await reiniciar();
+    enviados.length = 0;
+    await llamar("POST", `/entregables/${uid(29, 2)}/enviar`, DIEGO);
+    const r = await despacharCorreos(async () => {
+      throw new Error("connect ECONNREFUSED 127.0.0.1:1025");
+    });
+    assert.deepEqual([r.enviados, r.fallidos], [0, 1]);
+    const ev = (await db.query<{ correos_intentos: number; correos_error: string; procesado: boolean }>("SELECT correos_intentos, correos_error, correos_procesados_en IS NOT NULL AS procesado FROM outbox_evento WHERE tipo = 'entregable.listo_revision'")).rows[0];
+    assert.deepEqual([ev.correos_intentos, ev.procesado], [1, false]);
+    assert.match(ev.correos_error, /ECONNREFUSED/);
+    assert.equal((await db.query<{ estado: string }>("SELECT estado FROM correo_enviado WHERE evento = 'entregable.listo_revision'")).rows[0].estado, "FALLIDO");
+    // La espera exponencial: el reintento llega después de 30 s (aquí se simula moviendo la fecha del evento).
+    assert.equal((await despacharCorreos(smtpOk)).eventos, 0, "todavía no le toca");
+    await db.exec("UPDATE outbox_evento SET creado_en = creado_en - interval '1 minute' WHERE tipo = 'entregable.listo_revision'");
+    assert.deepEqual(await despacharCorreos(smtpOk), { eventos: 1, enviados: 1, fallidos: 0 });
+    assert.equal(enviados.length, 1);
+  });
+
+  test("con CORREOS_POR=portal, n8n ya no puede preparar los correos (saldrían dobles)", async () => {
+    await reiniciar();
+    process.env.CORREOS_POR = "portal";
+    try {
+      await llamar("POST", `/entregables/${uid(29, 2)}/enviar`, DIEGO);
+      const ev = (await db.query<{ id: number; tipo: string; clienteId: string; datos: any }>(`SELECT id, tipo, cliente_id AS "clienteId", payload AS datos FROM outbox_evento ORDER BY id DESC LIMIT 1`)).rows[0];
+      const r = await llamar("POST", "/integraciones/correos/preparar", undefined, ev, { "x-api-key": "demo-n8n" });
+      assert.deepEqual([r.status, r.json.codigo], [409, "CORREOS_LOS_ENVIA_EL_PORTAL"]);
+    } finally {
+      delete process.env.CORREOS_POR;
+    }
+  });
+});
+
 describe("correos automáticos con n8n · solo backend real", () => {
   const llamar = crearLlamar((req) => manejarSolicitudDb(req));
   const LLAVE = { "x-api-key": "demo-n8n" };
@@ -585,8 +818,8 @@ describe("correos automáticos con n8n · solo backend real", () => {
     assert.deepEqual((await preparar(ev)).json.correos, [], "lo enviado no vuelve");
     assert.equal((await llamar("POST", `/integraciones/correos/${r.json.correos[0].id}/resultado`, undefined, { estado: "FALLIDO", error: "tarde" }, LLAVE)).status, 204);
     const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json;
-    assert.equal(vista.reglas.length, 12);
-    assert.equal(vista.reglas[0].evento, "pieza.lista_revision");
+    assert.equal(vista.reglas.length, 15);
+    assert.equal(vista.reglas[0].evento, "entregable.listo_revision", "primero los entregables del proyecto (el foco)");
     assert.deepEqual(vista.recientes.map((c: any) => [c.asunto, c.estado, c.evento]), [["Recibimos tu ticket #1043", "ENVIADO", "ticket.creado"]]);
     assert.ok(vista.recientes[0].enviadoEn);
   });
@@ -605,6 +838,26 @@ describe("correos automáticos con n8n · solo backend real", () => {
     // El equipo que solo mira su bandeja no recibe avisos de sus propios cambios internos.
     await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('pieza.estado_cambiado', '${CASA_OLIVA}', '{"piezaId":"${TU_RITUAL}","estado":"EN_REVISION_INTERNA","canal":"PANEL"}')`);
     assert.deepEqual((await preparar(await ultimoEvento("pieza.estado_cambiado"))).json.correos, []);
+  });
+
+  test("entregables: aviso al cliente al enviarlo y al responsable del servicio con su decisión", async () => {
+    await reiniciar();
+    const prototipo = uid(29, 2); // de la web de Casa Oliva, en preparación
+    const titulo = "Prototipo del inicio y la ficha de producto";
+    assert.equal((await llamar("POST", `/entregables/${prototipo}/enviar`, DIEGO)).status, 200);
+    const aviso = (await preparar(await ultimoEvento("entregable.listo_revision"))).json.correos;
+    assert.deepEqual(aviso.map((c: any) => [c.para, c.asunto]), [["valeria@casaoliva.pe", `«${titulo}» está listo para tu revisión`]]);
+    assert.match(aviso[0].texto, new RegExp(`/entregables/documento/${prototipo}$`));
+    assert.doesNotMatch(`${aviso[0].asunto} ${aviso[0].texto}`, /\bIA\b|claude|gemini|stitch|taller/i, "el correo no delata la IA");
+
+    await llamar("POST", `/entregables/${prototipo}/decision`, VALERIA, { decision: "CAMBIOS_SOLICITADOS", comentario: "Más fotos del sérum, por favor" });
+    const decision = (await preparar(await ultimoEvento("entregable.decidido"))).json.correos;
+    assert.deepEqual(decision.map((c: any) => [c.para, c.asunto]), [
+      ["valeria@casaoliva.pe", `Recibimos tus cambios para «${titulo}»`],
+      ["diego.castro@inoo.pe", `Valeria Mendoza pidió cambios en «${titulo}»`], // la web la lleva Diego
+    ]);
+    assert.match(decision[1].texto, /Más fotos del sérum/);
+    assert.match(decision[1].texto, new RegExp(`/equipo/entregables/${prototipo}$`));
   });
 
   test("invitación: al correo invitado, nombrando a quien invitó; HTML escapado", async () => {

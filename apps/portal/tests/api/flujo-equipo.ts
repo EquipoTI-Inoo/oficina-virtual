@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
+import { siguientePeriodo } from "../../src/dominio/servicios";
 import { CASA_OLIVA, crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
 
 const CAMILA_ID = uid(1, 6);
@@ -73,6 +74,29 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
       assert.deepEqual(await estados(), ["ACTIVO", "ACTIVO", "ACTIVO", "ACTIVO"]);
       assert.equal((await ficha()).inactividad.estado, "ACTIVO");
       assert.ok((await eventos()).some((e) => e.tipo === "servicio.reactivado" && e.datos.servicioIds.length === 4));
+    });
+
+    test("etapas del mes: los servicios mensuales reciben las de su plantilla, una sola vez", async () => {
+      await reiniciar();
+      const ruta = "/integraciones/servicios/etapas-del-mes";
+      assert.equal((await llamar("POST", ruta, DIEGO, {})).status, 403, "solo n8n, con su llave");
+      const actual = (await llamar("POST", ruta, undefined, {}, LLAVE)).json;
+      assert.match(actual.periodo, /^\d{4}-\d{2}$/);
+      assert.equal((await llamar("POST", ruta, undefined, {}, LLAVE)).json.creados, 0, "repetirla no duplica");
+
+      const siguiente = siguientePeriodo(actual.periodo);
+      const r = (await llamar("POST", ruta, undefined, { periodo: siguiente }, LLAVE)).json;
+      assert.ok(!r.servicioIds.includes(WEB) && !r.servicioIds.includes(uid(4, 1)), "ni los proyectos ni el soporte (va por consumo)");
+      if (siguiente <= "2026-12") {
+        // Social Media Pro de Casa Oliva va hasta diciembre de 2026.
+        assert.ok(r.servicioIds.includes(REDES));
+        const perfil = (await llamar("GET", `/servicios-contratados/${REDES}?periodo=${siguiente}`, DIEGO)).json;
+        assert.ok(perfil.etapas.length > 0 && perfil.etapas.every((e: any) => e.estado === "SIN_INICIAR") && perfil.etapas[0].fechaInicio.startsWith(siguiente));
+        assert.ok((await eventos()).some((e) => e.tipo === "etapa.actualizada" && e.datos.motivo === "MES_NUEVO" && e.datos.servicioContratadoId === REDES));
+      }
+      assert.equal((await llamar("POST", ruta, undefined, { periodo: siguiente }, LLAVE)).json.creados, 0);
+      const lejos = await llamar("POST", ruta, undefined, { periodo: siguientePeriodo(siguiente) }, LLAVE);
+      assert.deepEqual([lejos.status, lejos.json.errores[0].campo], [422, "periodo"]);
     });
 
     test("el equipo puede poner o sacar un servicio de standby a mano", async () => {

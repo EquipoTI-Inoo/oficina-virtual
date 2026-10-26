@@ -286,6 +286,30 @@ export function etapasDelProyectoNuevo(plantilla: Pick<PlantillaDemo, "etapas">,
   return personalizadas ? etapasDesdePlantilla({ etapas: personalizadas }, inicio, feriados) : etapasDesdePlantilla(plantilla, inicio, feriados, tamanoDe(detalle));
 }
 
+// ───────────────────────────── etapas del mes en los servicios mensuales
+
+/** «2026-12» → «2027-01». */
+export function siguientePeriodo(periodo: string): string {
+  const [a, m] = periodo.split("-").map(Number);
+  return m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, "0")}`;
+}
+
+/** El proceso solo arma el mes en curso o el siguiente (n8n lo corre el día 1, o unos días antes). */
+export function validarPeriodoEtapas(periodo: unknown, actual: string): string | null {
+  if (typeof periodo !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)) return "Usa el formato AAAA-MM";
+  if (periodo !== actual && periodo !== siguientePeriodo(actual)) return "Solo el mes en curso o el siguiente";
+  return null;
+}
+
+/**
+ * Si a un servicio le toca tener etapas en ese mes: mensual (Social Media Pro, Paid Media…), activo y
+ * vigente ese mes. El soporte continuo no tiene etapas: se mide por consumo (fase 15).
+ */
+export function tocaEtapasDelMes(s: { codigo: string; estado: string; fechaInicio: string; fechaFin: string | null }, periodo: string): boolean {
+  if (servicioDeCatalogo(s.codigo)?.modalidad !== "MENSUAL" || s.codigo === "SOPORTE_CONTINUO" || s.estado !== "ACTIVO") return false;
+  return s.fechaInicio.slice(0, 7) <= periodo && (!s.fechaFin || s.fechaFin.slice(0, 7) >= periodo);
+}
+
 export interface EtapaParaAvance {
   orden: number;
   nombre: string;

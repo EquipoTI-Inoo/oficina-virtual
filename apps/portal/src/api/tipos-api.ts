@@ -6,6 +6,96 @@
  */
 
 export interface paths {
+    "/sesion/ingresar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingreso con correo y contraseña. Con AUTH_MODO=cognito valida contra los user pools (clientes y equipo); en desarrollo, las credenciales de prueba
+         * @description Devuelve el ID token de Cognito (va en `Authorization: Bearer`) y el refresh token para renovarlo, o el
+         *     desafío `NUEVA_CLAVE` si es el primer ingreso de una persona invitada (contraseña temporal): se completa
+         *     con `POST /sesion/nueva-clave`. Nunca dice si el correo existe.
+         */
+        post: operations["ingresar"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sesion/nueva-clave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Primer ingreso de una persona invitada: cambia la contraseña temporal por la suya (solo Cognito) */
+        post: operations["crearClaveNueva"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sesion/olvide-clave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manda un código al correo para restablecer la contraseña. Responde 204 aunque el correo no exista */
+        post: operations["olvideClave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sesion/restablecer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Contraseña nueva con el código que llegó por correo (solo Cognito) */
+        post: operations["restablecerClave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sesion/renovar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** ID token nuevo con el refresh token (el de Cognito vence a la hora). El portal lo pide solo cuando recibe un 401 */
+        post: operations["renovarSesion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -564,6 +654,29 @@ export interface paths {
          *     el correo). Idempotente: correrlo dos veces el mismo día no vuelve a correr nada.
          */
         post: operations["aplicarAtrasosRequerimientos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integraciones/servicios/etapas-del-mes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * n8n, el día 1 (o unos días antes, con el mes siguiente): arma las etapas del mes de los servicios mensuales
+         * @description A cada servicio mensual ACTIVO y vigente ese mes (Social Media Pro, Paid Media…) que todavía no tenga
+         *     etapas en el periodo se le crean las de su plantilla, con fechas en días hábiles desde el día 1. El soporte
+         *     continuo no tiene etapas (se mide por consumo). Emite `etapa.actualizada` con `motivo: MES_NUEVO` por
+         *     servicio. Idempotente: repetirla no duplica etapas. Scope `servicios:write`.
+         */
+        post: operations["generarEtapasDelMes"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2929,6 +3042,30 @@ export interface components {
              */
             entregableId?: string;
         };
+        /** @enum {string} */
+        PoolCognito: "CLIENTES" | "EQUIPO";
+        SesionIniciada: {
+            /** @description ID token de Cognito (o demo.<usuario_id> con el ingreso de prueba) */
+            token: string;
+            /** @description Solo Cognito */
+            refreshToken?: string | null;
+            pool?: components["schemas"]["PoolCognito"];
+            /** Format: date-time */
+            expiraEn?: string;
+            /** @enum {string} */
+            tipo: "CLIENTE" | "EQUIPO";
+            /**
+             * Format: uuid
+             * @description Cliente con el que entra (solo usuarios CLIENTE)
+             */
+            clienteId: string | null;
+        };
+        DesafioNuevaClave: {
+            /** @enum {string} */
+            desafio: "NUEVA_CLAVE";
+            sesion: string;
+            pool: components["schemas"]["PoolCognito"];
+        };
         EntregableDetalle: components["schemas"]["Entregable"] & {
             versiones: {
                 numero: number;
@@ -4808,6 +4945,216 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ingresar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                    clave: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sesión iniciada, o el desafío de contraseña nueva */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"] | components["schemas"]["DesafioNuevaClave"];
+                };
+            };
+            /** @description CREDENCIALES_INVALIDAS */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description RESTABLECER_CLAVE: Cognito pide restablecerla */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description DEMASIADOS_INTENTOS */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearClaveNueva: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                    /** @description La `sesion` del desafío */
+                    sesion: string;
+                    pool: components["schemas"]["PoolCognito"];
+                    clave: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sesión iniciada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"];
+                };
+            };
+            /** @description SOLO_COGNITO: con el ingreso de prueba no aplica */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    olvideClave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Si el correo existe, le llega el código */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description DEMASIADOS_INTENTOS */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    restablecerClave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                    codigo: string;
+                    clave: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Contraseña cambiada: ya puede ingresar */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SOLO_COGNITO */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    renovarSesion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    refreshToken: string;
+                    pool: components["schemas"]["PoolCognito"];
+                };
+            };
+        };
+        responses: {
+            /** @description Token renovado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        token: string;
+                        refreshToken?: string | null;
+                        pool?: components["schemas"]["PoolCognito"];
+                        /** Format: date-time */
+                        expiraEn: string;
+                    };
+                };
+            };
+            401: components["responses"]["NoAutenticado"];
+            /** @description SOLO_COGNITO */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     obtenerSesion: {
         parameters: {
             query?: never;
@@ -5999,6 +6346,44 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    generarEtapasDelMes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description El mes en curso (por defecto) o el siguiente */
+                    periodo?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example 2026-11 */
+                        periodo: string;
+                        /** @description Servicios mensuales vigentes ese mes */
+                        revisados: number;
+                        /** @description Servicios a los que se les crearon las etapas */
+                        creados: number;
+                        servicioIds: string[];
+                    };
+                };
+            };
+            401: components["responses"]["NoAutenticado"];
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
         };
     };
     aplicarInactividadClientes: {

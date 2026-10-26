@@ -19,6 +19,10 @@ export interface Almacen {
   urlDescarga(clave: string, nombre: string, segundos?: number): { url: string; expiraEn: string };
   /** Tamaño del objeto si existe (HEAD), o null si no se subió. */
   tamano(clave: string): Promise<number | null>;
+  /** Sube bytes desde el servidor: archivos que genera el propio portal (taller web, fase 19). */
+  subir(clave: string, mime: string, bytes: Uint8Array): Promise<void>;
+  /** Lee un objeto desde el servidor, o null si no existe. */
+  leer(clave: string): Promise<Uint8Array | null>;
 }
 
 export interface CredencialesS3 {
@@ -83,7 +87,27 @@ export function almacenS3(c: CredencialesS3, enviar: typeof fetch = fetch): Alma
       if (!r.ok) throw new ErrorApi(502, "ALMACEN_NO_DISPONIBLE", "No pudimos verificar el archivo", "Inténtalo de nuevo en unos minutos.");
       return Number(r.headers.get("content-length") ?? 0);
     },
+    async subir(clave, mime, bytes) {
+      const r = await enviar(prefirmar(c, "PUT", clave, 300, {}, new Date(), false), { method: "PUT", headers: { "Content-Type": mime }, body: bytes as BodyInit, signal: AbortSignal.timeout(60_000) });
+      if (!r.ok) throw new ErrorApi(502, "ALMACEN_NO_DISPONIBLE", "No pudimos guardar el archivo", `El almacén respondió ${r.status}.`);
+    },
+    async leer(clave) {
+      const r = await enviar(prefirmar(c, "GET", clave, 300, {}, new Date(), false), { signal: AbortSignal.timeout(60_000) });
+      if (r.status === 404 || r.status === 403) return null;
+      if (!r.ok) throw new ErrorApi(502, "ALMACEN_NO_DISPONIBLE", "No pudimos leer el archivo", `El almacén respondió ${r.status}.`);
+      return new Uint8Array(await r.arrayBuffer());
+    },
   };
+}
+
+/** El almacén si está configurado; null si no (los archivos del taller quedan entonces en la base). */
+export function almacenOpcional(): Almacen | null {
+  try {
+    return almacen();
+  } catch (e) {
+    if (e instanceof ErrorApi && e.codigo === "ALMACEN_NO_CONFIGURADO") return null;
+    throw e;
+  }
 }
 
 let global: Almacen | null = null;

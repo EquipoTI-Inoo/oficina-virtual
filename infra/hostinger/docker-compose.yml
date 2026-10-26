@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     environment:
+      DOMINIO_PORTAL: ${DOMINIO_PORTAL}
       DOMINIO_N8N: ${DOMINIO_N8N}
       DOMINIO_NOCODB: ${DOMINIO_NOCODB}
       CORREO_ACME: ${CORREO_ACME}
@@ -49,11 +50,60 @@ services:
       - ../../database/migraciones/0023_paid_media_por_tipo.sql:/docker-entrypoint-initdb.d/01w_paid_media_por_tipo.sql:ro
       - ../../database/migraciones/0024_correos.sql:/docker-entrypoint-initdb.d/01x_correos.sql:ro
       - ../../database/migraciones/0025_standby.sql:/docker-entrypoint-initdb.d/01y_standby.sql:ro
+      - ../../database/migraciones/0026_correos_entregables.sql:/docker-entrypoint-initdb.d/01z_correos_entregables.sql:ro
+      - ../../database/migraciones/0027_taller_en_s3.sql:/docker-entrypoint-initdb.d/01za_taller_en_s3.sql:ro
+      - ../../database/migraciones/0028_correos_directos.sql:/docker-entrypoint-initdb.d/01zb_correos_directos.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       retries: 10
+
+  # Portal de clientes y panel del equipo, con la API real (src/servidor) sobre este Postgres.
+  portal:
+    build: { context: ../../apps/portal }
+    restart: unless-stopped
+    environment: &entorno-portal
+      API_MODO: db
+      AUTH_MODO: ${AUTH_MODO:-cognito}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PORTAL_URL: https://${DOMINIO_PORTAL}
+      COGNITO_REGION: ${COGNITO_REGION}
+      COGNITO_POOL_CLIENTES: ${COGNITO_POOL_CLIENTES}
+      COGNITO_POOL_EQUIPO: ${COGNITO_POOL_EQUIPO}
+      COGNITO_APP_CLIENTES: ${COGNITO_APP_CLIENTES}
+      COGNITO_APP_EQUIPO: ${COGNITO_APP_EQUIPO}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      CORREOS_POR: ${CORREOS_POR:-portal}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SEGURO: ${SMTP_SEGURO:-false}
+      SMTP_USUARIO: ${SMTP_USUARIO}
+      SMTP_CLAVE: ${SMTP_CLAVE}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
+      N8N_WEBHOOK_URL: http://n8n:5678/webhook/inoo-eventos
+      N8N_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO}
+      IA_MODO: ${IA_MODO:-real}
+      IA_TOPE_DIARIO_USD: ${IA_TOPE_DIARIO_USD:-2}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      STITCH_API_KEY: ${STITCH_API_KEY}
+      NAVEGADOR_MODO: real
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Despachador del outbox: manda los correos por SMTP, da de alta a los invitados en Cognito y entrega los
+  # eventos a n8n. Usa la etapa «build» de la imagen (trae tsx y los scripts).
+  outbox:
+    build: { context: ../../apps/portal, target: build }
+    restart: unless-stopped
+    command: ["npx", "tsx", "scripts/despachar-outbox.ts"]
+    environment: *entorno-portal
+    depends_on:
+      postgres: { condition: service_healthy }
 
   n8n:
     image: n8nio/n8n:${N8N_VERSION:-latest}
@@ -71,8 +121,8 @@ services:
       WEBHOOK_URL: https://${DOMINIO_N8N}/
       GENERIC_TIMEZONE: America/Lima
       N8N_SECURE_COOKIE: "true"
-      # Conexión con el portal (n8n/README.md). El portal aún no corre en este VPS: PORTAL_API_URL es su URL pública.
-      PORTAL_API_URL: ${PORTAL_API_URL}
+      # Conexión con el portal (n8n/README.md), por la red interna del compose.
+      PORTAL_API_URL: http://portal:3000
       INOO_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO}
       CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
       NODE_FUNCTION_ALLOW_BUILTIN: crypto

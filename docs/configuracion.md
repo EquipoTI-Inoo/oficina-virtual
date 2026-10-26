@@ -84,9 +84,11 @@ Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0018) y lueg
    (cliente), `diego.castro@inoo.pe` (equipo). Los archivos van a MinIO y se ven en http://localhost:9001.
 4. n8n en http://localhost:5678: crear la cuenta, importar los dos JSON de `n8n/workflows/comunes`
    y crear las credenciales «Portal Inoo · X-Api-Key» (Header Auth `X-Api-Key` = `demo-n8n`) y
-   «SMTP Inoo» (host `mailpit`, puerto `1025`, sin SSL ni usuario). Activar los workflows.
-5. Cada acción del portal (pedir cambios, abrir un ticket, invitar a alguien) sale por el despachador
-   (`outbox`) hacia n8n, y el correo aparece en Mailpit (http://localhost:8025) y en Cuenta → Correos automáticos.
+   «SMTP Inoo» (host `mailpit`, puerto `1025`, sin SSL ni usuario). Activar `atrasos-requerimientos`; `correos-por-evento`
+   solo si se usa `CORREOS_POR=n8n` (por defecto los correos los manda el portal).
+5. Cada acción del portal (pedir cambios, abrir un ticket, invitar a alguien, enviar un entregable) pasa por el
+   despachador (`outbox`), que manda el correo por SMTP a Mailpit (http://localhost:8025); también queda en
+   Cuenta → Correos automáticos. Con `CORREOS_POR=n8n`, en cambio, el correo lo manda el workflow de n8n.
 
 Para que el portal hable con Prism en vez de la API simulada: `API_MODO=proxy` en `infra/local/.env`.
 Prism responde con los ejemplos del contrato (útil para probar que la interfaz tolera respuestas válidas
@@ -138,9 +140,13 @@ pasar también los del taller queda pendiente.
 Algunos sitios (por ejemplo, los que están detrás de Akamai) bloquean las capturas automáticas: el taller no lo
 esquiva, avisa y deja calificar esa referencia a mano.
 
-**Despachador del outbox.** `npm run outbox` entrega a n8n los eventos pendientes, en orden y firmados
-(`X-Inoo-Firma` = HMAC-SHA256 de `<X-Inoo-Timestamp>.<cuerpo>`), con reintentos exponenciales hasta 24 h.
-Si un evento falla, los siguientes esperan. Correrlo como segundo proceso del contenedor del portal o como tarea programada.
+**Despachador del outbox.** `npm run outbox` hace dos cosas con los eventos pendientes:
+- **Correos** (`CORREOS_POR=portal`, por defecto): arma los correos de cada evento y los manda por SMTP
+  (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SEGURO`, `SMTP_USUARIO`, `SMTP_CLAVE`, `CORREO_REMITENTE`). Cada correo
+  queda ENVIADO o FALLIDO; si falla, el evento se reintenta con espera exponencial (24 h) sin repetir lo que ya salió.
+- **n8n** (opcional, `N8N_WEBHOOK_URL`): le entrega los eventos en orden y firmados (`X-Inoo-Firma` = HMAC-SHA256
+  de `<X-Inoo-Timestamp>.<cuerpo>`) para las demás automatizaciones, con los mismos reintentos.
+Correrlo como segundo proceso del contenedor del portal o como tarea programada.
 
 **Pruebas.** `npm run test:api` corre el flujo de piezas contra la API simulada y contra Postgres 16 en
 proceso (PGlite, sin Docker), con RLS activo, y prueba el despachador. En CI, el job `base-de-datos` además
@@ -150,14 +156,28 @@ aplica las migraciones en un Postgres real.
 `Content-Type`, y una regla de ciclo de vida que borre los objetos de archivos marcados `ELIMINADO`
 (el portal hace borrado lógico). La llave de AWS solo necesita `s3:PutObject`, `s3:GetObject` y `s3:ListBucket` (para el `HEAD`).
 
-**Correos automáticos.** El despachador entrega cada evento a n8n (`n8n/workflows/comunes/correos-por-evento.json`),
+**Correos automáticos.** Por defecto los manda el propio portal (despachador, `CORREOS_POR=portal`). Con
+`CORREOS_POR=n8n`, el despachador entrega cada evento a n8n (`n8n/workflows/comunes/correos-por-evento.json`),
 que pide al portal los correos ya armados (`POST /integraciones/correos/preparar`), los manda por SMTP y devuelve
-el resultado. Reglas en `regla_correo` (una fila con `cliente_id` reemplaza a la global), textos en
+el resultado; con `CORREOS_POR=portal` esa ruta responde 409 para que no salgan dobles. Reglas en `regla_correo` (una fila con `cliente_id` reemplaza a la global), textos en
 `src/dominio/correos.ts`. La llave de n8n necesita los scopes `correos:write`, `requerimientos:write` y `servicios:write`.
 
-**Pendiente para producción:** el ingreso con Cognito en `PantallaIngreso` (hoy `POST /api/v1/__pruebas/ingresar`;
-el backend ya valida los JWT con `AUTH_MODO=cognito`), un servicio del portal y del despachador en
-`infra/hostinger` (hoy ese compose solo levanta Postgres, n8n y NocoDB) y la sincronización con InooWork.
+**Ingreso con Cognito.** La pantalla de ingreso usa `POST /sesion/ingresar`. Con `AUTH_MODO=cognito` el portal
+habla con la API de Cognito (sin SDK): prueba el pool de clientes y luego el del equipo, maneja el primer ingreso
+del invitado (contraseña temporal → `POST /sesion/nueva-clave`), «¿Olvidaste tu contraseña?» (`/sesion/olvide-clave`
+y `/sesion/restablecer`) y renueva el token con el refresh token cuando la API responde 401 (`/sesion/renovar`).
+Variables: `COGNITO_REGION`, `COGNITO_POOL_CLIENTES`, `COGNITO_POOL_EQUIPO`, `COGNITO_APP_CLIENTES` y
+`COGNITO_APP_EQUIPO` (app clients públicos con `ALLOW_USER_PASSWORD_AUTH` y `ALLOW_REFRESH_TOKEN_AUTH`). En el
+primer ingreso el usuario del portal se vincula con su `sub` por el correo verificado. Al invitar a alguien
+(`miembro.invitado`), el despachador lo crea en el pool de clientes (`AdminCreateUser`, firmado con las
+credenciales de AWS) y Cognito le manda la contraseña temporal. Las personas del equipo se crean a mano en su
+pool. Con `AUTH_MODO=demo`, `/sesion/ingresar` sigue usando las credenciales de prueba.
+Todavía no se probó contra pools reales (no existen): las pruebas simulan la API de Cognito.
+
+**Producción en el VPS.** `infra/hostinger/docker-compose.yml` levanta también el portal (`portal`, en
+`DOMINIO_PORTAL` detrás de Caddy) y el despachador (`outbox`). Las variables están en `infra/hostinger/.env.example`.
+
+**Pendiente:** la sincronización con InooWork (en pausa).
 
 ## 6. Seguridad del repositorio
 

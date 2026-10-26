@@ -29,7 +29,7 @@ import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunio
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
-import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, PLANTILLAS, plantillaPara, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, validarContratacion, validarDetalle, validarEtapasPersonalizadas } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -1323,6 +1323,30 @@ ruta("POST", "/integraciones/requerimientos/atrasos", (ctx) => {
 });
 
 // Standby por inactividad (16 oct): igual que el backend real. `fecha` simula otro día.
+// Etapas del mes (pendiente desde la fase 1): n8n la llama el día 1 (o unos días antes, con el mes
+// siguiente). Los servicios mensuales vigentes sin etapas en ese mes las reciben de su plantilla.
+ruta("POST", "/integraciones/servicios/etapas-del-mes", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpoOpcional(req);
+  const periodo = b.periodo === undefined ? D.PERIODO : b.periodo;
+  const error = validarPeriodoEtapas(periodo, D.PERIODO);
+  if (error) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "periodo", mensaje: error }]);
+  const p = periodo as string;
+  const toca = E.servicios.filter((s) => tocaEtapasDelMes(s, p));
+  const creados: string[] = [];
+  for (const s of toca) {
+    if (E.etapas.some((e) => e.servicioContratadoId === s.id && e.periodo === p)) continue;
+    const etapas = etapasDelProyectoNuevo(plantillaPara(s.codigo, s.variante)!, null, `${p}-01`, noHabiles(), s.detalle);
+    if (!etapas.length) continue;
+    for (const e of etapas) {
+      E.etapas.push({ id: nuevoId(20), servicioContratadoId: s.id, clienteId: s.clienteId, periodo: p, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, reunionClave: e.reunionClave, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
+    }
+    creados.push(s.id);
+    emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, periodo: p, motivo: "MES_NUEVO", etapas: etapas.length });
+  }
+  return { periodo: p, revisados: toca.length, creados: creados.length, servicioIds: creados };
+});
+
 ruta("POST", "/integraciones/servicios/inactividad", async (ctx, _p, _q, req) => {
   soloServicio(ctx);
   const b = await cuerpo<{ fecha?: unknown }>(req);
@@ -1380,8 +1404,8 @@ ruta("GET", "/clientes/:id/reportes/informe", (ctx, p) => {
   return { url: "/muestras/informe-demo.pdf", metodo: "GET", expiraEn: new Date(Date.now() + 900_000).toISOString() };
 });
 /** Avance de un servicio: etapas de su plantilla (o del mes) e ítems sincronizados de InooWork si los hay. */
-function avanceServicio(s: D.ServicioContratadoDemo, equipo = false): S<"AvanceServicio"> {
-  const v = servicioVista(s);
+function avanceServicio(s: D.ServicioContratadoDemo, equipo = false, periodo = D.PERIODO): S<"AvanceServicio"> {
+  const v = servicioVista(s, periodo);
   const a = v.avance;
   return {
     servicioContratadoId: s.id,
@@ -1394,7 +1418,7 @@ function avanceServicio(s: D.ServicioContratadoDemo, equipo = false): S<"AvanceS
     estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" || s.estado === "STANDBY" ? s.estado : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
     progreso: v.progreso,
     avance: a,
-    etapas: etapasDe(s).map((e) => etapaVista(e, equipo)),
+    etapas: etapasDe(s, periodo).map((e) => etapaVista(e, equipo)),
     hitos: E.hitosInooWork[s.id] ?? [],
     siguientePaso: s.siguientePaso ? { texto: `Siguiente paso: ${s.siguientePaso}`, responsable: persona(E.usuarios[2].id)! } : null,
     sincronizadoEn: E.sincronizadoEn[s.id] ?? "2026-10-06T14:55:00Z",
@@ -2060,7 +2084,7 @@ ruta("POST", "/entregables/:id/decision", async (ctx, p, _q, req) => {
     e.estado = "CAMBIOS_SOLICITADOS";
     e.rebotes += 1;
   }
-  emitir("entregable.decidido", e.clienteId, { entregableId: e.id, decision: b.decision, version: e.versionCliente, rebotes: e.rebotes, usuarioId: ctx.usuario.id });
+  emitir("entregable.decidido", e.clienteId, { entregableId: e.id, decision: b.decision, comentario: b.comentario?.trim() || null, version: e.versionCliente, rebotes: e.rebotes, usuarioId: ctx.usuario.id });
   return entregableDetalle(ctx, e);
 });
 
@@ -2344,7 +2368,7 @@ ruta("POST", "/tareas/:id/comentarios", async (ctx, p, _q, req) => {
 
 function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<"PerfilProyecto"> {
   const cat = servicioDeCatalogo(s.codigo)!;
-  const av = avanceServicio(s, ctx.esEquipo);
+  const av = avanceServicio(s, ctx.esEquipo, periodo);
   const reuniones = E.reuniones.filter((r) => r.servicioContratadoId === s.id && r.estado !== "CANCELADA");
   const proximas = reuniones.filter((r) => r.estado === "PROGRAMADA").sort((a, b) => a.fecha.localeCompare(b.fecha));
   const pasadas = reuniones.filter((r) => r.estado === "REALIZADA").sort((a, b) => b.fecha.localeCompare(a.fecha));
@@ -3420,6 +3444,12 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
   if (latenciaMs) await new Promise((r) => setTimeout(r, latenciaMs));
   try {
     if (req.method === "POST" && camino === "/__pruebas/ingresar") return Response.json(await ingresar(req));
+    // Ingreso (contrato /sesion/*): el entorno de pruebas usa las credenciales de prueba; Cognito solo en el backend real.
+    if (req.method === "POST" && camino === "/sesion/ingresar") return Response.json(await ingresar(req));
+    if (req.method === "POST" && camino === "/sesion/olvide-clave") return new Response(null, { status: 204 });
+    if (req.method === "POST" && ["/sesion/nueva-clave", "/sesion/restablecer", "/sesion/renovar"].includes(camino)) {
+      throw new ErrorApi(409, "SOLO_COGNITO", "Disponible solo con el ingreso de producción (Cognito)");
+    }
     if (req.method === "POST" && camino === "/__pruebas/reiniciar") {
       reiniciarMock();
       return new Response(null, { status: 204 });

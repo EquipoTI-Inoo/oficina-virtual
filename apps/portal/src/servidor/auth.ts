@@ -53,9 +53,24 @@ function poolsCognito() {
 }
 let pools: ReturnType<typeof poolsCognito> | null = null;
 
+let verificador: ((token: string) => Promise<JWTPayload>) | null = null;
+/** Solo pruebas: reemplaza la verificación de los JWT de Cognito. */
+export function usarVerificadorCognito(f: ((token: string) => Promise<JWTPayload>) | null) {
+  verificador = f;
+}
+
 async function verificarCognito(token: string): Promise<JWTPayload> {
+  if (verificador) {
+    try {
+      return await verificador(token);
+    } catch {
+      throw new ErrorApi(401, "NO_AUTENTICADO", "Tu sesión no es válida o venció");
+    }
+  }
   pools ??= poolsCognito();
-  const clientes = (process.env.COGNITO_CLIENT_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  // Los client ids aceptados: COGNITO_CLIENT_IDS y los app clients del ingreso (src/servidor/cognito.ts).
+  const clientes = [process.env.COGNITO_CLIENT_IDS ?? "", process.env.COGNITO_APP_CLIENTES ?? "", process.env.COGNITO_APP_EQUIPO ?? ""]
+    .join(",").split(",").map((s) => s.trim()).filter(Boolean);
   for (const p of pools) {
     try {
       const { payload } = await jwtVerify(token, p.jwks, { issuer: p.emisor });
@@ -80,6 +95,14 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   if (modo() === "cognito") {
     const payload = await verificarCognito(token);
     filtro = { columna: "cognito_sub", valor: String(payload.sub) };
+    // Primer ingreso: el usuario del portal todavía no tiene su sub de Cognito; se vincula por el correo verificado.
+    if (payload.email && payload.email_verified !== false && payload.email_verified !== "false") {
+      await c.query(
+        `UPDATE usuario SET cognito_sub = $1 WHERE lower(email::text) = lower($2) AND cognito_sub IS NULL AND activo AND tipo <> 'SERVICIO'
+           AND NOT EXISTS (SELECT 1 FROM usuario WHERE cognito_sub = $1)`,
+        [String(payload.sub), String(payload.email)],
+      );
+    }
   } else {
     if (process.env.NODE_ENV === "production" && process.env.PERMITIR_AUTH_DEMO !== "true") {
       throw new ErrorApi(401, "NO_AUTENTICADO", "Los tokens de prueba están deshabilitados en producción");

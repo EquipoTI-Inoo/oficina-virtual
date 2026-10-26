@@ -18,7 +18,7 @@ en la tabla `regla_correo`); n8n solo los envía y devuelve el resultado.
 
 | Workflow | Disparo | Qué hace |
 |---|---|---|
-| `correos-por-evento.json` | Webhook `POST /webhook/inoo-eventos` (destino de `N8N_WEBHOOK_URL`) | Verifica la firma → `POST /api/v1/integraciones/correos/preparar` → responde 200 al despachador → manda cada correo por SMTP → `POST /api/v1/integraciones/correos/{id}/resultado` (ENVIADO o FALLIDO) |
+| `correos-por-evento.json` (solo con `CORREOS_POR=n8n`; por defecto los correos los manda el portal) | Webhook `POST /webhook/inoo-eventos` (destino de `N8N_WEBHOOK_URL`) | Verifica la firma → `POST /api/v1/integraciones/correos/preparar` → responde 200 al despachador → manda cada correo por SMTP → `POST /api/v1/integraciones/correos/{id}/resultado` (ENVIADO o FALLIDO) |
 | `atrasos-requerimientos.json` | Lunes a viernes 8:00 y todos los días 8:05 (Lima) | `POST /api/v1/integraciones/requerimientos/atrasos`: corre el cronograma de los pedidos vencidos. `POST /api/v1/integraciones/servicios/inactividad`: si nadie del cliente usa el portal en 30 días, sus servicios pasan a standby (7 días antes se avisa una vez). Los correos salen solos por el workflow anterior |
 
 Si la firma no cuadra, el webhook responde 401 y el despachador reintenta con espera exponencial; si

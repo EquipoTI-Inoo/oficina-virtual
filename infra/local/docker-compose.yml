@@ -44,6 +44,9 @@ services:
       - ../../database/migraciones/0023_paid_media_por_tipo.sql:/docker-entrypoint-initdb.d/01w_paid_media_por_tipo.sql:ro
       - ../../database/migraciones/0024_correos.sql:/docker-entrypoint-initdb.d/01x_correos.sql:ro
       - ../../database/migraciones/0025_standby.sql:/docker-entrypoint-initdb.d/01y_standby.sql:ro
+      - ../../database/migraciones/0026_correos_entregables.sql:/docker-entrypoint-initdb.d/01z_correos_entregables.sql:ro
+      - ../../database/migraciones/0027_taller_en_s3.sql:/docker-entrypoint-initdb.d/01za_taller_en_s3.sql:ro
+      - ../../database/migraciones/0028_correos_directos.sql:/docker-entrypoint-initdb.d/01zb_correos_directos.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data
@@ -75,7 +78,7 @@ services:
       prism: { condition: service_started }
       postgres: { condition: service_healthy }
 
-  # Despachador del outbox: entrega los eventos del portal a n8n (perfil fase1, con API_MODO=db).
+  # Despachador del outbox: manda los correos por SMTP y entrega los eventos a n8n (perfil fase1, con API_MODO=db).
   outbox:
     profiles: ["fase1"]
     build: { context: ../../apps/portal, target: build }
@@ -84,8 +87,15 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-inoo}:${POSTGRES_PASSWORD:-inoo}@postgres:5432/${POSTGRES_DB:-oficina_virtual}
       N8N_WEBHOOK_URL: http://n8n:5678/webhook/inoo-eventos
       N8N_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO:-secreto-local}
+      # Los correos los manda el portal por SMTP (Mailpit en local).
+      CORREOS_POR: ${CORREOS_POR:-portal}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
+      PORTAL_URL: ${PORTAL_URL:-http://localhost:3000}
     depends_on:
       postgres: { condition: service_healthy }
+      mailpit: { condition: service_started }
       n8n: { condition: service_started }
 
   prism:
