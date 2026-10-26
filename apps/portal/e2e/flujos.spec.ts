@@ -136,7 +136,7 @@ test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", asy
   await page.selectOption("#req-servicio", { label: "Social Media Pro - Casa Oliva" });
   const dialogo = page.getByRole("dialog");
   // Solo aparecen las plantillas del servicio: ni el brief web ni la de IA (solo CRM) son de Social Media Pro.
-  await expect(dialogo.getByRole("radio", { name: /Brief de desarrollo web/ })).toHaveCount(0);
+  await expect(dialogo.getByRole("radio", { name: /Brief de diseño y desarrollo web/ })).toHaveCount(0);
   await expect(dialogo.getByRole("radio", { name: /agente de IA/ })).toHaveCount(0);
   await dialogo.getByRole("radio", { name: /Manual de marca y logo/ }).click();
   await expect(dialogo.getByLabel("Vista previa del formulario")).toContainText("Así le llega al cliente");
@@ -200,7 +200,7 @@ test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuev
   await page.selectOption("#ns-variante", "LANDING");
   await page.fill("#ns-fechaInicio", "2026-10-19");
   await page.getByRole("radio", { name: "Grande" }).or(page.getByRole("button", { name: "Grande" })).first().click();
-  await expect(page.getByText(/Se le pedirá al cliente: Brief de desarrollo web/)).toBeVisible();
+  await expect(page.getByText(/Se le pedirá al cliente: Brief de diseño y desarrollo web/)).toBeVisible();
   await page.getByRole("button", { name: "Contratar" }).click();
   await expect(page.getByText("Servicio contratado")).toBeVisible();
   await expect(page.getByRole("link", { name: "Diseño y desarrollo web - Casa Oliva", exact: true })).toHaveCount(2);

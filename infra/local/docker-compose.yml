@@ -48,6 +48,7 @@ services:
       - ../../database/migraciones/0027_taller_en_s3.sql:/docker-entrypoint-initdb.d/01za_taller_en_s3.sql:ro
       - ../../database/migraciones/0028_correos_directos.sql:/docker-entrypoint-initdb.d/01zb_correos_directos.sql:ro
       - ../../database/migraciones/0029_horario_correos.sql:/docker-entrypoint-initdb.d/01zc_horario_correos.sql:ro
+      - ../../database/migraciones/0030_formularios_de_monday.sql:/docker-entrypoint-initdb.d/01zd_formularios_de_monday.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

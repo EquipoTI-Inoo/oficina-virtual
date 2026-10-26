@@ -845,6 +845,23 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /formularios/ingreso-cliente:
+    get:
+      tags: [Clientes]
+      operationId: formularioIngresoCliente
+      summary: Preguntas del ingreso de cliente (Comercial, en el alta), con sus caminos
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [campos]
+                properties:
+                  campos: { type: array, items: { $ref: '#/components/schemas/CampoFormulario' } }
+
   /plantillas-requerimiento:
     get:
       tags: [Requerimientos]
@@ -3572,7 +3589,7 @@ components:
       type: string
       description: 'PENDIENTE: el cliente aún no lo envía · ENVIADO: espera revisión del equipo · OBSERVADO: el equipo pidió corregir algo · APROBADO: listo'
       enum: [PENDIENTE, ENVIADO, OBSERVADO, APROBADO]
-    TipoCampo: { type: string, enum: [TEXTO, TEXTO_LARGO, LISTA, URL, OPCION, SI_NO, ARCHIVOS] }
+    TipoCampo: { type: string, description: 'OPCIONES = selección múltiple (lista de opciones elegidas)', enum: [TEXTO, TEXTO_LARGO, LISTA, URL, OPCION, OPCIONES, SI_NO, ARCHIVOS, NUMERO, FECHA] }
     CodigoServicio:
       type: string
       description: Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
@@ -3708,6 +3725,10 @@ components:
         accountManagerId: { type: string, format: uuid }
         limiteGastoIaUsd: { type: number, minimum: 0, description: Solo ADMIN }
         estado: { $ref: '#/components/schemas/EstadoCliente' }
+        ingreso:
+          type: object
+          description: 'Respuestas del ingreso de cliente que llena Comercial en el alta (antes, el formulario de Monday). Preguntas en GET /formularios/ingreso-cliente; reemplaza el ingreso anterior'
+          additionalProperties: true
     ClienteResumen:
       type: object
       required: [id, nombre, estado]
@@ -3744,7 +3765,15 @@ components:
             driveCarpetaId: { type: [string, 'null'], description: Solo equipo }
             limiteGastoIaUsd: { type: number, description: Solo equipo }
             inactividad: { $ref: '#/components/schemas/InactividadCliente' }
+            ingreso: { oneOf: [ { $ref: '#/components/schemas/IngresoCliente' }, { type: 'null' } ], description: Solo equipo }
             creadoEn: { type: string, format: date-time }
+    IngresoCliente:
+      type: object
+      required: [respuestas, registradoEn]
+      properties:
+        respuestas: { type: object, additionalProperties: true, description: 'Solo las de preguntas visibles según el camino elegido' }
+        registradoEn: { type: string, format: date-time }
+        registradoPor: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
     InicioCliente:
       type: object
       required: [periodo, indicadores, avanceMes, pendientes, servicios, ticketsAbiertos]
@@ -4548,7 +4577,15 @@ components:
         tipo: { $ref: '#/components/schemas/TipoCampo' }
         obligatorio: { type: boolean }
         ayuda: { type: [string, 'null'] }
-        opciones: { type: array, description: Solo OPCION, items: { type: string } }
+        opciones: { type: array, description: Solo OPCION y OPCIONES, items: { type: string } }
+        seccion: { type: string, description: 'Título de la sección que empieza en este campo' }
+        mostrarSi:
+          type: object
+          description: 'Pregunta condicional: solo se muestra (y solo es obligatoria) si el campo `campo` está visible y su respuesta es una de `valores` (en OPCIONES, si eligió alguna)'
+          required: [campo, valores]
+          properties:
+            campo: { type: string }
+            valores: { type: array, minItems: 1, items: { type: string } }
     PlantillaRequerimiento:
       type: object
       required: [codigo, nombre, diasHabiles, servicios, campos]

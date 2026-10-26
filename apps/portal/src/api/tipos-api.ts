@@ -539,6 +539,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/formularios/ingreso-cliente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preguntas del ingreso de cliente (Comercial, en el alta), con sus caminos */
+        get: operations["formularioIngresoCliente"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plantillas-requerimiento": {
         parameters: {
             query?: never;
@@ -2515,8 +2532,11 @@ export interface components {
          * @enum {string}
          */
         EstadoRequerimiento: "PENDIENTE" | "ENVIADO" | "OBSERVADO" | "APROBADO";
-        /** @enum {string} */
-        TipoCampo: "TEXTO" | "TEXTO_LARGO" | "LISTA" | "URL" | "OPCION" | "SI_NO" | "ARCHIVOS";
+        /**
+         * @description OPCIONES = selección múltiple (lista de opciones elegidas)
+         * @enum {string}
+         */
+        TipoCampo: "TEXTO" | "TEXTO_LARGO" | "LISTA" | "URL" | "OPCION" | "OPCIONES" | "SI_NO" | "ARCHIVOS" | "NUMERO" | "FECHA";
         /**
          * @description Servicios que vende Inoo (reunión del 12 oct 2026). Blog y Estáticos ya no son servicios.
          * @enum {string}
@@ -2691,6 +2711,10 @@ export interface components {
             /** @description Solo ADMIN */
             limiteGastoIaUsd?: number;
             estado?: components["schemas"]["EstadoCliente"];
+            /** @description Respuestas del ingreso de cliente que llena Comercial en el alta (antes, el formulario de Monday). Preguntas en GET /formularios/ingreso-cliente; reemplaza el ingreso anterior */
+            ingreso?: {
+                [key: string]: unknown;
+            };
         };
         ClienteResumen: {
             /** Format: uuid */
@@ -2729,8 +2753,19 @@ export interface components {
             /** @description Solo equipo */
             limiteGastoIaUsd?: number;
             inactividad?: components["schemas"]["InactividadCliente"];
+            /** @description Solo equipo */
+            ingreso?: components["schemas"]["IngresoCliente"] | null;
             /** Format: date-time */
             creadoEn?: string;
+        };
+        IngresoCliente: {
+            /** @description Solo las de preguntas visibles según el camino elegido */
+            respuestas: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            registradoEn: string;
+            registradoPor?: components["schemas"]["PersonaMini"] | null;
         };
         InicioCliente: {
             periodo: components["schemas"]["Periodo"];
@@ -3578,8 +3613,15 @@ export interface components {
             tipo: components["schemas"]["TipoCampo"];
             obligatorio: boolean;
             ayuda?: string | null;
-            /** @description Solo OPCION */
+            /** @description Solo OPCION y OPCIONES */
             opciones?: string[];
+            /** @description Título de la sección que empieza en este campo */
+            seccion?: string;
+            /** @description Pregunta condicional: solo se muestra (y solo es obligatoria) si el campo `campo` está visible y su respuesta es una de `valores` (en OPCIONES, si eligió alguna) */
+            mostrarSi?: {
+                campo: string;
+                valores: string[];
+            };
         };
         PlantillaRequerimiento: {
             /** @example BRIEF_WEB */
@@ -6143,6 +6185,28 @@ export interface operations {
             };
             409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    formularioIngresoCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        campos: components["schemas"]["CampoFormulario"][];
+                    };
+                };
+            };
         };
     };
     listarPlantillasRequerimiento: {

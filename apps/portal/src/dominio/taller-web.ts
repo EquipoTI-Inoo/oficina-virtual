@@ -131,9 +131,24 @@ export function nombreDeUrl(url: string): string {
   return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
-/** Los «sitios que te gustan» del brief web: un enlace por línea, con o sin comentario. */
+const textoDe = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/**
+ * Lo que el taller toma del brief web (src/dominio/briefs.ts). El brief real no pregunta público ni secciones: esos
+ * salen de la reunión y del flujograma. Los briefs anteriores (objetivo, publico, secciones) se siguen leyendo.
+ */
+export function datosDelBriefWeb(r: Record<string, unknown>): { objetivo: string | null; publico: string | null; secciones: string[] } {
+  return {
+    objetivo: textoDe(r.objetivo) ?? textoDe(r.objetivos) ?? textoDe(r.productoPromocionar) ?? textoDe(r.tipoProyecto),
+    publico: textoDe(r.publico),
+    secciones: (textoDe(r.secciones) ?? "").split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean),
+  };
+}
+
+/** Los sitios que inspiran del brief web («inspiracion»; antes «referencias»): un enlace por línea, con o sin comentario. */
 export function referenciasDelBrief(respuestas: Record<string, unknown> | null | undefined): { nombre: string; url: string }[] {
-  const texto = typeof respuestas?.referencias === "string" ? respuestas.referencias : Array.isArray(respuestas?.referencias) ? respuestas.referencias.join("\n") : "";
+  const v = respuestas?.inspiracion ?? respuestas?.referencias;
+  const texto = typeof v === "string" ? v : Array.isArray(v) ? v.join("\n") : "";
   const vistas = new Set<string>();
   const r: { nombre: string; url: string }[] = [];
   for (const linea of texto.split(/\r?\n/)) {

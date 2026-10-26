@@ -18,7 +18,8 @@ import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
 import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
 import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "../servidor/ia-cliente";
 import { ErrorIa } from "../servidor/ia-modelos";
-import { nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
+import { datosDelBriefWeb, nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
+import { CAMPOS_INGRESO } from "../dominio/briefs";
 import {
   dentroDelLimite, ErrorTaller, type EstadoTaller, ipDe, type OperacionTaller, operarTaller, type RepoTaller, respuestaPublica, type TipoArchivo, tokenDeUrl, urlArchivo,
 } from "../servidor/taller-web";
@@ -27,7 +28,7 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
-import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
@@ -626,7 +627,10 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
     estado: c.estado ?? "ACTIVO",
     creadoEn: c.creadoEn ?? "2026-01-02T15:00:00Z",
   } as S<"Cliente"> & Record<string, unknown>;
-  if (ctx.esEquipo) Object.assign(r, { driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd, inactividad: inactividadVista(c) });
+  if (ctx.esEquipo) {
+    const ingreso = c.ingreso ? { respuestas: c.ingreso.respuestas, registradoEn: c.ingreso.registradoEn, registradoPor: persona(c.ingreso.registradoPorId) } : null;
+    Object.assign(r, { driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd, inactividad: inactividadVista(c), ingreso });
+  }
   return r;
 }
 
@@ -1222,6 +1226,11 @@ function aplicarAtraso(r: D.RequerimientoDemo, hasta: string) {
   return delta;
 }
 
+ruta("GET", "/formularios/ingreso-cliente", (ctx) => {
+  soloEquipo(ctx);
+  return { campos: CAMPOS_INGRESO };
+});
+
 ruta("GET", "/plantillas-requerimiento", (ctx) => {
   soloEquipo(ctx);
   return { datos: PLANTILLAS_REQUERIMIENTO.map((p): S<"PlantillaRequerimiento"> => ({ ...p })) };
@@ -1276,9 +1285,10 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
   if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
   const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean }>(req);
   const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {};
-  const errores = validarRespuestas(plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [], respuestas, b.enviar === true);
+  const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
+  const errores = validarRespuestas(campos, respuestas, b.enviar === true);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", b.enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
-  r.respuestas = respuestas;
+  r.respuestas = soloVisibles(campos, respuestas);
   if (b.enviar) {
     r.estado = "ENVIADO";
     r.enviadoEn = D.HOY;
@@ -1629,6 +1639,8 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ClienteEntrada">>(req);
   validarClienteEntrada(b, true);
+  const ingreso = b.ingreso === undefined ? null : prepararIngreso(b.ingreso);
+  if (ingreso?.errores.length) throw new ErrorApi(422, "VALIDACION", "Completa el ingreso del cliente", undefined, ingreso.errores);
   const slug = slugDe(b.nombre!);
   if (E.clientes.some((c) => c.slug === slug)) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
   // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
@@ -1658,6 +1670,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     estado: b.estado ?? "ACTIVO",
     creadoEn: new Date().toISOString(),
     accountManagerId: b.accountManagerId ?? (ctx.usuario.rolEquipo === "ACCOUNT_MANAGER" ? ctx.usuario.id : null),
+    ingreso: ingreso && { respuestas: ingreso.respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.usuario.id },
   };
   E.clientes.push(c);
   E.fichas[c.id] = {
@@ -1684,6 +1697,11 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
   exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ClienteEntrada"> & { driveUrl?: string }>(req);
   validarClienteEntrada(b, false);
+  if (b.ingreso !== undefined) {
+    const ingreso = prepararIngreso(b.ingreso);
+    if (ingreso.errores.length) throw new ErrorApi(422, "VALIDACION", "Completa el ingreso del cliente", undefined, ingreso.errores);
+    c.ingreso = { respuestas: ingreso.respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.usuario.id };
+  }
   const f = (E.fichas[c.id] ??= structuredClone(fichaDe(c.id)));
   if (b.nombre) c.nombre = b.nombre.trim();
   if (b.limiteGastoIaUsd !== undefined) c.limiteGastoIaUsd = b.limiteGastoIaUsd;
@@ -2112,8 +2130,7 @@ function repoTaller(ctx: Ctx, s: D.ServicioContratadoDemo): RepoTaller {
       const ficha = E.fichas[s.clienteId];
       const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
       return {
-        marca: s.marca ?? cliente.nombre, variante: s.variante, objetivo: txt(brief.objetivo), publico: txt(brief.publico),
-        secciones: (txt(brief.secciones) ?? "").split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean),
+        marca: s.marca ?? cliente.nombre, variante: s.variante, ...datosDelBriefWeb(brief),
         resumenReunion: reuniones.map((r) => `${r.titulo}: ${r.resumen}`).join(" · ") || null, alcance: s.alcance ?? null, cms: txt(s.detalle.cms),
         mensajeCentral: ficha?.marca.mensajeCentral ?? null, tono: ficha?.tono.descripcion ?? null,
         paleta: (ficha?.marca as { paleta?: string[] } | undefined)?.paleta ?? [], tipografias: (ficha?.marca as { tipografias?: string[] } | undefined)?.tipografias ?? [],

@@ -17,6 +17,7 @@ describe("taller web · dominio", () => {
     const r = referenciasDelBrief({ referencias: "https://www.aesop.com — me gustan sus fichas\nwww.rituals.com/es-es, el tono\nnatura.com.pe\nhttps://www.aesop.com\nsin enlace" });
     assert.deepEqual(r.map((x) => [x.nombre, x.url]), [["Aesop", "https://www.aesop.com/"], ["Rituals", "https://www.rituals.com/es-es"], ["Natura", "https://natura.com.pe/"]]);
     assert.deepEqual(referenciasDelBrief({}), []);
+    assert.deepEqual(referenciasDelBrief({ inspiracion: "aesop.com" }).map((x) => x.nombre), ["Aesop"], "el brief real las guarda en «inspiracion»");
     assert.deepEqual(referenciasDelBrief(null), []);
   });
 

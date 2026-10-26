@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
-import { diasParaVencer, semaforoRequerimiento } from "../../src/dominio/requerimientos";
+import { CAMPOS_BRIEF_BRANDING, CAMPOS_BRIEF_WEB, CAMPOS_INGRESO } from "../../src/dominio/briefs";
+import { camposVisibles, diasParaVencer, semaforoRequerimiento, validarRespuestas } from "../../src/dominio/requerimientos";
 import { diasAtrasoRevision, revisionVence } from "../../src/dominio/revision";
 import { plantillaAplica, rastroIa } from "../../src/dominio/ia";
 
@@ -43,5 +44,27 @@ describe("rastro de IA (el cliente no debe notarla)", () => {
     assert.equal(plantillaAplica([], "WEB"), true);
     assert.equal(plantillaAplica(["CRM_IMPLEMENTACION", "CRM_INTEGRACION"], "SOCIAL_MEDIA_PRO"), false);
     assert.equal(plantillaAplica(["CRM_IMPLEMENTACION", "CRM_INTEGRACION"], "CRM_INTEGRACION"), true);
+  });
+});
+
+describe("formularios con caminos (briefs y ingreso de Monday)", () => {
+  test("una pregunta depende de otra que también puede estar oculta", () => {
+    const v = (r: Record<string, unknown>) => [...camposVisibles(CAMPOS_BRIEF_WEB, r)].filter((k) => ["tipoProyecto", "metodosPago", "cantidadProductos", "blog"].includes(k));
+    assert.deepEqual(v({}), []);
+    assert.deepEqual(v({ situacion: "Diseño web desde cero", tipoProyecto: "Web e-commerce" }), ["tipoProyecto", "cantidadProductos", "metodosPago"]);
+    assert.deepEqual(v({ situacion: "Diseño web desde cero", tipoProyecto: "Web corporativa" }), ["tipoProyecto", "blog"]);
+    assert.deepEqual(v({ situacion: "Diseño web nuevo a partir de una página web existente", tipoProyecto: "Web e-commerce" }), [], "si el tipo está oculto, lo que depende de él también");
+  });
+  test("selección múltiple: «Otros» abre la pregunta de cuáles", () => {
+    assert.ok(!camposVisibles(CAMPOS_BRIEF_BRANDING, { papeleria: ["Lapicero"] }).has("papeleriaOtros"));
+    assert.ok(camposVisibles(CAMPOS_BRIEF_BRANDING, { papeleria: ["Lapicero", "Otros"] }).has("papeleriaOtros"));
+    assert.deepEqual(validarRespuestas(CAMPOS_BRIEF_BRANDING, { marca: "X", papeleria: ["Taza"] }, true).map((e) => e.campo), ["papeleria"]);
+  });
+  test("ingreso: cada servicio pide su paquete; número y fecha se validan", () => {
+    const base = { objetivos: "Vender más", fechaReunionBrief: "2026-10-26" };
+    assert.deepEqual(validarRespuestas(CAMPOS_INGRESO, { ...base, servicios: ["Branding", "Desarrollo web"] }, true).map((e) => e.campo), ["paqueteBranding", "tipoWeb", "estructuraWeb"]);
+    assert.deepEqual(validarRespuestas(CAMPOS_INGRESO, { ...base, servicios: ["SEO"] }, true), []);
+    const malos = validarRespuestas(CAMPOS_INGRESO, { ...base, servicios: ["Desarrollo web"], tipoWeb: "Web e-commerce", estructuraWeb: "Código", cantidadProductos: "muchos", fechaReunionBrief: "26/10" }, true);
+    assert.deepEqual(malos.map((e) => [e.campo, e.mensaje]), [["cantidadProductos", "Escribe un número"], ["fechaReunionBrief", "Elige una fecha"]]);
   });
 });

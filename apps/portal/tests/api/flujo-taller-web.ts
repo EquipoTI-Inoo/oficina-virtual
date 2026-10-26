@@ -57,7 +57,7 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.deepEqual(t.referencias.map((r: any) => [r.nombre, r.origen, r.capturas.length]), [["Aesop", "BRIEF", 0], ["Rituals", "BRIEF", 0], ["Natura", "BRIEF", 0]]);
       assert.deepEqual(t.dimensiones.map((d: any) => d.codigo), ["IDENTIDAD_VISUAL", "JERARQUIA_VISUAL", "USABILIDAD_MOVIL", "ARQUITECTURA_INFORMACION", "FICHA_PRODUCTO", "FLUJO_COMPRA"], "un e-commerce mira la ficha y el checkout");
       assert.deepEqual(t.modos, { ia: "SIMULADO", navegador: "SIMULADO", stitch: "SIMULADO" });
-      assert.equal(t.insumos.objetivo, "Vender en línea nuestra línea de cuidado facial.");
+      assert.equal(t.insumos.objetivo, "Web e-commerce", "el brief real no tiene objetivo libre en este camino: se toma el tipo de proyecto");
       assert.match(t.insumos.resumenReunion, /Catálogo inicial de 40 productos/);
       assert.equal((await llamar("GET", RUTA, DIEGO)).json.version, t.version, "abrirlo de nuevo no lo cambia");
     });

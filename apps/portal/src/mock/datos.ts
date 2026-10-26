@@ -71,6 +71,8 @@ export interface ClienteDemo {
   /** Última vez que alguien del cliente usó el portal (standby, 16 oct); por defecto HOY. */
   ultimaActividad?: string;
   avisoInactividadEn?: string | null;
+  /** Ingreso de cliente que llenó Comercial en el alta (src/dominio/briefs.ts). */
+  ingreso?: { respuestas: Record<string, unknown>; registradoEn: string; registradoPorId: string | null } | null;
   /** Estado de pago (reunión 15 oct): lo marca Finanzas; sin cuotas ni montos. */
   pago?: { situacion: "AL_DIA" | "ATRASADO"; atrasadoDesde: string | null; nota: string | null; actualizadoPorId: string | null; actualizadoEn: string | null };
 }
@@ -494,8 +496,11 @@ export const REQUERIMIENTOS_INICIALES: RequerimientoDemo[] = [
     estado: "APROBADO", enviadoEn: "2026-09-24T20:00:00Z", enviadoPorId: VALERIA, revisadoEn: "2026-09-25T14:00:00Z",
     // Referencias de relleno (fase 19): sitios reales de cuidado de la piel para el benchmark.
     respuestas: {
-      objetivo: "Vender en línea nuestra línea de cuidado facial.", publico: "Mujeres de 25 a 45 que cuidan su piel.", secciones: "Inicio\nTienda\nNosotros\nContacto",
-      referencias: "https://www.aesop.com — fichas de producto limpias\nhttps://www.rituals.com — rituales y tono sereno\nhttps://www.natura.com.pe", dominio: "Solo dominio",
+      marca: "Casa Oliva", historia: "Nació en 2019 con una línea de cuidado facial hecha en Perú; queremos que cuidarse la piel sea una pausa del día.",
+      manualMarca: "Sí", situacion: "Diseño web desde cero", tipoProyecto: "Web e-commerce", cantidadProductos: "1 a 25", metodosPago: "Izipay y transferencia",
+      contacto: "Av. La Mar 1234, Miraflores, Lima\n+51 999 888 777\nhola@casaoliva.pe", competencia: "Aesop, Rituals, Natura",
+      inspiracion: "https://www.aesop.com — fichas de producto limpias\nhttps://www.rituals.com — rituales y tono sereno\nhttps://www.natura.com.pe",
+      estilo: "Natural: colores claros, simple y sencilla", contenido: "Lo realizará la agencia", hosting: "Solo tengo dominio", proveedorHosting: "casaoliva.pe, en GoDaddy",
     },
   }),
   req(5, uid(4, 1), "ACCESOS_WEB", "Acceso a casaoliva.pe", "2026-09-01T15:00:00Z", {

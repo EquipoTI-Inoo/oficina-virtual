@@ -71,8 +71,9 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal((await llamar("GET", "/plantillas-requerimiento", VALERIA)).status, 403);
       const xs = (await llamar("GET", "/plantillas-requerimiento", DIEGO)).json.datos;
       const web = xs.find((x: any) => x.codigo === "BRIEF_WEB");
-      assert.equal(web.diasHabiles, 3);
-      assert.ok(web.campos.some((c: any) => c.tipo === "OPCION" && c.opciones.length === 3));
+      assert.equal(web.diasHabiles, 5);
+      assert.deepEqual(web.campos.find((c: any) => c.clave === "tipoProyecto").mostrarSi, { campo: "situacion", valores: ["Diseño web desde cero"] }, "las preguntas condicionales viajan con la plantilla");
+      assert.deepEqual(xs.filter((x: any) => x.codigo.startsWith("BRIEF_")).map((x: any) => x.codigo).sort(), ["BRIEF_BRANDING", "BRIEF_MARKETING", "BRIEF_NAMING", "BRIEF_PERFORMANCE", "BRIEF_SOCIAL", "BRIEF_WEB"]);
     });
 
     test("el equipo pide un requerimiento desde una plantilla con su plazo", async () => {
@@ -87,6 +88,23 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal(ok.json.servicioTitulo, "Social Media Pro - Casa Oliva");
       assert.ok((await eventos()).some((e) => e.tipo === "requerimiento.creado" && e.datos.requerimientoId === ok.json.id));
       assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/requerimientos`, VALERIA)).json.pendientes, 4);
+    });
+
+    test("brief web: las preguntas siguen el camino que elige el cliente", async () => {
+      await reiniciar();
+      const id = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: uid(4, 4) })).json.id;
+      const ruta = `/requerimientos/${id}/respuesta`;
+      const base = { marca: "Casa Oliva", contacto: "Av. La Mar 1234, Miraflores" };
+      const cero = await llamar("PUT", ruta, VALERIA, { respuestas: { ...base, situacion: "Diseño web desde cero" }, enviar: true });
+      assert.deepEqual(cero.json.errores.map((e: any) => e.campo), ["tipoProyecto"], "desde cero pide el tipo de sitio, no los objetivos del sitio actual");
+      // Cambió de camino: lo que respondió del otro (tipo de proyecto, métodos de pago) ya no aplica y no se guarda.
+      const existente = await llamar("PUT", ruta, VALERIA, {
+        respuestas: { ...base, situacion: "Diseño web nuevo a partir de una página web existente", tipoProyecto: "Web e-commerce", metodosPago: "Izipay", objetivos: "Mejorar el diseño en general", paises: "Perú, Chile, México" },
+        enviar: true,
+      });
+      assert.equal(existente.status, 200);
+      assert.deepEqual(Object.keys(existente.json.respuestas).sort(), ["contacto", "marca", "objetivos", "paises", "situacion"]);
+      assert.equal(existente.json.estado, "ENVIADO");
     });
 
     test("el cliente guarda un borrador y lo envía con los obligatorios completos", async () => {

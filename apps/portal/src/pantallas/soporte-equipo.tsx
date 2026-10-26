@@ -13,7 +13,7 @@ import {
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
-import { EditarFicha, NuevoCliente } from "./sin-diseno";
+import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
 import { IaDelCliente } from "./ia";
 
 // ═════════════════════════════════════════════ Soporte
@@ -757,6 +757,7 @@ function Ficha() {
               ))}
             </div>
           </div>
+          <IngresoDelCliente cliente={d} editable={gestion} alGuardar={() => void c.recargar()} />
           <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
           <EstadoPagoDelCliente clienteId={id} />

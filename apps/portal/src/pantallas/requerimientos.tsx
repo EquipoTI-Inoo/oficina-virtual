@@ -5,11 +5,11 @@
  * límite cuenta días hábiles; cada día de atraso corre el cronograma del servicio.
  * El equipo pide requerimientos desde la ficha del cliente y revisa lo enviado en esta misma pantalla.
  */
-import { useRef, useState, type ReactNode } from "react";
-import { LuCircleAlert, LuClipboardList, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
+import { Fragment, useRef, useState, type ReactNode } from "react";
+import { LuCheck, LuCircleAlert, LuClipboardList, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
-import { semaforoRequerimiento } from "../dominio/requerimientos";
+import { camposVisibles, semaforoRequerimiento } from "../dominio/requerimientos";
 
 type Req = S<"Requerimiento">;
 type Lista = { datos: Req[]; pendientes: number; atrasados: number };
@@ -205,9 +205,7 @@ function Requerimiento() {
             </Aviso>
           )}
           <section className="tarjeta" style={{ padding: "22px 20px", display: "grid", gap: 18 }}>
-            {r.campos.map((c) => (
-              <CampoRequerimiento key={c.clave} campo={c} valor={valores[c.clave]} error={errores[c.clave]} soloLectura={!puedeResponder} alCambiar={(v) => cambiar(c.clave, v)} />
-            ))}
+            <CamposFormulario campos={r.campos} valores={valores} errores={errores} soloLectura={!puedeResponder} alCambiar={cambiar} />
             {puedeResponder && (
               <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
                 <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardar(true)}>
@@ -239,6 +237,26 @@ function Requerimiento() {
   );
 }
 
+/**
+ * Las preguntas de un formulario (requerimiento o ingreso de cliente): con sus títulos de sección y solo las del camino
+ * que eligió quien responde (`mostrarSi`, src/dominio/requerimientos.ts).
+ */
+export function CamposFormulario({ campos, valores, errores, soloLectura, alCambiar }: {
+  campos: S<"CampoFormulario">[]; valores: Record<string, unknown>; errores: Record<string, string>; soloLectura: boolean; alCambiar: (clave: string, v: unknown) => void;
+}) {
+  const visibles = camposVisibles(campos, valores);
+  return (
+    <>
+      {campos.filter((c) => visibles.has(c.clave)).map((c) => (
+        <Fragment key={c.clave}>
+          {c.seccion && <h3 className="tarjeta-titulo" style={{ fontSize: 15, marginTop: 6 }}>{c.seccion}</h3>}
+          <CampoRequerimiento campo={c} valor={valores[c.clave]} error={errores[c.clave]} soloLectura={soloLectura} alCambiar={(v) => alCambiar(c.clave, v)} />
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar }: { campo: S<"CampoFormulario">; valor: unknown; error?: string; soloLectura: boolean; alCambiar: (v: unknown) => void }) {
   const id = `campo-${c.clave}`;
   const ayuda = error ?? c.ayuda;
@@ -255,6 +273,41 @@ function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar }: 
     control = (
       <div className="entrada">
         <textarea id={id} value={(valor as string) ?? ""} onChange={(e) => alCambiar(e.target.value)} aria-invalid={!!error} rows={c.tipo === "LISTA" ? 5 : 4} />
+      </div>
+    );
+  } else if (c.tipo === "OPCION" && ((c.opciones ?? []).length > 5 || (c.opciones ?? []).some((o) => o.length > 40))) {
+    // Muchas opciones o muy largas: lista desplegable, como en Monday.
+    control = (
+      <div className="entrada">
+        <select id={id} value={(valor as string) ?? ""} onChange={(e) => alCambiar(e.target.value || undefined)} aria-invalid={!!error}>
+          <option value="">Elige una opción</option>
+          {(c.opciones ?? []).map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      </div>
+    );
+  } else if (c.tipo === "OPCIONES") {
+    const elegidas = (valor as string[] | undefined) ?? [];
+    control = (
+      <div className="chips" role="group" aria-labelledby={id}>
+        {(c.opciones ?? []).map((o) => (
+          <button key={o} type="button" className="chip" aria-pressed={elegidas.includes(o)} onClick={() => alCambiar(elegidas.includes(o) ? elegidas.filter((x) => x !== o) : [...elegidas, o])}>
+            {elegidas.includes(o) && <LuCheck size={14} />} {o}
+          </button>
+        ))}
+      </div>
+    );
+  } else if (c.tipo === "NUMERO") {
+    control = (
+      <div className="entrada">
+        <input id={id} type="number" min={0} inputMode="numeric" value={valor === undefined || valor === null ? "" : String(valor)} onChange={(e) => alCambiar(e.target.value === "" ? undefined : Number(e.target.value))} aria-invalid={!!error} />
+      </div>
+    );
+  } else if (c.tipo === "FECHA") {
+    control = (
+      <div className="entrada">
+        <input id={id} type="date" value={(valor as string) ?? ""} onChange={(e) => alCambiar(e.target.value || undefined)} aria-invalid={!!error} />
       </div>
     );
   } else if (c.tipo === "OPCION" || c.tipo === "SI_NO") {
@@ -293,6 +346,8 @@ function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar }: 
 function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; valor: unknown }) {
   if (vacio(valor)) return <p className="texto-sm texto-muted">Sin respuesta</p>;
   if (c.tipo === "SI_NO") return <p className="texto-sm">{valor ? "Sí" : "No"}</p>;
+  if (c.tipo === "OPCIONES") return <p className="texto-sm">{(valor as string[]).join(" · ")}</p>;
+  if (c.tipo === "FECHA") return <p className="texto-sm">{fDiaMes(String(valor))}</p>;
   if (c.tipo === "ARCHIVOS") {
     return (
       <div style={{ display: "grid", gap: 6 }}>
@@ -428,7 +483,8 @@ export function RequerimientosDelCliente({ clienteId }: { clienteId: string }) {
 }
 
 const TIPO_CAMPO: Record<string, string> = {
-  TEXTO: "Texto corto", TEXTO_LARGO: "Texto largo", LISTA: "Lista (una por línea)", URL: "Enlace", OPCION: "Opciones", SI_NO: "Sí o no", ARCHIVOS: "Archivos",
+  TEXTO: "Texto corto", TEXTO_LARGO: "Texto largo", LISTA: "Lista (una por línea)", URL: "Enlace", OPCION: "Una opción", OPCIONES: "Varias opciones", SI_NO: "Sí o no",
+  ARCHIVOS: "Archivos", NUMERO: "Número", FECHA: "Fecha",
 };
 
 /**
@@ -533,7 +589,8 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
                 <span className="texto-xs texto-muted">
                   {" "}
                   · {TIPO_CAMPO[c.tipo] ?? c.tipo}
-                  {c.tipo === "OPCION" && c.opciones?.length ? `: ${c.opciones.join(" / ")}` : ""}
+                  {(c.tipo === "OPCION" || c.tipo === "OPCIONES") && c.opciones?.length ? `: ${c.opciones.join(" / ")}` : ""}
+                  {c.mostrarSi && ` · solo si «${elegida.campos.find((x) => x.clave === c.mostrarSi!.campo)?.etiqueta ?? c.mostrarSi.campo}» es ${c.mostrarSi.valores.join(" o ")}`}
                 </span>
               </li>
             ))}

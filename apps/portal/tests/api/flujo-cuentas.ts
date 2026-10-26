@@ -28,6 +28,24 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
       assert.ok((await llamar("GET", "/clientes", DIEGO)).json.datos.some((c: any) => c.id === ok.json.id));
     });
 
+    test("alta con el ingreso de cliente (antes en Monday): cada servicio pide lo suyo y solo lo ve el equipo", async () => {
+      await reiniciar();
+      assert.equal((await llamar("GET", "/formularios/ingreso-cliente", VALERIA)).status, 403);
+      const campos = (await llamar("GET", "/formularios/ingreso-cliente", DIEGO)).json.campos;
+      assert.deepEqual(campos.find((c: any) => c.clave === "tipoWeb").mostrarSi, { campo: "servicios", valores: ["Desarrollo web"] });
+      const ingreso = { servicios: ["Desarrollo web"], objetivos: "Vender en línea", fechaReunionBrief: "2026-10-20" };
+      const incompleto = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", ingreso });
+      assert.deepEqual(incompleto.json.errores.map((e: any) => e.campo), ["ingreso.tipoWeb", "ingreso.estructuraWeb"]);
+      const completo = { ...ingreso, tipoWeb: "Web e-commerce", estructuraWeb: "CMS (Elementor, Shopify, WordPress)", cantidadProductos: 40, paqueteSocial: "Pro óptimo" };
+      const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", ingreso: completo });
+      assert.equal(ok.status, 201);
+      assert.deepEqual(ok.json.ingreso.respuestas, { servicios: ["Desarrollo web"], objetivos: "Vender en línea", fechaReunionBrief: "2026-10-20", tipoWeb: "Web e-commerce", estructuraWeb: "CMS (Elementor, Shopify, WordPress)", cantidadProductos: 40 }, "el paquete de Social Media no aplica: no se guarda");
+      assert.equal(ok.json.ingreso.registradoPor.nombre, "Diego Castro");
+      const corregido = await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { ingreso: { ...completo, servicios: ["SEO"], webSeo: "https://hidraulicasur.pe" } });
+      assert.deepEqual(Object.keys(corregido.json.ingreso.respuestas).sort(), ["fechaReunionBrief", "objetivos", "servicios", "webSeo"]);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}`, VALERIA)).json.ingreso, undefined, "el cliente no ve su ingreso");
+    });
+
     test("alta: solo AM/ADMIN, valida, no duplica y no usa correos del equipo", async () => {
       await reiniciar();
       assert.equal((await llamar("POST", "/clientes", VALERIA, { nombre: "Nueva" })).status, 403);

@@ -49,7 +49,8 @@ import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../domi
 import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
 import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "./ia-cliente";
 import { ErrorIa } from "./ia-modelos";
-import { nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
+import { CAMPOS_INGRESO } from "../dominio/briefs";
+import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
 import {
   type DemoGuardada, dentroDelLimite, ErrorTaller, type EstadoTaller, ipDe, type OperacionTaller, operarTaller, type RepoTaller, respuestaPublica,
   type ResumenEntregable, type TipoArchivo, tokenDeUrl, urlArchivo as urlArchivoTaller,
@@ -59,7 +60,7 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
-import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, validarRespuestas, type Campo } from "../dominio/requerimientos";
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, validarRespuestas, type Campo } from "../dominio/requerimientos";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
@@ -511,7 +512,12 @@ async function clienteVista(ctx: Ctx, clienteId: string): Promise<S<"Cliente">> 
   };
   if (ctx.esEquipo) {
     const standby = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM servicio_contratado WHERE cliente_id = $1 AND estado::text = 'STANDBY'", [clienteId])).rows[0].n;
+    const ing = c.ingreso as { respuestas: Record<string, unknown>; registradoEn: string; registradoPorId: string | null } | null;
+    const autor = ing?.registradoPorId
+      ? (await ctx.c.query<S<"PersonaMini">>("SELECT id, nombre, cargo, email::text AS email FROM usuario WHERE id = $1", [ing.registradoPorId])).rows[0] ?? null
+      : null;
     Object.assign(r, {
+      ingreso: ing ? { respuestas: ing.respuestas, registradoEn: ing.registradoEn, registradoPor: autor } : null,
       driveUrl: c.drive_url,
       driveCarpetaId: c.drive_carpeta_id,
       limiteGastoIaUsd: Number(c.limite_gasto_ia_usd),
@@ -1775,8 +1781,7 @@ function repoTallerDb(ctx: Ctx, s: FilaServicio): RepoTaller {
       const lista = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
       const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
       return {
-        marca: s.marca ?? s.cliente_nombre, variante: s.variante, objetivo: txt(b.objetivo), publico: txt(b.publico),
-        secciones: (txt(b.secciones) ?? "").split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean),
+        marca: s.marca ?? s.cliente_nombre, variante: s.variante, ...datosDelBriefWeb(b),
         resumenReunion: reuniones.map((r) => `${r.titulo}: ${r.resumen}`).join(" · ") || null, alcance: s.alcance, cms: txt(s.detalle?.cms),
         mensajeCentral: ficha?.mensaje ?? null, tono: ficha?.tono ?? null, paleta: lista(ficha?.paleta), tipografias: lista(ficha?.tipografias),
       };
@@ -2914,6 +2919,11 @@ async function aplicarAtrasoDb(ctx: Ctx, r: FilaReq, hasta: string, dias: Readon
   return delta;
 }
 
+ruta("GET", "/formularios/ingreso-cliente", async (ctx) => {
+  soloEquipo(ctx);
+  return { campos: CAMPOS_INGRESO };
+});
+
 ruta("GET", "/plantillas-requerimiento", async (ctx) => {
   soloEquipo(ctx);
   const { rows } = await ctx.c.query<S<"PlantillaRequerimiento">>(
@@ -2988,10 +2998,10 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
   if (errores.length) throw new ErrorApi(422, "VALIDACION", enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
   const dias = await noHabilesDb(ctx);
   if (!enviar) {
-    await ctx.c.query("UPDATE requerimiento SET respuestas = $2 WHERE id = $1", [r.id, JSON.stringify(respuestas)]);
+    await ctx.c.query("UPDATE requerimiento SET respuestas = $2 WHERE id = $1", [r.id, JSON.stringify(soloVisibles(r.campos, respuestas))]);
     return reqVista(await buscarReq(ctx, r.id), dias);
   }
-  await ctx.c.query("UPDATE requerimiento SET respuestas = $2, estado = 'ENVIADO', enviado_en = now(), enviado_por = $3 WHERE id = $1", [r.id, JSON.stringify(respuestas), ctx.u.usuarioId]);
+  await ctx.c.query("UPDATE requerimiento SET respuestas = $2, estado = 'ENVIADO', enviado_en = now(), enviado_por = $3 WHERE id = $1", [r.id, JSON.stringify(soloVisibles(r.campos, respuestas)), ctx.u.usuarioId]);
   const corridos = await aplicarAtrasoDb(ctx, r, HOY_LIMA(), dias);
   await emitirOutbox(ctx, "requerimiento.enviado", r.cliente_id, { requerimientoId: r.id, diasAtraso: diasAtraso(fechaIso(r.fecha_limite)!, HOY_LIMA(), dias), diasCorridos: corridos, usuarioId: ctx.u.usuarioId });
   return reqVista(await buscarReq(ctx, r.id), dias);
@@ -3281,6 +3291,8 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as S<"ClienteEntrada">;
   await validarClienteEntrada(ctx, b, true);
+  const ingreso = b.ingreso === undefined ? null : prepararIngreso(b.ingreso);
+  if (ingreso) validacion(ingreso.errores);
   const nombre = b.nombre!.trim();
   const slug = slugDe(nombre);
   if ((await ctx.c.query("SELECT 1 FROM cliente WHERE slug = $1", [slug])).rows.length) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
@@ -3293,12 +3305,12 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   const contactoId = k ? await usuarioCliente(ctx, k.email.trim().toLowerCase(), k.nombre.trim(), k.cargo?.trim() || null) : b.contactoPrincipalId ?? null;
   const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" ? ctx.u.usuarioId : null);
   const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario)
-     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario, ingreso)
+     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
     [
       nombre, slug, b.estado ?? "ACTIVO", JSON.stringify(b.marca ?? {}), JSON.stringify(b.tono ?? {}), JSON.stringify(b.publico ?? {}),
       b.pilaresContenido ?? b.publico?.intereses ?? [], (b.canales ?? []).map(canalVisible), b.wordpressUrl ?? null, am, contactoId,
-      b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null,
+      b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null, ingreso && JSON.stringify(registroIngreso(ctx, ingreso.respuestas)),
     ],
   )).rows[0].id;
   if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
@@ -3307,12 +3319,20 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   return { __status: 201, ...(await clienteVista(ctx, id)) };
 });
 
+/** Lo que se guarda en cliente.ingreso: las respuestas, cuándo y quién lo registró. */
+const registroIngreso = (ctx: Ctx, respuestas: Record<string, unknown>) => ({ respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.esServicio ? null : ctx.u.usuarioId });
+
 ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as S<"ClienteEntrada"> & { driveUrl?: string; driveCarpetaId?: string };
   await validarClienteEntrada(ctx, b, false);
   const cambios: [string, unknown, string?][] = [];
+  if (b.ingreso !== undefined) {
+    const ingreso = prepararIngreso(b.ingreso);
+    validacion(ingreso.errores);
+    cambios.push(["ingreso", JSON.stringify(registroIngreso(ctx, ingreso.respuestas))]);
+  }
   if (b.nombre !== undefined) cambios.push(["nombre", b.nombre.trim()]);
   // marca, tono y público se combinan con lo que ya hay (merge parcial, como la API simulada).
   if (b.marca) cambios.push(["marca", JSON.stringify(b.marca), "marca || $::jsonb"]);

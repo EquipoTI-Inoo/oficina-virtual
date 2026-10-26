@@ -92,10 +92,10 @@ const REQ_WEB = ["BRIEF_WEB", "ACCESOS_WEB", "MANUAL_MARCA"];
 export const PLANTILLAS: PlantillaDemo[] = [
   { servicio: "SOCIAL_MEDIA_PRO", variante: null, nombre: "Social Media Pro · mes", metricas: ["PIEZAS_APROBADAS", "REUNIONES_REALIZADAS", "DOCUMENTOS_A_TIEMPO"],
     etapas: [["Planificación del mes", 25, 3, false, "Reunión de estrategia y planning"], ["Sesión de contenido", 50, 5, false, "Sesión audiovisual"], ["Producción y revisión", 80, 8, true, "Presentación de piezas"], ["Publicación", 100, 6, false, "Reunión de métricas"]],
-    requerimientos: ["BRIEF_SOCIAL", "ACCESOS_REDES", "MANUAL_MARCA"] },
+    requerimientos: ["BRIEF_MARKETING", "BRIEF_SOCIAL", "ACCESOS_REDES", "MANUAL_MARCA"] },
   { servicio: "PAID_MEDIA", variante: null, nombre: "Paid Media · mes", metricas: ["RESULTADOS_CAMPANA", "PIEZAS_APROBADAS", "REUNIONES_REALIZADAS"],
     etapas: [["Estrategia y presupuesto", 25, 3, true, "Reunión de estrategia"], ["Configuración de campañas", 50, 3, false, null], ["Campañas activas", 80, 12, false, null], ["Reporte del mes", 100, 2, false, "Reunión de resultados"]],
-    requerimientos: ["ACCESOS_REDES"] },
+    requerimientos: ["BRIEF_PERFORMANCE", "ACCESOS_REDES"] },
   // Soporte por consumo (fase 15): sin etapas; se mide con la bolsa del mes (src/dominio/consumo.ts).
   { servicio: "SOPORTE_CONTINUO", variante: null, nombre: "Soporte continuo · mes", metricas: ["TICKETS_RESUELTOS", "REUNIONES_REALIZADAS", "DOCUMENTOS_A_TIEMPO"],
     etapas: [],
@@ -103,7 +103,7 @@ export const PLANTILLAS: PlantillaDemo[] = [
   // Branding: tres reuniones obligatorias (brief, propuestas, presentación final) y los ajustes entre medio.
   { servicio: "BRANDFORMANCE", variante: "MARCA_NUEVA", nombre: "Brandformance · marca nueva", metricas: R,
     etapas: [["Brief", 15, 3, true, "Reunión de brief"], ["Propuestas", 55, 6, false, "Presentación de propuestas"], ["Ajustes", 80, 2, true, null], ["Entrega final", 100, 3, false, "Presentación final"]],
-    requerimientos: ["BRIEF_BRANDING"] },
+    requerimientos: ["BRIEF_BRANDING", "BRIEF_NAMING"] },
   { servicio: "BRANDFORMANCE", variante: "REBRANDING", nombre: "Brandformance · rebranding", metricas: R,
     etapas: [["Brief y auditoría de la marca actual", 15, 4, true, "Reunión de brief"], ["Estrategia de reposicionamiento", 30, 4, false, null], ["Propuestas", 60, 6, false, "Presentación de propuestas"], ["Ajustes", 80, 2, true, null], ["Entrega final", 100, 3, false, "Presentación final"]],
     requerimientos: ["BRIEF_BRANDING", "MANUAL_MARCA"] },

@@ -4,11 +4,12 @@
  * formulario, tiene fecha límite en días hábiles (hasta las 23:59 de Lima) y, si se atrasa, corre
  * el cronograma del servicio y avisa al cliente por correo.
  *
- * Las plantillas también están en database/migraciones/0008_requerimientos_agencia.sql (y 0017);
- * tests/api/db.test.ts comprueba que coinciden. Las preguntas son de relleno hasta que el equipo
- * pase las de sus briefs reales.
+ * Las plantillas también están en database/migraciones/0008_requerimientos_agencia.sql (y 0017, 0030);
+ * tests/api/db.test.ts comprueba que coinciden. Los cinco briefs son los formularios reales que Inoo tenía en
+ * Monday (src/dominio/briefs.ts); el resto de preguntas todavía son de relleno.
  */
 import type { components } from "../api/tipos-api";
+import { CAMPOS_BRIEF_BRANDING, CAMPOS_BRIEF_MARKETING, CAMPOS_BRIEF_NAMING, CAMPOS_BRIEF_PERFORMANCE, CAMPOS_BRIEF_WEB, CAMPOS_INGRESO } from "./briefs";
 import { esHabil, sumarDiasHabiles, type CodigoServicio } from "./servicios";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -28,25 +29,24 @@ const c = (clave: string, etiqueta: string, tipo: Campo["tipo"], obligatorio = t
 
 export const PLANTILLAS_REQUERIMIENTO: PlantillaRequerimientoDemo[] = [
   {
-    codigo: "BRIEF_WEB", nombre: "Brief de desarrollo web", descripcion: "Lo que necesitamos saber para diseñar tu sitio.", servicios: ["WEB"], diasHabiles: 3,
-    campos: [
-      c("objetivo", "¿Para qué quieres el sitio?", "TEXTO_LARGO", true, { ayuda: "Vender en línea, mostrar tus servicios, captar contactos…" }),
-      c("publico", "¿A quién le habla tu sitio?", "TEXTO_LARGO"),
-      c("secciones", "Secciones que imaginas", "LISTA", true, { ayuda: "Una por línea: Inicio, Nosotros, Productos, Contacto…" }),
-      c("referencias", "Sitios que te gustan", "LISTA", false, { ayuda: "Un enlace por línea y, si quieres, qué te gusta de cada uno." }),
-      c("dominio", "¿Ya tienes dominio y hosting?", "OPCION", true, { opciones: ["Sí, ambos", "Solo dominio", "No, necesito ayuda"] }),
-      c("marca", "Logo y manual de marca", "ARCHIVOS", false),
-    ],
+    codigo: "BRIEF_WEB", nombre: "Brief de diseño y desarrollo web", descripcion: "Lo que necesitamos saber para diseñar tu sitio.", servicios: ["WEB"], diasHabiles: 5,
+    campos: CAMPOS_BRIEF_WEB,
   },
   {
-    codigo: "BRIEF_BRANDING", nombre: "Brief de marca", descripcion: "Para entender tu marca antes de diseñarla (o rediseñarla).", servicios: ["BRANDFORMANCE"], diasHabiles: 5,
-    campos: [
-      c("historia", "Cuéntanos la historia de tu marca", "TEXTO_LARGO"),
-      c("valores", "Tres palabras que la describan", "TEXTO"),
-      c("competidores", "Competidores principales", "LISTA", true, { ayuda: "Uno por línea." }),
-      c("evitar", "¿Qué no quieres que transmita?", "TEXTO_LARGO", false),
-      c("referencias", "Marcas que admiras", "LISTA", false),
-    ],
+    codigo: "BRIEF_BRANDING", nombre: "Brief de branding", descripcion: "Para conocer los alcances e intenciones de tu marca antes de diseñarla (o rediseñarla).", servicios: ["BRANDFORMANCE"], diasHabiles: 5,
+    campos: CAMPOS_BRIEF_BRANDING,
+  },
+  {
+    codigo: "BRIEF_NAMING", nombre: "Brief de naming", descripcion: "Para encontrar el nombre de tu marca.", servicios: ["BRANDFORMANCE"], diasHabiles: 5,
+    campos: CAMPOS_BRIEF_NAMING,
+  },
+  {
+    codigo: "BRIEF_PERFORMANCE", nombre: "Brief de performance", descripcion: "Tu empresa, tus metas y lo que ya probaste en publicidad digital.", servicios: ["PAID_MEDIA"], diasHabiles: 5,
+    campos: CAMPOS_BRIEF_PERFORMANCE,
+  },
+  {
+    codigo: "BRIEF_MARKETING", nombre: "Brief de marketing", descripcion: "Tu marca, tu público y tu identidad visual, para arrancar con tus redes.", servicios: ["SOCIAL_MEDIA_PRO"], diasHabiles: 5,
+    campos: CAMPOS_BRIEF_MARKETING,
   },
   {
     codigo: "KICKOFF_CRM", nombre: "Preguntas del kickoff de CRM", descripcion: "Cómo vendes hoy, para armar tus procesos en el CRM.", servicios: ["CRM_IMPLEMENTACION", "CRM_INTEGRACION"], diasHabiles: 3,
@@ -123,15 +123,44 @@ export const plantillaRequerimiento = (codigo: string) => PLANTILLAS_REQUERIMIEN
 
 export type Respuestas = Record<string, unknown>;
 
-/** Valida lo que manda el cliente. Al enviar, los obligatorios no pueden quedar vacíos; al guardar borrador sí. */
+export const respuestaVacia = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && v.length === 0);
+
+/**
+ * Claves de las preguntas que se muestran con estas respuestas. Una pregunta con `mostrarSi` aparece solo si la
+ * pregunta de la que depende está visible y su respuesta es uno de los valores (en OPCIONES, si eligió alguno);
+ * así se siguen los caminos que se bifurcan (p. ej. web desde cero → tipo de proyecto → e-commerce → métodos de pago).
+ */
+export function camposVisibles(campos: Campo[], r: Respuestas): Set<string> {
+  const visibles = new Set<string>();
+  for (const f of campos) {
+    const s = f.mostrarSi;
+    if (s) {
+      if (!visibles.has(s.campo)) continue;
+      const v = r[s.campo];
+      const elegidos = Array.isArray(v) ? v.map(String) : v === undefined || v === null ? [] : [String(v)];
+      if (!elegidos.some((x) => s.valores.includes(x))) continue;
+    }
+    visibles.add(f.clave);
+  }
+  return visibles;
+}
+
+/** Lo que se guarda: solo las respuestas de preguntas visibles (si el cliente cambió de camino, lo del otro se descarta). */
+export function soloVisibles(campos: Campo[], r: Respuestas): Respuestas {
+  const visibles = camposVisibles(campos, r);
+  return Object.fromEntries(Object.entries(r).filter(([k]) => visibles.has(k)));
+}
+
+/** Valida lo que manda el cliente. Al enviar, los obligatorios visibles no pueden quedar vacíos; al guardar borrador sí. */
 export function validarRespuestas(campos: Campo[], r: Respuestas, enviar: boolean) {
   const errores: { campo: string; mensaje: string }[] = [];
   const claves = new Set(campos.map((x) => x.clave));
   for (const k of Object.keys(r)) if (!claves.has(k)) errores.push({ campo: k, mensaje: "Ese campo no es parte del formulario" });
+  const visibles = camposVisibles(campos, r);
   for (const f of campos) {
+    if (!visibles.has(f.clave)) continue;
     const v = r[f.clave];
-    const vacio = v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && v.length === 0);
-    if (vacio) {
+    if (respuestaVacia(v)) {
       if (enviar && f.obligatorio) errores.push({ campo: f.clave, mensaje: "Este campo es obligatorio" });
       continue;
     }
@@ -139,19 +168,37 @@ export function validarRespuestas(campos: Campo[], r: Respuestas, enviar: boolea
       f.tipo === "SI_NO" ? typeof v === "boolean"
       : f.tipo === "ARCHIVOS" ? Array.isArray(v) && v.every((a) => a && typeof a === "object" && typeof (a as { archivoId?: unknown }).archivoId === "string")
       : f.tipo === "OPCION" ? typeof v === "string" && (f.opciones ?? []).includes(v)
+      : f.tipo === "OPCIONES" ? Array.isArray(v) && v.every((x) => typeof x === "string" && (f.opciones ?? []).includes(x))
+      : f.tipo === "NUMERO" ? typeof v === "number" && Number.isFinite(v) && v >= 0
+      : f.tipo === "FECHA" ? typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
       : f.tipo === "URL" ? typeof v === "string" && /^https?:\/\/\S+\.\S+/.test(v.trim())
       : typeof v === "string" && v.length <= 5000;
-    if (!ok) errores.push({ campo: f.clave, mensaje: f.tipo === "URL" ? "Escribe un enlace que empiece con https://" : f.tipo === "OPCION" ? "Elige una de las opciones" : "Respuesta inválida" });
+    if (!ok) {
+      const mensaje =
+        f.tipo === "URL" ? "Escribe un enlace que empiece con https://"
+        : f.tipo === "OPCION" || f.tipo === "OPCIONES" ? "Elige entre las opciones"
+        : f.tipo === "NUMERO" ? "Escribe un número"
+        : f.tipo === "FECHA" ? "Elige una fecha"
+        : "Respuesta inválida";
+      errores.push({ campo: f.clave, mensaje });
+    }
   }
   // Un catálogo puede venir como archivo o como lista: al enviar, al menos una de las dos.
-  if (enviar && campos.length && campos.every((f) => !f.obligatorio)) {
-    const alguno = campos.some((f) => {
-      const v = r[f.clave];
-      return v !== undefined && v !== null && !(typeof v === "string" && !v.trim()) && !(Array.isArray(v) && v.length === 0);
-    });
-    if (!alguno) errores.push({ campo: campos[0].clave, mensaje: "Completa al menos un campo" });
+  if (enviar && campos.length && campos.every((f) => !f.obligatorio) && !campos.some((f) => visibles.has(f.clave) && !respuestaVacia(r[f.clave]))) {
+    errores.push({ campo: campos[0].clave, mensaje: "Completa al menos un campo" });
   }
   return errores;
+}
+
+/**
+ * El ingreso de cliente que manda Comercial en el alta (o al corregirlo): completo y solo con las preguntas del
+ * camino elegido. Los errores llevan el prefijo «ingreso.» porque viajan en el cuerpo del cliente.
+ */
+export function prepararIngreso(v: unknown): { respuestas: Respuestas; errores: { campo: string; mensaje: string }[] } {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { respuestas: {}, errores: [{ campo: "ingreso", mensaje: "Respuesta inválida" }] };
+  const r = v as Respuestas;
+  const errores = validarRespuestas(CAMPOS_INGRESO, r, true).map((e) => ({ ...e, campo: `ingreso.${e.campo}` }));
+  return { respuestas: soloVisibles(CAMPOS_INGRESO, r), errores };
 }
 
 // ───────────────────────────── plazos y atrasos

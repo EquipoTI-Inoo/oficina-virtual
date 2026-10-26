@@ -8,6 +8,8 @@ import { useRef, useState, type FormEvent } from "react";
 import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuTriangleAlert, LuUpload } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
+import { respuestaVacia } from "../dominio/requerimientos";
+import { CamposFormulario } from "./requerimientos";
 
 const usd = (n: number) => `US$ ${n.toFixed(2).replace(".", ",")}`;
 const errores = (x: unknown) => Object.fromEntries((x as ProblemaApi).errores.map((e) => [e.campo, e.mensaje]));
@@ -458,7 +460,11 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const [canales, setCanales] = useState<string[]>(["INSTAGRAM"]);
   const [contacto, setContacto] = useState({ nombre: "", email: "", cargo: "" });
   const [aniversario, setAniversario] = useState("");
+  // Ingreso de cliente (antes, el formulario de Monday que llenaba Comercial): preguntas con caminos según el servicio.
+  const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>(abierto ? "/formularios/ingreso-cliente" : null);
+  const [ingreso, setIngreso] = useState<Record<string, unknown>>({});
   const [err, setErr] = useState<Record<string, string>>({});
+  const erroresIngreso = Object.fromEntries(Object.entries(err).filter(([k]) => k.startsWith("ingreso.")).map(([k, v]) => [k.slice(8), v]));
   const crear = async (e: FormEvent) => {
     e.preventDefault();
     setErr({});
@@ -467,12 +473,14 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
         metodo: "POST",
         cuerpo: {
           nombre, limiteGastoIaUsd: Number(limite), canales, fechaAniversario: aniversario || undefined,
+          ingreso: formulario ? Object.fromEntries(Object.entries(ingreso).filter(([, v]) => !respuestaVacia(v))) : undefined,
           contacto: contacto.nombre || contacto.email ? { nombre: contacto.nombre, email: contacto.email, cargo: contacto.cargo || undefined } : undefined,
         },
         idempotente: true,
       });
       setNombre("");
       setContacto({ nombre: "", email: "", cargo: "" });
+      setIngreso({});
       alCrear(c.id);
     } catch (x) {
       const p = x as ProblemaApi;
@@ -529,11 +537,76 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
             ))}
           </div>
         </div>
+        <div style={{ display: "grid", gap: 14, borderTop: "1px solid var(--c-borde)", paddingTop: 14 }}>
+          <div>
+            <h3 className="tarjeta-titulo" style={{ fontSize: 16 }}>Ingreso del cliente</h3>
+            <p className="texto-xs texto-muted">Lo que se habló en la venta. Cada servicio pide sus datos; solo lo ve el equipo.</p>
+          </div>
+          {formulario ? (
+            <CamposFormulario campos={formulario.campos} valores={ingreso} errores={erroresIngreso} soloLectura={false} alCambiar={(k, v) => setIngreso((r) => ({ ...r, [k]: v }))} />
+          ) : (
+            <Cargando />
+          )}
+          {Object.keys(erroresIngreso).length > 0 && <Ayuda error="Completa el ingreso: revisa los campos marcados." />}
+        </div>
         <button className="boton boton--primario">
           <LuPlus size={16} /> Crear cliente
         </button>
       </form>
     </Modal>
+  );
+}
+
+/** Ingreso del cliente en su ficha (solo equipo): lo que llenó Comercial en el alta; quien gestiona la cuenta lo corrige. */
+export function IngresoDelCliente({ cliente, editable, alGuardar }: { cliente: S<"Cliente">; editable: boolean; alGuardar: () => void }) {
+  const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>("/formularios/ingreso-cliente");
+  const [editando, setEditando] = useState<Record<string, unknown> | null>(null);
+  const [err, setErr] = useState<Record<string, string>>({});
+  const avisar = useAviso();
+  const ingreso = cliente.ingreso ?? null;
+  if (!formulario) return null;
+  const guardar = async () => {
+    setErr({});
+    try {
+      await api(`/clientes/${cliente.id}`, { metodo: "PATCH", cuerpo: { ingreso: Object.fromEntries(Object.entries(editando ?? {}).filter(([, v]) => !respuestaVacia(v))) } });
+      setEditando(null);
+      avisar({ titulo: "Ingreso guardado", texto: "Queda en la ficha del cliente." });
+      alGuardar();
+    } catch (x) {
+      const p = x as ProblemaApi;
+      setErr(Object.fromEntries(p.errores.map((e) => [e.campo.replace(/^ingreso\./, ""), e.mensaje])));
+      if (!p.errores.length) avisar({ titulo: p.titulo, texto: p.detalle });
+    }
+  };
+  return (
+    <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 14 }}>
+      <div className="fila entre">
+        <h3 className="tarjeta-titulo">Ingreso del cliente</h3>
+        {editable && !editando && (
+          <button className="boton boton--chico" onClick={() => setEditando({ ...(ingreso?.respuestas ?? {}) })}>
+            {ingreso ? <><LuPencil size={14} /> Corregir</> : <><LuPlus size={14} /> Registrar ingreso</>}
+          </button>
+        )}
+      </div>
+      {editando ? (
+        <>
+          <CamposFormulario campos={formulario.campos} valores={editando} errores={err} soloLectura={false} alCambiar={(k, v) => setEditando((r) => ({ ...r, [k]: v }))} />
+          <div className="fila" style={{ gap: 10 }}>
+            <button className="boton boton--primario" onClick={() => void guardar()}>Guardar ingreso</button>
+            <button className="boton" onClick={() => { setEditando(null); setErr({}); }}>Cancelar</button>
+          </div>
+        </>
+      ) : ingreso ? (
+        <>
+          <p className="texto-xs texto-muted">
+            Registrado el {fCorta(ingreso.registradoEn)}{ingreso.registradoPor ? ` por ${ingreso.registradoPor.nombre}` : ""}.
+          </p>
+          <CamposFormulario campos={formulario.campos} valores={ingreso.respuestas} errores={{}} soloLectura alCambiar={() => {}} />
+        </>
+      ) : (
+        <p className="texto-xs texto-muted">Este cliente se dio de alta sin el ingreso (servicios, paquetes y objetivos de la venta).</p>
+      )}
+    </div>
   );
 }
 
