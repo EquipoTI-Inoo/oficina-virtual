@@ -86,7 +86,8 @@ services:
     command: ["npx", "tsx", "scripts/despachar-outbox.ts"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-inoo}:${POSTGRES_PASSWORD:-inoo}@postgres:5432/${POSTGRES_DB:-oficina_virtual}
-      N8N_WEBHOOK_URL: http://n8n:5678/webhook/inoo-eventos
+      # Vacío hasta que un workflow de n8n escuche los eventos (con CORREOS_POR=n8n: http://n8n:5678/webhook/inoo-eventos).
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
       N8N_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO:-secreto-local}
       # Los correos los manda el portal por SMTP (Mailpit en local).
       CORREOS_POR: ${CORREOS_POR:-portal}

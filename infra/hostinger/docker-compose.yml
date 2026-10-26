@@ -85,7 +85,8 @@ services:
       SMTP_USUARIO: ${SMTP_USUARIO}
       SMTP_CLAVE: ${SMTP_CLAVE}
       CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
-      N8N_WEBHOOK_URL: http://n8n:5678/webhook/inoo-eventos
+      # Vacío hasta que un workflow de n8n escuche los eventos (p. ej. http://n8n:5678/webhook/inoo-eventos).
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
       N8N_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO}
       IA_MODO: ${IA_MODO:-real}
       IA_TOPE_DIARIO_USD: ${IA_TOPE_DIARIO_USD:-2}
