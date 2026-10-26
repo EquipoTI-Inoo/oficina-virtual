@@ -80,6 +80,7 @@ before(async () => {
   await db.exec(sql("migraciones/0026_correos_entregables.sql"));
   await db.exec(sql("migraciones/0027_taller_en_s3.sql"));
   await db.exec(sql("migraciones/0028_correos_directos.sql"));
+  await db.exec(sql("migraciones/0029_horario_correos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -715,13 +716,15 @@ describe("ingreso con Cognito (AUTH_MODO=cognito) · solo backend real", () => {
         const inv = await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, "id-diego", { email: "rosa@casaoliva.pe", nombre: "Rosa Paz", rol: "APROBADOR" });
         assert.equal(inv.status, 201);
         const correos: { para: string; texto: string }[] = [];
-        await despacharCorreos(async (m) => (correos.push({ para: m.para, texto: m.texto }), null));
+        // En horario de atención (lunes 2 nov, 10:00 de Lima), para que la bienvenida salga al momento.
+        await db.exec("UPDATE outbox_evento SET creado_en = '2026-11-02T15:00:00Z' WHERE correos_procesados_en IS NULL");
+        await despacharCorreos(async (m) => (correos.push({ para: m.para, texto: m.texto }), null), { ahora: new Date("2026-11-02T15:00:05Z") });
         assert.deepEqual(altas.map((a) => [a.pool, a.usuario]), [["us-east-1_clientes", "rosa@casaoliva.pe"]]);
         assert.match(altas[0].firma, /^AWS4-HMAC-SHA256 Credential=AKIDPRUEBA\/\d{8}\/us-east-1\/cognito-idp\/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=[0-9a-f]{64}$/);
         assert.equal((await db.query<{ s: string }>("SELECT cognito_sub AS s FROM usuario WHERE email = 'rosa@casaoliva.pe'")).rows[0].s, "sub-rosa-cognito");
         const bienvenida = correos.find((c) => c.para === "rosa@casaoliva.pe")!;
         assert.match(bienvenida.texto, /contraseña temporal/);
-        await despacharCorreos(async () => null);
+        await despacharCorreos(async () => null, { ahora: new Date("2026-11-02T15:05:00Z") });
         assert.equal(altas.length, 1, "no la vuelve a crear");
       } finally {
         for (const k of ["COGNITO_POOL_CLIENTES", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]) delete process.env[k];
@@ -749,16 +752,22 @@ describe("correos directos por SMTP (CORREOS_POR=portal) · solo backend real", 
   const enviados: { para: string; asunto: string }[] = [];
   const smtpOk = async (c: { para: string; asunto: string }) => (enviados.push({ para: c.para, asunto: c.asunto }), `<${enviados.length}@prueba>`);
 
+  // Fechas fijas (hora de Lima = UTC-5): el despachador respeta el horario de atención.
+  const LUNES_10 = new Date("2026-11-02T15:00:00Z"); // lunes 2 nov, 10:00
+  const mas = (f: Date, s: number) => new Date(f.getTime() + s * 1000);
+  const fijarEventos = (f: Date) => db.exec(`UPDATE outbox_evento SET creado_en = '${f.toISOString()}' WHERE correos_procesados_en IS NULL`);
+
   test("cada evento manda sus correos una sola vez y queda registrado", async () => {
     await reiniciar();
     enviados.length = 0;
     await llamar("POST", `/entregables/${uid(29, 2)}/enviar`, DIEGO);
-    const r = await despacharCorreos(smtpOk);
-    assert.deepEqual([r.enviados, r.fallidos], [1, 0]);
+    await fijarEventos(LUNES_10);
+    const r = await despacharCorreos(smtpOk, { ahora: mas(LUNES_10, 5) });
+    assert.deepEqual([r.enviados, r.fallidos, r.enEspera], [1, 0, 0]);
     assert.deepEqual(enviados, [{ para: "valeria@casaoliva.pe", asunto: "«Prototipo del inicio y la ficha de producto» está listo para tu revisión" }]);
     const fila = (await db.query<{ estado: string; ses_message_id: string }>("SELECT estado, ses_message_id FROM correo_enviado WHERE evento = 'entregable.listo_revision'")).rows;
     assert.deepEqual(fila, [{ estado: "ENVIADO", ses_message_id: "<1@prueba>" }]);
-    assert.deepEqual(await despacharCorreos(smtpOk), { eventos: 0, enviados: 0, fallidos: 0 }, "no se repite");
+    assert.deepEqual(await despacharCorreos(smtpOk, { ahora: mas(LUNES_10, 60) }), { eventos: 0, enviados: 0, fallidos: 0, enEspera: 0 }, "no se repite");
     const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json;
     assert.equal(vista.recientes[0].estado, "ENVIADO");
   });
@@ -767,19 +776,41 @@ describe("correos directos por SMTP (CORREOS_POR=portal) · solo backend real", 
     await reiniciar();
     enviados.length = 0;
     await llamar("POST", `/entregables/${uid(29, 2)}/enviar`, DIEGO);
+    await fijarEventos(LUNES_10);
     const r = await despacharCorreos(async () => {
       throw new Error("connect ECONNREFUSED 127.0.0.1:1025");
-    });
+    }, { ahora: mas(LUNES_10, 5) });
     assert.deepEqual([r.enviados, r.fallidos], [0, 1]);
     const ev = (await db.query<{ correos_intentos: number; correos_error: string; procesado: boolean }>("SELECT correos_intentos, correos_error, correos_procesados_en IS NOT NULL AS procesado FROM outbox_evento WHERE tipo = 'entregable.listo_revision'")).rows[0];
     assert.deepEqual([ev.correos_intentos, ev.procesado], [1, false]);
     assert.match(ev.correos_error, /ECONNREFUSED/);
     assert.equal((await db.query<{ estado: string }>("SELECT estado FROM correo_enviado WHERE evento = 'entregable.listo_revision'")).rows[0].estado, "FALLIDO");
-    // La espera exponencial: el reintento llega después de 30 s (aquí se simula moviendo la fecha del evento).
-    assert.equal((await despacharCorreos(smtpOk)).eventos, 0, "todavía no le toca");
-    await db.exec("UPDATE outbox_evento SET creado_en = creado_en - interval '1 minute' WHERE tipo = 'entregable.listo_revision'");
-    assert.deepEqual(await despacharCorreos(smtpOk), { eventos: 1, enviados: 1, fallidos: 0 });
+    // La espera exponencial: el primer reintento llega 30 s después del evento.
+    assert.equal((await despacharCorreos(smtpOk, { ahora: mas(LUNES_10, 20) })).eventos, 0, "todavía no le toca");
+    assert.deepEqual(await despacharCorreos(smtpOk, { ahora: mas(LUNES_10, 60) }), { eventos: 1, enviados: 1, fallidos: 0, enEspera: 0 });
     assert.equal(enviados.length, 1);
+  });
+
+  test("horario de atención: fuera de hora el cliente espera a la apertura; el equipo recibe al momento", async () => {
+    await reiniciar();
+    enviados.length = 0;
+    const prototipo = uid(29, 2);
+    await llamar("POST", `/entregables/${prototipo}/enviar`, DIEGO);
+    await llamar("POST", `/entregables/${prototipo}/decision`, VALERIA, { decision: "CAMBIOS_SOLICITADOS", comentario: "Más fotos" });
+    // Sábado 31 oct a las 14:00 de Lima: la oficina ya cerró (sábado hasta las 13:30).
+    const SABADO_14 = new Date("2026-10-31T19:00:00Z");
+    await fijarEventos(SABADO_14);
+    const r = await despacharCorreos(smtpOk, { ahora: mas(SABADO_14, 5) });
+    assert.deepEqual([r.enviados, r.enEspera], [1, 2]);
+    assert.deepEqual(enviados.map((e) => e.para), ["diego.castro@inoo.pe"], "solo el aviso al equipo");
+    const programados = (await db.query<{ p: Date }>("SELECT DISTINCT correos_programado_para AS p FROM outbox_evento WHERE correos_procesados_en IS NULL")).rows;
+    // Domingo 1 nov es domingo y feriado: abre el lunes 2 nov a las 9:00 de Lima.
+    assert.deepEqual(programados.map((x) => new Date(x.p).toISOString()), ["2026-11-02T14:00:00.000Z"]);
+    assert.equal((await despacharCorreos(smtpOk, { ahora: new Date("2026-11-02T13:59:00Z") })).eventos, 0, "a las 8:59 todavía no");
+    const lunes = await despacharCorreos(smtpOk, { ahora: new Date("2026-11-02T14:00:30Z") });
+    assert.deepEqual([lunes.enviados, lunes.enEspera], [2, 0]);
+    assert.deepEqual(enviados.map((e) => e.para), ["diego.castro@inoo.pe", "valeria@casaoliva.pe", "valeria@casaoliva.pe"], "lo del equipo no se repite");
+    assert.equal((await db.query("SELECT 1 FROM outbox_evento WHERE correos_procesados_en IS NULL")).rows.length, 0);
   });
 
   test("con CORREOS_POR=portal, n8n ya no puede preparar los correos (saldrían dobles)", async () => {

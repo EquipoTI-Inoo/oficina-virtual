@@ -36,6 +36,49 @@ export function diasNoLaborables(avisos: { tipo: string; fechaInicio: string; fe
   return dias;
 }
 
+// ───────────────────────────── horario de atención (26 oct): los correos al cliente solo salen en este horario
+
+/** Minutos desde la medianoche (Lima) en que abre y cierra Inoo, por día de la semana (0 = domingo). */
+export const HORARIO_ATENCION: Record<number, [number, number] | null> = {
+  0: null,
+  1: [9 * 60, 18 * 60],
+  2: [9 * 60, 18 * 60],
+  3: [9 * 60, 18 * 60],
+  4: [9 * 60, 18 * 60],
+  5: [9 * 60, 18 * 60],
+  6: [9 * 60, 13 * 60 + 30],
+};
+
+const LIMA_MS = -5 * 3_600_000; // Perú no tiene horario de verano
+
+/** Fecha, día de la semana y minuto del día en Lima. */
+function enLima(f: Date) {
+  const l = new Date(f.getTime() + LIMA_MS);
+  return { dia: l.toISOString().slice(0, 10), semana: l.getUTCDay(), minuto: l.getUTCHours() * 60 + l.getUTCMinutes() };
+}
+
+/** Si a esa hora Inoo atiende (L-V 9:00-18:00, sábado 9:00-13:30, sin feriados ni días no laborables). */
+export function enHorarioDeAtencion(f: Date, noLaborables: ReadonlySet<string>): boolean {
+  const { dia, semana, minuto } = enLima(f);
+  const h = HORARIO_ATENCION[semana];
+  return !!h && !noLaborables.has(dia) && minuto >= h[0] && minuto < h[1];
+}
+
+/** El próximo momento en que Inoo atiende (la misma fecha si ya está en horario). */
+export function siguienteApertura(f: Date, noLaborables: ReadonlySet<string>): Date {
+  if (enHorarioDeAtencion(f, noLaborables)) return f;
+  const { dia, minuto } = enLima(f);
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(`${dia}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + i);
+    const fecha = d.toISOString().slice(0, 10);
+    const h = HORARIO_ATENCION[d.getUTCDay()];
+    if (!h || noLaborables.has(fecha) || (i === 0 && minuto >= h[0])) continue;
+    return new Date(d.getTime() + h[0] * 60_000 - LIMA_MS);
+  }
+  throw new Error("No hay horario de atención en los próximos 30 días");
+}
+
 /** «¡Hoy cumplimos N años trabajando juntos!» el día del aniversario (mismo día y mes, al menos un año después). */
 export function aniversarioHoy(fechaAniversario: string | null | undefined, hoy: string): number | null {
   if (!fechaAniversario) return null;

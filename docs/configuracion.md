@@ -144,6 +144,9 @@ esquiva, avisa y deja calificar esa referencia a mano.
 - **Correos** (`CORREOS_POR=portal`, por defecto): arma los correos de cada evento y los manda por SMTP
   (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SEGURO`, `SMTP_USUARIO`, `SMTP_CLAVE`, `CORREO_REMITENTE`). Cada correo
   queda ENVIADO o FALLIDO; si falla, el evento se reintenta con espera exponencial (24 h) sin repetir lo que ya salió.
+  Los correos al cliente solo salen en el horario de atención de Inoo (L-V 9:00-18:00 y sábado 9:00-13:30, hora de
+  Lima, sin feriados ni días no laborables); fuera de ese horario esperan a la siguiente apertura. Los avisos al
+  equipo salen al momento. La regla está en `src/dominio/calendario.ts`.
 - **n8n** (opcional, `N8N_WEBHOOK_URL`): le entrega los eventos en orden y firmados (`X-Inoo-Firma` = HMAC-SHA256
   de `<X-Inoo-Timestamp>.<cuerpo>`) para las demás automatizaciones, con los mismos reintentos.
 Correrlo como segundo proceso del contenedor del portal o como tarea programada.

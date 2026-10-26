@@ -39,7 +39,7 @@ import type { EnviarCorreo } from "./correo-smtp";
 import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideClave, type Pool, renovar, restablecerClave, type Tokens } from "./cognito";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
-import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
+import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
 import { almacen, almacenOpcional } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
@@ -4155,13 +4155,13 @@ ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, cuerpo) => {
   if (process.env.CORREOS_POR === "portal") {
     throw new ErrorApi(409, "CORREOS_LOS_ENVIA_EL_PORTAL", "Los correos los envía el portal", "Desactiva el workflow correos-por-evento de n8n o usa CORREOS_POR=n8n.");
   }
-  return { correos: await prepararCorreosDb(ctx, (await cuerpo()) as EventoCorreo) };
+  return { correos: (await prepararCorreosDb(ctx, (await cuerpo()) as EventoCorreo)).map(({ alEquipo: _, ...c }) => c) };
 });
 
 interface EventoCorreo { id?: unknown; tipo?: unknown; clienteId?: unknown; datos?: unknown }
 
 /** Arma y registra los correos de un evento del outbox. Devuelve los que todavía no salieron (idempotente). */
-async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<S<"CorreoPreparado">[]> {
+async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<(S<"CorreoPreparado"> & { alEquipo: boolean })[]> {
   const errores: { campo: string; mensaje: string }[] = [];
   if (!Number.isInteger(ev.id)) errores.push({ campo: "id", mensaje: "Id del evento del outbox" });
   if (typeof ev.tipo !== "string") errores.push({ campo: "tipo", mensaje: "Tipo del evento" });
@@ -4254,7 +4254,7 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<S<"CorreoP
     }
   }
 
-  const correos: S<"CorreoPreparado">[] = [];
+  const correos: (S<"CorreoPreparado"> & { alEquipo: boolean })[] = [];
   for (const [para, { nombre, destino }] of destinos) {
     const enlace = `${URL_PORTAL()}${destino === "AM" ? enlaceEquipo : enlaceCliente}`;
     const m = renderizarCorreo(plantilla, { ...c, enlace }, destino, nombre);
@@ -4267,7 +4267,7 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<S<"CorreoP
     const fila = (await ctx.c.query<{ id: string; estado: string; asunto: string; html: string; texto: string }>(
       "SELECT id, estado, asunto, html, texto FROM correo_enviado WHERE outbox_id = $1 AND para = $2", [ev.id, para],
     )).rows[0];
-    if (fila.estado !== "ENVIADO") correos.push({ id: fila.id, para, nombre, asunto: fila.asunto, html: fila.html, texto: fila.texto, evento: regla });
+    if (fila.estado !== "ENVIADO") correos.push({ id: fila.id, para, nombre, asunto: fila.asunto, html: fila.html, texto: fila.texto, evento: regla, alEquipo: destino === "AM" });
   }
   return correos;
 }
@@ -4294,19 +4294,28 @@ ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) 
  * mandaron sus correos, los arma con prepararCorreosDb (los mismos que recibía n8n) y los envía por SMTP.
  * Cada correo queda ENVIADO o FALLIDO en correo_enviado; si alguno falla, el evento se reintenta con espera
  * exponencial hasta 24 h y los que ya salieron no se repiten. Es independiente de la entrega a n8n.
+ *
+ * Horario de atención (26 oct): los correos al cliente solo salen L-V 9:00-18:00 y sábados 9:00-13:30 (Lima),
+ * fuera de feriados. Fuera de ese horario el evento queda programado para la siguiente apertura; los avisos
+ * al equipo salen igual al momento. `ahora` simula otra hora (pruebas).
  */
-export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number } = {}): Promise<{ eventos: number; enviados: number; fallidos: number }> {
+export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number; ahora?: Date } = {}): Promise<{ eventos: number; enviados: number; fallidos: number; enEspera: number }> {
   const db = await baseDatos();
-  const ids = await db.transaccion(async (c) =>
-    (await c.query<{ id: string }>(
+  const ahora = o.ahora ?? new Date();
+  const { ids, noLaborables } = await db.transaccion(async (c) => ({
+    ids: (await c.query<{ id: string }>(
       `SELECT id FROM outbox_evento
-       WHERE correos_procesados_en IS NULL AND creado_en > now() - interval '24 hours'
-         AND (correos_intentos = 0 OR creado_en + interval '30 seconds' * power(2, correos_intentos - 1) <= now())
+       WHERE correos_procesados_en IS NULL
+         AND (creado_en > $2::timestamptz - interval '24 hours' OR correos_programado_para IS NOT NULL)
+         AND (correos_programado_para IS NULL OR correos_programado_para <= $2::timestamptz)
+         AND (correos_intentos = 0 OR coalesce(correos_programado_para, creado_en) + interval '30 seconds' * power(2, correos_intentos - 1) <= $2::timestamptz)
        ORDER BY id LIMIT $1`,
-      [o.lote ?? 50],
+      [o.lote ?? 50, ahora.toISOString()],
     )).rows.map((r) => r.id),
-  );
-  const total = { eventos: 0, enviados: 0, fallidos: 0 };
+    noLaborables: await noHabilesDb({ c } as Ctx),
+  }));
+  const abierto = enHorarioDeAtencion(ahora, noLaborables);
+  const total = { eventos: 0, enviados: 0, fallidos: 0, enEspera: 0 };
   for (const id of ids) {
     await db.transaccion(async (c) => {
       const ev = (await c.query<{ id: string; tipo: string; cliente_id: string | null; payload: Record<string, unknown> }>(
@@ -4336,7 +4345,12 @@ export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number 
           return;
         }
       }
+      let esperan = false;
       for (const m of await prepararCorreosDb(ctx, { id: Number(ev.id), tipo: ev.tipo, clienteId: ev.cliente_id, datos: ev.payload })) {
+        if (!m.alEquipo && !abierto) {
+          esperan = true;
+          continue;
+        }
         try {
           const messageId = await enviar({ para: m.para, nombre: m.nombre ?? null, asunto: m.asunto, html: m.html, texto: m.texto });
           await c.query("UPDATE correo_enviado SET estado = 'ENVIADO', ses_message_id = $2, error = NULL, enviado_en = now() WHERE id = $1", [m.id, messageId]);
@@ -4348,12 +4362,15 @@ export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number 
         }
       }
       await c.query("RESET ROLE");
-      await c.query(
-        error
-          ? "UPDATE outbox_evento SET correos_intentos = correos_intentos + 1, correos_error = $2 WHERE id = $1"
-          : "UPDATE outbox_evento SET correos_procesados_en = now(), correos_intentos = correos_intentos + 1, correos_error = NULL WHERE id = $1",
-        error ? [ev.id, error] : [ev.id],
-      );
+      if (error) {
+        await c.query("UPDATE outbox_evento SET correos_intentos = correos_intentos + 1, correos_error = $2 WHERE id = $1", [ev.id, error]);
+      } else if (esperan) {
+        // Los del cliente salen en la siguiente apertura; lo del equipo ya salió y no se repite.
+        total.enEspera++;
+        await c.query("UPDATE outbox_evento SET correos_programado_para = $2, correos_error = NULL WHERE id = $1", [ev.id, siguienteApertura(ahora, noLaborables).toISOString()]);
+      } else {
+        await c.query("UPDATE outbox_evento SET correos_procesados_en = now(), correos_intentos = correos_intentos + 1, correos_error = NULL WHERE id = $1", [ev.id]);
+      }
     });
   }
   return total;
