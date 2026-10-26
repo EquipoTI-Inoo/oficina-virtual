@@ -3114,13 +3114,41 @@ paths:
               schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
         '502': { description: 'IA_NO_DISPONIBLE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
 
+  /servicios-contratados/{servicioContratadoId}/taller-web/bocetos:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Taller web]
+      operationId: generarBocetoWeb
+      summary: 'Captura de la propuesta visual de una página (paso 3): Claude escribe su HTML siguiendo la plantilla de 21st.dev y el navegador lo fotografía. Rehacerla reemplaza la anterior de esa página y dispositivo (sin aprobar). Sin IA o navegador reales, de relleno'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paginaId]
+              properties:
+                paginaId: { type: string }
+                dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
+      responses:
+        '201':
+          description: Captura agregada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
+        '409': { description: 'TALLER_SIN_FLUJOGRAMA o LIMITE_BOCETOS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: 'IA_NO_DISPONIBLE o NAVEGADOR_NO_DISPONIBLE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
   /servicios-contratados/{servicioContratadoId}/taller-web/documento:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
       tags: [Taller web]
       operationId: generarDocumentoWeb
-      summary: 'Arma el PDF «Benchmark y flujograma» y lo deja como entregable (o nueva versión) de la etapa Arquitectura y benchmark, EN_PREPARACION. Se envía al cliente con POST /entregables/{id}/enviar'
+      summary: 'Arma el PDF (alcance, benchmark, flujograma y las capturas aprobadas) y lo deja como entregable (o nueva versión) de la etapa Arquitectura y benchmark, EN_PREPARACION. Se envía al cliente con POST /entregables/{id}/enviar'
       x-roles: [EQUIPO]
       requestBody:
         content:
@@ -3143,7 +3171,7 @@ paths:
     post:
       tags: [Taller web]
       operationId: generarPantallaPrototipo
-      summary: 'Genera una pantalla en Stitch desde el prompt (el guardado o el sugerido por el flujograma). El paso a Figma lo hace una persona. Sin STITCH_API_KEY, pantalla de relleno'
+      summary: 'Genera en Stitch desde el prompt (el guardado o el estándar del flujograma): una pantalla o, con alcance SITIO, todo el sitio en un solo prompt. El paso a Figma lo hace una persona. Sin STITCH_API_KEY, pantalla de relleno'
       x-roles: [EQUIPO]
       requestBody:
         content:
@@ -3151,8 +3179,9 @@ paths:
             schema:
               type: object
               properties:
-                prompt: { type: string, maxLength: 4000, description: 'Sin prompt (o vacío), el estándar armado desde el flujograma' }
-                paginaId: { type: string, description: 'Página del flujograma a diseñar; por defecto, la de entrada' }
+                prompt: { type: string, maxLength: 30000, description: 'Sin prompt (o vacío), el estándar armado desde el flujograma y la plantilla de 21st.dev. Con Stitch real, antes se crea el sistema de diseño del proyecto con el DESIGN.md (designMd)' }
+                alcance: { type: string, enum: [PAGINA, SITIO], default: PAGINA, description: 'SITIO: todas las páginas del flujograma en un solo prompt; Stitch puede devolver varias pantallas y se guardan hasta el tope' }
+                paginaId: { type: string, description: 'Página del flujograma a diseñar (con alcance PAGINA); por defecto, la de entrada' }
                 dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
       responses:
         '201':
@@ -4085,7 +4114,7 @@ components:
     TallerWeb:
       type: object
       description: 'Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables'
-      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, documento, demoEntregable, demos, modos, actualizadoEn]
+      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
       properties:
         servicioContratadoId: { type: string, format: uuid }
         servicioTitulo: { type: string }
@@ -4121,12 +4150,15 @@ components:
         flujograma: { type: array, items: { $ref: '#/components/schemas/PaginaFlujograma' } }
         prototipo:
           type: object
-          required: [prompt, promptSugerido, proyectoStitch, pantallas]
+          required: [prompt, promptSugerido, proyectoStitch, pantallas, designMd]
           properties:
             prompt: { type: [string, 'null'] }
             promptSugerido: { type: string, description: 'Prompt estándar (lo arma el código, no la IA) para la página de entrada en escritorio. El portal lo vuelve a armar en pantalla con dominio/taller-web.ts promptStitch() para la página y el dispositivo elegidos' }
             proyectoStitch: { type: [string, 'null'] }
             pantallas: { type: array, items: { $ref: '#/components/schemas/PantallaPrototipo' } }
+            designMd: { type: string, description: 'El contenido del PDF en markdown, con la plantilla de 21st.dev: va a Stitch como sistema de diseño del proyecto (create_design_system)' }
+        plantilla: { oneOf: [ { $ref: '#/components/schemas/PlantillaWeb' }, { type: 'null' } ] }
+        bocetos: { type: array, items: { $ref: '#/components/schemas/BocetoWeb' }, description: 'Capturas de la propuesta visual, en el orden del flujograma' }
         documento: { oneOf: [ { $ref: '#/components/schemas/ResumenEntregableTaller' }, { type: 'null' } ], description: Entregable «Benchmark y flujograma» }
         demoEntregable: { oneOf: [ { $ref: '#/components/schemas/ResumenEntregableTaller' }, { type: 'null' } ], description: Entregable PROTOTIPO con la última demo }
         demos: { type: array, items: { $ref: '#/components/schemas/DemoWeb' } }
@@ -4159,7 +4191,29 @@ components:
         hallazgos: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/PuntoTaller' } }
         recomendaciones: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/PuntoTaller' } }
         flujograma: { type: array, maxItems: 40, items: { $ref: '#/components/schemas/PaginaFlujograma' } }
-        promptPrototipo: { type: [string, 'null'], maxLength: 4000 }
+        promptPrototipo: { type: [string, 'null'], maxLength: 30000 }
+        plantilla: { oneOf: [ { $ref: '#/components/schemas/PlantillaWeb' }, { type: 'null' } ] }
+        bocetosAprobados: { type: array, items: { type: string }, description: 'Ids de las capturas que van al PDF; las demás quedan sin aprobar' }
+    PlantillaWeb:
+      type: object
+      required: [url, prompt]
+      description: 'La plantilla de 21st.dev que pega el equipo: su prompt o su código y el enlace'
+      properties:
+        url: { type: [string, 'null'] }
+        prompt: { type: string, maxLength: 12000 }
+    BocetoWeb:
+      type: object
+      required: [id, paginaId, nombre, dispositivo, imagenUrl, htmlUrl, aprobado, simulada, creadaEn]
+      properties:
+        id: { type: string }
+        paginaId: { type: string }
+        nombre: { type: string }
+        dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
+        imagenUrl: { type: string }
+        htmlUrl: { type: [string, 'null'], description: El HTML que se fotografió }
+        aprobado: { type: boolean, description: Solo las aprobadas van al PDF }
+        simulada: { type: boolean }
+        creadaEn: { type: string, format: date-time }
     ResultadoTallerWeb:
       type: object
       required: [taller, avisos, simulado]

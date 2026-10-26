@@ -49,7 +49,14 @@ export const LIMITES_TALLER = {
   recomendaciones: 6,
   paginas: 40,
   seccionesPorPagina: 12,
-  promptPrototipo: 4000,
+  /** Alcanza para el prompt de todo el sitio (todas las páginas en uno) con la plantilla de 21st.dev. */
+  promptPrototipo: 30000,
+  /** Prompt o código de la plantilla de 21st.dev que pega el equipo. */
+  plantilla: 12000,
+  /** De la plantilla, lo que entra en el prompt de Stitch (la completa va a las capturas). */
+  plantillaEnStitch: 6000,
+  /** Capturas de la propuesta visual (una por página y dispositivo). */
+  bocetos: 24,
   /** Pantallas de Stitch por proyecto (cada una gasta créditos diarios de Stitch). */
   pantallas: 12,
   /** Vigencia del link de la demo (decisión del 10 oct: vence por días). */
@@ -64,6 +71,7 @@ export const LIMITES_TALLER = {
   tokensSintesis: 1400,
   tokensFlujograma: 2600,
   tokensDemo: 14000,
+  tokensBoceto: 12000,
 };
 
 // ───────────────────────────── tipos
@@ -87,6 +95,15 @@ export interface PaginaFlujo { id: string; titulo: string; descripcion: string; 
 /** `paginaId` y `prompt`: la página del flujograma que se diseñó y el prompt exacto que recibió Stitch. */
 export interface PantallaPrototipo { id: string; nombre: string; dispositivo: Dispositivo; imagenUrl: string; conHtml: boolean; simulada: boolean; creadaEn: string; paginaId?: string | null; prompt?: string }
 export interface Prototipo { prompt: string | null; proyectoStitch: string | null; pantallas: PantallaPrototipo[] }
+
+/** La plantilla de 21st.dev que el equipo elige y pega (su prompt o su código, y el enlace). */
+export interface Plantilla { url: string | null; prompt: string }
+
+/**
+ * Captura de la propuesta visual (paso 3, 26 oct): Claude escribe el HTML de la página siguiendo la plantilla
+ * de 21st.dev y el navegador la fotografía. El equipo la revisa; solo las aprobadas van al PDF.
+ */
+export interface Boceto { id: string; paginaId: string; nombre: string; dispositivo: Dispositivo; imagenUrl: string; htmlUrl: string | null; aprobado: boolean; simulada: boolean; creadaEn: string }
 
 /** Lo que el taller sabe del proyecto: brief web, resumen de la reunión de brief, alcance y marca. */
 export interface Insumos {
@@ -177,6 +194,8 @@ export interface EdicionTaller {
   recomendaciones: Punto[];
   flujograma: PaginaFlujo[];
   promptPrototipo: string | null;
+  plantilla: Plantilla | null;
+  bocetosAprobados: string[];
 }
 
 const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -251,6 +270,18 @@ export function validarEdicion(b: Record<string, unknown>, dimensiones: Dimensio
   });
   const prompt = b.promptPrototipo === undefined || b.promptPrototipo === null ? null : texto(b.promptPrototipo);
   if (prompt !== null && prompt.length > LIMITES_TALLER.promptPrototipo) errores.push({ campo: "promptPrototipo", mensaje: `Hasta ${LIMITES_TALLER.promptPrototipo} caracteres` });
+  // La plantilla de 21st.dev: su prompt (o código) y, si se pega, el enlace.
+  let plantilla: Plantilla | null = null;
+  if (b.plantilla !== undefined && b.plantilla !== null) {
+    const x = b.plantilla as Record<string, unknown>;
+    const pr = texto(x?.prompt);
+    const url = texto(x?.url) ? normalizarUrl(x.url) : null;
+    if (pr.length > LIMITES_TALLER.plantilla) errores.push({ campo: "plantilla.prompt", mensaje: `Hasta ${LIMITES_TALLER.plantilla} caracteres` });
+    if (texto(x?.url) && !url) errores.push({ campo: "plantilla.url", mensaje: "Pega el enlace de la plantilla (https://21st.dev/…)" });
+    plantilla = pr || url ? { url, prompt: pr } : null;
+  }
+  const aprobados = b.bocetosAprobados === undefined ? [] : b.bocetosAprobados;
+  if (!Array.isArray(aprobados) || aprobados.some((x) => typeof x !== "string")) errores.push({ campo: "bocetosAprobados", mensaje: "La lista de capturas aprobadas" });
   return {
     errores,
     datos: {
@@ -259,6 +290,8 @@ export function validarEdicion(b: Record<string, unknown>, dimensiones: Dimensio
       recomendaciones: validarPuntos(b.recomendaciones, "recomendaciones", LIMITES_TALLER.recomendaciones, errores),
       flujograma: b.flujograma === undefined ? [] : validarFlujograma(b.flujograma, errores),
       promptPrototipo: prompt || null,
+      plantilla,
+      bocetosAprobados: Array.isArray(aprobados) ? (aprobados as string[]) : [],
     },
   };
 }
@@ -414,16 +447,53 @@ export const paginaParaPrompt = (flujograma: PaginaFlujo[], paginaId?: string | 
  *   5. Tener en cuenta (recomendaciones)  6. Reglas
  * Las partes sin datos se omiten; el equipo puede editar el resultado antes de enviarlo.
  */
-export function promptStitch(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], opciones: { paginaId?: string | null; dispositivo?: Dispositivo } = {}): string {
+export function promptStitch(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], opciones: { paginaId?: string | null; dispositivo?: Dispositivo; plantilla?: Plantilla | null } = {}): string {
   const pagina = paginaParaPrompt(flujograma, opciones.paginaId);
   const dispositivo = opciones.dispositivo ?? "ESCRITORIO";
+  const padre = pagina?.padreId ? flujograma.find((p) => p.id === pagina.padreId) : null;
+  return armarPrompt(insumos, flujograma, recomendaciones, bloque("Pantalla a diseñar", pagina ? [
+    `Página: ${pagina.titulo}${padre ? ` (se llega desde ${padre.titulo})` : ""}${pagina.descripcion ? ` — ${pagina.descripcion}` : ""}.`,
+    `Dispositivo: ${ANCHO[dispositivo]}.`,
+    pagina.secciones.length ? "Secciones, de arriba hacia abajo:" : null,
+    ...pagina.secciones.map((s, i) => `${i + 1}. ${s}`),
+  ] : []), ["- Usa solo las secciones listadas, en ese orden."], opciones.plantilla);
+}
+
+/**
+ * Todo el sitio en un solo prompt (26 oct): la misma estructura estándar, pero con todas las páginas del
+ * flujograma, en orden, cada una con sus secciones. Stitch lo recibe de una vez y diseña el sitio completo
+ * con un solo sistema visual.
+ */
+export function promptStitchSitio(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], opciones: { dispositivo?: Dispositivo; plantilla?: Plantilla | null } = {}): string {
+  const dispositivo = opciones.dispositivo ?? "ESCRITORIO";
+  const titulo = (id: string | null) => flujograma.find((p) => p.id === id)?.titulo;
+  const paginas = flujograma.map((p, i) => [
+    `## ${i + 1}. ${p.titulo}${p.descripcion ? ` — ${p.descripcion}` : ""}`,
+    p.nivel === 0 ? "Página de entrada." : titulo(p.padreId) ? `Se llega desde ${titulo(p.padreId)}.` : null,
+    ...(p.secciones.length ? ["Secciones, de arriba hacia abajo:", ...p.secciones.map((s, j) => `${j + 1}. ${s}`)] : []),
+  ].filter(Boolean).join("\n"));
+  return armarPrompt(insumos, flujograma, recomendaciones, bloque("Pantallas a diseñar", [
+    `Sitio completo: ${flujograma.length} ${flujograma.length === 1 ? "pantalla" : "pantallas"}, una por página, en este orden.`,
+    `Dispositivo: ${ANCHO[dispositivo]}.`,
+    ...paginas.map((x) => `\n${x}`),
+  ]), [
+    "- Diseña una pantalla por cada página listada, con el nombre de la página como título de la pantalla.",
+    "- Un solo sistema visual en todo el sitio: mismos colores, tipografías, botones, encabezado y pie de página.",
+    "- En cada pantalla usa solo las secciones listadas para esa página, en ese orden.",
+  ], opciones.plantilla);
+}
+
+const recortar = (s: string, max: number) => (s.length > max ? `${s.slice(0, max).trimEnd()}…` : s);
+
+function bloque(titulo: string, lineas: (string | null | false | undefined)[]) {
+  const xs = lineas.filter(Boolean) as string[];
+  return xs.length ? [`# ${titulo}`, ...xs].join("\n") : null;
+}
+
+/** Proyecto, marca y navegación, luego lo que se diseña, las recomendaciones y las reglas. */
+function armarPrompt(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], diseno: string | null, reglas: string[], plantilla?: Plantilla | null): string {
   const hijos = (id: string) => flujograma.filter((p) => p.padreId === id);
   const menu = flujograma.filter((p) => p.nivel === 1);
-  const padre = pagina?.padreId ? flujograma.find((p) => p.id === pagina.padreId) : null;
-  const bloque = (titulo: string, lineas: (string | null | false | undefined)[]) => {
-    const xs = lineas.filter(Boolean) as string[];
-    return xs.length ? [`# ${titulo}`, ...xs].join("\n") : null;
-  };
   return [
     bloque("Proyecto", [
       `Sitio: ${TIPO_WEB[insumos.variante ?? ""] ?? "Sitio web"} para ${insumos.marca}${insumos.cms ? ` (${insumos.cms.charAt(0)}${insumos.cms.slice(1).toLowerCase()})` : ""}.`,
@@ -440,21 +510,65 @@ export function promptStitch(insumos: Insumos, flujograma: PaginaFlujo[], recome
       menu.length ? `Menú principal: ${menu.map((p) => p.titulo).join(", ")}.` : null,
       ...menu.filter((p) => hijos(p.id).length).map((p) => `- ${p.titulo} → ${hijos(p.id).map((h) => h.titulo).join(", ")}`),
     ]),
-    bloque("Pantalla a diseñar", pagina ? [
-      `Página: ${pagina.titulo}${padre ? ` (se llega desde ${padre.titulo})` : ""}${pagina.descripcion ? ` — ${pagina.descripcion}` : ""}.`,
-      `Dispositivo: ${ANCHO[dispositivo]}.`,
-      pagina.secciones.length ? "Secciones, de arriba hacia abajo:" : null,
-      ...pagina.secciones.map((s, i) => `${i + 1}. ${s}`),
-    ] : []),
+    diseno,
     bloque("Tener en cuenta", recomendaciones.map((r) => `- ${r.titulo}${r.texto ? `: ${r.texto}` : ""}`)),
+    plantilla && bloque("Plantilla de referencia (21st.dev)", [
+      plantilla.url && `Enlace: ${plantilla.url}`,
+      plantilla.prompt && "Toma de aquí el estilo y los componentes (es la misma plantilla de las capturas aprobadas):",
+      plantilla.prompt && recortar(plantilla.prompt, LIMITES_TALLER.plantillaEnStitch),
+    ]),
     bloque("Reglas", [
-      "- Usa solo las secciones listadas, en ese orden.",
+      ...reglas,
       "- Encabezado con el menú principal y pie de página con los datos de contacto.",
       "- Textos reales en español, sobre la marca. Nada de lorem ipsum.",
       "- Diseño limpio, con buena jerarquía y llamados a la acción visibles.",
     ]),
   ].filter(Boolean).join("\n\n");
 }
+
+// ───────────────────────────── capturas de la propuesta visual (paso 3)
+
+export const SISTEMA_BOCETO = `Eres diseñador UI y desarrollador front-end senior de una agencia digital de Lima. Diseñas UNA página de un sitio web como un solo archivo HTML que luego se fotografía para mostrarla al cliente.
+Reglas:
+- Toma como base visual la plantilla de 21st.dev que te pasan (su estilo, su composición y sus componentes), adaptada a la marca: sus colores, tipografías y tono.
+- Solo las secciones listadas, en ese orden, con encabezado (menú principal) y pie de página.
+- Puedes usar Tailwind por CDN (<script src="https://cdn.tailwindcss.com"></script>) y Google Fonts. Nada de React ni de otros scripts.
+- Textos reales en español sobre la marca (nada de lorem ipsum). Imágenes: degradados o bloques de color con forma, no enlaces a bancos de imágenes.
+- Sin comentarios, sin meta generator y sin mencionar IA, 21st.dev ni ninguna herramienta.
+- Responde SOLO con el HTML, empezando por <!doctype html>.`;
+
+export function mensajeBoceto(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], paginaId: string, dispositivo: Dispositivo, plantilla: Plantilla | null): string {
+  const base = promptStitch(insumos, flujograma, recomendaciones, { paginaId, dispositivo });
+  const ref = plantilla ? `\n\n# Plantilla de 21st.dev\n${plantilla.url ? `Enlace: ${plantilla.url}\n` : ""}${plantilla.prompt}` : "";
+  return `${base}${ref}`;
+}
+
+/**
+ * El contenido del PDF en markdown, como DESIGN.md del proyecto de Stitch (create_design_system → designMd).
+ * Stitch no recibe archivos por su API: así le llega lo mismo que lee el cliente, más la plantilla de 21st.dev.
+ */
+export function designMdStitch(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], plantilla: Plantilla | null): string {
+  const filas = (xs: [string, string | null | undefined][]) => xs.filter(([, v]) => v).map(([k, v]) => `- **${k}:** ${v}`);
+  return [
+    `# ${insumos.marca} · sitio web`,
+    "## Proyecto",
+    ...filas([
+      ["Tipo", TIPO_WEB[insumos.variante ?? ""] ?? "Sitio web"], ["Objetivo", insumos.objetivo], ["Público", insumos.publico], ["Alcance", insumos.alcance],
+      ["CMS", insumos.cms], ["Secciones pedidas", insumos.secciones.join(", ")],
+    ]),
+    "## Marca",
+    ...filas([
+      ["Mensaje central", insumos.mensajeCentral], ["Tono", insumos.tono], ["Paleta", insumos.paleta?.join(", ")], ["Tipografías", insumos.tipografias?.join(", ")],
+    ]),
+    "## Flujograma",
+    ...flujograma.map((p) => `${"  ".repeat(p.nivel)}- **${p.titulo}**${p.descripcion ? ` — ${p.descripcion}` : ""}${p.secciones.length ? `: ${p.secciones.join(" · ")}` : ""}`),
+    ...(recomendaciones.length ? ["## Recomendaciones UX", ...recomendaciones.map((r) => `- **${r.titulo}:** ${r.texto}`)] : []),
+    ...(plantilla ? ["## Plantilla de referencia (21st.dev)", ...(plantilla.url ? [plantilla.url] : []), ...(plantilla.prompt ? ["", recortar(plantilla.prompt, LIMITES_TALLER.plantillaEnStitch)] : [])] : []),
+  ].join("\n");
+}
+
+/** Huella corta de un texto (para saber si el DESIGN.md cambió y hay que volver a subirlo a Stitch). */
+export const huella = (s: string) => hash(s).toString(16);
 
 /** El JSON de la respuesta, aunque venga entre ``` o con texto alrededor. */
 export function interpretarJson<T>(t: string): T | null {
@@ -612,6 +726,10 @@ export function pantallaSimulada(pagina: PaginaFlujo | undefined, marca: string,
 
 export interface DatosInforme {
   marca: string;
+  /** Lo que se sacó del brief: va en la hoja de alcance. */
+  insumos?: Insumos;
+  /** Las capturas aprobadas, con su `src` ya resuelto. */
+  bocetos?: { titulo: string; secciones: string[]; dispositivo: Dispositivo; src: string }[];
   dominio: string | null;
   dimensiones: Dimension[];
   /** Las capturas con su `src` ya resuelto (data: URI) para que el PDF no dependa de la red. */
@@ -655,7 +773,21 @@ export function informeHtml(d: DatosInforme): string {
     ? `<section class="hoja"><span class="et">Flujograma de navegación</span><h2>Páginas por nivel</h2>${niveles.map((xs, n) => `<div class="nivel"><span class="nn">Nivel ${n} — ${nombresNivel[n]}</span><div class="cajas">${xs.map((p) => `<div class="caja n${n}"><strong>${esc(p.titulo)}</strong>${p.descripcion ? `<span>${esc(p.descripcion)}</span>` : ""}${p.padreId ? `<em>desde ${esc(d.flujograma.find((x) => x.id === p.padreId)?.titulo ?? "")}</em>` : ""}</div>`).join("")}</div></div>`).join("")}${pie}</section>
 <section class="hoja"><span class="et">Flujograma estructural</span><h2>Secciones de cada página</h2><div class="estructura">${d.flujograma.map((p) => `<div class="pag"><strong>${esc(p.titulo)}</strong><ol>${p.secciones.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></div>`).join("")}</div>${pie}</section>`
     : "";
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Benchmark y flujograma · ${esc(d.marca)}</title><style>
+  const i = d.insumos;
+  const datoAlcance = (k: string, v: string | null | undefined) => (v ? `<div class="dato"><span>${esc(k)}</span><p>${esc(v)}</p></div>` : "");
+  const alcance = i
+    ? `<section class="hoja"><span class="et">Alcance</span><h2>Lo que vamos a construir</h2><div class="datos">${[
+      datoAlcance("Tipo de sitio", TIPO_WEB[i.variante ?? ""] ?? "Sitio web"), datoAlcance("Objetivo", i.objetivo), datoAlcance("Público", i.publico), datoAlcance("Alcance", i.alcance),
+      datoAlcance("Plataforma", i.cms ? `${i.cms.charAt(0)}${i.cms.slice(1).toLowerCase()}` : null), datoAlcance("Secciones pedidas", i.secciones.join(", ") || null),
+      datoAlcance("Mensaje central", i.mensajeCentral), datoAlcance("Tono", i.tono), datoAlcance("Tipografías", i.tipografias?.join(", ") || null),
+    ].join("")}</div>${i.paleta?.length ? `<div class="paleta">${i.paleta.map((c) => `<span style="background:${esc(c)}"><em>${esc(c)}</em></span>`).join("")}</div>` : ""}${pie}</section>`
+    : "";
+  const bocetos = (d.bocetos ?? []).map((x, n) => `<section class="hoja boceto"><span class="et">Propuesta visual · ${n + 1}</span><h2>${esc(x.titulo)}</h2><div class="lienzo ${x.dispositivo === "MOVIL" ? "movil" : ""}"><img src="${x.src}" alt=""></div>${x.secciones.length ? `<p class="secs">${x.secciones.map(esc).join(" · ")}</p>` : ""}${pie}</section>`).join("");
+  const numero = (() => {
+    let n = 0;
+    return () => String(++n).padStart(2, "0");
+  })();
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${d.bocetos?.length ? "Propuesta web" : "Benchmark y flujograma"} · ${esc(d.marca)}</title><style>
 @page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;font-family:"Helvetica Neue",Arial,sans-serif;color:#1d2433;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .hoja{width:297mm;height:210mm;padding:16mm 18mm 14mm;position:relative;page-break-after:always;overflow:hidden;background:#fff}
 .portada{background:#14213d;color:#fff;display:flex;flex-direction:column;justify-content:center}.portada h1{font-size:64px;margin:0}.portada .num{font-size:22px;opacity:.6}
@@ -669,10 +801,15 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid 
 .puntos{display:grid;grid-template-columns:1fr 1fr;gap:8mm}.puntos h3{margin:0 0 4px;font-size:16px;color:#14213d}.puntos p{margin:0;font-size:13px;line-height:1.5;color:#334155}
 .nivel{margin-bottom:6mm}.nn{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase}.cajas{display:flex;flex-wrap:wrap;gap:4mm;margin-top:2mm}.caja{border-radius:8px;padding:6px 10px;min-width:40mm;max-width:62mm;display:flex;flex-direction:column;gap:2px;font-size:11px;border:1px solid #cbd5e1}.caja strong{font-size:13px}.caja em{color:#94a3b8;font-size:10px}.n0{background:#14213d;color:#fff;border:0}.n1{background:#e76f51;color:#fff;border:0}.n2{background:#fff4ec}.n3{background:#f8fafc}
 .estructura{display:grid;grid-template-columns:repeat(4,1fr);gap:5mm}.pag{border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:11px}.pag strong{font-size:13px;color:#14213d}.pag ol{margin:4px 0 0;padding-left:16px}
+.datos{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6mm 10mm}.dato span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b}.dato p{margin:2px 0 0;font-size:13px;line-height:1.45}
+.paleta{display:flex;gap:4mm;margin-top:8mm}.paleta span{width:28mm;height:18mm;border-radius:6px;border:1px solid #e2e8f0;display:flex;align-items:flex-end;padding:3px 5px}.paleta em{font-size:9px;font-style:normal;background:#fff;border-radius:3px;padding:0 3px}
+.boceto h2{margin-bottom:6mm}.lienzo{height:140mm;display:flex;justify-content:center}.lienzo img{height:100%;max-width:100%;object-fit:cover;object-position:top;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 18px #0001}.lienzo.movil img{width:70mm}.secs{font-size:11px;color:#64748b;margin:4mm 0 0}
 </style></head><body>
-${conBenchmark ? `${portada("01", "Benchmark")}
+${alcance ? `${portada(numero(), "Alcance")}${alcance}` : ""}
+${conBenchmark ? `${portada(numero(), "Benchmark")}
 <section class="hoja"><span class="et">Benchmark</span><h2>Competencia y referencias</h2><p class="intro">Este análisis cruza las necesidades del proyecto conversadas en la reunión de brief con lo que hoy ofrecen los sitios de referencia, y evalúa su identidad, su estructura y su experiencia de uso en escritorio y en el celular.</p>${pie}</section>` : ""}
 ${fichas}${scorecard}${puntos("Hallazgos clave", "Lo que el mercado no está haciendo bien", d.hallazgos)}${puntos("Recomendaciones", "Recomendaciones UX prioritarias", d.recomendaciones)}
-${d.flujograma.length ? portada(conBenchmark ? "02" : "01", "Flujograma") : ""}${navegacion}
+${d.flujograma.length ? portada(numero(), "Flujograma") : ""}${navegacion}
+${bocetos ? `${portada(numero(), "Propuesta visual")}${bocetos}` : ""}
 </body></html>`;
 }

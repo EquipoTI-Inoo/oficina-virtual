@@ -156,8 +156,78 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       const propio = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { prompt: "Una landing minimalista", paginaId: "contacto" });
       assert.equal(propio.json.taller.prototipo.pantallas[2].prompt, "Una landing minimalista", "el prompt editado a mano va tal cual");
       assert.deepEqual((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { paginaId: "no-existe" })).json.errores.map((e: any) => e.campo), ["paginaId"]);
-      const largo = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { prompt: "x".repeat(4001) });
+      const largo = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { prompt: "x".repeat(30_001) });
       assert.equal(largo.status, 422);
+    });
+
+    test("prototipo de todo el sitio: un solo prompt con todas las páginas y una pantalla por página, hasta el tope", async () => {
+      await reiniciar();
+      await llamar("POST", `${RUTA}/flujograma`, DIEGO);
+      const flujo = (await llamar("GET", RUTA, DIEGO)).json.flujograma as { id: string; titulo: string }[];
+      const r = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO", paginaId: "no-existe" });
+      assert.equal(r.status, 201, "con SITIO no se valida la página");
+      const ps = r.json.taller.prototipo.pantallas as { nombre: string; paginaId: string; prompt: string }[];
+      assert.deepEqual(ps.map((x) => x.paginaId), flujo.map((x) => x.id));
+      assert.deepEqual(ps.map((x) => x.nombre), flujo.map((x) => `${x.titulo} · escritorio`));
+      assert.equal(new Set(ps.map((x) => x.prompt)).size, 1, "todas salen del mismo prompt");
+      assert.match(ps[0].prompt, /# Pantallas a diseñar\nSitio completo: \d+ pantallas/);
+      for (const x of flujo) assert.ok(ps[0].prompt.includes(`. ${x.titulo}`), x.titulo);
+
+      // Lo que no cabe en el tope no se guarda.
+      while ((await llamar("GET", RUTA, DIEGO)).json.prototipo.pantallas.length < 10) await llamar("POST", `${RUTA}/prototipo`, DIEGO);
+      const tope = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO" });
+      assert.equal(tope.json.taller.prototipo.pantallas.length, 12);
+      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO" })).json.codigo, "LIMITE_PANTALLAS");
+    });
+
+    test("capturas con la plantilla de 21st.dev: se aprueban, van al PDF con el alcance y la plantilla llega a Stitch", async () => {
+      await reiniciar();
+      assert.equal((await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: "inicio" })).json.codigo, "TALLER_SIN_FLUJOGRAMA");
+      await llamar("POST", `${RUTA}/flujograma`, DIEGO);
+      assert.deepEqual((await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: "no-existe" })).json.errores.map((e: any) => e.campo), ["paginaId"]);
+
+      let t = (await llamar("GET", RUTA, DIEGO)).json;
+      assert.equal(t.plantilla, null);
+      assert.deepEqual(t.bocetos, []);
+      const mala = await llamar("PUT", RUTA, DIEGO, { version: t.version, plantilla: { url: "no es un enlace", prompt: "x" } });
+      assert.deepEqual(mala.json.errores.map((e: any) => e.campo), ["plantilla.url"]);
+      const PROMPT_21 = "Hero split con imagen a la derecha, tarjetas con bordes suaves y CTA flotante";
+      t = (await llamar("PUT", RUTA, DIEGO, { version: t.version, plantilla: { url: "https://21st.dev/community/components/hero", prompt: PROMPT_21 } })).json;
+      assert.deepEqual(t.plantilla, { url: "https://21st.dev/community/components/hero", prompt: PROMPT_21 });
+
+      const b1 = await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: "inicio" });
+      assert.equal(b1.status, 201);
+      assert.equal(b1.json.simulado, true, "sin IA ni navegador reales: de relleno");
+      await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: "tienda" });
+      await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: "inicio", dispositivo: "MOVIL" });
+      const rehecha = await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: "tienda" });
+      t = rehecha.json.taller;
+      assert.deepEqual(t.bocetos.map((x: any) => [x.paginaId, x.dispositivo, x.aprobado]), [["inicio", "ESCRITORIO", false], ["inicio", "MOVIL", false], ["tienda", "ESCRITORIO", false]], "en el orden del flujograma; rehacer reemplaza");
+      assert.deepEqual(t.bocetos[0].nombre, "Inicio · escritorio");
+
+      const [inicio, , tienda] = t.bocetos;
+      t = (await llamar("PUT", RUTA, DIEGO, { version: t.version, bocetosAprobados: [inicio.id, tienda.id] })).json;
+      assert.deepEqual(t.bocetos.map((x: any) => x.aprobado), [true, false, true]);
+
+      const d = await llamar("POST", `${RUTA}/documento`, DIEGO);
+      assert.equal(d.status, 201);
+      const url = (await llamar("GET", `/entregables/${d.json.entregableId}`, DIEGO)).json.versiones.at(-1).url;
+      const html = String((await llamar("GET", `/publico/${tokenDe(url)}`)).json);
+      for (const x of ["Alcance", "Lo que vamos a construir", "Flujograma de navegación", "Propuesta visual", "Propuesta visual · 2"]) assert.ok(html.includes(x), x);
+      assert.ok(!html.includes("Propuesta visual · 3"), "solo las aprobadas");
+      assert.doesNotMatch(html.replace(/data:image\/[^"]+/g, ""), /21st|plantilla/i, "el cliente no ve la plantilla");
+      assert.doesNotMatch(html.replace(/data:image\/[^"]+/g, ""), RASTROS_IA);
+
+      // Stitch: el prompt estándar lleva la plantilla y el DESIGN.md, el contenido del PDF.
+      const p = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO" });
+      assert.match(p.json.taller.prototipo.pantallas[0].prompt, /# Plantilla de referencia \(21st\.dev\)\nEnlace: https:\/\/21st\.dev\/community\/components\/hero/);
+      assert.ok(p.json.taller.prototipo.pantallas[0].prompt.includes(PROMPT_21));
+      const md = p.json.taller.prototipo.designMd as string;
+      for (const x of ["## Proyecto", "## Marca", "## Flujograma", "**Inicio**", "## Plantilla de referencia (21st.dev)", PROMPT_21]) assert.ok(md.includes(x), x);
+
+      // Sin plantilla, el prompt no la menciona.
+      t = (await llamar("PUT", RUTA, DIEGO, { version: p.json.taller.version, plantilla: null })).json;
+      assert.doesNotMatch(t.prototipo.promptSugerido, /21st/);
     });
 
     test("demo: link que vence, sin indexar, aislada, limpia, con vistas y baja", async () => {

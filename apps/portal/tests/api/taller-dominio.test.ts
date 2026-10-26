@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
-  conNoindex, dimensionesPara, flujogramaSimulado, informeHtml, limpiarHtml, normalizarUrl, promptStitch, puntajeGlobal, referenciasDelBrief, validarDemo, validarFlujograma,
+  conNoindex, dimensionesPara, flujogramaSimulado, informeHtml, limpiarHtml, normalizarUrl, promptStitch, promptStitchSitio, designMdStitch, puntajeGlobal, referenciasDelBrief, validarDemo, validarFlujograma,
   type Insumos,
 } from "../../src/dominio/taller-web";
 import { dentroDelLimite, respuestaPublica } from "../../src/servidor/taller-web";
@@ -122,6 +122,42 @@ describe("taller web · dominio", () => {
     assert.match(c, /- Tienda → Ficha de producto, Bolsa de compras, Checkout/);
     assert.doesNotMatch(c, /# Marca|# Tener en cuenta/);
     assert.match(promptStitch(INSUMOS, flujo, [], { paginaId: "no-existe" }), /Página: Inicio/, "una página que no existe cae en la de entrada");
+  });
+
+  test("prompt de Stitch para todo el sitio: todas las páginas, en orden, en un solo prompt", () => {
+    const flujo = flujogramaSimulado(INSUMOS);
+    const p = promptStitchSitio(INSUMOS, flujo, [{ titulo: "Checkout corto", texto: "Compra en tres clics." }], { dispositivo: "MOVIL" });
+    assert.deepEqual(p.split("\n").filter((l) => l.startsWith("# ")), ["# Proyecto", "# Marca", "# Navegación del sitio", "# Pantallas a diseñar", "# Tener en cuenta", "# Reglas"]);
+    assert.match(p, /Sitio completo: 6 pantallas, una por página, en este orden\.\nDispositivo: móvil \(390 px de ancho\)\./);
+    assert.deepEqual(p.split("\n").filter((l) => l.startsWith("## ")), [
+      "## 1. Inicio — Presentación, propuesta de valor y destacados", "## 2. Tienda — Página de tienda", "## 3. Nosotros — Página de nosotros",
+      "## 4. Ficha de producto — Fotos, precio, variantes y compra", "## 5. Carrito — Resumen antes de pagar", "## 6. Checkout — Envío y pago en un solo paso",
+    ]);
+    assert.match(p, /## 1\. Inicio — [^\n]+\nPágina de entrada\.\nSecciones, de arriba hacia abajo:\n1\. Hero con propuesta de valor/);
+    assert.match(p, /## 4\. Ficha de producto — [^\n]+\nSe llega desde Tienda\.\nSecciones, de arriba hacia abajo:\n1\. Galería de fotos/);
+    assert.match(p, /- Diseña una pantalla por cada página listada/);
+    assert.match(p, /- Un solo sistema visual en todo el sitio/);
+    assert.doesNotMatch(p, /# Pantalla a diseñar\n/, "no es el prompt de una sola página");
+  });
+
+  test("plantilla de 21st.dev: entra recortada en el prompt de Stitch y completa en el DESIGN.md; el PDF trae alcance y capturas", () => {
+    const flujo = flujogramaSimulado(INSUMOS);
+    const plantilla = { url: "https://21st.dev/x/hero", prompt: `Hero con tarjetas ${"y más detalle ".repeat(600)}` };
+    const p = promptStitch(INSUMOS, flujo, [], { plantilla });
+    assert.deepEqual(p.split("\n").filter((l) => l.startsWith("# ")), ["# Proyecto", "# Marca", "# Navegación del sitio", "# Pantalla a diseñar", "# Plantilla de referencia (21st.dev)", "# Reglas"]);
+    assert.match(p, /Enlace: https:\/\/21st\.dev\/x\/hero/);
+    assert.ok(p.length < plantilla.prompt.length + 2000, "la plantilla se recorta");
+    assert.match(promptStitchSitio(INSUMOS, flujo, [], { plantilla }), /# Plantilla de referencia \(21st\.dev\)/);
+
+    const md = designMdStitch({ ...INSUMOS, paleta: ["#3F5547"] }, flujo, [{ titulo: "Checkout corto", texto: "Tres clics." }], plantilla);
+    for (const x of ["# Casa Oliva · sitio web", "- **Tipo:** E-commerce", "- **Paleta:** #3F5547", "  - **Tienda**", "## Recomendaciones UX", "## Plantilla de referencia (21st.dev)"]) assert.ok(md.includes(x), x);
+
+    const html = informeHtml({
+      marca: "Casa Oliva", dominio: null, dimensiones: [], referencias: [], hallazgos: [], recomendaciones: [], flujograma: flujo, fecha: "2026-10-26",
+      insumos: { ...INSUMOS, paleta: ["#3F5547"] }, bocetos: [{ titulo: "Inicio", secciones: ["Hero"], dispositivo: "ESCRITORIO", src: "data:image/png;base64,AA==" }],
+    });
+    for (const x of ["<title>Propuesta web · Casa Oliva</title>", ">Alcance<", "Vender en línea", "#3F5547", ">Propuesta visual<", "Propuesta visual · 1", ">01<", ">02<", ">03<"]) assert.ok(html.includes(x), x);
+    assert.doesNotMatch(html, /21st|plantilla/i);
   });
 
   test("demo: días de vigencia y HTML pegado", () => {

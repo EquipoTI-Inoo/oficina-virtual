@@ -2212,6 +2212,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/bocetos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Captura de la propuesta visual de una página (paso 3): Claude escribe su HTML siguiendo la plantilla de 21st.dev y el navegador lo fotografía. Rehacerla reemplaza la anterior de esa página y dispositivo (sin aprobar). Sin IA o navegador reales, de relleno */
+        post: operations["generarBocetoWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/taller-web/documento": {
         parameters: {
             query?: never;
@@ -2223,7 +2242,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Arma el PDF «Benchmark y flujograma» y lo deja como entregable (o nueva versión) de la etapa Arquitectura y benchmark, EN_PREPARACION. Se envía al cliente con POST /entregables/{id}/enviar */
+        /** Arma el PDF (alcance, benchmark, flujograma y las capturas aprobadas) y lo deja como entregable (o nueva versión) de la etapa Arquitectura y benchmark, EN_PREPARACION. Se envía al cliente con POST /entregables/{id}/enviar */
         post: operations["generarDocumentoWeb"];
         delete?: never;
         options?: never;
@@ -2242,7 +2261,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Genera una pantalla en Stitch desde el prompt (el guardado o el sugerido por el flujograma). El paso a Figma lo hace una persona. Sin STITCH_API_KEY, pantalla de relleno */
+        /** Genera en Stitch desde el prompt (el guardado o el estándar del flujograma): una pantalla o, con alcance SITIO, todo el sitio en un solo prompt. El paso a Figma lo hace una persona. Sin STITCH_API_KEY, pantalla de relleno */
         post: operations["generarPantallaPrototipo"];
         delete?: never;
         options?: never;
@@ -3126,7 +3145,12 @@ export interface components {
                 promptSugerido: string;
                 proyectoStitch: string | null;
                 pantallas: components["schemas"]["PantallaPrototipo"][];
+                /** @description El contenido del PDF en markdown, con la plantilla de 21st.dev: va a Stitch como sistema de diseño del proyecto (create_design_system) */
+                designMd: string;
             };
+            plantilla: components["schemas"]["PlantillaWeb"] | null;
+            /** @description Capturas de la propuesta visual, en el orden del flujograma */
+            bocetos: components["schemas"]["BocetoWeb"][];
             /** @description Entregable «Benchmark y flujograma» */
             documento: components["schemas"]["ResumenEntregableTaller"] | null;
             /** @description Entregable PROTOTIPO con la última demo */
@@ -3158,6 +3182,28 @@ export interface components {
             recomendaciones?: components["schemas"]["PuntoTaller"][];
             flujograma?: components["schemas"]["PaginaFlujograma"][];
             promptPrototipo?: string | null;
+            plantilla?: components["schemas"]["PlantillaWeb"] | null;
+            /** @description Ids de las capturas que van al PDF; las demás quedan sin aprobar */
+            bocetosAprobados?: string[];
+        };
+        /** @description La plantilla de 21st.dev que pega el equipo: su prompt o su código y el enlace */
+        PlantillaWeb: {
+            url: string | null;
+            prompt: string;
+        };
+        BocetoWeb: {
+            id: string;
+            paginaId: string;
+            nombre: string;
+            dispositivo: components["schemas"]["DispositivoWeb"];
+            imagenUrl: string;
+            /** @description El HTML que se fotografió */
+            htmlUrl: string | null;
+            /** @description Solo las aprobadas van al PDF */
+            aprobado: boolean;
+            simulada: boolean;
+            /** Format: date-time */
+            creadaEn: string;
         };
         ResultadoTallerWeb: {
             taller: components["schemas"]["TallerWeb"];
@@ -9668,6 +9714,54 @@ export interface operations {
             };
         };
     };
+    generarBocetoWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    paginaId: string;
+                    dispositivo?: components["schemas"]["DispositivoWeb"];
+                };
+            };
+        };
+        responses: {
+            /** @description Captura agregada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            /** @description TALLER_SIN_FLUJOGRAMA o LIMITE_BOCETOS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+            /** @description IA_NO_DISPONIBLE o NAVEGADOR_NO_DISPONIBLE */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     generarDocumentoWeb: {
         parameters: {
             query?: never;
@@ -9717,9 +9811,15 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
-                    /** @description Sin prompt (o vacío), el estándar armado desde el flujograma */
+                    /** @description Sin prompt (o vacío), el estándar armado desde el flujograma y la plantilla de 21st.dev. Con Stitch real, antes se crea el sistema de diseño del proyecto con el DESIGN.md (designMd) */
                     prompt?: string;
-                    /** @description Página del flujograma a diseñar; por defecto, la de entrada */
+                    /**
+                     * @description SITIO: todas las páginas del flujograma en un solo prompt; Stitch puede devolver varias pantallas y se guardan hasta el tope
+                     * @default PAGINA
+                     * @enum {string}
+                     */
+                    alcance?: "PAGINA" | "SITIO";
+                    /** @description Página del flujograma a diseñar (con alcance PAGINA); por defecto, la de entrada */
                     paginaId?: string;
                     dispositivo?: components["schemas"]["DispositivoWeb"];
                 };

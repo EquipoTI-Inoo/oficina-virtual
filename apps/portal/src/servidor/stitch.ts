@@ -19,6 +19,8 @@ export class ErrorStitch extends Error {}
 
 const CANDIDATOS = {
   crearProyecto: ["create_project"],
+  crearSistema: ["create_design_system"],
+  actualizarSistema: ["update_design_system"],
   generar: ["generate_screen_from_text", "generate_screen"],
   pantalla: ["get_screen"],
 };
@@ -90,10 +92,57 @@ async function descargar(url: string | null): Promise<Uint8Array | null> {
   return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
 }
 
-export interface PantallaStitch { proyectoId: string; pantallaId: string | null; imagen: Uint8Array | null; mime: string; html: string | null }
+export interface PantallaStitch { pantallaId: string | null; titulo: string | null; imagen: Uint8Array | null; mime: string; html: string | null }
 
-/** Crea (o reutiliza) el proyecto en Stitch y genera una pantalla desde el prompt. Puede tardar minutos. */
-export async function generarPantallaStitch(p: { titulo: string; prompt: string; dispositivo: "ESCRITORIO" | "MOVIL"; proyectoId: string | null }): Promise<PantallaStitch> {
+/** Cada objeto de la respuesta con su captura propia es una pantalla (con el prompt de todo el sitio vienen varias). */
+function pantallasDe(v: unknown, xs: Record<string, unknown>[] = []): Record<string, unknown>[] {
+  if (!v || typeof v !== "object") return xs;
+  const o = v as Record<string, unknown>;
+  const captura = o.screenshot as { downloadUrl?: string } | undefined;
+  if (captura && typeof captura === "object" && captura.downloadUrl) xs.push(o);
+  else for (const x of Object.values(o)) pantallasDe(x, xs);
+  return xs;
+}
+
+/**
+ * Crea (o reutiliza) el proyecto en Stitch y genera desde el prompt. Puede tardar minutos.
+ * Devuelve todas las pantallas que Stitch generó: una con el prompt de una página, varias con el del sitio.
+ */
+/** Fuentes que Stitch acepta en su sistema de diseño (las de la marca que no estén, van como Inter). */
+const FUENTES = new Set(["INTER", "MANROPE", "MONTSERRAT", "PLUS_JAKARTA_SANS", "DM_SANS", "LEXEND", "WORK_SANS", "RUBIK", "SORA", "OUTFIT", "RALEWAY", "OPEN_SANS", "KARLA",
+  "NUNITO_SANS", "PLAYFAIR_DISPLAY", "EB_GARAMOND", "MERRIWEATHER", "LITERATA", "NEWSREADER", "NOTO_SERIF", "NOTO_SANS", "BODONI_MODA", "SPACE_GROTESK", "SYNE", "OSWALD", "BEBAS_NEUE",
+  "IBM_PLEX_SANS", "IBM_PLEX_SERIF", "FIRA_SANS", "GEIST", "HANKEN_GROTESK", "LIBRE_FRANKLIN", "QUICKSAND", "EPILOGUE", "PUBLIC_SANS", "BE_VIETNAM_PRO", "ARIMO", "VOLLKORN", "DOMINE"]);
+const fuente = (nombre: string | undefined) => {
+  const k = (nombre ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return FUENTES.has(k) ? k : "INTER";
+};
+
+/**
+ * El sistema de diseño del proyecto con el DESIGN.md (el contenido del PDF y la plantilla de 21st.dev):
+ * create_design_system y luego update_design_system, como pide Stitch. Devuelve «assets/{id}» para usarlo al generar.
+ */
+async function crearSistema(proyectoId: string, s: SistemaStitch, elegir: (xs: string[]) => string, sesion: { id: string | null }): Promise<string> {
+  const designSystem = {
+    displayName: s.nombre,
+    theme: {
+      colorMode: "LIGHT", roundness: "ROUND_EIGHT", customColor: s.paleta[0] ?? "#14213D", headlineFont: fuente(s.tipografias[0]), bodyFont: fuente(s.tipografias[1] ?? s.tipografias[0]),
+      ...(s.paleta[1] ? { overrideSecondaryColor: s.paleta[1] } : {}), designMd: s.designMd,
+    },
+  };
+  const r = await llamarHerramienta(elegir(CANDIDATOS.crearSistema), { projectId: proyectoId, designSystem }, sesion);
+  const asset = buscar(r, (k, x) => (typeof x === "string" ? (x.match(/assets\/(\d+)/)?.[0] ?? null) : null)) ?? (typeof r === "string" ? (r.match(/assets\/(\d+)/)?.[0] ?? null) : null);
+  if (!asset) throw new ErrorStitch("Stitch no devolvió el id del sistema de diseño");
+  try {
+    await llamarHerramienta(elegir(CANDIDATOS.actualizarSistema), { projectId: proyectoId, name: asset, designSystem }, sesion);
+  } catch {
+    /* ya existe; el update solo lo muestra en la interfaz de Stitch */
+  }
+  return asset;
+}
+
+export interface SistemaStitch { nombre: string; designMd: string; huella: string; paleta: string[]; tipografias: string[]; actual: { asset: string; huella: string } | null }
+
+export async function generarPantallaStitch(p: { titulo: string; prompt: string; dispositivo: "ESCRITORIO" | "MOVIL"; proyectoId: string | null; sistema?: SistemaStitch }): Promise<{ proyectoId: string; pantallas: PantallaStitch[]; sistema: { asset: string; huella: string } | null; aviso: string | null }> {
   const sesion = { id: null as string | null };
   await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "oficina-virtual", version: "1.0" } }, sesion);
   const herramientas = (((await rpc("tools/list", {}, sesion)).tools as { name: string }[] | undefined) ?? []).map((t) => t.name);
@@ -107,14 +156,33 @@ export async function generarPantallaStitch(p: { titulo: string; prompt: string;
     proyectoId = idDe(await llamarHerramienta(elegir(CANDIDATOS.crearProyecto), { title: p.titulo }, sesion), "projectId", "projects");
     if (!proyectoId) throw new ErrorStitch("Stitch no devolvió el id del proyecto");
   }
-  let r = await llamarHerramienta(elegir(CANDIDATOS.generar), { projectId: proyectoId, prompt: p.prompt, deviceType: p.dispositivo === "MOVIL" ? "MOBILE" : "DESKTOP" }, sesion);
+  // El DESIGN.md se sube una vez por proyecto y otra vez solo si cambió (otro PDF, otra plantilla).
+  let sistema = p.sistema?.actual && p.sistema.actual.huella === p.sistema.huella && p.proyectoId === proyectoId ? p.sistema.actual : null;
+  let aviso: string | null = null;
+  if (p.sistema && !sistema) {
+    try {
+      sistema = { asset: await crearSistema(proyectoId, p.sistema, elegir, sesion), huella: p.sistema.huella };
+    } catch (e) {
+      aviso = `Stitch no aceptó el DESIGN.md (${(e as Error).message.slice(0, 160)}): la pantalla salió solo con el prompt.`;
+    }
+  }
+  let r = await llamarHerramienta(elegir(CANDIDATOS.generar), {
+    projectId: proyectoId, prompt: p.prompt, deviceType: p.dispositivo === "MOVIL" ? "MOBILE" : "DESKTOP", ...(sistema ? { designSystem: sistema.asset } : {}),
+  }, sesion);
   const pantallaId = idDe(r, "screenId", "screens");
   // Si la generación no trae los enlaces de descarga, se piden con get_screen.
   if (!descargaDe(r, ["screenshot"]) && pantallaId && herramientas.some((h) => CANDIDATOS.pantalla.includes(h))) {
     r = await llamarHerramienta(elegir(CANDIDATOS.pantalla), { projectId: proyectoId, screenId: pantallaId, name: `projects/${proyectoId}/screens/${pantallaId}` }, sesion);
   }
-  const imagen = await descargar(descargaDe(r, ["screenshot", "image"]));
-  const html = await descargar(descargaDe(r, ["htmlCode", "html"]));
-  if (!imagen && !html) throw new ErrorStitch("Stitch generó la pantalla pero no devolvió la imagen ni el HTML (puede que haya que abrir el proyecto una vez en stitch.withgoogle.com)");
-  return { proyectoId, pantallaId, imagen, mime: "image/png", html: html ? new TextDecoder().decode(html) : null };
+  const encontradas = pantallasDe(r);
+  const pantallas: PantallaStitch[] = [];
+  for (const x of encontradas.length ? encontradas : [r]) {
+    const imagen = await descargar(descargaDe(x, ["screenshot", "image"]));
+    const html = await descargar(descargaDe(x, ["htmlCode", "html"]));
+    if (!imagen && !html) continue;
+    const titulo = typeof (x as Record<string, unknown>)?.title === "string" ? ((x as Record<string, unknown>).title as string) : null;
+    pantallas.push({ pantallaId: idDe(x, "screenId", "screens") ?? pantallaId, titulo, imagen, mime: "image/png", html: html ? new TextDecoder().decode(html) : null });
+  }
+  if (!pantallas.length) throw new ErrorStitch("Stitch generó la pantalla pero no devolvió la imagen ni el HTML (puede que haya que abrir el proyecto una vez en stitch.withgoogle.com)");
+  return { proyectoId, pantallas, sistema, aviso };
 }

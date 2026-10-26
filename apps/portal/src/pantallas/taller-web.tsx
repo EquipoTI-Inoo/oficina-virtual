@@ -4,24 +4,26 @@
  * solo lo ve el equipo: aquí sí se nombran la IA y Stitch. Al cliente le llegan el PDF «Benchmark y
  * flujograma» y la demo como entregables, por el flujo de siempre (revisión interna → enviar).
  *
- * Pestañas: Benchmark (referencias, capturas, puntajes, hallazgos y recomendaciones) · Flujograma (de
- * navegación y estructural) · Prototipo (pantallas de Stitch; a Figma lo pasa una persona) · Demo (link
- * que vence, sin indexar, con vistas contadas).
+ * Pasos (26 oct): 1. Brief y benchmark (lo que se sacó del brief; referencias, puntajes, hallazgos y
+ * recomendaciones) · 2. Flujograma (de navegación y estructural) · 3. Capturas y PDF (Claude diseña cada página
+ * con una plantilla de 21st.dev, el equipo aprueba las capturas y van al PDF con el alcance) · 4. Stitch (el
+ * contenido del PDF como DESIGN.md, el prompt y la plantilla) → Figma, que lo pasa una persona · 5. Demo.
  */
 import { useEffect, useRef, useState } from "react";
 import { LuCamera, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPlus, LuSave, LuSparkles, LuTrash2, LuWandSparkles } from "react-icons/lu";
 import { api, Enlace, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso } from "../componentes";
-import { type Insumos, LIMITES_TALLER, paginaParaPrompt, promptStitch } from "../dominio/taller-web";
+import { type Insumos, LIMITES_TALLER, paginaParaPrompt, type Plantilla, promptStitch, promptStitchSitio } from "../dominio/taller-web";
 
 type Taller = S<"TallerWeb">;
 type Resultado = S<"ResultadoTallerWeb">;
 type Referencia = Taller["referencias"][number];
 type Pagina = S<"PaginaFlujograma">;
 type Punto = S<"PuntoTaller">;
-type Pestana = "BENCHMARK" | "FLUJOGRAMA" | "PROTOTIPO" | "DEMO";
+type Boceto = S<"BocetoWeb">;
+type Pestana = "BRIEF" | "FLUJOGRAMA" | "CAPTURAS" | "PROTOTIPO" | "DEMO";
 
-const PESTANAS: [Pestana, string][] = [["BENCHMARK", "Benchmark"], ["FLUJOGRAMA", "Flujograma"], ["PROTOTIPO", "Prototipo"], ["DEMO", "Demo"]];
+const PESTANAS: [Pestana, string][] = [["BRIEF", "Brief y benchmark"], ["FLUJOGRAMA", "Flujograma"], ["CAPTURAS", "Capturas y PDF"], ["PROTOTIPO", "Stitch → Figma"], ["DEMO", "Demo"]];
 const NIVELES = ["Entrada", "Secciones", "Subsecciones", "Detalle"];
 const ESTADO_ENTREGABLE: Record<string, string> = { EN_PREPARACION: "En preparación", LISTO_REVISION: "Enviado al cliente", CAMBIOS_SOLICITADOS: "Pidió cambios", APROBADO: "Aprobado" };
 const errorDe = (e: unknown) => (e as ProblemaApi).errores?.[0]?.mensaje ?? (e as ProblemaApi).detalle ?? (e as ProblemaApi).titulo;
@@ -34,6 +36,9 @@ interface Borrador {
   flujograma: Pagina[];
   /** null = el prompt estándar (se arma en pantalla con promptStitch). */
   promptPrototipo: string | null;
+  plantilla: Plantilla | null;
+  /** Las capturas que van al PDF. */
+  bocetosAprobados: string[];
 }
 const borradorDe = (t: Taller): Borrador => ({
   referencias: t.referencias.map((r) => ({ id: r.id, nombre: r.nombre, url: r.url, puntajes: r.puntajes, resumen: r.resumen })),
@@ -41,6 +46,8 @@ const borradorDe = (t: Taller): Borrador => ({
   recomendaciones: t.recomendaciones,
   flujograma: t.flujograma,
   promptPrototipo: t.prototipo.prompt,
+  plantilla: t.plantilla,
+  bocetosAprobados: t.bocetos.filter((x) => x.aprobado).map((x) => x.id),
 });
 
 export function PantallaTallerWeb() {
@@ -55,7 +62,7 @@ function TallerWeb() {
   const { params } = useNavegacion();
   const avisar = useAviso();
   const consulta = useConsulta<Taller>(`/servicios-contratados/${params.id}/taller-web`);
-  const [pestana, setPestana] = useState<Pestana>("BENCHMARK");
+  const [pestana, setPestana] = useState<Pestana>("BRIEF");
   const [b, setB] = useState<Borrador | null>(null);
   const [sucio, setSucio] = useState(false);
   // Para pasos encadenados (todas las pantallas): cada uno mira si todavía hay cambios sin guardar.
@@ -126,7 +133,7 @@ function TallerWeb() {
       <Cabecera
         antetitulo="TALLER WEB · SOLO EQUIPO"
         titulo={t.servicioTitulo}
-        bajada="El cliente no ve este taller: le llegan el PDF de benchmark y flujograma y la demo, como entregables del proyecto."
+        bajada="El cliente no ve este taller: le llegan el PDF de la propuesta y la demo, como entregables del proyecto."
         accion={
           <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
             {modos.length > 0 && <Etiqueta tono="ambar">Modo de prueba: {modos.join(", ")}</Etiqueta>}
@@ -145,8 +152,14 @@ function TallerWeb() {
       </nav>
       <div className="con-lateral">
         <div className="pila">
-          {pestana === "BENCHMARK" && <Benchmark t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
+          {pestana === "BRIEF" && (
+            <>
+              <DelBrief t={t} />
+              <Benchmark t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />
+            </>
+          )}
           {pestana === "FLUJOGRAMA" && <Flujograma b={b} editar={editar} paso={paso} ocupado={ocupado} />}
+          {pestana === "CAPTURAS" && <Capturas t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "PROTOTIPO" && <Prototipo t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "DEMO" && <Demos t={t} paso={paso} ocupado={ocupado} alCambiar={aplicar} />}
         </div>
@@ -161,15 +174,6 @@ type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, ex
 // ───────────────────────────── lateral: insumos y entregables
 
 function Lateral({ t }: { t: Taller }) {
-  const i = t.insumos;
-  const filas: [string, string | null][] = [
-    ["Objetivo", i.objetivo],
-    ["Público", i.publico],
-    ["Secciones pedidas", i.secciones.join(", ") || null],
-    ["Alcance", i.alcance],
-    ["CMS", i.cms],
-    ["Reunión de brief", i.resumenReunion],
-  ];
   const entregable = (titulo: string, e: Taller["documento"]) => (
     <div className="fila entre texto-sm" style={{ gap: 8 }}>
       <span>{titulo}</span>
@@ -186,25 +190,66 @@ function Lateral({ t }: { t: Taller }) {
     <aside className="pila">
       <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 10 }}>
         <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>Entregables al cliente</h2>
-        {entregable("Benchmark y flujograma", t.documento)}
+        {entregable("Propuesta (PDF)", t.documento)}
         {entregable("Demo navegable", t.demoEntregable)}
         <p className="texto-xs texto-muted" style={{ margin: 0 }}>Se revisan y se envían desde el entregable, como cualquier otro.</p>
       </section>
-      <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 10 }}>
-        <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>Lo que sabemos del proyecto</h2>
-        {filas.map(([k, v]) => (
-          <div key={k} style={{ display: "grid", gap: 2 }}>
-            <span className="texto-xs texto-muted">{k}</span>
-            <span className="texto-sm">{v ?? "—"}</span>
-          </div>
-        ))}
-        <p className="texto-xs texto-muted" style={{ margin: 0 }}>Sale del brief web, la reunión de brief y los detalles del proyecto.</p>
+      <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 8 }}>
+        <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>El flujo</h2>
+        <ol className="texto-xs" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
+          <li>Brief y benchmark</li>
+          <li>Flujograma</li>
+          <li>Capturas con la plantilla de 21st.dev → se aprueban → PDF</li>
+          <li>Stitch recibe el PDF (DESIGN.md), el prompt y la plantilla</li>
+          <li>Figma: «Copy to Figma» desde Stitch</li>
+        </ol>
       </section>
     </aside>
   );
 }
 
-// ───────────────────────────── 1. benchmark
+// ───────────────────────────── 1. brief y benchmark
+
+/** Lo que se sacó del brief web, la reunión de brief, el proyecto y la ficha de marca. */
+function DelBrief({ t }: { t: Taller }) {
+  const i = t.insumos;
+  const filas: [string, string | null][] = [
+    ["Objetivo", i.objetivo],
+    ["Público", i.publico],
+    ["Secciones pedidas", i.secciones.join(", ") || null],
+    ["Alcance", i.alcance],
+    ["CMS", i.cms],
+    ["Mensaje central", i.mensajeCentral],
+    ["Tono", i.tono],
+    ["Tipografías", i.tipografias.join(", ") || null],
+    ["Reunión de brief", i.resumenReunion],
+  ];
+  return (
+    <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
+      <div>
+        <h2 className="tarjeta-titulo">Lo que sacamos del brief</h2>
+        <p className="texto-sm texto-muted" style={{ margin: 0 }}>Del brief web, la reunión de brief, los detalles del proyecto y la ficha de marca. Es la base del flujograma, las capturas, el PDF y Stitch.</p>
+      </div>
+      <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 } as React.CSSProperties}>
+        {filas.map(([k, v]) => (
+          <div key={k} style={{ display: "grid", gap: 2, alignContent: "start" }}>
+            <span className="texto-xs texto-muted">{k}</span>
+            <span className="texto-sm">{v ?? "—"}</span>
+          </div>
+        ))}
+      </div>
+      {i.paleta.length > 0 && (
+        <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+          {i.paleta.map((c) => (
+            <span key={c} className="fila texto-xs" style={{ gap: 6 }}>
+              <span style={{ width: 22, height: 22, borderRadius: 6, background: c, border: "1px solid var(--c-borde)" }} /> {c}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
   const [nueva, setNueva] = useState("");
@@ -221,8 +266,6 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
     editar({ referencias: [...b.referencias, { id: null, nombre: "", url: nueva.trim(), puntajes: [], resumen: null }] });
     setNueva("");
   };
-  const listo = b.referencias.some((r) => r.puntajes.length) || b.flujograma.length > 0;
-
   return (
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
@@ -320,17 +363,6 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
 
       <ListaPuntos titulo="Hallazgos clave" ayuda="Lo que el mercado no está haciendo bien." puntos={b.hallazgos} alCambiar={(hallazgos) => editar({ hallazgos })} />
       <ListaPuntos titulo="Recomendaciones UX prioritarias" ayuda="Salen de los hallazgos y del objetivo del cliente." puntos={b.recomendaciones} alCambiar={(recomendaciones) => editar({ recomendaciones })} />
-
-      <Aviso icono={<LuFileText size={18} />} titulo="PDF para el cliente">
-        <div style={{ display: "grid", gap: 10 }}>
-          <span>Benchmark (referencias calificadas, score card, hallazgos y recomendaciones) y el flujograma, con la línea de Inoo. Queda como entregable de «Arquitectura y benchmark» en preparación: revísalo y envíalo desde ahí.</span>
-          <span>
-            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !listo} onClick={() => void paso("documento", "/documento", {}, (r) => `Documento listo (versión ${r.taller.documento?.version ?? 1})`)}>
-              <LuFileText size={14} /> {ocupado === "documento" ? "Armando el PDF…" : "Generar PDF"}
-            </button>
-          </span>
-        </div>
-      </Aviso>
     </>
   );
 }
@@ -470,7 +502,127 @@ function Flujograma({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Par
   );
 }
 
-// ───────────────────────────── 3. prototipo
+// ───────────────────────────── 3. capturas y PDF
+
+function Capturas({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
+  const [dispositivo, setDispositivo] = useState<"ESCRITORIO" | "MOVIL">("ESCRITORIO");
+  const [progreso, setProgreso] = useState<string | null>(null);
+  const sinFlujo = b.flujograma.length === 0;
+  const plantilla = b.plantilla ?? { url: null, prompt: "" };
+  const setPlantilla = (c: Partial<Plantilla>) => {
+    const x = { ...plantilla, ...c };
+    editar({ plantilla: x.prompt || x.url ? x : null });
+  };
+  const de = (paginaId: string) => t.bocetos.find((x) => x.paginaId === paginaId && x.dispositivo === dispositivo);
+  const aprobada = (x: Boceto) => b.bocetosAprobados.includes(x.id);
+  const aprobar = (x: Boceto, si: boolean) => editar({ bocetosAprobados: si ? [...b.bocetosAprobados, x.id] : b.bocetosAprobados.filter((id) => id !== x.id) });
+  const uno = (paginaId: string, exito?: () => string) => paso("boceto", "/bocetos", { paginaId, dispositivo }, exito);
+  // Todas: una llamada por página (cada una tarda), en el orden del flujograma; se detiene en el primer error.
+  const todas = async () => {
+    for (const [i, p] of b.flujograma.entries()) {
+      setProgreso(`${i + 1} de ${b.flujograma.length}: ${p.titulo}`);
+      const ultima = i === b.flujograma.length - 1;
+      if (!(await uno(p.id, ultima ? () => `${b.flujograma.length} capturas listas: revísalas y aprueba las que van al PDF` : undefined))) break;
+    }
+    setProgreso(null);
+  };
+  const aprobadas = t.bocetos.filter(aprobada).length;
+  const sinGuardar = b.bocetosAprobados.length !== t.bocetos.filter((x) => x.aprobado).length || b.bocetosAprobados.some((id) => !t.bocetos.find((x) => x.id === id)?.aprobado);
+  const listo = b.referencias.some((r) => r.puntajes.length) || b.flujograma.length > 0;
+  return (
+    <>
+      <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
+        <div>
+          <h2 className="tarjeta-titulo">Plantilla de 21st.dev</h2>
+          <p className="texto-sm texto-muted" style={{ margin: 0 }}>
+            Elige un componente o plantilla en <a className="enlace" href="https://21st.dev" target="_blank" rel="noreferrer">21st.dev <LuExternalLink size={12} /></a>, copia su prompt (o su código) y pégalo aquí. Es la base visual de las capturas y también le llega a Stitch.
+          </p>
+        </div>
+        <div className="campo">
+          <label htmlFor="plantilla-url">Enlace de la plantilla</label>
+          <div className="entrada">
+            <input id="plantilla-url" placeholder="https://21st.dev/…" value={plantilla.url ?? ""} onChange={(e) => setPlantilla({ url: e.target.value || null })} />
+          </div>
+        </div>
+        <div className="campo">
+          <label htmlFor="plantilla-prompt">Prompt o código de la plantilla</label>
+          <div className="entrada">
+            <textarea id="plantilla-prompt" value={plantilla.prompt} maxLength={LIMITES_TALLER.plantilla} onChange={(e) => setPlantilla({ prompt: e.target.value })} style={{ minHeight: 140, fontFamily: "monospace", fontSize: 12 }} />
+          </div>
+          <span className="ayuda-campo">{plantilla.prompt.length.toLocaleString("es-PE")} / {LIMITES_TALLER.plantilla.toLocaleString("es-PE")} caracteres. A Stitch le llegan los primeros {LIMITES_TALLER.plantillaEnStitch.toLocaleString("es-PE")}.</span>
+        </div>
+      </section>
+
+      <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
+        <div className="fila entre" style={{ flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h2 className="tarjeta-titulo">Capturas de la propuesta</h2>
+            <p className="texto-sm texto-muted" style={{ margin: 0 }}>Claude diseña cada página del flujograma con la plantilla y la marca; el navegador la fotografía. Revísalas y aprueba las que van al PDF.</p>
+          </div>
+          <span className="fila" style={{ gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+            <select className="input" aria-label="Dispositivo de las capturas" value={dispositivo} onChange={(e) => setDispositivo(e.target.value as "ESCRITORIO" | "MOVIL")} style={{ height: 36, width: 140 }}>
+              <option value="ESCRITORIO">Escritorio</option>
+              <option value="MOVIL">Móvil</option>
+            </select>
+            <button className="boton boton--chico boton--primario" disabled={!!ocupado || sinFlujo} onClick={() => void todas()}>
+              <LuSparkles size={14} /> {progreso ? `Diseñando ${progreso}…` : `Generar todas (${b.flujograma.length})`}
+            </button>
+          </span>
+        </div>
+        {sinFlujo && <Aviso icono={<LuLayoutTemplate size={18} />} titulo="Primero el flujograma">Las capturas se arman con sus páginas y secciones.</Aviso>}
+        {!sinFlujo && !b.plantilla && <span className="ayuda-campo">Sin plantilla, Claude diseña solo con la marca y el flujograma.</span>}
+        <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 } as React.CSSProperties}>
+          {b.flujograma.map((p) => {
+            const x = de(p.id);
+            return (
+              <div key={p.id} className="tarjeta tarjeta--compacta" style={{ boxShadow: "none", padding: 10, display: "grid", gap: 8, alignContent: "start", outline: x && aprobada(x) ? "2px solid var(--c-primario)" : undefined }}>
+                <span className="texto-sm negrita">{p.titulo}</span>
+                {x ? (
+                  <a href={x.htmlUrl ?? x.imagenUrl} target="_blank" rel="noreferrer" title="Abrir en otra pestaña">
+                    <img src={x.imagenUrl} alt={`Captura de ${p.titulo}`} style={{ width: "100%", height: 240, objectFit: "cover", objectPosition: "top", borderRadius: 8, border: "1px solid var(--c-borde)" }} />
+                  </a>
+                ) : (
+                  <div className="vacio" style={{ height: 240, display: "grid", placeItems: "center" }}>Sin captura</div>
+                )}
+                {x && <span className="texto-xs texto-muted">{fDiaHora(x.creadaEn)}{x.simulada ? " · de relleno" : ""}</span>}
+                <span className="fila entre" style={{ gap: 8, flexWrap: "wrap" }}>
+                  {x ? (
+                    <label className="fila texto-sm" style={{ gap: 6, cursor: "pointer" }}>
+                      <input type="checkbox" checked={aprobada(x)} onChange={(e) => aprobar(x, e.target.checked)} /> Va al PDF
+                    </label>
+                  ) : <span />}
+                  <button className="boton boton--chico" disabled={!!ocupado} onClick={() => void uno(p.id, () => "Captura lista")}>
+                    <LuWandSparkles size={14} /> {x ? "Rehacer" : "Generar"}
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <Aviso icono={<LuFileText size={18} />} titulo="PDF para el cliente">
+        <div style={{ display: "grid", gap: 10 }}>
+          <span>
+            Alcance, benchmark (referencias calificadas, score card, hallazgos y recomendaciones), flujograma y las capturas aprobadas ({aprobadas}), con la línea de Inoo. Queda como entregable de «Arquitectura y benchmark» en preparación: revísalo y envíalo desde ahí.
+            {sinGuardar && " Al generarlo se guardan antes las capturas que marcaste."}
+          </span>
+          <span className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !listo} onClick={() => void paso("documento", "/documento", {}, (r) => `PDF listo (versión ${r.taller.documento?.version ?? 1})`)}>
+              <LuFileText size={14} /> {ocupado === "documento" ? "Armando el PDF…" : "Generar PDF"}
+            </button>
+            {t.documento && <Enlace a={`/equipo/entregables/${t.documento.id}`} className="enlace">Ver el entregable</Enlace>}
+          </span>
+        </div>
+      </Aviso>
+    </>
+  );
+}
+
+// ───────────────────────────── 4. Stitch → Figma
+
+/** Valor del selector de página para «Todo el sitio». */
+const SITIO = "__sitio";
 
 /** Los insumos del proyecto tal como los devuelve la API, para armar el prompt en pantalla. */
 const insumosDe = (t: Taller): Insumos => ({ ...t.insumos, variante: t.variante });
@@ -479,37 +631,34 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
   const [dispositivo, setDispositivo] = useState<"ESCRITORIO" | "MOVIL">("ESCRITORIO");
   const [paginaId, setPaginaId] = useState<string>("");
   const sinFlujo = b.flujograma.length === 0;
-  const pagina = sinFlujo ? null : paginaParaPrompt(b.flujograma, paginaId);
+  // «Todo el sitio»: todas las páginas en un solo prompt largo, que Stitch recibe de una vez (26 oct).
+  const sitio = paginaId === SITIO;
+  const pagina = sinFlujo || sitio ? null : paginaParaPrompt(b.flujograma, paginaId);
   // El estándar se arma con lo que hay en pantalla (también lo que todavía no se guardó).
-  const estandar = sinFlujo ? "" : promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: pagina?.id, dispositivo });
+  const estandar = sinFlujo ? "" : sitio
+    ? promptStitchSitio(insumosDe(t), b.flujograma, b.recomendaciones, { dispositivo, plantilla: b.plantilla })
+    : promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: pagina?.id, dispositivo, plantilla: b.plantilla });
   const prompt = b.promptPrototipo ?? estandar;
-  // «Todas las páginas»: una pantalla por página del flujograma, en orden y con su prompt estándar, hasta el tope.
   const libres = Math.max(0, LIMITES_TALLER.pantallas - t.prototipo.pantallas.length);
-  const lote = b.flujograma.slice(0, libres);
-  const [progreso, setProgreso] = useState<string | null>(null);
-  const todas = async () => {
-    for (const [i, p] of lote.entries()) {
-      setProgreso(`${i + 1} de ${lote.length}: ${p.titulo}`);
-      const cuerpo = { prompt: promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: p.id, dispositivo }), paginaId: p.id, dispositivo };
-      const ultima = i === lote.length - 1;
-      if (!(await paso("prototipo", "/prototipo", cuerpo, ultima ? () => `${lote.length} pantallas generadas` : undefined))) break;
-    }
-    setProgreso(null);
-  };
+  const generar = () => paso("prototipo", "/prototipo", sitio ? { prompt, alcance: "SITIO", dispositivo } : { prompt, paginaId: pagina?.id, dispositivo }, (x) => {
+    const nuevas = x.taller.prototipo.pantallas.length - t.prototipo.pantallas.length;
+    return nuevas === 1 ? "Pantalla generada" : `${nuevas} pantallas generadas`;
+  });
   return (
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
         <div>
           <h2 className="tarjeta-titulo">Pantallas en Stitch</h2>
           <p className="texto-sm texto-muted" style={{ margin: 0 }}>
-            El prompt tiene una estructura estándar (proyecto, marca, navegación, pantalla, recomendaciones y reglas) y se arma solo con el flujograma y el benchmark. Para pasar una pantalla a Figma, ábrela en Stitch y usa «Copy to Figma».
+            A Stitch le llegan tres cosas: el contenido del PDF como DESIGN.md (el sistema de diseño del proyecto), el prompt estándar (proyecto, marca, navegación, pantallas, recomendaciones, reglas) y la plantilla de 21st.dev de las capturas.
           </p>
         </div>
         {sinFlujo && <Aviso icono={<LuLayoutTemplate size={18} />} titulo="Primero el flujograma">El prototipo se arma con las páginas y secciones aprobadas.</Aviso>}
         <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
           <div className="campo" style={{ minWidth: 220 }}>
             <label htmlFor="pagina-stitch">Página a diseñar</label>
-            <select id="pagina-stitch" className="input" value={pagina?.id ?? ""} disabled={sinFlujo} onChange={(e) => setPaginaId(e.target.value)} style={{ height: 36 }}>
+            <select id="pagina-stitch" className="input" value={sitio ? SITIO : (pagina?.id ?? "")} disabled={sinFlujo} onChange={(e) => setPaginaId(e.target.value)} style={{ height: 36 }}>
+              {!sinFlujo && <option value={SITIO}>Todo el sitio ({b.flujograma.length} páginas, un solo prompt)</option>}
               {b.flujograma.map((p) => (
                 <option key={p.id} value={p.id}>{"— ".repeat(p.nivel)}{p.titulo}</option>
               ))}
@@ -526,7 +675,7 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
         <div className="campo">
           <label htmlFor="prompt-stitch">Prompt</label>
           <div className="entrada">
-            <textarea id="prompt-stitch" value={prompt} maxLength={4000} disabled={sinFlujo} onChange={(e) => editar({ promptPrototipo: e.target.value })} style={{ minHeight: 260, fontFamily: "monospace", fontSize: 12 }} />
+            <textarea id="prompt-stitch" value={prompt} maxLength={LIMITES_TALLER.promptPrototipo} disabled={sinFlujo} onChange={(e) => editar({ promptPrototipo: e.target.value })} style={{ minHeight: 260, fontFamily: "monospace", fontSize: 12 }} />
           </div>
           <span className="ayuda-campo">
             {b.promptPrototipo === null ? "Estándar: cambia solo al editar el flujograma, la página o el dispositivo." : (
@@ -538,11 +687,8 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
           </span>
         </div>
         <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-          <button className="boton boton--chico boton--primario" disabled={!!ocupado || sinFlujo || t.prototipo.pantallas.length >= LIMITES_TALLER.pantallas} onClick={() => void paso("prototipo", "/prototipo", { prompt, paginaId: pagina?.id, dispositivo }, () => "Pantalla generada")}>
-            <LuSparkles size={14} /> {ocupado === "prototipo" && !progreso ? "Stitch está diseñando… (puede tardar)" : "Generar pantalla"}
-          </button>
-          <button className="boton boton--chico" disabled={!!ocupado || !!progreso || sinFlujo || lote.length === 0} onClick={() => void todas()}>
-            <LuLayoutTemplate size={14} /> {progreso ? `Diseñando ${progreso}…` : `Todas las páginas (${lote.length})`}
+          <button className="boton boton--chico boton--primario" disabled={!!ocupado || sinFlujo || libres === 0} onClick={() => void generar()}>
+            <LuSparkles size={14} /> {ocupado === "prototipo" ? "Stitch está diseñando… (puede tardar)" : sitio ? "Generar el sitio completo" : "Generar pantalla"}
           </button>
           {t.prototipo.proyectoStitch && (
             <a className="enlace" href={`https://stitch.withgoogle.com/projects/${t.prototipo.proyectoStitch}`} target="_blank" rel="noreferrer">
@@ -550,10 +696,14 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
             </a>
           )}
         </div>
-        {!sinFlujo && (
+        <details className="texto-sm">
+          <summary style={{ cursor: "pointer" }}>DESIGN.md que recibe Stitch (el contenido del PDF)</summary>
+          <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: 11, maxHeight: 320, overflow: "auto" }}>{t.prototipo.designMd}</pre>
+          <span className="ayuda-campo">Se arma con lo guardado. Stitch no recibe archivos por su API: las capturas del PDF van como la plantilla que las generó. Si quieres que vea las imágenes, sube el PDF a mano en Stitch.</span>
+        </details>
+        {sitio && (
           <span className="ayuda-campo" style={{ marginTop: -6 }}>
-            «Todas las páginas» usa el prompt estándar de cada página ({dispositivo === "MOVIL" ? "móvil" : "escritorio"}), una por una; cada pantalla gasta créditos de Stitch.
-            {b.flujograma.length > libres && ` Caben ${libres} de ${b.flujograma.length}: el tope es ${LIMITES_TALLER.pantallas} pantallas por proyecto.`}
+            Stitch recibe todas las páginas en este único prompt y diseña el sitio con un solo estilo; puede tardar varios minutos. Se guardan hasta {libres} pantallas (el tope es {LIMITES_TALLER.pantallas} por proyecto).
           </span>
         )}
       </section>
@@ -579,11 +729,14 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
           </div>
         </section>
       )}
+      <Aviso icono={<LuExternalLink size={18} />} titulo="Último paso: Figma">
+        Con las pantallas listas, ábrelas en Stitch y usa «Copy to Figma»; el diseño final se termina ahí. Stitch no exporta a Figma por su API: ese paso lo hace una persona.
+      </Aviso>
     </>
   );
 }
 
-// ───────────────────────────── 4. demo
+// ───────────────────────────── 5. demo
 
 function Demos({ t, paso, ocupado, alCambiar }: { t: Taller; paso: Paso; ocupado: string | null; alCambiar: (t: Taller) => void }) {
   const avisar = useAviso();

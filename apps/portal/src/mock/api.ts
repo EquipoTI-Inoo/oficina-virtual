@@ -2304,6 +2304,7 @@ ruta("POST", "/servicios-contratados/:id/taller-web/capturas", (ctx, p, _q, req)
 ruta("POST", "/servicios-contratados/:id/taller-web/analisis", (ctx, p, _q, req) => taller(ctx, p.id, "ANALISIS", req));
 ruta("POST", "/servicios-contratados/:id/taller-web/flujograma", (ctx, p, _q, req) => taller(ctx, p.id, "FLUJOGRAMA", req));
 ruta("POST", "/servicios-contratados/:id/taller-web/documento", (ctx, p, _q, req) => taller(ctx, p.id, "DOCUMENTO", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/bocetos", (ctx, p, _q, req) => taller(ctx, p.id, "BOCETO", req));
 ruta("POST", "/servicios-contratados/:id/taller-web/prototipo", (ctx, p, _q, req) => taller(ctx, p.id, "PROTOTIPO", req));
 ruta("POST", "/servicios-contratados/:id/taller-web/demos", (ctx, p, _q, req) => taller(ctx, p.id, "DEMO", req));
 ruta("DELETE", "/servicios-contratados/:id/taller-web/demos/:demoId", (ctx, p) => taller(ctx, p.id, "REVOCAR_DEMO", undefined, p.demoId));

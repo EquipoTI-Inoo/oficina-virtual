@@ -85,6 +85,33 @@ export async function capturarSitio(url: string): Promise<{ tipo: TipoCaptura; b
   }
 }
 
+/**
+ * Foto de un HTML generado (las capturas de la propuesta visual): se carga tal cual, con red para Tailwind y
+ * Google Fonts, y se fotografía hasta un alto razonable.
+ */
+export async function fotografiarHtml(html: string, tipo: TipoCaptura): Promise<Uint8Array> {
+  let nav: Navegador;
+  try {
+    nav = await abrir();
+  } catch (e) {
+    throw new ErrorNavegador(`No se pudo abrir el navegador: ${(e as Error).message.split("\n")[0]}`);
+  }
+  try {
+    const ctx = await nav.newContext({ ...VISTAS[tipo], locale: "es-PE" });
+    const p = await ctx.newPage();
+    await p.setContent(html, { waitUntil: "networkidle", timeout: 60_000 });
+    await p.waitForTimeout(800);
+    const alto = Math.min(await p.evaluate(() => document.documentElement.scrollHeight), ALTO_FOTO[tipo]);
+    const ancho = (VISTAS[tipo].viewport as { width: number }).width;
+    const foto = await p.screenshot({ type: "jpeg", quality: 80, fullPage: true, clip: { x: 0, y: 0, width: ancho, height: alto } });
+    await ctx.close();
+    return foto;
+  } finally {
+    await nav.close();
+  }
+}
+const ALTO_FOTO: Record<TipoCaptura, number> = { ESCRITORIO: 4000, MOVIL: 3200 };
+
 /** PDF A4 horizontal del informe. Chromium firma el PDF como «Skia/PDF»: no queda rastro de la IA. */
 export async function pdfDesdeHtml(html: string): Promise<Uint8Array> {
   let nav: Navegador;

@@ -8,12 +8,13 @@
  */
 import {
   analisisSimulado, capturaSimulada, conNoindex, demoSimulada, DIMENSIONES, dimensionesPara, ESQUEMA_FLUJOGRAMA, ESQUEMA_SINTESIS, esquemaAnalisis, flujogramaSimulado,
-  informeHtml, interpretarJson, LIMITES_TALLER, limpiarHtml, mencionaIa, mensajeAnalisis, mensajeDemo, mensajeFlujograma, mensajeSintesis, paginaParaPrompt, pantallaSimulada, promptStitch, puntajeGlobal,
-  SISTEMA_ANALISIS, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
-  type Captura, type Dimension, type Dispositivo, type Insumos, type PaginaFlujo, type PantallaPrototipo, type Puntaje, type Punto, type Referencia,
+  informeHtml, interpretarJson, LIMITES_TALLER, limpiarHtml, mencionaIa, mensajeAnalisis, mensajeDemo, mensajeFlujograma, mensajeSintesis, paginaParaPrompt, pantallaSimulada, promptStitch, promptStitchSitio, puntajeGlobal,
+  SISTEMA_ANALISIS, SISTEMA_BOCETO, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
+  designMdStitch, huella, mensajeBoceto,
+  type Boceto, type Captura, type Dimension, type Plantilla, type Dispositivo, type Insumos, type PaginaFlujo, type PantallaPrototipo, type Puntaje, type Punto, type Referencia,
 } from "../dominio/taller-web";
 import { ErrorIa, generar, motivoSimulado, type ImagenIa } from "./ia-modelos";
-import { capturarSitio, ErrorNavegador, navegadorReal, pdfDesdeHtml } from "./navegador";
+import { capturarSitio, ErrorNavegador, fotografiarHtml, navegadorReal, pdfDesdeHtml } from "./navegador";
 import { ErrorStitch, generarPantallaStitch, stitchDisponible } from "./stitch";
 
 export type TipoArchivo = "CAPTURA" | "PANTALLA" | "DOCUMENTO" | "DEMO";
@@ -179,6 +180,8 @@ export interface Documento { bytes: Uint8Array; mime: string; nombre: string; fo
 
 export async function armarDocumento(p: {
   insumos: Insumos; dominio: string | null; dimensiones: Dimension[]; referencias: Referencia[]; hallazgos: Punto[]; recomendaciones: Punto[]; flujograma: PaginaFlujo[];
+  /** Solo las aprobadas por el equipo. */
+  bocetos?: Boceto[];
 }, almacen: AlmacenArchivos): Promise<Documento> {
   const src = async (r: Referencia, tipo: "ESCRITORIO" | "MOVIL") => {
     const c = r.capturas.find((x) => x.tipo === tipo);
@@ -186,8 +189,17 @@ export async function armarDocumento(p: {
     return b ? dataUri(b.mime, b.bytes) : null;
   };
   const referencias = await Promise.all(p.referencias.map(async (r) => ({ ...r, srcEscritorio: await src(r, "ESCRITORIO"), srcMovil: await src(r, "MOVIL") })));
-  const html = limpiarHtml(informeHtml({ marca: p.insumos.marca, dominio: p.dominio, dimensiones: p.dimensiones, referencias, hallazgos: p.hallazgos, recomendaciones: p.recomendaciones, flujograma: p.flujograma, fecha: new Date().toISOString().slice(0, 10) }));
-  const base = `benchmark-y-flujograma-${p.insumos.marca.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const bocetos = [];
+  for (const x of p.bocetos ?? []) {
+    const b = await bytesDe(x.imagenUrl, almacen);
+    const pagina = p.flujograma.find((pg) => pg.id === x.paginaId);
+    if (b) bocetos.push({ titulo: pagina?.titulo ?? x.nombre, secciones: pagina?.secciones ?? [], dispositivo: x.dispositivo, src: dataUri(b.mime, b.bytes) });
+  }
+  const html = limpiarHtml(informeHtml({
+    marca: p.insumos.marca, dominio: p.dominio, dimensiones: p.dimensiones, referencias, hallazgos: p.hallazgos, recomendaciones: p.recomendaciones, flujograma: p.flujograma,
+    fecha: new Date().toISOString().slice(0, 10), insumos: p.insumos, bocetos,
+  }));
+  const base = `${bocetos.length ? "propuesta-web" : "benchmark-y-flujograma"}-${p.insumos.marca.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   if (navegadorReal()) {
     return { bytes: await pdfDesdeHtml(html), mime: "application/pdf", nombre: `${base}.pdf`, formato: "PDF" };
   }
@@ -195,27 +207,73 @@ export async function armarDocumento(p: {
   return { bytes: utf8(conNoindex(html)), mime: "text/html; charset=utf-8", nombre: `${base}.html`, formato: "DOCUMENTO" };
 }
 
+// ───────────────────────────── 4b. capturas de la propuesta visual (21st.dev → Claude → navegador)
+
+/**
+ * Una captura de la página: Claude escribe el HTML siguiendo la plantilla de 21st.dev y el navegador lo
+ * fotografía. Sin IA o sin navegador reales, una de relleno (con lo que haya, no se puede fotografiar nada).
+ */
+export async function generarBoceto(p: {
+  insumos: Insumos; flujograma: PaginaFlujo[]; recomendaciones: Punto[]; pagina: PaginaFlujo; dispositivo: Dispositivo; plantilla: Plantilla | null;
+}, almacen: AlmacenArchivos): Promise<{ boceto: Boceto; costoUsd: number }> {
+  const nombre = `${p.pagina.titulo} · ${p.dispositivo === "MOVIL" ? "móvil" : "escritorio"}`;
+  const base = { id: crypto.randomUUID(), paginaId: p.pagina.id, nombre, dispositivo: p.dispositivo, aprobado: false, creadaEn: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") };
+  const relleno = () => ({ ...base, imagenUrl: dataUri("image/svg+xml", utf8(pantallaSimulada(p.pagina, p.insumos.marca, p.dispositivo))), htmlUrl: null, simulada: true });
+  if (!navegadorReal() || motivoSimulado("CLAUDE_SONNET")) return { boceto: relleno(), costoUsd: 0 };
+  const r = await generar({
+    modelo: "CLAUDE_SONNET",
+    sistema: SISTEMA_BOCETO,
+    mensajes: [{ rol: "user", texto: mensajeBoceto(p.insumos, p.flujograma, p.recomendaciones, p.pagina.id, p.dispositivo, p.plantilla) }],
+    maxTokens: LIMITES_TALLER.tokensBoceto,
+    simulado: () => "",
+  });
+  const html = r.texto.replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
+  if (!/<html|<body/i.test(html)) throw new ErrorTaller(502, "IA_NO_DISPONIBLE", "No pudimos generar esta captura", "La respuesta no trajo una página HTML. Inténtalo de nuevo.");
+  const limpio = conNoindex(limpiarHtml(html));
+  const foto = await fotografiarHtml(limpio, p.dispositivo);
+  const imagen = await almacen.guardar({ tipo: "PANTALLA", mime: "image/jpeg", nombre: `${nombre}.jpg`, bytes: foto });
+  const pagina = await almacen.guardar({ tipo: "PANTALLA", mime: "text/html; charset=utf-8", nombre: `${nombre}.html`, bytes: utf8(limpio) });
+  return { boceto: { ...base, imagenUrl: imagen.url, htmlUrl: pagina.url, simulada: false }, costoUsd: r.costoUsd };
+}
+
 // ───────────────────────────── 5. prototipo (Stitch)
 
+/**
+ * Genera en Stitch con el prompt. `paginas` son las que se diseñan: una, o todas con el prompt del sitio.
+ * Se guardan hasta `maximo` pantallas; el HTML de la primera queda como guía de la demo.
+ */
 export async function generarPantalla(p: {
-  insumos: Insumos; prompt: string; dispositivo: Dispositivo; proyectoStitch: string | null; pagina: PaginaFlujo | undefined;
-}, almacen: AlmacenArchivos): Promise<{ pantalla: PantallaPrototipo; proyectoStitch: string | null; htmlId: string | null }> {
+  insumos: Insumos; prompt: string; dispositivo: Dispositivo; proyectoStitch: string | null; paginas: PaginaFlujo[]; sitio: boolean; maximo: number;
+  /** El DESIGN.md (contenido del PDF + plantilla) y el sistema de diseño que ya se creó con él. */
+  designMd: string; sistemaStitch: { asset: string; huella: string } | null;
+}, almacen: AlmacenArchivos): Promise<{ pantallas: PantallaPrototipo[]; proyectoStitch: string | null; htmlId: string | null; sistemaStitch: { asset: string; huella: string } | null; aviso: string | null }> {
   const ahora = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const id = crypto.randomUUID();
-  const nombre = `${p.pagina?.titulo ?? "Inicio"} · ${p.dispositivo === "MOVIL" ? "móvil" : "escritorio"}`;
-  const base = { id, nombre, dispositivo: p.dispositivo, paginaId: p.pagina?.id ?? null, prompt: p.prompt, creadaEn: ahora };
+  const disp = p.dispositivo === "MOVIL" ? "móvil" : "escritorio";
+  const base = (pagina: PaginaFlujo | undefined, titulo?: string | null) => ({
+    id: crypto.randomUUID(), nombre: `${titulo ?? pagina?.titulo ?? "Inicio"} · ${disp}`, dispositivo: p.dispositivo, paginaId: pagina?.id ?? null, prompt: p.prompt, creadaEn: ahora,
+  });
   if (!stitchDisponible()) {
-    const svg = pantallaSimulada(p.pagina, p.insumos.marca, p.dispositivo);
-    return { pantalla: { ...base, imagenUrl: dataUri("image/svg+xml", utf8(svg)), conHtml: false, simulada: true }, proyectoStitch: p.proyectoStitch, htmlId: null };
+    const pantallas = (p.paginas.length ? p.paginas : [undefined]).slice(0, p.maximo).map((pg) => ({
+      ...base(pg), imagenUrl: dataUri("image/svg+xml", utf8(pantallaSimulada(pg, p.insumos.marca, p.dispositivo))), conHtml: false, simulada: true,
+    }));
+    return { pantallas, proyectoStitch: p.proyectoStitch, htmlId: null, sistemaStitch: p.sistemaStitch, aviso: null };
   }
-  const s = await generarPantallaStitch({ titulo: `${p.insumos.marca} · web`, prompt: p.prompt, dispositivo: p.dispositivo, proyectoId: p.proyectoStitch });
-  const imagen = s.imagen ? await almacen.guardar({ tipo: "PANTALLA", mime: s.mime, nombre: `${nombre}.png`, bytes: s.imagen }) : null;
-  const html = s.html ? await almacen.guardar({ tipo: "PANTALLA", mime: "text/html; charset=utf-8", nombre: `${nombre}.html`, bytes: utf8(conNoindex(limpiarHtml(s.html))) }) : null;
-  return {
-    pantalla: { ...base, imagenUrl: imagen?.url ?? html!.url, conHtml: !!html, simulada: false },
-    proyectoStitch: s.proyectoId,
-    htmlId: html?.url ?? null,
-  };
+  const s = await generarPantallaStitch({
+    titulo: `${p.insumos.marca} · web`, prompt: p.prompt, dispositivo: p.dispositivo, proyectoId: p.proyectoStitch,
+    sistema: { nombre: `${p.insumos.marca} · web`, designMd: p.designMd, huella: huella(p.designMd), paleta: p.insumos.paleta ?? [], tipografias: p.insumos.tipografias ?? [], actual: p.sistemaStitch },
+  });
+  const pantallas: PantallaPrototipo[] = [];
+  let htmlId: string | null = null;
+  for (const [i, x] of s.pantallas.slice(0, p.maximo).entries()) {
+    // Con el sitio, Stitch titula cada pantalla; si no, se empareja por orden con las páginas.
+    const pagina = p.sitio ? (p.paginas.find((pg) => pg.titulo.toLowerCase() === x.titulo?.trim().toLowerCase()) ?? p.paginas[i]) : p.paginas[0];
+    const b = base(pagina, p.sitio ? (x.titulo ?? pagina?.titulo) : undefined);
+    const imagen = x.imagen ? await almacen.guardar({ tipo: "PANTALLA", mime: x.mime, nombre: `${b.nombre}.png`, bytes: x.imagen }) : null;
+    const html = x.html ? await almacen.guardar({ tipo: "PANTALLA", mime: "text/html; charset=utf-8", nombre: `${b.nombre}.html`, bytes: utf8(conNoindex(limpiarHtml(x.html))) }) : null;
+    htmlId ??= html?.url ?? null;
+    pantallas.push({ ...b, imagenUrl: imagen?.url ?? html!.url, conHtml: !!html, simulada: false });
+  }
+  return { pantallas, proyectoStitch: s.proyectoId, htmlId, sistemaStitch: s.sistema ?? p.sistemaStitch, aviso: s.aviso };
 }
 
 // ───────────────────────────── 6. demo
@@ -288,8 +346,15 @@ export interface EstadoTaller {
   hallazgos: Punto[];
   recomendaciones: Punto[];
   flujograma: PaginaFlujo[];
-  /** `htmlGuia`: enlace al HTML de la última pantalla de Stitch (guía visual de la demo). */
-  prototipo: { prompt: string | null; proyectoStitch: string | null; pantallas: PantallaPrototipo[]; htmlGuia: string | null };
+  /**
+   * `htmlGuia`: enlace al HTML de la última pantalla de Stitch (guía visual de la demo).
+   * `plantilla` y `bocetos`: el paso de capturas (26 oct). `sistemaStitch`: el sistema de diseño creado en Stitch
+   * con el DESIGN.md y su huella (si el DESIGN.md cambia, se crea otro). Van en la misma columna jsonb.
+   */
+  prototipo: {
+    prompt: string | null; proyectoStitch: string | null; pantallas: PantallaPrototipo[]; htmlGuia: string | null;
+    plantilla: Plantilla | null; bocetos: Boceto[]; sistemaStitch: { asset: string; huella: string } | null;
+  };
   documentoEntregableId: string | null;
   demoEntregableId: string | null;
   actualizadoEn: string;
@@ -331,14 +396,15 @@ const MAX_PANTALLAS = LIMITES_TALLER.pantallas;
 async function cargar(repo: RepoTaller): Promise<EstadoTaller> {
   if (repo.servicio.codigo !== "WEB") throw new ErrorTaller(409, "NO_ES_WEB", "El taller web es solo para proyectos de Diseño y desarrollo web");
   const e = await repo.leer();
-  if (e) return e;
+  // Los talleres de antes del 26 oct no tienen plantilla ni capturas.
+  if (e) return { ...e, prototipo: { plantilla: null, bocetos: [], sistemaStitch: null, ...(e.prototipo as Partial<EstadoTaller["prototipo"]>) } as EstadoTaller["prototipo"] };
   const inicial: EstadoTaller = {
     version: 1,
     referencias: (await repo.referenciasBrief()).map((r): Referencia => ({ id: crypto.randomUUID(), ...r, origen: "BRIEF", capturas: [], puntajes: [], resumen: null, analizadaEn: null })),
     hallazgos: [],
     recomendaciones: [],
     flujograma: [],
-    prototipo: { prompt: null, proyectoStitch: null, pantallas: [], htmlGuia: null },
+    prototipo: { prompt: null, proyectoStitch: null, pantallas: [], htmlGuia: null, plantilla: null, bocetos: [], sistemaStitch: null },
     documentoEntregableId: null,
     demoEntregableId: null,
     actualizadoEn: ahoraIso(),
@@ -370,7 +436,12 @@ export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
     hallazgos: e.hallazgos,
     recomendaciones: e.recomendaciones,
     flujograma: e.flujograma,
-    prototipo: { prompt: e.prototipo.prompt, promptSugerido: promptStitch(insumos, e.flujograma, e.recomendaciones), proyectoStitch: e.prototipo.proyectoStitch, pantallas: e.prototipo.pantallas },
+    prototipo: {
+      prompt: e.prototipo.prompt, promptSugerido: promptStitch(insumos, e.flujograma, e.recomendaciones, { plantilla: e.prototipo.plantilla }), proyectoStitch: e.prototipo.proyectoStitch,
+      pantallas: e.prototipo.pantallas, designMd: designMdStitch(insumos, e.flujograma, e.recomendaciones, e.prototipo.plantilla),
+    },
+    plantilla: e.prototipo.plantilla,
+    bocetos: e.prototipo.bocetos,
     documento: await resumen(e.documentoEntregableId),
     demoEntregable: await resumen(e.demoEntregableId),
     demos: await repo.demos(),
@@ -415,7 +486,7 @@ function nota(v: unknown): string | null {
   return t;
 }
 
-export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO";
+export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO";
 
 /**
  * Todas las operaciones del taller (rutas /servicios-contratados/{id}/taller-web/*). El backend ya validó
@@ -455,7 +526,11 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         if (b.hallazgos !== undefined) cambios.hallazgos = datos.hallazgos;
         if (b.recomendaciones !== undefined) cambios.recomendaciones = datos.recomendaciones;
         if (b.flujograma !== undefined) cambios.flujograma = datos.flujograma;
-        if (b.promptPrototipo !== undefined) cambios.prototipo = { ...e.prototipo, prompt: datos.promptPrototipo };
+        let prototipo = e.prototipo;
+        if (b.promptPrototipo !== undefined) prototipo = { ...prototipo, prompt: datos.promptPrototipo };
+        if (b.plantilla !== undefined) prototipo = { ...prototipo, plantilla: datos.plantilla };
+        if (b.bocetosAprobados !== undefined) prototipo = { ...prototipo, bocetos: prototipo.bocetos.map((x) => ({ ...x, aprobado: datos.bocetosAprobados.includes(x.id) })) };
+        if (prototipo !== e.prototipo) cambios.prototipo = prototipo;
         return vistaTaller(repo, await guardar(repo, e, cambios));
       }
 
@@ -481,6 +556,22 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         return resultado(e, { simulado: r.simulado });
       }
 
+      case "BOCETO": {
+        if (!e.flujograma.length) throw new ErrorTaller(409, "TALLER_SIN_FLUJOGRAMA", "Primero arma el flujograma: las capturas salen de ahí");
+        const pagina = e.flujograma.find((p) => p.id === b.paginaId);
+        if (!pagina) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "paginaId", mensaje: "Esa página no está en el flujograma" }]);
+        const dispositivo: Dispositivo = b.dispositivo === "MOVIL" ? "MOVIL" : "ESCRITORIO";
+        // Rehacer una página reemplaza su captura anterior (y vuelve a quedar sin aprobar).
+        const otras = e.prototipo.bocetos.filter((x) => !(x.paginaId === pagina.id && x.dispositivo === dispositivo));
+        if (otras.length >= LIMITES_TALLER.bocetos) throw new ErrorTaller(409, "LIMITE_BOCETOS", `Hasta ${LIMITES_TALLER.bocetos} capturas por proyecto`);
+        const r = await generarBoceto({ insumos: await repo.insumos(), flujograma: e.flujograma, recomendaciones: e.recomendaciones, pagina, dispositivo, plantilla: e.prototipo.plantilla }, repo.almacen);
+        // En el orden del flujograma.
+        const orden = (x: Boceto) => e.flujograma.findIndex((p) => p.id === x.paginaId) * 2 + (x.dispositivo === "MOVIL" ? 1 : 0);
+        const bocetos = [...otras, r.boceto].sort((a, c) => orden(a) - orden(c));
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, bocetos } });
+        return { __status: 201, ...(await resultado(e, { simulado: r.boceto.simulada })) };
+      }
+
       case "DOCUMENTO": {
         const notaCliente = nota(b.nota);
         if (!e.referencias.some((r) => r.puntajes.length) && !e.flujograma.length) {
@@ -489,6 +580,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const doc = await armarDocumento({
           insumos: await repo.insumos(), dominio: null, dimensiones: dimensionesPara(repo.servicio.variante),
           referencias: e.referencias.filter((r) => r.puntajes.length), hallazgos: e.hallazgos, recomendaciones: e.recomendaciones, flujograma: e.flujograma,
+          bocetos: e.prototipo.bocetos.filter((x) => x.aprobado),
         }, repo.almacen);
         const archivo = await repo.almacen.guardar({ tipo: "DOCUMENTO", mime: doc.mime, nombre: doc.nombre, bytes: doc.bytes });
         const id = await entregar(repo, e.documentoEntregableId, {
@@ -504,16 +596,25 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         if (e.prototipo.pantallas.length >= MAX_PANTALLAS) throw new ErrorTaller(409, "LIMITE_PANTALLAS", `Hasta ${MAX_PANTALLAS} pantallas por proyecto`);
         const ins = await repo.insumos();
         const dispositivo: Dispositivo = b.dispositivo === "MOVIL" ? "MOVIL" : "ESCRITORIO";
-        if (b.paginaId !== undefined && b.paginaId !== null && !e.flujograma.some((p) => p.id === b.paginaId)) {
+        // SITIO: todas las páginas en un solo prompt (26 oct); PAGINA: la elegida.
+        const sitio = b.alcance === "SITIO";
+        if (!sitio && b.paginaId !== undefined && b.paginaId !== null && !e.flujograma.some((p) => p.id === b.paginaId)) {
           throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "paginaId", mensaje: "Esa página no está en el flujograma" }]);
         }
         const pagina = paginaParaPrompt(e.flujograma, b.paginaId as string | undefined);
         // Sin prompt editado a mano, va el estándar armado desde el flujograma guardado.
-        const prompt = (typeof b.prompt === "string" && b.prompt.trim()) || promptStitch(ins, e.flujograma, e.recomendaciones, { paginaId: pagina.id, dispositivo });
+        const plantilla = e.prototipo.plantilla;
+        const prompt = (typeof b.prompt === "string" && b.prompt.trim()) ||
+          (sitio ? promptStitchSitio(ins, e.flujograma, e.recomendaciones, { dispositivo, plantilla }) : promptStitch(ins, e.flujograma, e.recomendaciones, { paginaId: pagina.id, dispositivo, plantilla }));
         if (prompt.length > LIMITES_TALLER.promptPrototipo) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "prompt", mensaje: `Hasta ${LIMITES_TALLER.promptPrototipo} caracteres` }]);
-        const r = await generarPantalla({ insumos: ins, prompt, dispositivo, proyectoStitch: e.prototipo.proyectoStitch, pagina }, repo.almacen);
-        e = await guardar(repo, e, { prototipo: { ...e.prototipo, proyectoStitch: r.proyectoStitch, pantallas: [...e.prototipo.pantallas, r.pantalla], htmlGuia: r.htmlId ?? e.prototipo.htmlGuia } });
-        return { __status: 201, ...(await resultado(e, { simulado: r.pantalla.simulada })) };
+        const r = await generarPantalla({
+          insumos: ins, prompt, dispositivo, proyectoStitch: e.prototipo.proyectoStitch, paginas: sitio ? e.flujograma : [pagina], sitio, maximo: MAX_PANTALLAS - e.prototipo.pantallas.length,
+          designMd: designMdStitch(ins, e.flujograma, e.recomendaciones, plantilla), sistemaStitch: e.prototipo.sistemaStitch,
+        }, repo.almacen);
+        e = await guardar(repo, e, {
+          prototipo: { ...e.prototipo, proyectoStitch: r.proyectoStitch, pantallas: [...e.prototipo.pantallas, ...r.pantallas], htmlGuia: r.htmlId ?? e.prototipo.htmlGuia, sistemaStitch: r.sistemaStitch },
+        });
+        return { __status: 201, ...(await resultado(e, { simulado: r.pantallas.some((x) => x.simulada), avisos: r.aviso ? [{ mensaje: r.aviso }] : [] })) };
       }
 
       case "DEMO": {
