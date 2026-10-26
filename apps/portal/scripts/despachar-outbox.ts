@@ -27,11 +27,15 @@ async function ciclo() {
   if (total) console.log(`[outbox] ${total} eventos entregados`);
 }
 
-if (unaVez) {
-  await ciclo();
-  process.exit(0);
+// Sin await de nivel superior: tsx compila el paquete como CommonJS y lo rechaza.
+async function principal() {
+  if (unaVez) {
+    await ciclo();
+    process.exit(0);
+  }
+  for (;;) {
+    await ciclo().catch((e) => console.error("[outbox]", e));
+    await new Promise((r) => setTimeout(r, intervalo));
+  }
 }
-for (;;) {
-  await ciclo().catch((e) => console.error("[outbox]", e));
-  await new Promise((r) => setTimeout(r, intervalo));
-}
+void principal();

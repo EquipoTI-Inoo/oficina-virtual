@@ -77,10 +77,10 @@ export function pruebasKpis(nombre: string, manejar: Manejador, reiniciar: () =>
       await reiniciar();
       const p = (await llamar("GET", "/panel/colaborador", DIEGO)).json;
       assert.equal(p.persona.nombre, "Diego Castro");
-      assert.deepEqual(p.proyectos.map((x: any) => x.servicioContratadoId).sort(), [CRM, WEB].sort(), "es responsable de la web y del CRM");
+      assert.deepEqual(p.proyectos.map((x: any) => x.servicioContratadoId).sort(), [CRM, WEB, uid(4, 1)].sort(), "es responsable de la web, el CRM y el soporte web (Social Media Pro es de Camila)");
       assert.ok(p.proyectos.every((x: any) => x.kpis.length >= 3));
       assert.ok(p.tareas.every((t: any) => t.responsable.nombre === "Diego Castro" && t.estado !== "HECHA"));
-      assert.deepEqual([p.resumen.proyectosActivos, p.resumen.tareasAbiertas, p.resumen.rebotes], [2, p.tareas.length, 1]);
+      assert.deepEqual([p.resumen.proyectosActivos, p.resumen.tareasAbiertas, p.resumen.rebotes], [3, p.tareas.length, 1]);
       const admin = (await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 4)}`, DIEGO)).json;
       assert.deepEqual([admin.persona.nombre, admin.proyectos.length], ["Admin Inoo", 0]);
       assert.equal((await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 1)}`, DIEGO)).status, 404, "una clienta no tiene panel de colaborador");

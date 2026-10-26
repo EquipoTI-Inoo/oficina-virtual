@@ -45,6 +45,10 @@ services:
       - ../../database/migraciones/0019_soporte_consumo.sql:/docker-entrypoint-initdb.d/01s_soporte_consumo.sql:ro
       - ../../database/migraciones/0020_ia_cliente.sql:/docker-entrypoint-initdb.d/01t_ia_cliente.sql:ro
       - ../../database/migraciones/0021_taller_web.sql:/docker-entrypoint-initdb.d/01u_taller_web.sql:ro
+      - ../../database/migraciones/0022_invitaciones.sql:/docker-entrypoint-initdb.d/01v_invitaciones.sql:ro
+      - ../../database/migraciones/0023_paid_media_por_tipo.sql:/docker-entrypoint-initdb.d/01w_paid_media_por_tipo.sql:ro
+      - ../../database/migraciones/0024_correos.sql:/docker-entrypoint-initdb.d/01x_correos.sql:ro
+      - ../../database/migraciones/0025_standby.sql:/docker-entrypoint-initdb.d/01y_standby.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -67,6 +71,12 @@ services:
       WEBHOOK_URL: https://${DOMINIO_N8N}/
       GENERIC_TIMEZONE: America/Lima
       N8N_SECURE_COOKIE: "true"
+      # Conexión con el portal (n8n/README.md). El portal aún no corre en este VPS: PORTAL_API_URL es su URL pública.
+      PORTAL_API_URL: ${PORTAL_API_URL}
+      INOO_WEBHOOK_SECRETO: ${N8N_WEBHOOK_SECRETO}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-Inoo <no-responder@inoo.pe>}
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     volumes: [n8n-datos:/home/node/.n8n]
     depends_on:
       postgres: { condition: service_healthy }

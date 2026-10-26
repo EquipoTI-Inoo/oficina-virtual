@@ -45,7 +45,7 @@ export function pruebasProyectos(nombre: string, manejar: Manejador, reiniciar: 
       await reiniciar();
       assert.equal((await llamar("GET", "/panel/equipo", VALERIA)).status, 403);
       const xs = (await llamar("GET", "/panel/equipo", DIEGO)).json.datos;
-      assert.deepEqual(xs.map((x: any) => x.nombre).sort(), ["Admin Inoo", "Diego Castro", "Rosa Paredes"]);
+      assert.deepEqual(xs.map((x: any) => x.nombre).sort(), ["Admin Inoo", "Camila Paredes", "Diego Castro", "Rosa Paredes"]);
       assert.ok(xs.every((x: any) => x.iniciales.length === 2));
     });
 

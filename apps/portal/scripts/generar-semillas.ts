@@ -189,6 +189,12 @@ LEFT JOIN LATERAL (
     ["id", "cliente_id", "origen", "almacen", "s3_key", "nombre", "mime", "bytes", "uso", "brief_id", "estado", "subido_por"],
     D.BRIEF_INICIAL.archivos.map((a) => [a.id, D.CLIENTES[0].id, "CLIENTE", "S3", `clientes/casa-oliva/briefs/2026-10/${a.nombre}`, a.nombre, a.mime, a.bytes, "BRIEF", D.uid(14, 1), "SUBIDO", D.USUARIOS[0].id]),
   ),
+  "-- Biblioteca de la marca (fotos con derechos firmados): la usan Paid media y los agentes.",
+  insert(
+    "archivo",
+    ["id", "cliente_id", "origen", "almacen", "s3_key", "nombre", "mime", "bytes", "categoria", "etiquetas", "uso", "estado", "declara_derechos", "declarado_por", "declarado_en", "subido_por", "creado_en"],
+    D.BIBLIOTECA_INICIAL.map((a) => [a.id, a.clienteId, "CLIENTE", "S3", `clientes/casa-oliva/biblioteca/${a.nombre}`, a.nombre, a.mime, a.bytes, a.categoria, `{${a.etiquetas.join(",")}}`, "BIBLIOTECA", a.estado, true, D.USUARIOS[0].id, a.creadoEn, D.USUARIOS[0].id, a.creadoEn]),
+  ),
   insert(
     "referencia_cliente",
     ["id", "cliente_id", "tipo", "titulo", "url", "notas", "paleta", "creado_por", "brief_id"],

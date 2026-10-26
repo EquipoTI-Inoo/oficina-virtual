@@ -9,7 +9,8 @@ VALUES
   ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL),
   ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER'),
   ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN'),
-  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS');
+  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS'),
+  ('00000000-0000-4000-8001-000000000006', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB');
 
 INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario, situacion_pago, pago_atrasado_desde, pago_nota, pago_actualizado_por, pago_actualizado_en)
 VALUES
@@ -31,8 +32,8 @@ VALUES
 INSERT INTO servicio_contratado (id, cliente_id, servicio_id, plan_id, variante, detalle, marca, plantilla_id, estado, siguiente_paso, siguiente_paso_responsable_id, fecha_inicio, fecha_fin, responsable_id, alcance)
 SELECT v.id::uuid, v.cliente_id::uuid, s.id, '00000000-0000-4000-8003-000000000001'::uuid, v.variante, v.detalle::jsonb, v.marca, pp.id, v.estado::estado_servicio, v.paso, '00000000-0000-4000-8001-000000000003'::uuid, v.inicio::date, v.fin::date, v.responsable::uuid, v.alcance
 FROM (VALUES
-  ('00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', 'SOPORTE_CONTINUO', 'WEB', '{}', NULL, 'ACTIVO', 'revisar «5 hábitos para una piel saludable».', '2026-01-01', '2026-12-31', NULL, NULL),
-  ('00000000-0000-4000-8004-000000000002', '00000000-0000-4000-8002-000000000001', 'SOCIAL_MEDIA_PRO', NULL, '{}', NULL, 'ACTIVO', 'revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».', '2026-01-01', '2026-12-31', NULL, NULL),
+  ('00000000-0000-4000-8004-000000000001', '00000000-0000-4000-8002-000000000001', 'SOPORTE_CONTINUO', 'WEB', '{}', NULL, 'ACTIVO', 'revisar «5 hábitos para una piel saludable».', '2026-01-01', '2026-12-31', '00000000-0000-4000-8001-000000000003', NULL),
+  ('00000000-0000-4000-8004-000000000002', '00000000-0000-4000-8002-000000000001', 'SOCIAL_MEDIA_PRO', NULL, '{}', NULL, 'ACTIVO', 'revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».', '2026-01-01', '2026-12-31', '00000000-0000-4000-8001-000000000006', NULL),
   ('00000000-0000-4000-8004-000000000003', '00000000-0000-4000-8002-000000000001', 'CRM_IMPLEMENTACION', NULL, '{"crm":"HubSpot","tipoLicencia":"Sales Hub Starter","licencias":3,"usuarios":5,"agenteIa":true,"whatsappApi":true}', NULL, 'ACTIVO', 'validar el mapa de procesos de venta que enviamos el viernes.', '2026-09-01', NULL, '00000000-0000-4000-8001-000000000003', 'HubSpot Sales Hub con 3 licencias, pipeline de ventas, agente de IA en WhatsApp y 2 capacitaciones.'),
   ('00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8002-000000000001', 'WEB', 'ECOMMERCE', '{"tamano":"MEDIANO","paginas":15,"productos":50,"cms":"SHOPIFY","alcanceWeb":"WEB_Y_CMS"}', NULL, 'ACTIVO', 'aprobar el flujograma del sitio.', '2026-09-21', NULL, '00000000-0000-4000-8001-000000000003', 'E-commerce mediano en Shopify: 15 páginas, 50 productos cargados y pasarela de pago.')
 ) AS v(id, cliente_id, codigo, variante, detalle, marca, estado, paso, inicio, fin, responsable, alcance)
@@ -245,6 +246,12 @@ VALUES
   ('00000000-0000-4000-8010-000000000001', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Producto_Oliva.jpg', 'Producto_Oliva.jpg', 'image/jpeg', 2516582, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001'),
   ('00000000-0000-4000-8010-000000000002', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Ritual_diario.mp4', 'Ritual_diario.mp4', 'video/mp4', 19503513, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001'),
   ('00000000-0000-4000-8010-000000000003', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/briefs/2026-10/Guía_de_marca.pdf', 'Guía_de_marca.pdf', 'application/pdf', 1258291, 'BRIEF', '00000000-0000-4000-8014-000000000001', 'SUBIDO', '00000000-0000-4000-8001-000000000001');
+
+-- Biblioteca de la marca (fotos con derechos firmados): la usan Paid media y los agentes.
+INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, bytes, categoria, etiquetas, uso, estado, declara_derechos, declarado_por, declarado_en, subido_por, creado_en)
+VALUES
+  ('00000000-0000-4000-8010-000000000011', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/biblioteca/Serum_bodegon_olivo.jpg', 'Serum_bodegon_olivo.jpg', 'image/jpeg', 3145728, 'Producto', '{serum,bodegón}', 'BIBLIOTECA', 'DISPONIBLE', true, '00000000-0000-4000-8001-000000000001', '2026-09-12T15:00:00Z', '00000000-0000-4000-8001-000000000001', '2026-09-12T15:00:00Z'),
+  ('00000000-0000-4000-8010-000000000012', '00000000-0000-4000-8002-000000000001', 'CLIENTE', 'S3', 'clientes/casa-oliva/biblioteca/Ritual_manos_luz_natural.jpg', 'Ritual_manos_luz_natural.jpg', 'image/jpeg', 2831155, 'Lifestyle', '{ritual,manos}', 'BIBLIOTECA', 'DISPONIBLE', true, '00000000-0000-4000-8001-000000000001', '2026-09-12T15:05:00Z', '00000000-0000-4000-8001-000000000001', '2026-09-12T15:05:00Z');
 
 INSERT INTO referencia_cliente (id, cliente_id, tipo, titulo, url, notas, paleta, creado_por, brief_id)
 VALUES

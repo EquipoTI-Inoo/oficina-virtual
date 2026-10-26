@@ -570,6 +570,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integraciones/servicios/inactividad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * n8n, una vez al día: avisa y pone en standby los servicios de clientes que no usan el portal
+         * @description Si nadie del cliente usa el portal en 30 días, sus servicios ACTIVO pasan a STANDBY y se emite
+         *     `servicio.standby`. 7 días antes se emite una sola vez `servicio.standby_proximo` (correo al cliente y a
+         *     los responsables). Cuando alguien del cliente vuelve a usar el portal, los servicios se reactivan solos
+         *     (`servicio.reactivado`). Idempotente en el día. Scope `servicios:write`.
+         */
+        post: operations["aplicarInactividadClientes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integraciones/correos/preparar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * n8n, por cada evento del outbox: qué correos mandar, a quién y con qué contenido (INO-04)
+         * @description n8n recibe el evento firmado del outbox y lo reenvía tal cual. La API aplica las reglas de
+         *     `regla_correo` (la del cliente si existe, si no la global), resuelve los destinatarios, arma el asunto
+         *     y el HTML y deja cada correo en PENDIENTE. Idempotente por evento y destinatario: si n8n reintenta,
+         *     vuelven solo los que aún no se enviaron. Un evento sin regla activa devuelve una lista vacía.
+         */
+        post: operations["prepararCorreos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integraciones/correos/{correoId}/resultado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** n8n informa si el correo salió por SMTP o falló */
+        post: operations["registrarResultadoCorreo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/servicios": {
         parameters: {
             query?: never;
@@ -623,7 +686,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** El equipo actualiza el proyecto: siguiente paso, estado, marca, detalle, responsable o alcance */
+        /**
+         * El equipo actualiza el proyecto: siguiente paso, estado, marca, detalle, responsable o alcance
+         * @description Cambiar `responsableId` es solo para ACCOUNT_MANAGER y ADMIN (403 para el resto del equipo).
+         */
         patch: operations["actualizarServicioContratado"];
         trace?: never;
     };
@@ -1043,7 +1109,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Ideas propuestas del mes y cuántas puede elegir el cliente (POR-04) */
+        /**
+         * Ideas propuestas del mes y cuántas puede elegir el cliente (POR-04)
+         * @description El blog interno es de gestión; el equipo operativo (diseño, audiovisual, paid media, web) recibe 403.
+         */
         get: operations["listarIdeasBlog"];
         put?: never;
         post?: never;
@@ -2345,8 +2414,11 @@ export interface components {
          * @enum {string}
          */
         ModalidadServicio: "MENSUAL" | "PROYECTO";
-        /** @enum {string} */
-        EstadoServicio: "ACTIVO" | "PAUSADO" | "FINALIZADO";
+        /**
+         * @description STANDBY: el cliente no usó el portal en 30 días; vuelve a ACTIVO solo cuando lo usa
+         * @enum {string}
+         */
+        EstadoServicio: "ACTIVO" | "PAUSADO" | "STANDBY" | "FINALIZADO";
         /** @enum {string} */
         MetricaProyecto: "REUNIONES_REALIZADAS" | "REUNIONES_EXITOSAS" | "DOCUMENTOS_A_TIEMPO" | "PIEZAS_APROBADAS" | "TICKETS_RESUELTOS" | "RESULTADOS_CAMPANA";
         /**
@@ -2403,6 +2475,23 @@ export interface components {
             cargo?: string | null;
             /** Format: email */
             email?: string | null;
+        };
+        /** @description Actividad del cliente en el portal y standby (solo equipo) */
+        InactividadCliente: {
+            /** Format: date-time */
+            ultimaActividad: string;
+            diasSinActividad: number;
+            /**
+             * Format: date
+             * @description Cuándo pasarían sus servicios a standby si nadie entra
+             */
+            fechaStandby: string;
+            /**
+             * @description POR_ENTRAR: faltan 7 días o menos (ya se avisó)
+             * @enum {string}
+             */
+            estado: "ACTIVO" | "POR_ENTRAR" | "STANDBY";
+            serviciosEnStandby: number;
         };
         Sesion: {
             usuario: components["schemas"]["Usuario"];
@@ -2526,6 +2615,7 @@ export interface components {
             driveCarpetaId?: string | null;
             /** @description Solo equipo */
             limiteGastoIaUsd?: number;
+            inactividad?: components["schemas"]["InactividadCliente"];
             /** Format: date-time */
             creadoEn?: string;
         };
@@ -2590,6 +2680,8 @@ export interface components {
                 unidad: string;
                 estado: components["schemas"]["EstadoServicio"];
                 avance: components["schemas"]["AvanceProyecto"];
+                /** @description Responsable del servicio en Inoo */
+                responsable?: components["schemas"]["PersonaMini"] | null;
             }[];
             proximaPublicacion?: {
                 /** Format: uuid */
@@ -2829,7 +2921,7 @@ export interface components {
                 referenciaId?: string;
                 mensaje: string;
             }[];
-            /** @description El paso usó respuestas */
+            /** @description El paso usó respuestas, capturas o pantallas de relleno */
             simulado: boolean;
             /**
              * Format: uuid
@@ -3432,7 +3524,7 @@ export interface components {
             inooworkProyectoId?: string;
             /**
              * Format: uuid
-             * @description Responsable del proyecto en Inoo (persona del equipo)
+             * @description Responsable del proyecto en Inoo (persona del equipo); por defecto el AM de la cuenta
              */
             responsableId?: string | null;
             /** @description Proyecto personalizado: estas etapas reemplazan las de la plantilla. El % acumulado crece y termina en 100 */
@@ -3636,6 +3728,8 @@ export interface components {
             avance: components["schemas"]["AvanceProyecto"];
             /** @description Solo el soporte continuo: no tiene etapas, se mide por consumo de su bolsa (fase 15) */
             consumo?: components["schemas"]["ConsumoSoporte"];
+            /** @description Responsable del servicio en Inoo: cada servicio puede ser de un área distinta */
+            responsable?: components["schemas"]["PersonaMini"] | null;
             /** @description Detalle por tipo de pieza */
             entregables?: {
                 tipoPieza: components["schemas"]["TipoPieza"];
@@ -3680,7 +3774,9 @@ export interface components {
             variante?: components["schemas"]["VarianteServicio"] | null;
             detalle?: components["schemas"]["DetalleServicio"];
             /** @enum {string} */
-            estado?: "SIN_INICIAR" | "EN_CURSO" | "COMPLETADO" | "PAUSADO";
+            estado?: "SIN_INICIAR" | "EN_CURSO" | "COMPLETADO" | "PAUSADO" | "STANDBY";
+            /** @description Responsable del servicio en Inoo */
+            responsable?: components["schemas"]["PersonaMini"] | null;
             progreso?: components["schemas"]["ProgresoPiezas"] | null;
             avance: components["schemas"]["AvanceProyecto"];
             /** @description Etapas del proyecto, o del mes en curso en servicios mensuales */
@@ -4180,7 +4276,8 @@ export interface components {
         SubidaEntrada: {
             nombre: string;
             /** @enum {string} */
-            mime: "image/jpeg" | "image/png" | "video/mp4" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            mime: "image/jpeg" | "image/png" | "video/mp4" | "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            /** @description Máximo 10 MB para ADJUNTO_TICKET (413 ARCHIVO_DEMASIADO_GRANDE) */
             bytes: number;
             sha256?: string;
             /** @enum {string} */
@@ -4189,6 +4286,8 @@ export interface components {
             /** @enum {string} */
             categoria?: "FOTO" | "VIDEO" | "DOCUMENTO" | "LOGO" | "OTRO";
             etiquetas?: string[];
+            /** @description Obligatorio en true para BIBLIOTECA (422 DERECHOS_REQUERIDOS) */
+            declaraDerechos?: boolean;
         };
         SubidaIniciada: {
             archivo: components["schemas"]["Archivo"];
@@ -4372,6 +4471,19 @@ export interface components {
             /** @enum {string} */
             destinatarios?: "MIEMBROS_CLIENTE" | "ACCOUNT_MANAGER" | "AMBOS";
             activa: boolean;
+        };
+        CorreoPreparado: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            para: string;
+            nombre?: string | null;
+            asunto: string;
+            html: string;
+            /** @description Versión en texto plano del mismo correo */
+            texto: string;
+            /** @example pieza.lista_revision */
+            evento: string;
         };
         CorreoEnviado: {
             /** Format: uuid */
@@ -4592,7 +4704,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -5887,6 +5999,102 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    aplicarInactividadClientes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: date
+                     * @description Simula otro día (pruebas); por defecto hoy
+                     */
+                    fecha?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Clientes con servicios activos revisados */
+                        revisados: number;
+                        /** @description Clientes avisados hoy de que pasarán a standby */
+                        avisados: number;
+                        /** @description Clientes cuyos servicios pasaron hoy a standby */
+                        enStandby: number;
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    prepararCorreos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventoSaliente"];
+            };
+        };
+        responses: {
+            /** @description Correos por enviar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        correos: components["schemas"]["CorreoPreparado"][];
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    registrarResultadoCorreo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                correoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    estado: "ENVIADO" | "FALLIDO";
+                    /** @description Message-ID que devolvió el servidor SMTP */
+                    messageId?: string;
+                    error?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Registrado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
         };
     };
     listarServiciosCliente: {
@@ -8868,7 +9076,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description El archivo */
+            /** @description El archivo, con su tipo */
             200: {
                 headers: {
                     [name: string]: unknown;

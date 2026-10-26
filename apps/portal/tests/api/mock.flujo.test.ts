@@ -5,7 +5,11 @@ import { manejarSolicitud, reiniciarMock } from "../../src/mock/api";
 import { crearLlamar, DIEGO, pruebasFlujoPiezas } from "./flujo-piezas";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
+import { pruebasCuentas } from "./flujo-cuentas";
+import { pruebasPanel } from "./flujo-panel";
+import { pruebasArchivos } from "./flujo-archivos";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
+import { pruebasEquipo } from "./flujo-equipo";
 import { pruebasProyectos } from "./flujo-proyectos";
 import { pruebasSinIa } from "./flujo-sin-ia";
 import { pruebasEntregables } from "./flujo-entregables";
@@ -22,6 +26,11 @@ const eventos = async () => (await (await manejar(new Request("http://local/api/
 pruebasFlujoPiezas("API simulada", manejar, reiniciarMock);
 pruebasPlanificacion("API simulada", manejar, reiniciarMock, eventos);
 pruebasServicios("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
+pruebasCuentas("API simulada", manejar, reiniciarMock, eventos);
+pruebasPanel("API simulada", manejar, reiniciarMock);
+pruebasArchivos("API simulada", manejar, reiniciarMock, async (url) => {
+  await manejar(new Request(`http://local${url}`, { method: "PUT", body: "x" }));
+});
 pruebasRequerimientos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasProyectos("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasSinIa("API simulada", manejar, reiniciarMock);
@@ -31,12 +40,4 @@ pruebasKpis("API simulada", manejar, reiniciarMock);
 pruebasConsumo("API simulada", manejar, reiniciarMock);
 pruebasIaCliente("API simulada", manejar, reiniciarMock);
 pruebasTallerWeb("API simulada", manejar, reiniciarMock);
-
-// El panel general (todavía solo en la API simulada) mira proyectos y requerimientos, no piezas (reunión 15 oct).
-test("panel general: proyectos con retraso y requerimientos atrasados", async () => {
-  reiniciarMock();
-  const r = (await crearLlamar(manejar)("GET", "/panel/clientes", DIEGO)).json.resumen;
-  assert.equal(r.proyectosConRetraso, 1, "la web de Casa Oliva pasó la fecha de su arquitectura");
-  assert.deepEqual(r.retrasoPorCliente, [{ clienteNombre: "Casa Oliva", proyectos: 1 }]);
-  assert.ok(r.requerimientosAtrasados >= 1);
-});
+pruebasEquipo("API simulada", manejar, reiniciarMock, eventos);

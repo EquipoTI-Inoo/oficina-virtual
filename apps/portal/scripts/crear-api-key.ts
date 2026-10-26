@@ -14,20 +14,24 @@ if (!nombre || !scopes) {
 
 // 8 primeros caracteres = prefijo único (48 bits), el resto es el secreto.
 const llave = randomBytes(30).toString("base64url");
-const db = await baseDatos();
-await db.transaccion(async (c) => {
-  const { rows } = await c.query<{ id: string }>(
-    `INSERT INTO usuario (email, nombre, tipo) VALUES ($1, $2, 'SERVICIO')
-     ON CONFLICT (email) DO UPDATE SET activo = true RETURNING id`,
-    [`${nombre}@sistema.inoo.pe`, nombre],
-  );
-  await c.query("INSERT INTO api_key (nombre, prefijo, hash, scopes, usuario_id) VALUES ($1, $2, $3, $4, $5)", [
-    nombre,
-    llave.slice(0, 8),
-    createHash("sha256").update(llave).digest("hex"),
-    scopes.split(",").map((s) => s.trim()).filter(Boolean),
-    rows[0].id,
-  ]);
-});
-console.log(`Llave creada para ${nombre}. Guárdala ahora; no se vuelve a mostrar:\n${llave}`);
-process.exit(0);
+// Sin await de nivel superior: tsx compila el paquete como CommonJS y lo rechaza.
+async function principal() {
+  const db = await baseDatos();
+  await db.transaccion(async (c) => {
+    const { rows } = await c.query<{ id: string }>(
+      `INSERT INTO usuario (email, nombre, tipo) VALUES ($1, $2, 'SERVICIO')
+       ON CONFLICT (email) DO UPDATE SET activo = true RETURNING id`,
+      [`${nombre}@sistema.inoo.pe`, nombre],
+    );
+    await c.query("INSERT INTO api_key (nombre, prefijo, hash, scopes, usuario_id) VALUES ($1, $2, $3, $4, $5)", [
+      nombre,
+      llave.slice(0, 8),
+      createHash("sha256").update(llave).digest("hex"),
+      scopes.split(",").map((s) => s.trim()).filter(Boolean),
+      rows[0].id,
+    ]);
+  });
+  console.log(`Llave creada para ${nombre}. Guárdala ahora; no se vuelve a mostrar:\n${llave}`);
+  process.exit(0);
+}
+void principal();

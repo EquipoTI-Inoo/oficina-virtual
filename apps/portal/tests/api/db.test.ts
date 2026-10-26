@@ -15,7 +15,12 @@ import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
+import { pruebasCuentas } from "./flujo-cuentas";
+import { pruebasPanel } from "./flujo-panel";
+import { pruebasArchivos } from "./flujo-archivos";
+import { prefirmar, usarAlmacen, type Almacen } from "../../src/servidor/almacen";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
+import { pruebasEquipo } from "./flujo-equipo";
 import { pruebasProyectos } from "./flujo-proyectos";
 import { pruebasSinIa } from "./flujo-sin-ia";
 import { pruebasEntregables } from "./flujo-entregables";
@@ -37,9 +42,11 @@ let tablas = "";
 // Los feriados vienen de la migración 0011; el TRUNCATE en cascada de cliente vacía aviso, así que se
 // guardan al cargar el esquema y se vuelven a insertar en cada reinicio.
 let feriadosMigracion: { fecha: string; nombre: string }[] = [];
+// Igual con las reglas globales de correo de la 0017 (regla_correo referencia a cliente).
+let reglasCorreo = "";
 async function reiniciar() {
   const feriados = feriadosMigracion.map((f) => `('FERIADO', '${f.nombre.replace(/'/g, "''")}', DATE '${f.fecha}', DATE '${f.fecha}', DATE '${f.fecha}' - 7)`).join(",\n");
-  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${SEMILLAS}`);
+  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${reglasCorreo}\n${SEMILLAS}`);
 }
 
 before(async () => {
@@ -64,6 +71,10 @@ before(async () => {
   await db.exec(sql("migraciones/0019_soporte_consumo.sql"));
   await db.exec(sql("migraciones/0020_ia_cliente.sql"));
   await db.exec(sql("migraciones/0021_taller_web.sql"));
+  await db.exec(sql("migraciones/0022_invitaciones.sql"));
+  await db.exec(sql("migraciones/0023_paid_media_por_tipo.sql"));
+  await db.exec(sql("migraciones/0024_correos.sql"));
+  await db.exec(sql("migraciones/0025_standby.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -72,6 +83,9 @@ before(async () => {
   feriadosMigracion = (await db.query<{ fecha: string; nombre: string }>(
     "SELECT to_char(fecha_inicio, 'YYYY-MM-DD') AS fecha, titulo AS nombre FROM aviso WHERE tipo = 'FERIADO' ORDER BY fecha_inicio",
   )).rows;
+  const reglas = (await db.query<{ evento: string; plantilla: string; destinatarios: string; descripcion: string }>("SELECT evento, plantilla, destinatarios, descripcion FROM regla_correo WHERE cliente_id IS NULL")).rows;
+  const q = (t: string) => `'${t.replace(/'/g, "''")}'`;
+  reglasCorreo = `INSERT INTO regla_correo (evento, plantilla, destinatarios, descripcion) VALUES ${reglas.map((r) => `(${q(r.evento)}, ${q(r.plantilla)}, ${q(r.destinatarios)}, ${q(r.descripcion)})`).join(", ")};`;
   await reiniciar();
   usarBaseDatos(desdePglite(db as never));
 });
@@ -80,6 +94,20 @@ pruebasFlujoPiezas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>("SELECT tipo, payload AS datos FROM outbox_evento ORDER BY id")).rows;
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
+pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasPanel("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasEquipo("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+
+// Almacén falso: el "bucket" es un mapa clave → bytes; las URLs llevan la clave para poder subir.
+const bucket = new Map<string, number>();
+const almacenFalso: Almacen = {
+  urlSubida: (clave, mime) => ({ url: `https://bucket.prueba/${clave}`, headers: { "Content-Type": mime }, expiraEn: new Date(Date.now() + 900_000).toISOString() }),
+  urlDescarga: (clave, nombre) => ({ url: `https://bucket.prueba/${clave}?descarga=${encodeURIComponent(nombre)}`, expiraEn: new Date(Date.now() + 900_000).toISOString() }),
+  tamano: async (clave) => bucket.get(clave) ?? null,
+};
+usarAlmacen(almacenFalso);
+const subirAlBucket = async (url: string, bytes: number) => void bucket.set(decodeURIComponent(new URL(url).pathname.slice(1)), bytes);
+pruebasArchivos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, subirAlBucket);
 // El backend usa la fecha real de Lima para los atrasos.
 pruebasRequerimientos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 pruebasProyectos("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
@@ -174,9 +202,19 @@ describe("solo en Postgres", () => {
   });
 
   test("rutas aún no migradas responden 501 y lo dicen", async () => {
-    const r = await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA);
+    const r = await llamar("POST", "/integraciones/inoowork/sincronizacion", DIEGO, {});
     assert.equal(r.status, 501);
     assert.equal(r.json.codigo, "RUTA_NO_IMPLEMENTADA");
+  });
+
+  test("bandeja: «Ver las otras N» pagina una columna con porColumna y cursor", async () => {
+    await reiniciar();
+    const primera = (await llamar("GET", `/panel/piezas?clienteId=${CASA_OLIVA}&columna=APROBADO&porColumna=2`, DIEGO)).json.columnas;
+    assert.deepEqual(primera.map((c: any) => c.columna), ["APROBADO"]);
+    assert.equal(primera[0].piezas.length, 2);
+    assert.equal(primera[0].siguienteCursor, "2");
+    const segunda = (await llamar("GET", `/panel/piezas?clienteId=${CASA_OLIVA}&columna=APROBADO&porColumna=2&cursor=2`, DIEGO)).json.columnas[0];
+    assert.notDeepEqual(segunda.piezas.map((x: any) => x.id), primera[0].piezas.map((x: any) => x.id));
   });
 
   test("ids mal formados responden 404 (no 500)", async () => {
@@ -405,5 +443,238 @@ describe("integraciones (n8n, X-Api-Key) · Postgres", () => {
     const c = await llamar("POST", "/integraciones/ejecuciones", undefined, { ...base, n8nExecutionId: "778", estado: "OK", consumos: [{ proveedor: "openai", modelo: "gpt-6.1-sol", tokensSalida: 20_000 }] }, N8N);
     assert.equal(c.json.bloquear, true);
     assert.equal((await db.query("SELECT 1 FROM outbox_evento WHERE tipo = 'presupuesto.alerta'")).rows.length, 1, "la alerta sale una sola vez");
+  });
+});
+
+describe("archivos, descargas y resultados · solo backend real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const PUBLICADA = uid(5, 1);
+
+  test("prefirmado SigV4: coincide con el ejemplo de la documentación de AWS", () => {
+    const url = prefirmar(
+      { bucket: "examplebucket", region: "us-east-1", accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" },
+      "GET", "test.txt", 86400, {}, new Date("2013-05-24T00:00:00Z"),
+    );
+    assert.ok(url.startsWith("https://examplebucket.s3.amazonaws.com/test.txt?"));
+    assert.ok(url.endsWith("X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404"));
+    const minio = prefirmar({ bucket: "inoo", region: "us-east-1", endpoint: "http://minio:9000", endpointPublico: "http://localhost:9000", accessKeyId: "a", secretAccessKey: "b" }, "PUT", "clientes/x/año.jpg", 60);
+    assert.ok(minio.startsWith("http://localhost:9000/inoo/clientes/x/a%C3%B1o.jpg?"), "MinIO usa rutas /bucket/clave y el endpoint público");
+  });
+
+  test("subida: la clave en S3 es por cliente y uso; confirmar sin el objeto da 409; sin S3 configurado, 503", async () => {
+    await reiniciar();
+    const r = await llamar("POST", `/clientes/${CASA_OLIVA}/archivos`, VALERIA, { nombre: "Catálogo de verano.pdf", mime: "application/pdf", bytes: 1000, uso: "REQUERIMIENTO" });
+    const fila = (await db.query<{ s3_key: string; origen: string; subido_por: string }>("SELECT s3_key, origen, subido_por FROM archivo WHERE id = $1", [r.json.archivo.id])).rows[0];
+    assert.equal(fila.s3_key, `clientes/${CASA_OLIVA}/requerimiento/${r.json.archivo.id}/Catalogo-de-verano.pdf`);
+    assert.deepEqual([fila.origen, fila.subido_por], ["CLIENTE", uid(1, 1)]);
+    assert.equal((await llamar("POST", `/archivos/${r.json.archivo.id}/confirmar`, VALERIA, {})).json.codigo, "ARCHIVO_NO_SUBIDO");
+    await subirAlBucket(r.json.subida.url, 987);
+    const ok = await llamar("POST", `/archivos/${r.json.archivo.id}/confirmar`, VALERIA, {});
+    assert.deepEqual([ok.json.estado, ok.json.bytes], ["SUBIDO", 987], "los bytes salen del bucket, no del navegador");
+    assert.equal((await db.query("SELECT 1 FROM outbox_evento WHERE tipo = 'archivo.subido'")).rows.length, 1);
+    assert.equal((await llamar("GET", `/archivos/${r.json.archivo.id}/descarga`, DIEGO)).status, 200, "el equipo descarga");
+    usarAlmacen(null);
+    const env = process.env.S3_BUCKET;
+    delete process.env.S3_BUCKET;
+    try {
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/archivos`, VALERIA, { nombre: "a.pdf", mime: "application/pdf", bytes: 10, uso: "REQUERIMIENTO" })).json.codigo, "ALMACEN_NO_CONFIGURADO");
+      const lista = await llamar("GET", `/clientes/${CASA_OLIVA}/archivos`, VALERIA);
+      assert.equal(lista.status, 200, "la biblioteca se lista sin miniaturas");
+      assert.equal(lista.json.datos[0].miniaturaUrl, null);
+    } finally {
+      if (env !== undefined) process.env.S3_BUCKET = env;
+      usarAlmacen(almacenFalso);
+    }
+  });
+
+  test("otro cliente no ve ni descarga archivos ajenos", async () => {
+    await reiniciar();
+    await db.exec(`INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, uso, estado) VALUES ('${uid(10, 40)}', '${NATIVA}', 'EQUIPO', 'S3', 'clientes/nativa/x.pdf', 'x.pdf', 'application/pdf', 'CONTRATO', 'DISPONIBLE')`);
+    assert.equal((await llamar("GET", `/archivos/${uid(10, 11)}/descarga`, VALERIA)).status, 200);
+    assert.equal((await llamar("GET", `/archivos/${uid(10, 40)}/descarga`, VALERIA)).status, 404);
+    assert.equal((await llamar("DELETE", `/archivos/${uid(10, 40)}`, VALERIA)).status, 404);
+    assert.equal((await llamar("GET", `/archivos/${uid(10, 40)}/descarga`, DIEGO)).status, 200);
+  });
+
+  test("descarga de pieza, contrato e informe: 404 claro si no hay archivo; con archivo, URL firmada con el nombre", async () => {
+    await reiniciar();
+    assert.equal((await llamar("GET", `/piezas/${PUBLICADA}/descarga`, VALERIA)).json.codigo, "SIN_ARCHIVO");
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/plan/contrato`, VALERIA)).json.codigo, "SIN_CONTRATO");
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/reportes/informe?periodo=2026-10`, VALERIA)).json.codigo, "SIN_INFORME");
+    await db.exec(`
+      INSERT INTO archivo (id, cliente_id, origen, almacen, s3_key, nombre, mime, uso, estado, drive_file_id) VALUES
+        ('${uid(10, 30)}', '${CASA_OLIVA}', 'EQUIPO', 'S3', 'clientes/casa-oliva/contrato/plan.pdf', 'Contrato Plan Crecimiento.pdf', 'application/pdf', 'CONTRATO', 'DISPONIBLE', NULL),
+        ('${uid(10, 31)}', '${CASA_OLIVA}', 'AGENTE', 'S3', 'clientes/casa-oliva/entregables/bienvenido.png', 'Bienvenido_octubre.png', 'image/png', 'ENTREGABLE', 'DISPONIBLE', NULL),
+        ('${uid(10, 32)}', '${CASA_OLIVA}', 'EQUIPO', 'DRIVE', NULL, 'Informe octubre.pdf', 'application/pdf', 'INFORME', 'DISPONIBLE', 'drive123');
+      UPDATE plan_cliente SET contrato_archivo_id = '${uid(10, 30)}' WHERE cliente_id = '${CASA_OLIVA}';
+      UPDATE version_pieza SET archivo_id = '${uid(10, 31)}' WHERE pieza_id = '${PUBLICADA}' AND numero = 1;
+      INSERT INTO resumen_resultados (cliente_id, periodo, texto, informe_archivo_id, publicado, publicado_por) VALUES ('${CASA_OLIVA}', '2026-10', 'Instagram trae más visitas.', '${uid(10, 32)}', true, '${uid(1, 3)}');
+    `);
+    const pieza = await llamar("GET", `/piezas/${PUBLICADA}/descarga`, VALERIA);
+    assert.equal(pieza.json.nombreArchivo, "Bienvenido_octubre.png");
+    assert.ok(pieza.json.url.includes("clientes/casa-oliva/entregables/bienvenido.png"));
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/plan/contrato`, MARTIN_LECTOR)).json.nombreArchivo, "Contrato Plan Crecimiento.pdf");
+    assert.match((await llamar("GET", `/clientes/${CASA_OLIVA}/reportes/informe?periodo=2026-10`, VALERIA)).json.url, /drive\.google\.com.*drive123/);
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/reportes/informe`, VALERIA)).status, 422);
+  });
+
+  test("resultados: KPIs, canales y recorrido salen de metrica_cliente y journey; la lectura solo si se publicó", async () => {
+    await reiniciar();
+    const vacio = (await llamar("GET", `/clientes/${CASA_OLIVA}/reportes/resultados?desde=2026-10-01&hasta=2026-10-02`, VALERIA)).json;
+    assert.deepEqual([vacio.indicadores, vacio.canales, vacio.esMuestra, vacio.informeDisponible], [[], [], false, false]);
+    assert.equal(vacio.notas.length, 1);
+    await db.exec(`
+      INSERT INTO metrica_cliente (cliente_id, fecha, canal, metrica, valor, es_muestra) VALUES
+        ('${CASA_OLIVA}', '2026-10-01', 'INSTAGRAM', 'VISITAS_SITIO', 100, true), ('${CASA_OLIVA}', '2026-10-02', 'INSTAGRAM', 'VISITAS_SITIO', 140, true),
+        ('${CASA_OLIVA}', '2026-10-01', 'FACEBOOK', 'VISITAS_SITIO', 60, true),
+        ('${CASA_OLIVA}', '2026-10-01', 'TOTAL', 'ALCANCE', 5000, true), ('${CASA_OLIVA}', '2026-10-01', 'INSTAGRAM', 'ALCANCE', 3000, true),
+        ('${CASA_OLIVA}', '2026-10-02', 'TOTAL', 'COMPRAS', 6, true),
+        ('${CASA_OLIVA}', '2026-09-01', 'INSTAGRAM', 'VISITAS_SITIO', 200, true);
+      INSERT INTO journey_etapa (id, cliente_id, orden, nombre, descripcion, metrica) VALUES
+        ('${uid(30, 1)}', '${CASA_OLIVA}', 1, 'Descubrimiento', 'personas alcanzadas', 'ALCANCE'),
+        ('${uid(30, 2)}', '${CASA_OLIVA}', 2, 'Interés', 'visitas al sitio', 'VISITAS_SITIO'),
+        ('${uid(30, 3)}', '${CASA_OLIVA}', 3, 'Fidelización', 'clientes recurrentes', NULL);
+      INSERT INTO journey_valor (etapa_id, periodo, valor) VALUES ('${uid(30, 3)}', '2026-10', 3);
+      INSERT INTO resumen_resultados (cliente_id, periodo, texto) VALUES ('${CASA_OLIVA}', '2026-10', 'Borrador sin publicar');
+    `);
+    const r = (await llamar("GET", `/clientes/${CASA_OLIVA}/reportes/resultados?desde=2026-10-01&hasta=2026-10-02`, VALERIA)).json;
+    assert.deepEqual(r.comparativa, { desde: "2026-09-01", hasta: "2026-09-02" });
+    assert.deepEqual(r.indicadores.map((i: any) => [i.clave, i.valor]), [["ALCANCE", 5000], ["VISITAS_SITIO", 300], ["COMPRAS", 6], ["CONVERSION", 2]]);
+    assert.equal(r.indicadores[1].variacionPct, 50);
+    const ig = r.canales.find((c: any) => c.canal === "INSTAGRAM");
+    assert.deepEqual([ig.total, ig.variacionPct, ig.puntos], [240, 20, [{ fecha: "2026-10-01", valor: 100 }, { fecha: "2026-10-02", valor: 140 }]]);
+    assert.deepEqual(r.recorrido.map((e: any) => [e.nombre, e.valor, e.pctEtapaAnterior]), [["Descubrimiento", 5000, null], ["Interés", 300, 6], ["Fidelización", 3, 1]]);
+    assert.equal(r.esMuestra, true);
+    assert.equal(r.lectura, null, "el borrador del resumen no se muestra");
+    await db.exec(`UPDATE resumen_resultados SET publicado = true, publicado_por = '${uid(1, 3)}'`);
+    assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/reportes/resultados?desde=2026-10-01&hasta=2026-10-02`, VALERIA)).json.lectura, "Borrador sin publicar");
+  });
+
+  test("biblioteca de paid media: piezas aprobadas aptas por tipo (no blogs ni guiones) y el equipo puede excluir una", async () => {
+    await reiniciar();
+    const paid = async () => (await llamar("GET", `/clientes/${CASA_OLIVA}/biblioteca-paid?origen=PIEZA`, VALERIA)).json.datos;
+    const antes = await paid();
+    assert.ok(antes.some((d: any) => d.id === PUBLICADA));
+    assert.ok(antes.every((d: any) => d.tipo !== "BLOG" && d.tipo !== "GUION"));
+    assert.deepEqual(antes.find((d: any) => d.id === PUBLICADA).etiquetas, ["instagram"]);
+    assert.equal((await llamar("PATCH", `/piezas/${PUBLICADA}`, DIEGO, { aptaPaidMedia: false })).status, 200);
+    assert.ok(!(await paid()).some((d: any) => d.id === PUBLICADA));
+    assert.equal((await llamar("GET", `/piezas/${PUBLICADA}`, DIEGO)).json.aptaPaidMedia, false);
+  });
+});
+
+describe("correos automáticos con n8n · solo backend real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const LLAVE = { "x-api-key": "demo-n8n" };
+  const ultimoEvento = async (tipo: string) =>
+    (await db.query<{ id: number; tipo: string; clienteId: string; datos: any }>(`SELECT id, tipo, cliente_id AS "clienteId", payload AS datos FROM outbox_evento WHERE tipo = $1 ORDER BY id DESC LIMIT 1`, [tipo])).rows[0];
+  const preparar = (ev: unknown) => llamar("POST", "/integraciones/correos/preparar", undefined, ev, LLAVE);
+
+  test("ticket creado: un correo a quien lo abrió; idempotente por evento; el resultado lo marca enviado", async () => {
+    await reiniciar();
+    await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Campaña de verano", categoria: "MARKETING", descripcion: "Hola" });
+    const ev = await ultimoEvento("ticket.creado");
+    const r = await preparar(ev);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.correos.map((c: any) => [c.para, c.asunto, c.evento]), [["valeria@casaoliva.pe", "Recibimos tu ticket #1043", "ticket.creado"]]);
+    assert.match(r.json.correos[0].html, /Hola, Valeria:/);
+    assert.match(r.json.correos[0].texto, /\/soporte$/);
+    const otra = await preparar(ev);
+    assert.equal(otra.json.correos[0].id, r.json.correos[0].id, "un reintento de n8n no duplica el correo");
+    assert.equal((await llamar("POST", `/integraciones/correos/${r.json.correos[0].id}/resultado`, undefined, { estado: "ENVIADO", messageId: "<abc@smtp>" }, LLAVE)).status, 204);
+    assert.deepEqual((await preparar(ev)).json.correos, [], "lo enviado no vuelve");
+    assert.equal((await llamar("POST", `/integraciones/correos/${r.json.correos[0].id}/resultado`, undefined, { estado: "FALLIDO", error: "tarde" }, LLAVE)).status, 204);
+    const vista = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json;
+    assert.equal(vista.reglas.length, 12);
+    assert.equal(vista.reglas[0].evento, "pieza.lista_revision");
+    assert.deepEqual(vista.recientes.map((c: any) => [c.asunto, c.estado, c.evento]), [["Recibimos tu ticket #1043", "ENVIADO", "ticket.creado"]]);
+    assert.ok(vista.recientes[0].enviadoEn);
+  });
+
+  test("pieza aprobada por el cliente: confirmación a quien aprobó y aviso a quien lleva el servicio, con enlaces distintos", async () => {
+    await reiniciar();
+    assert.equal((await llamar("POST", `/piezas/${TU_RITUAL}/aprobar`, VALERIA, { version: 2 })).status, 200);
+    const ev = await ultimoEvento("pieza.estado_cambiado");
+    const correos = (await preparar(ev)).json.correos;
+    assert.deepEqual(correos.map((c: any) => [c.para, c.asunto]), [
+      ["valeria@casaoliva.pe", "Aprobaste «Tu ritual, tu momento»"],
+      ["camila.paredes@inoo.pe", "Valeria Mendoza aprobó «Tu ritual, tu momento»"], // Social Media Pro lo lleva Camila
+    ]);
+    assert.match(correos[0].texto, new RegExp(`/entregables/${TU_RITUAL}$`));
+    assert.match(correos[1].texto, new RegExp(`/equipo/piezas/${TU_RITUAL}$`));
+    // El equipo que solo mira su bandeja no recibe avisos de sus propios cambios internos.
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('pieza.estado_cambiado', '${CASA_OLIVA}', '{"piezaId":"${TU_RITUAL}","estado":"EN_REVISION_INTERNA","canal":"PANEL"}')`);
+    assert.deepEqual((await preparar(await ultimoEvento("pieza.estado_cambiado"))).json.correos, []);
+  });
+
+  test("invitación: al correo invitado, nombrando a quien invitó; HTML escapado", async () => {
+    await reiniciar();
+    await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa <b>Paz</b>", rol: "APROBADOR" });
+    const [c] = (await preparar(await ultimoEvento("miembro.invitado"))).json.correos;
+    assert.equal(c.para, "rosa@casaoliva.pe");
+    assert.equal(c.asunto, "Te damos la bienvenida al portal de Casa Oliva");
+    assert.match(c.html, /Diego Castro te dio acceso/);
+    assert.match(c.html, /Hola, Rosa:/);
+    assert.ok(!c.html.includes("<b>"));
+  });
+
+  test("los avisos al equipo van al responsable del servicio; sin servicio, al AM de la cuenta", async () => {
+    await reiniciar();
+    const redes = uid(4, 2); // Social Media Pro: lo lleva Camila
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES
+      ('brief.enviado', '${CASA_OLIVA}', '{"periodo":"2026-10","usuarioId":"${uid(1, 1)}","servicioContratadoId":"${redes}"}'),
+      ('brief.enviado', '${CASA_OLIVA}', '{"periodo":"2026-10","usuarioId":"${uid(1, 1)}"}')`);
+    const [delWeb, general] = (await db.query<{ id: number; tipo: string; clienteId: string; datos: any }>(`SELECT id, tipo, cliente_id AS "clienteId", payload AS datos FROM outbox_evento WHERE tipo = 'brief.enviado' ORDER BY id`)).rows;
+    assert.deepEqual((await preparar(delWeb)).json.correos.map((c: any) => c.para), ["camila.paredes@inoo.pe"]);
+    assert.deepEqual((await preparar(general)).json.correos.map((c: any) => c.para), ["diego.castro@inoo.pe"]);
+  });
+
+  test("standby: el aviso previo va a los decisores del cliente y a los responsables de sus servicios", async () => {
+    await reiniciar();
+    const base = (await db.query<{ d: string }>(`SELECT to_char(ultima_actividad_cliente_en, 'YYYY-MM-DD') AS d FROM cliente WHERE id = '${CASA_OLIVA}'`)).rows[0].d;
+    const fecha = new Date(Date.parse(`${base}T12:00:00Z`) + 25 * 86_400_000).toISOString().slice(0, 10);
+    assert.equal((await llamar("POST", "/integraciones/servicios/inactividad", undefined, { fecha }, LLAVE)).json.avisados, 1);
+    const correos = (await preparar(await ultimoEvento("servicio.standby_proximo"))).json.correos;
+    assert.equal(correos[0].para, "valeria@casaoliva.pe");
+    assert.deepEqual(correos.slice(1).map((c: any) => c.para).sort(), ["camila.paredes@inoo.pe", "diego.castro@inoo.pe"], "los responsables de sus servicios");
+    assert.match(correos[0].asunto, /^Tus servicios pasarán a standby el \d+ de \w+$/);
+    assert.match(correos[0].texto, /«Social Media Pro - Casa Oliva», «Diseño y desarrollo web - Casa Oliva»/);
+    const equipo = correos.find((c: any) => c.para === "camila.paredes@inoo.pe");
+    assert.equal(equipo.asunto, "Casa Oliva lleva 25 días sin entrar al portal");
+    assert.match(equipo.texto, /\/equipo\/clientes\//);
+  });
+
+  test("reglas: la del cliente reemplaza a la global; solo eventos reales y solo con la llave", async () => {
+    await reiniciar();
+    await llamar("POST", `/clientes/${CASA_OLIVA}/tickets`, VALERIA, { asunto: "Otra consulta", categoria: "OTRO", descripcion: "Hola" });
+    const ev = await ultimoEvento("ticket.creado");
+    assert.equal((await llamar("POST", "/integraciones/correos/preparar", DIEGO, ev)).status, 403);
+    assert.equal((await preparar({ ...ev, id: 99_999 })).status, 404);
+    assert.equal((await preparar({ ...ev, datos: undefined })).status, 422);
+    await db.exec(`INSERT INTO regla_correo (evento, plantilla, destinatarios, cliente_id, activa, descripcion) VALUES ('ticket.creado', 'ticket.creado', 'MIEMBROS_CLIENTE', '${CASA_OLIVA}', false, 'Desactivado por pedido del cliente')`);
+    assert.deepEqual((await preparar(ev)).json.correos, []);
+    const regla = (await llamar("GET", `/clientes/${CASA_OLIVA}/correos-automaticos`, VALERIA)).json.reglas.find((r: any) => r.evento === "ticket.creado");
+    assert.deepEqual([regla.activa, regla.descripcion], [false, "Desactivado por pedido del cliente"]);
+    assert.equal((await llamar("POST", `/integraciones/correos/${uid(17, 9)}/resultado`, undefined, { estado: "ENVIADO" }, LLAVE)).status, 404);
+  });
+});
+
+describe("ingreso de prueba con la base real", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  test("la pantalla de ingreso funciona con API_MODO=db: token demo, tipo y cliente; clave o correo incorrectos dan 401", async () => {
+    await reiniciar();
+    const ok = await llamar("POST", "/__pruebas/ingresar", undefined, { email: "Valeria@CasaOliva.pe ", clave: "demo1234" });
+    assert.deepEqual(ok.json, { token: VALERIA, tipo: "CLIENTE", clienteId: CASA_OLIVA });
+    assert.equal((await llamar("GET", "/me", ok.json.token)).status, 200);
+    const equipo = await llamar("POST", "/__pruebas/ingresar", undefined, { email: "diego.castro@inoo.pe", clave: "demo1234" });
+    assert.deepEqual([equipo.json.tipo, equipo.json.clienteId], ["EQUIPO", null]);
+    assert.equal((await llamar("POST", "/__pruebas/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "otra" })).status, 401);
+    assert.equal((await llamar("POST", "/__pruebas/ingresar", undefined, { email: "n8n@sistema.inoo.pe", clave: "demo1234" })).status, 401, "las cuentas de servicio no ingresan");
+    process.env.AUTH_MODO = "cognito";
+    try {
+      assert.equal((await llamar("POST", "/__pruebas/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "demo1234" })).status, 404);
+    } finally {
+      delete process.env.AUTH_MODO;
+    }
   });
 });

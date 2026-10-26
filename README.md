@@ -19,6 +19,7 @@ npm run dev            # http://localhost:3000
 | Cliente (solo lectura) | martin@casaoliva.pe | demo1234 | Portal, sin poder aprobar |
 | Equipo (account manager) | diego.castro@inoo.pe | demo1234 | Panel interno |
 | Equipo (administración) | admin@inoo.pe | demo1234 | Panel interno + costos de IA |
+| Equipo operativo (desarrollo web) | camila.paredes@inoo.pe | demo1234 | Sin blog ni detalle de pagos |
 
 Entorno completo con Docker (portal, Postgres con semillas, Prism, Mailpit, MinIO):
 

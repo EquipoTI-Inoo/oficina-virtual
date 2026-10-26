@@ -416,3 +416,12 @@ test("agentes de IA: el cliente crea un agente con IA, lo prueba en el chat y ge
   await expect(equipo.getByText("Agentes de IA del cliente")).toBeVisible({ timeout: 30_000 });
   await equipo.close();
 });
+
+test("equipo operativo: sin Blog en el menú y ve el responsable de cada servicio", async ({ page }) => {
+  await entrarComo(page, "operativo");
+  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
+  await expect(menu.getByText("Clientes", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(menu.getByText("Blog", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Responsable: Camila Paredes/)).toBeVisible();
+});

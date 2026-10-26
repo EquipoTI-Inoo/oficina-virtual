@@ -271,11 +271,11 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 - Responder tickets desde el panel.
 - Conectar el requerimiento "Brief de contenido" con el brief mensual que lee el agente Jefe de Marketing.
 - Generar solas las etapas del mes siguiente en los servicios mensuales.
-- Flujos de correo en n8n.
+- Correos por n8n: los workflows de `n8n/workflows/comunes` (correos por evento y atrasos diarios) están hechos; falta importarlos en el n8n del VPS con sus credenciales SMTP.
 - Actualizar los snapshots de las pruebas visuales.
-- Backend real del Inicio y del panel.
 - Reemplazar los datos de relleno (fechas de pago, preguntas de los briefs, números de WhatsApp).
-- Despliegue.
+- Despliegue (el backend real ya cubre todo el contrato salvo InooWork).
+- Pasar los archivos del taller web (capturas, PDF, demos) de la base a S3.
 - Flujo web (fase 19): exportar a Elementor o Shopify (coordinar con Hugo) y comparar Claude, Stitch, Figma AI y Codex con el mismo prompt (quedaron fuera por ahora); permitir subir capturas a mano para los sitios que bloquean las capturas automáticas.
 
 ## Requisitos no funcionales

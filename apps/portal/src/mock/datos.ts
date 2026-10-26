@@ -28,7 +28,7 @@ export interface UsuarioDemo {
   cargo: string | null;
   iniciales: string;
   tipo: TipoUsuario;
-  rolEquipo: "ACCOUNT_MANAGER" | "ADMIN" | "FINANZAS" | null;
+  rolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN" | "FINANZAS" | null;
   /** Solo entorno de pruebas. Nunca existe en producción (Cognito gestiona las contraseñas). */
   claveDemo: string;
 }
@@ -39,6 +39,8 @@ export const USUARIOS: UsuarioDemo[] = [
   { id: uid(1, 3), nombre: "Diego Castro", email: "diego.castro@inoo.pe", cargo: "Equipo de agencia", iniciales: "DC", tipo: "EQUIPO", rolEquipo: "ACCOUNT_MANAGER", claveDemo: "demo1234" },
   { id: uid(1, 4), nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", claveDemo: "demo1234" },
   { id: uid(1, 5), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", claveDemo: "demo1234" },
+  // Equipo operativo (16 oct): no ve el blog ni el detalle de pagos; es responsable del e-commerce de Casa Oliva.
+  { id: uid(1, 6), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", claveDemo: "demo1234" },
 ];
 
 export const MIEMBROS: { clienteId: string; usuarioId: string; rol: RolCliente }[] = [
@@ -66,6 +68,9 @@ export interface ClienteDemo {
   /** Desde cuándo trabajamos juntos: ese día y mes el portal le saluda por el aniversario. */
   fechaAniversario?: string | null;
   accountManagerId?: string | null;
+  /** Última vez que alguien del cliente usó el portal (standby, 16 oct); por defecto HOY. */
+  ultimaActividad?: string;
+  avisoInactividadEn?: string | null;
   /** Estado de pago (reunión 15 oct): lo marca Finanzas; sin cuotas ni montos. */
   pago?: { situacion: "AL_DIA" | "ATRASADO"; atrasadoDesde: string | null; nota: string | null; actualizadoPorId: string | null; actualizadoEn: string | null };
 }
@@ -132,17 +137,19 @@ export interface ServicioContratadoDemo {
   siguientePaso: string;
   fechaInicio: string;
   fechaFin: string | null;
-  estado: "ACTIVO" | "PAUSADO" | "FINALIZADO";
-  /** Responsable del proyecto en Inoo (reunión 15 oct). */
+  estado: "ACTIVO" | "PAUSADO" | "STANDBY" | "FINALIZADO";
+  /** Responsable del proyecto en Inoo (reunión 15 oct); por defecto el AM de la cuenta (16 oct). */
   responsableId?: string | null;
   /** Alcance prometido por Comercial. */
   alcance?: string | null;
+  /** Cuándo pasó a STANDBY por inactividad del cliente (16 oct). */
+  standbyDesde?: string | null;
 }
 
 // Blog (antes un servicio) es parte del soporte continuo web; los estáticos, de Social Media Pro.
 export const SERVICIOS_CONTRATADOS: ServicioContratadoDemo[] = [
-  { id: uid(4, 1), clienteId: uid(2, 1), codigo: "SOPORTE_CONTINUO", variante: "WEB", detalle: {}, marca: null, entregables: [{ tipoPieza: "BLOG", cantidadMensual: 4 }], siguientePaso: "revisar «5 hábitos para una piel saludable».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO" },
-  { id: uid(4, 2), clienteId: uid(2, 1), codigo: "SOCIAL_MEDIA_PRO", variante: null, detalle: {}, marca: null, entregables: [{ tipoPieza: "COPY", cantidadMensual: 12 }, { tipoPieza: "ESTATICO", cantidadMensual: 4 }], siguientePaso: "revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO" },
+  { id: uid(4, 1), clienteId: uid(2, 1), codigo: "SOPORTE_CONTINUO", variante: "WEB", detalle: {}, marca: null, entregables: [{ tipoPieza: "BLOG", cantidadMensual: 4 }], siguientePaso: "revisar «5 hábitos para una piel saludable».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO", responsableId: uid(1, 3) },
+  { id: uid(4, 2), clienteId: uid(2, 1), codigo: "SOCIAL_MEDIA_PRO", variante: null, detalle: {}, marca: null, entregables: [{ tipoPieza: "COPY", cantidadMensual: 12 }, { tipoPieza: "ESTATICO", cantidadMensual: 4 }], siguientePaso: "revisar «Tu ritual, tu momento», «Un minuto para cuidarte» y «Cuidado que se siente».", fechaInicio: "2026-01-01", fechaFin: "2026-12-31", estado: "ACTIVO", responsableId: uid(1, 6) },
   { id: uid(4, 3), clienteId: uid(2, 1), codigo: "CRM_IMPLEMENTACION", variante: null, detalle: { crm: "HubSpot", tipoLicencia: "Sales Hub Starter", licencias: 3, usuarios: 5, agenteIa: true, whatsappApi: true }, marca: null, entregables: [], siguientePaso: "validar el mapa de procesos de venta que enviamos el viernes.", fechaInicio: "2026-09-01", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 3), alcance: "HubSpot Sales Hub con 3 licencias, pipeline de ventas, agente de IA en WhatsApp y 2 capacitaciones." },
   { id: uid(4, 4), clienteId: uid(2, 1), codigo: "WEB", variante: "ECOMMERCE", detalle: { tamano: "MEDIANO", paginas: 15, productos: 50, cms: "SHOPIFY", alcanceWeb: "WEB_Y_CMS" }, marca: null, entregables: [], siguientePaso: "aprobar el flujograma del sitio.", fechaInicio: "2026-09-21", fechaFin: null, estado: "ACTIVO", responsableId: uid(1, 3), alcance: "E-commerce mediano en Shopify: 15 páginas, 50 productos cargados y pasarela de pago." },
 ];

@@ -72,8 +72,21 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 | n8n (perfil `fase1`) | http://localhost:5678 | se crea al primer ingreso | n8n en VPS/ECS |
 | NocoDB (perfil `fase1`) | http://localhost:8080 | se crea al primer ingreso | Panel interno Fase 1 |
 
-Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0012) y luego `database/semillas/0001_casa_oliva.sql`
+Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0018) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
+
+### Probar el backend real en local (base, archivos, correos y n8n)
+
+1. En `infra/local/.env`: `API_MODO=db`.
+2. `docker compose --profile fase1 up --build -d postgres prism portal mailpit minio minio-bucket n8n outbox`
+   (si la base ya existía de antes, `./reiniciar-base.sh` para que corran las migraciones nuevas).
+3. Portal en http://localhost:3000 con los usuarios de prueba (clave `demo1234`): `valeria@casaoliva.pe`
+   (cliente), `diego.castro@inoo.pe` (equipo). Los archivos van a MinIO y se ven en http://localhost:9001.
+4. n8n en http://localhost:5678: crear la cuenta, importar los dos JSON de `n8n/workflows/comunes`
+   y crear las credenciales «Portal Inoo · X-Api-Key» (Header Auth `X-Api-Key` = `demo-n8n`) y
+   «SMTP Inoo» (host `mailpit`, puerto `1025`, sin SSL ni usuario). Activar los workflows.
+5. Cada acción del portal (pedir cambios, abrir un ticket, invitar a alguien) sale por el despachador
+   (`outbox`) hacia n8n, y el correo aparece en Mailpit (http://localhost:8025) y en Cuenta → Correos automáticos.
 
 Para que el portal hable con Prism en vez de la API simulada: `API_MODO=proxy` en `infra/local/.env`.
 Prism responde con los ejemplos del contrato (útil para probar que la interfaz tolera respuestas válidas
@@ -101,15 +114,10 @@ Postgres del esquema. Las reglas no se duplican en TypeScript: los cambios de es
 `cambiar_estado_pieza()`, la visibilidad la garantiza RLS (cada transacción corre como el rol
 `app_portal` con `app.usuario_tipo` y `app.cliente_ids`) y cada cambio deja su evento en `outbox_evento`.
 
-**Estado del primer corte.** Implementado contra la base: `GET /me`, `GET /clientes/{id}/piezas`,
-`GET /piezas/{id}`, `GET /piezas/{id}/versiones`, `GET /piezas/{id}/historial`,
-`GET|POST /piezas/{id}/comentarios`, `POST /piezas/{id}/aprobar`, `POST /piezas/{id}/solicitar-cambios`,
-`POST /piezas/{id}/transiciones`, servicios y etapas (`GET /servicios`, `GET|POST /clientes/{id}/servicios`,
-`GET /clientes/{id}/avance`, `GET /servicios-contratados/{id}/avance`, `PATCH /servicios-contratados/{id}/etapas/{id}`,
-`GET /plantillas`), con `Idempotency-Key` guardada en la tabla `idempotencia`. El resto del
-contrato responde `501 RUTA_NO_IMPLEMENTADA`; mientras tanto el portal completo sigue funcionando con
-`API_MODO=mock`. Para migrar una ruta: copiarla de `src/mock/api.ts` a `src/servidor/api.ts` con SQL y
-moverla a `tests/api/flujo-piezas.ts` (o a una suite compartida nueva) para que corra contra las dos.
+**Estado (26 oct 2026, tras unir la rama backend-real-y-n8n con las fases 10 a 19).** Todo el contrato está implementado contra la base salvo la sincronización con
+InooWork (`POST /integraciones/inoowork/sincronizacion` y `POST /webhooks/inoowork`, fase 6), que responde
+`501 RUTA_NO_IMPLEMENTADA`. Cada ruta tiene la misma forma que la API simulada y las suites compartidas de
+`tests/api/flujo-*.ts` corren contra las dos. `Idempotency-Key` se guarda en la tabla `idempotencia`.
 
 | Variable | Valores | Efecto |
 |---|---|---|
@@ -117,12 +125,16 @@ moverla a `tests/api/flujo-piezas.ts` (o a una suite compartida nueva) para que 
 | `AUTH_MODO` | `demo`, `cognito` | `demo`: token `demo.<usuario_id>` (bloqueado en producción salvo `PERMITIR_AUTH_DEMO=true`). `cognito`: JWT de los dos pools, verificado con su JWKS |
 | `COGNITO_REGION`, `COGNITO_POOL_EQUIPO`, `COGNITO_POOL_CLIENTES`, `COGNITO_CLIENT_IDS` | | Pools y apps de Cognito; el `sub` se busca en `usuario.cognito_sub` |
 | `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRETO` | | Destino y secreto del despachador del outbox (`npm run outbox`) |
+| `S3_BUCKET`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | | Bucket de archivos de clientes. El navegador sube y descarga con URLs prefirmadas (15 min); sin estas variables las subidas responden `503 ALMACEN_NO_CONFIGURADO` |
+| `S3_ENDPOINT`, `S3_ENDPOINT_PUBLICO` | URL | Solo MinIO: `http://minio:9000` y la URL que ve el navegador (`http://localhost:9000`). En AWS se dejan vacías |
+| `PORTAL_URL` | URL | Base de los enlaces de los correos automáticos (p. ej. `https://portal.inoo.pe`) |
 
 **Taller web (fase 19).** `GET|PUT /servicios-contratados/{id}/taller-web` y sus pasos (`capturas`, `analisis`,
 `flujograma`, `documento`, `prototipo`, `demos`) están implementados contra la base (migración `0021_taller_web.sql`).
 Las reglas viven en `src/servidor/taller-web.ts` y las comparten la API simulada y Postgres. Los archivos generados
 (capturas, pantallas, informe y demos) se guardan por ahora en `archivo_generado` (bytea) y se sirven por token en
-`/api/v1/publico/{token}` y `/demo/{token}`, sin sesión. Cuando estén las URLs prefirmadas de S3, pasan ahí.
+`/api/v1/publico/{token}` y `/demo/{token}`, sin sesión. Los archivos de los clientes ya usan S3 (`src/servidor/almacen.ts`);
+pasar también los del taller queda pendiente.
 Algunos sitios (por ejemplo, los que están detrás de Akamai) bloquean las capturas automáticas: el taller no lo
 esquiva, avisa y deja calificar esa referencia a mano.
 
@@ -134,9 +146,18 @@ Si un evento falla, los siguientes esperan. Correrlo como segundo proceso del co
 proceso (PGlite, sin Docker), con RLS activo, y prueba el despachador. En CI, el job `base-de-datos` además
 aplica las migraciones en un Postgres real.
 
-**Pendiente para producción:** migrar el resto de las rutas, URLs prefirmadas de S3 en
-`POST /clientes/{id}/archivos`, API keys de `/integraciones/*` contra la tabla `api_key` (hash + scopes)
-y el ingreso con Cognito en `PantallaIngreso` (hoy `POST /api/v1/__pruebas/ingresar`).
+**Bucket S3.** Necesita CORS que permita `PUT` y `GET` desde el dominio del portal con la cabecera
+`Content-Type`, y una regla de ciclo de vida que borre los objetos de archivos marcados `ELIMINADO`
+(el portal hace borrado lógico). La llave de AWS solo necesita `s3:PutObject`, `s3:GetObject` y `s3:ListBucket` (para el `HEAD`).
+
+**Correos automáticos.** El despachador entrega cada evento a n8n (`n8n/workflows/comunes/correos-por-evento.json`),
+que pide al portal los correos ya armados (`POST /integraciones/correos/preparar`), los manda por SMTP y devuelve
+el resultado. Reglas en `regla_correo` (una fila con `cliente_id` reemplaza a la global), textos en
+`src/dominio/correos.ts`. La llave de n8n necesita los scopes `correos:write`, `requerimientos:write` y `servicios:write`.
+
+**Pendiente para producción:** el ingreso con Cognito en `PantallaIngreso` (hoy `POST /api/v1/__pruebas/ingresar`;
+el backend ya valida los JWT con `AUTH_MODO=cognito`), un servicio del portal y del despachador en
+`infra/hostinger` (hoy ese compose solo levanta Postgres, n8n y NocoDB) y la sincronización con InooWork.
 
 ## 6. Seguridad del repositorio
 

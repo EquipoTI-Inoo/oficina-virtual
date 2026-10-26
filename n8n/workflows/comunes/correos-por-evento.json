@@ -1,0 +1,349 @@
+{
+  "name": "Portal · correos automáticos por evento",
+  "nodes": [
+    {
+      "id": "312b5209-6ea1-5020-96d7-a7d65de7d91b",
+      "name": "Evento del portal",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "d280ce2f-b95e-5ccd-8054-1ce5a0abca53",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inoo-eventos",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      }
+    },
+    {
+      "id": "361b4fd9-c4d9-587e-842b-88df867839bb",
+      "name": "Verificar firma",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Verifica la firma del despachador del outbox (src/servidor/outbox.ts):\n// X-Inoo-Firma = sha256=HMAC-SHA256(secreto, \"<X-Inoo-Timestamp>.<cuerpo crudo>\").\n// Requiere NODE_FUNCTION_ALLOW_BUILTIN=crypto y la variable INOO_WEBHOOK_SECRETO en n8n.\nconst crypto = require('crypto');\nconst item = $input.first();\nconst h = item.json.headers || {};\nconst secreto = $env.INOO_WEBHOOK_SECRETO;\nif (!secreto) throw new Error('Falta INOO_WEBHOOK_SECRETO en las variables de n8n');\nconst crudo = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8');\nconst ts = String(h['x-inoo-timestamp'] || '');\nconst firma = String(h['x-inoo-firma'] || '');\nconst esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(ts + '.' + crudo).digest('hex');\nconst reciente = Math.abs(Date.now() / 1000 - Number(ts)) < 300;\nconst igual = firma.length === esperada.length && crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperada));\nreturn [{ json: { valido: Boolean(reciente && igual), evento: igual ? JSON.parse(crudo) : null } }];"
+      }
+    },
+    {
+      "id": "2cc4551b-97d4-5354-b493-809a15b65f7f",
+      "name": "¿Firma válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "12005b99-837b-54b5-ab42-bfb1a3b409bb",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3702b425-4af1-5aa9-a1ef-605872c7f114",
+      "name": "Rechazar (401)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"firma inválida o vencida\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "0cdcc30e-d303-5f8f-82ea-fec63d49f3f8",
+      "name": "Preparar correos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/correos/preparar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.evento) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "70b91edd-d1f8-5f86-bf93-c5dad6ccc6a7",
+      "name": "Recibido (200)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"correos\": $json.correos.length } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "64dca144-ef39-55d5-8229-621c256db266",
+      "name": "Un correo por destinatario",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "fieldToSplitOut": "correos",
+        "options": {}
+      }
+    },
+    {
+      "id": "ca2529fd-5062-5239-9688-ae69d9d075b0",
+      "name": "Enviar por SMTP",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "fromEmail": "={{ $env.CORREO_REMITENTE || 'Inoo <no-responder@inoo.pe>' }}",
+        "toEmail": "={{ $json.nombre ? `${$json.nombre} <${$json.para}>` : $json.para }}",
+        "subject": "={{ $json.asunto }}",
+        "emailFormat": "both",
+        "text": "={{ $json.texto }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "SMTP Inoo"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "37085ebb-f7b5-5147-8e72-7e487c54a3e7",
+      "name": "Marcar enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/correos/{{ $('Un correo por destinatario').item.json.id }}/resultado",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ estado: 'ENVIADO', messageId: $json.messageId }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "9f5198c3-26be-5732-b635-246c7cb0a4c6",
+      "name": "Marcar fallido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PORTAL_API_URL }}/api/v1/integraciones/correos/{{ $('Un correo por destinatario').item.json.id }}/resultado",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ estado: 'FALLIDO', error: String($json.error?.message ?? $json.error ?? 'Error de SMTP') }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Portal Inoo · X-Api-Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Evento del portal": {
+      "main": [
+        [
+          {
+            "node": "Verificar firma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar firma": {
+      "main": [
+        [
+          {
+            "node": "¿Firma válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Firma válida?": {
+      "main": [
+        [
+          {
+            "node": "Preparar correos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rechazar (401)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar correos": {
+      "main": [
+        [
+          {
+            "node": "Recibido (200)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibido (200)": {
+      "main": [
+        [
+          {
+            "node": "Un correo por destinatario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un correo por destinatario": {
+      "main": [
+        [
+          {
+            "node": "Enviar por SMTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar por SMTP": {
+      "main": [
+        [
+          {
+            "node": "Marcar enviado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar fallido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Lima",
+    "saveDataErrorExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "portal"
+    },
+    {
+      "name": "correos"
+    }
+  ],
+  "pinData": {}
+}

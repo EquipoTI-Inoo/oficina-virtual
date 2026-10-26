@@ -30,6 +30,7 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, va
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, PLANTILLAS, plantillaPara, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, validarContratacion, validarDetalle, validarEtapasPersonalizadas } from "../dominio/servicios";
+import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
 type Json = Record<string, unknown> | unknown[];
@@ -511,6 +512,7 @@ function servicioVista(s: D.ServicioContratadoDemo, periodo = D.PERIODO): S<"Ser
     avance: avanceDe(s, periodo),
     ...(esPorConsumo(s.codigo) ? { consumo: consumoDe(s, periodo) } : {}),
     entregables: s.entregables.map((e) => ({ tipoPieza: e.tipoPieza as S<"TipoPieza">, cantidadMensual: e.cantidadMensual })),
+    responsable: persona(s.responsableId ?? null),
   };
 }
 /** Los clientes de prueba sin ficha propia muestran la de Casa Oliva (como en el panel de Figma). */
@@ -620,12 +622,38 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
     plan: f.plan,
     contactoPrincipal: persona(c.contactoPrincipalId),
     accountManager: persona(c.accountManagerId ?? E.usuarios[2].id),
-    conteos: { serviciosActivos: serviciosDe(c.id).length, aprobacionesPendientes: piezasDe(c.id).filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length },
+    conteos: { serviciosActivos: serviciosDe(c.id).filter((s) => s.estado === "ACTIVO").length, aprobacionesPendientes: piezasDe(c.id).filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).length },
     estado: c.estado ?? "ACTIVO",
     creadoEn: c.creadoEn ?? "2026-01-02T15:00:00Z",
   } as S<"Cliente"> & Record<string, unknown>;
-  if (ctx.esEquipo) Object.assign(r, { driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd });
+  if (ctx.esEquipo) Object.assign(r, { driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd, inactividad: inactividadVista(c) });
   return r;
+}
+
+/** Bloque «Actividad del cliente» de la ficha (solo equipo). */
+function inactividadVista(c: D.ClienteDemo): S<"InactividadCliente"> {
+  const ultima = c.ultimaActividad ?? D.HOY;
+  const dias = diasInactivo(ultima, D.HOY);
+  const enStandby = serviciosDe(c.id).filter((s) => s.estado === "STANDBY").length;
+  return {
+    ultimaActividad: ultima, diasSinActividad: dias, fechaStandby: fechaStandby(ultima), serviciosEnStandby: enStandby,
+    estado: enStandby ? "STANDBY" : c.avisoInactividadEn || dias >= DIAS_STANDBY - DIAS_AVISO_STANDBY ? "POR_ENTRAR" : "ACTIVO",
+  };
+}
+
+/** Cualquier uso del portal por el cliente cuenta como actividad y saca sus servicios del standby. */
+function registrarActividad(clienteIds: string[]) {
+  for (const c of E.clientes.filter((x) => clienteIds.includes(x.id))) {
+    c.ultimaActividad = D.HOY;
+    c.avisoInactividadEn = null;
+    const ids = serviciosDe(c.id).filter((s) => s.estado === "STANDBY").map((s) => s.id).sort();
+    if (!ids.length) continue;
+    for (const s of serviciosDe(c.id).filter((x) => ids.includes(x.id))) {
+      s.estado = "ACTIVO";
+      s.standbyDesde = null;
+    }
+    emitir("servicio.reactivado", c.id, { servicioIds: ids });
+  }
 }
 ruta("GET", "/clientes/:id", (ctx, p) => clienteVista(ctx, accesoCliente(ctx, p.id)));
 ruta("GET", "/clientes/:id/actividad", (ctx, p) => {
@@ -828,7 +856,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
     servicios: ordenados(serviciosDe(c.id)).map((s) => {
       const cat = servicioDeCatalogo(s.codigo)!;
-      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s) };
+      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s), responsable: persona(s.responsableId ?? null) };
     }),
     proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha) } : null,
     ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado as S<"EstadoTicket"> })),
@@ -1034,6 +1062,8 @@ ruta("GET", "/clientes/:id/tablero", (ctx, p, q) => {
 // Blog
 ruta("GET", "/clientes/:id/ideas-blog", (ctx, p) => {
   accesoCliente(ctx, p.id);
+  // El blog interno es de gestión (16 oct): el equipo operativo no lo ve.
+  if (ctx.esEquipo) exigirRol(ctx, p.id, ROLES_GESTION);
   const elegidas = E.ideas.filter((i) => i.estado === "ELEGIDA").length;
   return {
     datos: E.ideas.map((i): S<"IdeaBlog"> => ({ id: i.id, periodo: D.PERIODO, titulo: i.titulo, palabraClave: i.palabraClave, angulo: i.angulo, resumen: null, fuentes: [], estado: i.estado, piezaId: i.estado === "ELEGIDA" ? D.uid(5, 19) : null, decididoEn: null })),
@@ -1292,6 +1322,40 @@ ruta("POST", "/integraciones/requerimientos/atrasos", (ctx) => {
   return { revisados, corridos };
 });
 
+// Standby por inactividad (16 oct): igual que el backend real. `fecha` simula otro día.
+ruta("POST", "/integraciones/servicios/inactividad", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpo<{ fecha?: unknown }>(req);
+  if (b.fecha !== undefined && !(typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha))) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "fecha", mensaje: "Usa el formato AAAA-MM-DD" }]);
+  }
+  const ahora = typeof b.fecha === "string" ? `${b.fecha}T17:00:00Z` : D.HOY;
+  let revisados = 0;
+  let avisados = 0;
+  let enStandby = 0;
+  for (const c of E.clientes.filter((x) => (x.estado ?? "ACTIVO") !== "BAJA")) {
+    const activos = serviciosDe(c.id).filter((s) => s.estado === "ACTIVO");
+    if (!activos.length) continue;
+    revisados++;
+    const ultima = c.ultimaActividad ?? D.HOY;
+    const ids = activos.map((s) => s.id).sort();
+    const decision = decisionInactividad(ultima, ahora, !!c.avisoInactividadEn);
+    if (decision === "AVISAR") {
+      avisados++;
+      c.avisoInactividadEn = new Date().toISOString();
+      emitir("servicio.standby_proximo", c.id, { servicioIds: ids, fechaStandby: fechaStandby(ultima), diasSinActividad: diasInactivo(ultima, ahora) });
+    } else if (decision === "STANDBY") {
+      enStandby++;
+      for (const s of activos) {
+        s.estado = "STANDBY";
+        s.standbyDesde = new Date().toISOString();
+      }
+      emitir("servicio.standby", c.id, { servicioIds: ids, diasSinActividad: diasInactivo(ultima, ahora) });
+    }
+  }
+  return { revisados, avisados, enStandby };
+});
+
 // Resultados y avance
 ruta("GET", "/clientes/:id/reportes/resultados", (ctx, p) => {
   accesoCliente(ctx, p.id);
@@ -1326,7 +1390,8 @@ function avanceServicio(s: D.ServicioContratadoDemo, equipo = false): S<"AvanceS
     titulo: v.titulo,
     variante: v.variante,
     detalle: s.detalle,
-    estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" ? "PAUSADO" : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
+    responsable: v.responsable,
+    estado: a.etapasCompletadas === a.totalEtapas && a.totalEtapas > 0 ? "COMPLETADO" : s.estado === "PAUSADO" || s.estado === "STANDBY" ? s.estado : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
     progreso: v.progreso,
     avance: a,
     etapas: etapasDe(s).map((e) => etapaVista(e, equipo)),
@@ -1585,6 +1650,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     E.miembros.push({ clienteId: c.id, usuarioId: contacto.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
     registrarCorreo(contacto.email, `Te damos la bienvenida al portal de ${c.nombre}`, "miembro.invitado");
   }
+  if (contacto) emitir("miembro.invitado", c.id, { usuarioId: contacto.id, email: contacto.email, nombre: contacto.nombre, rol: "ADMIN_CLIENTE", invitadoPor: ctx.usuario.id });
   emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId, contactoId: contacto?.id ?? null });
   return { __status: 201, ...clienteVista(ctx, c) };
 });
@@ -1699,7 +1765,10 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, req) =>
     }
     const m = E.miembros.find((y) => y.clienteId === c.id && y.usuarioId === u!.id);
     if (m) m.rol = "ADMIN_CLIENTE";
-    else E.miembros.push({ clienteId: c.id, usuarioId: u.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
+    else {
+      E.miembros.push({ clienteId: c.id, usuarioId: u.id, rol: "ADMIN_CLIENTE", invitacionPendiente: true });
+      emitir("miembro.invitado", c.id, { usuarioId: u.id, email: u.email, nombre: u.nombre, rol: "ADMIN_CLIENTE", invitadoPor: ctx.usuario.id });
+    }
     c.contactoPrincipalId = u.id;
     c.contactoNombre = u.nombre;
     if (x.quitarAccesoAnterior && x.solicitadoPorId !== u.id) E.miembros = E.miembros.filter((y) => !(y.clienteId === c.id && y.usuarioId === x.solicitadoPorId));
@@ -1739,6 +1808,7 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
   const m = { clienteId: p.id, usuarioId: u.id, rol: b.rol!, invitacionPendiente: true };
   E.miembros.push(m);
   registrarCorreo(email, `${ctx.usuario.nombre} te invitó al portal de ${E.clientes.find((c) => c.id === p.id)!.nombre}`, "miembro.invitado");
+  emitir("miembro.invitado", p.id, { usuarioId: u.id, email, nombre: u.nombre, rol: m.rol, invitadoPor: ctx.usuario.id });
   return { __status: 201, ...miembroVista(m) };
 });
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, req) => {
@@ -1757,6 +1827,7 @@ ruta("DELETE", "/clientes/:id/miembros/:usuario", (ctx, p) => {
   buscarMiembro(p.id, p.usuario);
   protegerUltimoAdmin(p.id, p.usuario);
   E.miembros = E.miembros.filter((x) => !(x.clienteId === p.id && x.usuarioId === p.usuario));
+  emitir("miembro.retirado", p.id, { usuarioId: p.usuario, retiradoPor: ctx.usuario.id });
   return null;
 });
 
@@ -1792,13 +1863,13 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const variante = b.variante ?? null;
-  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && s.estado === "ACTIVO")) {
+  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && (s.estado === "ACTIVO" || s.estado === "STANDBY"))) {
     throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
   }
   const sc: D.ServicioContratadoDemo = {
     id: nuevoId(4), clienteId: c.id, codigo: cat!.codigo, variante, detalle: (b.detalle ?? {}) as Record<string, unknown>, marca: b.marca?.trim() || null,
     entregables: (b.entregables ?? []).map((e) => ({ tipoPieza: e.tipoPieza, cantidadMensual: e.cantidadMensual })), siguientePaso: "",
-    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO", responsableId: b.responsableId ?? null, alcance: b.alcance?.trim() || null,
+    fechaInicio: b.fechaInicio, fechaFin: b.fechaFin ?? null, estado: "ACTIVO", responsableId: b.responsableId ?? c.accountManagerId ?? E.usuarios[2].id, alcance: b.alcance?.trim() || null,
   };
   E.servicios.push(sc);
   // Etapas desde la plantilla: el proyecto entero, o el mes en curso si el servicio es mensual.
@@ -1814,7 +1885,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
     if (pl && plantillaAplica(pl.servicios, sc.codigo)) pedirAlCliente(ctx, sc, codigo);
   }
   if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;
-  emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, usuarioId: ctx.usuario.id });
+  emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, responsableId: sc.responsableId, usuarioId: ctx.usuario.id });
   return { __status: 201, ...servicioVista(sc) };
 });
 
@@ -2140,7 +2211,7 @@ export function archivoPublicoMock(token: string, req: Request): Response {
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
 const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo });
-const esDelEquipo = (id: string) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
+const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
 
 ruta("GET", "/panel/equipo", (ctx) => {
   soloEquipo(ctx);
@@ -2316,18 +2387,21 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
   const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null }>(req);
+  // Cambiar el responsable es de gestión (AM y ADMIN).
+  if (b.responsableId !== undefined) exigirRol(ctx, s.clienteId, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
-  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO o FINALIZADO" });
+  if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "STANDBY", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO, STANDBY o FINALIZADO" });
   if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle));
   if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   if (b.siguientePaso !== undefined) s.siguientePaso = b.siguientePaso?.trim() ?? "";
+  if (b.estado !== undefined && b.estado !== s.estado) s.standbyDesde = b.estado === "STANDBY" ? new Date().toISOString() : null;
   if (b.estado !== undefined) s.estado = b.estado as D.ServicioContratadoDemo["estado"];
+  if (b.responsableId !== undefined) s.responsableId = b.responsableId;
   if (b.marca !== undefined) s.marca = b.marca?.trim() || null;
   if (b.detalle !== undefined) s.detalle = b.detalle;
   if (b.fechaFin !== undefined) s.fechaFin = b.fechaFin;
-  if (b.responsableId !== undefined) s.responsableId = b.responsableId;
   if (b.alcance !== undefined) s.alcance = b.alcance?.trim() || null;
   return perfilVista(ctx, s, D.PERIODO);
 });
@@ -3040,6 +3114,9 @@ const REGLAS_CORREO: S<"ReglaCorreo">[] = [
   { evento: "ticket.creado", descripcion: "Número de ticket y tiempo de respuesta comprometido", destinatarios: "MIEMBROS_CLIENTE", activa: true },
   { evento: "ticket.resuelto", descripcion: "Aviso cuando el equipo resuelve tu ticket", destinatarios: "MIEMBROS_CLIENTE", activa: true },
   { evento: "miembro.invitado", descripcion: "Invitación al portal para un nuevo usuario", destinatarios: "MIEMBROS_CLIENTE", activa: true },
+  { evento: "requerimiento.creado", descripcion: "Lo que necesitamos de ti y hasta cuándo", destinatarios: "MIEMBROS_CLIENTE", activa: true },
+  { evento: "requerimiento.atrasado", descripcion: "Recordatorio cuando un pedido se pasa de la fecha límite", destinatarios: "MIEMBROS_CLIENTE", activa: true },
+  { evento: "requerimiento.enviado", descripcion: "Aviso al equipo cuando respondes un pedido", destinatarios: "ACCOUNT_MANAGER", activa: true },
 ];
 
 ruta("GET", "/clientes/:id/correos-automaticos", (ctx, p) => {
@@ -3048,6 +3125,20 @@ ruta("GET", "/clientes/:id/correos-automaticos", (ctx, p) => {
   // El cliente ve sus propios correos; el equipo además los avisos al AM de esta cuenta.
   const recientes = E.correos.filter((c) => correos.has(c.para) || (ctx.esEquipo && c.para === E.usuarios[2].email && p.id === E.clientes[0].id));
   return { reglas: REGLAS_CORREO, recientes: recientes.slice(0, 20) };
+});
+
+// La API simulada registra cada correo en el momento de la acción (registrarCorreo), así que a n8n
+// no le queda nada por preparar; el backend real sí arma los correos desde el evento.
+ruta("POST", "/integraciones/correos/preparar", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpo<{ id?: number; tipo?: string }>(req);
+  if (typeof b.id !== "number" || typeof b.tipo !== "string") throw new ErrorApi(422, "VALIDACION", "Revisa los campos", undefined, [{ campo: "tipo", mensaje: "Envía el evento del outbox tal cual" }]);
+  return { correos: [] };
+});
+ruta("POST", "/integraciones/correos/:id/resultado", (ctx, p) => {
+  soloServicio(ctx);
+  if (!E.correos.some((c) => c.id === p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese correo");
+  return null;
 });
 
 // ───────────────────────────────────────────── costos de IA y ejecuciones (ADM-01)
@@ -3346,6 +3437,7 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       return new Response(null, { status: 200 });
     }
     const ctx = autenticar(req);
+    if (ctx.usuario.tipo === "CLIENTE") registrarActividad(E.miembros.filter((m) => m.usuarioId === ctx.usuario.id).map((m) => m.clienteId));
     const clave = req.headers.get("idempotency-key");
     if (clave && req.method === "POST") {
       const previa = E.idempotencia.get(`${ctx.usuario.id}:${clave}`);

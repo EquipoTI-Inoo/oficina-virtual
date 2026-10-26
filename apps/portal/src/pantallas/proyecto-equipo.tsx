@@ -93,6 +93,7 @@ function ProyectoEquipo() {
             <select className="input" aria-label="Estado del servicio" value={d.estado === "COMPLETADO" || d.estado === "EN_CURSO" || d.estado === "SIN_INICIAR" ? "ACTIVO" : d.estado} onChange={(e) => void actualizar({ estado: e.target.value }, "Estado actualizado")} style={{ width: 150 }}>
               <option value="ACTIVO">Activo</option>
               <option value="PAUSADO">En pausa</option>
+              <option value="STANDBY">Standby</option>
               <option value="FINALIZADO">Finalizado</option>
             </select>
             <button className="boton boton--chico" onClick={() => void descargarReporte()}>
@@ -772,7 +773,7 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
       <div className="campo">
         <label htmlFor="ns-responsable">Responsable en Inoo</label>
         <select id="ns-responsable" className="input" value={f.responsableId} onChange={(e) => setF({ ...f, responsableId: e.target.value })}>
-          <option value="">Sin asignar</option>
+          <option value="">El responsable de la cuenta</option>
           {equipo.datos?.datos.map((u) => (
             <option key={u.id} value={u.id}>
               {u.nombre}

@@ -16,6 +16,7 @@ import {
 import { AvisosInicio } from "./avisos";
 import { DocumentosPorRevisar } from "./entregables";
 import { AvanceOConsumo } from "./consumo";
+import { ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
 
@@ -489,9 +490,10 @@ function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
         <span className="icono-caja" style={{ width: 32, height: 32, borderRadius: 9, color: "var(--c-primario)", background: "var(--c-primario-suave)" }}>
           {ICONO_SERVICIO[s.codigo]}
         </span>
-        <Etiqueta tono={s.estado === "ACTIVO" ? "verde" : "gris"}>{s.estado === "ACTIVO" ? "Activo" : s.estado === "PAUSADO" ? "En pausa" : "Finalizado"}</Etiqueta>
+        <Etiqueta tono={s.estado === "ACTIVO" ? "verde" : s.estado === "STANDBY" ? "violeta" : "gris"}>{ETIQUETA_ESTADO_SERVICIO[s.estado]}</Etiqueta>
       </div>
       <h3 style={{ fontSize: 17, fontWeight: 600 }}>{s.titulo}</h3>
+      {s.responsable && <span className="texto-xs texto-muted" style={{ marginTop: -8 }}>Responsable: {s.responsable.nombre} · Inoo</span>}
       {linea && <p className="negrita" style={{ fontSize: 12.5, marginTop: -4 }}>{linea}</p>}
       <AvanceOConsumo s={s} />
       {p && (
