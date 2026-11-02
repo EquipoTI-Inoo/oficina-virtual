@@ -88,20 +88,26 @@ export class ErrorImagenChat extends Error {
   }
 }
 
-/** Cambia cada imagen por su lectura (Gemini). Sin IA real, una lectura de relleno que lo dice. */
+/**
+ * Cambia cada imagen por su lectura: Gemini y, si falla (p. ej. 503 por demanda), Claude. Sin IA real, una
+ * lectura de relleno que lo dice.
+ */
 export async function leerImagenes(archivos: ArchivoChat[]): Promise<ArchivoChat[]> {
   return Promise.all(archivos.map(async (a) => {
     if (!a.imagen) return a;
-    try {
-      const r = await generar({
-        modelo: "GEMINI_FLASH", sistema: SISTEMA_IMAGEN, maxTokens: 4000,
-        mensajes: [{ rol: "user", texto: `Imagen: ${a.nombre}`, imagenes: [a.imagen] }],
-        simulado: () => "(No se pudo leer la imagen: la IA del portal está en modo simulado.)",
-      });
-      return { nombre: `${a.nombre} (imagen; lectura del portal)`, texto: r.texto.trim() || "(La imagen no tiene nada legible.)" };
-    } catch {
-      throw new ErrorImagenChat(a.nombre);
+    for (const modelo of ["GEMINI_FLASH", "CLAUDE_SONNET"] as const) {
+      try {
+        const r = await generar({
+          modelo, sistema: SISTEMA_IMAGEN, maxTokens: 4000,
+          mensajes: [{ rol: "user", texto: `Imagen: ${a.nombre}`, imagenes: [a.imagen] }],
+          simulado: () => "(No se pudo leer la imagen: la IA del portal está en modo simulado.)",
+        });
+        return { nombre: `${a.nombre} (imagen; lectura del portal)`, texto: r.texto.trim() || "(La imagen no tiene nada legible.)" };
+      } catch (e) {
+        console.warn(JSON.stringify({ jarvis: "imagen_no_leida", modelo, error: (e as Error).message.slice(0, 200) }));
+      }
     }
+    throw new ErrorImagenChat(a.nombre);
   }));
 }
 
