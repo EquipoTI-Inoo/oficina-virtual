@@ -4,3 +4,4 @@ node_modules/
 *.log
 .DS_Store
 infra/hostinger/respaldos/
+infra/hostinger/caddy-extra/*.caddy

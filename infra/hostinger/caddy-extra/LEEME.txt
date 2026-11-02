@@ -1,0 +1,1 @@
+# Archivos *.caddy del servidor (no se suben). Ver docs/configuracion.md §4.

@@ -3,6 +3,8 @@
 }
 
 {$DOMINIO_PORTAL} {
+	# caddy-extra/*.caddy: reglas del servidor que no van al repositorio (clave de acceso de la demo).
+	import /etc/caddy/extra/*.caddy
 	encode gzip
 	reverse_proxy portal:3000
 }

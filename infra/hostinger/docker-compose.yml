@@ -14,6 +14,8 @@ services:
       CORREO_ACME: ${CORREO_ACME}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Reglas extra que no van al repositorio (p. ej. la clave de acceso mientras el portal es una demo).
+      - ./caddy-extra:/etc/caddy/extra:ro
       - caddy-datos:/data
       - caddy-config:/config
 
@@ -63,6 +65,8 @@ services:
       - ../../database/migraciones/0036_personas_inoowork.sql:/docker-entrypoint-initdb.d/01zj_personas_inoowork.sql:ro
       - ../../database/migraciones/0037_jarvis_sin_llaves.sql:/docker-entrypoint-initdb.d/01zk_jarvis_sin_llaves.sql:ro
       - ../../database/migraciones/0038_recordatorios.sql:/docker-entrypoint-initdb.d/01zl_recordatorios.sql:ro
+      # Base de NocoDB y esquema de n8n, en el mismo Postgres.
+      - ./iniciar-otros.sql:/docker-entrypoint-initdb.d/09_otros.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -76,6 +80,13 @@ services:
     environment: &entorno-portal
       API_MODO: db
       AUTH_MODO: ${AUTH_MODO:-cognito}
+      # Sin Cognito todavía: ingreso de prueba con CLAVE_DEMO, solo detrás de la clave de Caddy (caddy-extra).
+      PERMITIR_AUTH_DEMO: ${PERMITIR_AUTH_DEMO:-false}
+      CLAVE_DEMO: ${CLAVE_DEMO:-}
+      AUTH_EQUIPO: ${AUTH_EQUIPO:-}
+      INOOWORK_URL: ${INOOWORK_URL:-}
+      INOOWORK_API_KEY: ${INOOWORK_API_KEY:-}
+      SESION_SECRETO: ${SESION_SECRETO}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PORTAL_URL: https://${DOMINIO_PORTAL}
       COGNITO_REGION: ${COGNITO_REGION}
@@ -100,8 +111,13 @@ services:
       IA_MODO: ${IA_MODO:-real}
       IA_TOPE_DIARIO_USD: ${IA_TOPE_DIARIO_USD:-2}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODELO: ${GEMINI_MODELO:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_MODELO: ${CLAUDE_MODELO:-}
       STITCH_API_KEY: ${STITCH_API_KEY}
+      # IA del equipo (Jarvis y transcripciones) y llaves de los Hermes por área.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      JARVIS_HERMES: ${JARVIS_HERMES:-}
       NAVEGADOR_MODO: real
     depends_on:
       postgres: { condition: service_healthy }
