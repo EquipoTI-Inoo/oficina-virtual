@@ -3,14 +3,14 @@
 -- Requiere las migraciones de database/migraciones/. Ejecutar como dueño del esquema (RLS no aplica).
 BEGIN;
 
-INSERT INTO usuario (id, email, nombre, cargo, tipo, rol_equipo, area, nivel_acceso, es_lead, reporta_a_id)
+INSERT INTO usuario (id, email, nombre, cargo, tipo, rol_equipo, area, nivel_acceso, es_lead, reporta_a_id, inoowork_empleado_id)
 VALUES
-  ('00000000-0000-4000-8001-000000000001', 'valeria@casaoliva.pe', 'Valeria Mendoza', 'Administradora', 'CLIENTE', NULL, NULL, NULL, false, NULL),
-  ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL, NULL, NULL, false, NULL),
-  ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER', 'CRM', NULL, true, '00000000-0000-4000-8001-000000000004'),
-  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN', 'ADMINISTRACION', NULL, false, NULL),
-  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS', 'ADMINISTRACION', NULL, false, '00000000-0000-4000-8001-000000000004'),
-  ('00000000-0000-4000-8001-000000000006', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB', 'DISENO', NULL, false, '00000000-0000-4000-8001-000000000004');
+  ('00000000-0000-4000-8001-000000000001', 'valeria@casaoliva.pe', 'Valeria Mendoza', 'Administradora', 'CLIENTE', NULL, NULL, NULL, false, NULL, NULL),
+  ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL, NULL, NULL, false, NULL, NULL),
+  ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER', 'CRM', NULL, true, '00000000-0000-4000-8001-000000000004', 'EMP-002'),
+  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN', 'ADMINISTRACION', NULL, false, NULL, 'ADM-001'),
+  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS', 'ADMINISTRACION', NULL, false, '00000000-0000-4000-8001-000000000004', 'EMP-004'),
+  ('00000000-0000-4000-8001-000000000006', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB', 'DISENO', NULL, false, '00000000-0000-4000-8001-000000000004', 'EMP-003');
 
 INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario, situacion_pago, pago_atrasado_desde, pago_nota, pago_actualizado_por, pago_actualizado_en)
 VALUES

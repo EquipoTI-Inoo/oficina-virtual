@@ -560,3 +560,27 @@ test("cierre de proyecto: muestra lo que falta y deja el mensaje al cliente", as
   await expect(cliente.getByText(/Gracias por confiar en Inoo/).first()).toBeVisible({ timeout: 30_000 });
   await cliente.close();
 });
+
+test("tableros de InooWork: Diego cambia el estado de un ítem y agrega uno; el kanban lo refleja", async ({ page }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos");
+  await page.getByRole("tab", { name: "Tableros de InooWork" }).click({ timeout: 30_000 });
+  await expect(page.getByText("Biblioteca de diseño")).toHaveCount(0, { timeout: 30_000 });
+  await page.getByText("Marketing interno de Inoo").click();
+  await page.getByLabel("Estado de Caso de éxito: Casa Oliva").selectOption("En Progreso", { timeout: 30_000 });
+  await page.getByLabel("Nuevo ítem en Noviembre").fill("Brief de la campaña");
+  await page.getByLabel("Nuevo ítem en Noviembre").press("Enter");
+  await expect(page.getByLabel("Nombre de Brief de la campaña")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: "Kanban" }).click();
+  await expect(page.getByRole("region", { name: "En Progreso" }).getByText("Caso de éxito: Casa Oliva")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Sin Iniciar" }).getByText("Brief de la campaña")).toBeVisible();
+});
+
+test("ingreso: el equipo también entra con su usuario", async ({ page }) => {
+  await page.goto("/ingresar");
+  await page.fill("#email", "diego.castro");
+  await page.fill("#clave", "demo1234");
+  await page.click("text=Ingresar al portal");
+  await expect(page.getByRole("heading", { name: /Diego Castro/ })).toBeVisible({ timeout: 30_000 });
+});

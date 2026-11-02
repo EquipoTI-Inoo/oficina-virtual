@@ -68,7 +68,7 @@ export function PantallaIngreso() {
     <div className="ingreso">
       <section className="ingreso-izq">
         <div>
-          <span className="logo">inoo</span>
+          <span className="logo"><img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo</span>
           <span className="logo-sub">Portal de clientes</span>
         </div>
         <div style={{ marginTop: 64 }}>
@@ -138,9 +138,10 @@ export function PantallaIngreso() {
             </p>
           </div>
           <div className="campo">
-            <label htmlFor="email">Correo electrónico</label>
+            <label htmlFor="email">Correo electrónico o usuario</label>
             <div className="entrada">
-              <input id="email" type="email" autoComplete="email" placeholder="tu@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              {/* 2 nov: el equipo de Inoo también entra con su usuario de InooWork. */}
+              <input id="email" type="text" inputMode="email" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="tu@empresa.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
               <span className="icono-campo">
                 <LuMail size={18} />
               </span>

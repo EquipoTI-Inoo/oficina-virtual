@@ -433,7 +433,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
     <aside className="lateral" aria-label="Menú principal">
       <div className="lateral-interior">
       <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/mi-panel"} className="logo-bloque" aria-label="Ir al inicio" onClick={alNavegar} style={{ display: "block", color: "inherit", textDecoration: "none" }}>
-        <span className="logo">inoo</span>
+        <span className="logo">{/* 2 nov: la marca de InooWork */}<img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo</span>
         <span className="logo-sub">{espacio === "cliente" ? "Portal de clientes" : "Espacio de equipo"}</span>
       </Enlace>
       {/* 2 nov: el bloque era de adorno. El equipo lo usa para saltar a la cuenta de un cliente; el cliente ve la
@@ -601,7 +601,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
                 <LuMenu size={22} />
               </button>
               <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/mi-panel"} className="logo superior-logo" aria-label="Ir al inicio" style={{ textDecoration: "none" }}>
-                inoo
+                <img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo
               </Enlace>
               <nav className="migas" aria-label="Ruta">
                 <span>{nombreCuenta}</span>

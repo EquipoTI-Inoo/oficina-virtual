@@ -16,6 +16,7 @@ import { ErrorApi } from "./errores";
 import { nivelDe, type Nivel } from "../dominio/accesos";
 import type { Area } from "../dominio/ia-equipo";
 import { areaDeClaveHermes } from "./jarvis-chat";
+import { esSesionInooWork, leerSesion } from "./sesion-inoowork";
 
 export interface Usuario extends SesionDb {
   nombre: string;
@@ -108,6 +109,11 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     const s = (await c.query<{ usuario_id: string }>("SELECT usuario_id FROM sesion_jarvis WHERE sesion_id = $1 AND area = $2::area_equipo", [conversacion, area])).rows[0];
     if (!s) throw new ErrorApi(401, "NO_AUTENTICADO", "Esa conversación no existe en tu área", "Pasa en «conversacion» el código que viene en tus instrucciones.");
     filtro = { columna: "id", valor: s.usuario_id };
+  } else if (esSesionInooWork(token)) {
+    // El equipo entró con su usuario de InooWork (sesion-inoowork.ts): sesión firmada por el portal.
+    const id = leerSesion(token);
+    if (!id) throw new ErrorApi(401, "NO_AUTENTICADO", "Tu sesión venció: vuelve a ingresar");
+    filtro = { columna: "id", valor: id };
   } else if (modo() === "cognito") {
     const payload = await verificarCognito(token);
     filtro = { columna: "cognito_sub", valor: String(payload.sub) };

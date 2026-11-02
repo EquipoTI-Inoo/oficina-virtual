@@ -49,6 +49,8 @@ import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
+import { crearTableros, type Yo } from "./tableros";
+import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import { calcularAlcance, nivelDe, puedeAsignar, puedeSupervisar, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type Nivel } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
@@ -3643,6 +3645,60 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
 });
 
 // n8n, una vez al día: corre el cronograma por los requerimientos vencidos y pide el correo de aviso.
+const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores));
+/** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
+async function yoTablero(ctx: Ctx): Promise<Yo> {
+  const r = (await ctx.c.query<{ inoowork_empleado_id: string | null }>("SELECT inoowork_empleado_id FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0];
+  return { empleadoId: r?.inoowork_empleado_id ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN" };
+}
+
+// ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
+
+ruta("GET", "/tableros", async (ctx) => {
+  soloEquipo(ctx);
+  return TABLEROS.listar(await yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.ver(p.id, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearItem(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarItem(p.id, p.item, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/items/:item", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarItem(p.id, p.item, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/subitems", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearSubitem(p.id, p.item, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("PATCH", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarSubitem(p.id, p.item, p.sub, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarSubitem(p.id, p.item, p.sub, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/grupos", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearGrupo(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarGrupo(p.id, p.grupo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarGrupo(p.id, p.grupo, await yoTablero(ctx));
+});
+
 // Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.
 ruta("POST", "/integraciones/recordatorios", async (ctx, _p, _q, cuerpo) => {
   soloServicio(ctx, "recordatorios:write");
@@ -5116,8 +5172,57 @@ async function sesionDeTokens(t: Tokens): Promise<Response> {
 }
 
 /** POST /sesion/*: sin token. Con AUTH_MODO=demo, ingresar es el ingreso de prueba y el resto no aplica. */
+/**
+ * El equipo entra con su usuario de InooWork (AUTH_EQUIPO=inoowork): con un usuario sin «@», o con el correo de
+ * alguien del equipo. Devuelve null si el ingreso no es del equipo (sigue el de siempre).
+ */
+async function ingresarConInooWork(req: Request): Promise<Response | null> {
+  let b: { email?: unknown; clave?: unknown } = {};
+  try {
+    b = (await req.clone().json()) as typeof b;
+  } catch {
+    return null;
+  }
+  const quien = typeof b.email === "string" ? b.email.trim() : "";
+  const clave = typeof b.clave === "string" ? b.clave : "";
+  if (!quien || !clave) return null;
+  const db = await baseDatos();
+  // usuario no tiene RLS (igual que en autenticar).
+  const porCorreo = quien.includes("@")
+    ? (await db.transaccion((c) => c.query<{ id: string; tipo: string; inoowork_usuario: string | null }>("SELECT id, tipo, inoowork_usuario FROM usuario WHERE lower(email::text) = lower($1) AND activo", [quien]))).rows[0]
+    : undefined;
+  if (quien.includes("@") && porCorreo?.tipo !== "EQUIPO") return null;
+  const usuarioIW = porCorreo?.inoowork_usuario || quien;
+  revisarIntentos(usuarioIW);
+  const r = await validarEnInooWork(usuarioIW, clave);
+  if (!r) {
+    anotarFallido(usuarioIW);
+    throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Usuario o contraseña incorrectos");
+  }
+  olvidarFallidos(usuarioIW);
+  const id = await db.transaccion(async (c) => {
+    const u = (await c.query<{ id: string }>(
+      "SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND (inoowork_empleado_id = $1 OR id = $2) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST LIMIT 1",
+      [r.empleadoId, porCorreo?.id ?? null],
+    )).rows[0];
+    if (!u) return null;
+    await c.query(
+      "UPDATE usuario SET inoowork_empleado_id = coalesce(inoowork_empleado_id, $2), inoowork_usuario = coalesce(inoowork_usuario, $3) WHERE id = $1",
+      [u.id, r.empleadoId, r.usuario],
+    );
+    return u.id;
+  });
+  if (!id) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal", "Pídele al ADMIN que te agregue en «Equipo».");
+  const s = firmarSesion(id);
+  return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
+}
+
 async function sesion(camino: string, req: Request): Promise<Response> {
   try {
+    if (camino === "/sesion/ingresar" && ingresoConInooWork()) {
+      const r = await ingresarConInooWork(req);
+      if (r) return r;
+    }
     if ((process.env.AUTH_MODO ?? "demo") !== "cognito") {
       if (camino === "/sesion/ingresar") return await ingresarDemo(req);
       if (camino === "/sesion/olvide-clave") return new Response(null, { status: 204 });

@@ -28,8 +28,8 @@ const salida: string[] = [
   "",
   insert(
     "usuario",
-    ["id", "email", "nombre", "cargo", "tipo", "rol_equipo", "area", "nivel_acceso", "es_lead", "reporta_a_id"],
-    D.USUARIOS.map((u) => [u.id, u.email, u.nombre, u.cargo, u.tipo, u.rolEquipo, u.area, u.nivelAcceso ?? null, !!u.esLead, u.reportaAId ?? null]),
+    ["id", "email", "nombre", "cargo", "tipo", "rol_equipo", "area", "nivel_acceso", "es_lead", "reporta_a_id", "inoowork_empleado_id"],
+    D.USUARIOS.map((u) => [u.id, u.email, u.nombre, u.cargo, u.tipo, u.rolEquipo, u.area, u.nivelAcceso ?? null, !!u.esLead, u.reportaAId ?? null, u.inooworkEmpleadoId ?? null]),
   ),
 ];
 const f = D.FICHA_CASA_OLIVA;

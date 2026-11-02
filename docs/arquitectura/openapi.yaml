@@ -64,8 +64,10 @@ tags:
   - name: Correos
   - name: Panel interno
   - name: Jarvis del equipo
-  - name: Calendario
     description: 'Agentes de IA del equipo (30 oct): cada colaborador tiene su Jarvis (Hermes), que usa DeepSeek por la pasarela /ia-equipo del portal. El consumo se cobra al área de la persona, con tope diario y mensual por área. Solo equipo; el cliente no ve nada de esto.'
+  - name: Calendario
+  - name: Tableros
+    description: Proyectos de InooWork (grupos, ítems y subítems) leídos y guardados por su API; InooWork es la fuente
   - name: Taller web
     description: 'Fase 19: flujo web con IA del equipo (benchmark, flujograma, prototipo en Stitch y demo). Solo equipo; al cliente le llegan el PDF y la demo como entregables, sin rastros de IA.'
   - name: Integraciones
@@ -80,6 +82,11 @@ paths:
         Devuelve el ID token de Cognito (va en `Authorization: Bearer`) y el refresh token para renovarlo, o el
         desafío `NUEVA_CLAVE` si es el primer ingreso de una persona invitada (contraseña temporal): se completa
         con `POST /sesion/nueva-clave`. Nunca dice si el correo existe.
+
+        Equipo con InooWork (2 nov, AUTH_EQUIPO=inoowork): con un usuario de InooWork, o el correo de alguien del
+        equipo, el portal verifica la contraseña con `POST /api/login` de InooWork (sin guardarla) y devuelve una
+        sesión firmada por el portal, de 12 horas y sin refresh token. 403 CUENTA_NO_ENLAZADA si ese empleado no está
+        en el portal; 503 si InooWork no responde; 429 tras 5 intentos fallidos en 15 minutos.
       security: []
       requestBody:
         required: true
@@ -89,7 +96,7 @@ paths:
               type: object
               required: [email, clave]
               properties:
-                email: { type: string, format: email }
+                email: { type: string, description: 'Correo, o el usuario de InooWork (equipo)' }
                 clave: { type: string }
       responses:
         '200':
@@ -101,8 +108,10 @@ paths:
                   - { $ref: '#/components/schemas/SesionIniciada' }
                   - { $ref: '#/components/schemas/DesafioNuevaClave' }
         '401': { description: 'CREDENCIALES_INVALIDAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '403': { description: 'CUENTA_NO_ENLAZADA: el usuario de InooWork no está en el portal', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '409': { description: 'RESTABLECER_CLAVE: Cognito pide restablecerla', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '429': { description: 'DEMASIADOS_INTENTOS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '503': { description: 'INOOWORK_NO_RESPONDE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
 
   /sesion/nueva-clave:
     post:
@@ -3227,6 +3236,243 @@ paths:
               schema: { $ref: '#/components/schemas/ConexionGoogle' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /tableros:
+    get:
+      tags: [Tableros]
+      operationId: listarTableros
+      summary: 'Menú «Proyectos → Tableros»: los proyectos de InooWork donde soy líder o miembro (el nivel ADMIN ve todos)'
+      description: |
+        InooWork es la fuente: el portal lee y guarda por la API que InooWork ya tiene, sin tocar su código.
+        Cada persona se reconoce por su id de empleado (usuario.inoowork_empleado_id). `conectado: false` = proyectos
+        de demo (falta INOOWORK_URL). Cada cambio vuelve a leer el proyecto, aplica solo ese cambio y lo guarda.
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, conectado]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/TableroResumen' } }
+                  conectado: { type: boolean }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: verTableroInooWork
+      summary: 'Un proyecto de InooWork: grupos, ítems con subítems, columnas personalizadas y vistas'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: crearItemTablero
+      summary: 'Agrega un ítem al grupo (Sin Iniciar, prioridad Media, como InooWork)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CambioItemTablero' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarItemTablero
+      summary: 'Cambia un ítem: nombre, estado, responsable, fecha, prioridad, notas, grupo o columnas'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CambioItemTablero' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+    delete:
+      tags: [Tableros]
+      operationId: borrarItemTablero
+      summary: 'Borra un ítem con sus subítems'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}/subitems:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: crearSubitemTablero
+      summary: 'Agrega un subítem'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CambioItemTablero' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}/subitems/{subitemId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: subitemId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarSubitemTablero
+      summary: 'Cambia un subítem: nombre, estado, responsable o fecha'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CambioItemTablero' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+    delete:
+      tags: [Tableros]
+      operationId: borrarSubitemTablero
+      summary: 'Borra un subítem'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/grupos:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: crearGrupoTablero
+      summary: 'Agrega un grupo'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { nombre: { type: string }, color: { type: string } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/grupos/{grupoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: grupoId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarGrupoTablero
+      summary: 'Cambia el nombre o el color de un grupo'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { nombre: { type: string }, color: { type: string } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+    delete:
+      tags: [Tableros]
+      operationId: borrarGrupoTablero
+      summary: 'Borra un grupo: sus ítems pasan al primer grupo que queda (409 si es el último)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
   /servicios-contratados/{servicioContratadoId}/tareas:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -4634,7 +4880,7 @@ components:
       type: object
       required: [token, tipo, clienteId]
       properties:
-        token: { type: string, description: 'ID token de Cognito (o demo.<usuario_id> con el ingreso de prueba)' }
+        token: { type: string, description: 'ID token de Cognito, sesión del portal (iw.…) para el equipo que entra con InooWork, o demo.<usuario_id> con el ingreso de prueba' }
         refreshToken: { type: [string, 'null'], description: 'Solo Cognito' }
         pool: { $ref: '#/components/schemas/PoolCognito' }
         expiraEn: { type: string, format: date-time }
@@ -4953,6 +5199,110 @@ components:
         texto: { type: string }
         menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
         creadoEn: { type: string, format: date-time }
+    TableroResumen:
+      type: object
+      required: [id, nombre, color, lider, miembros, items, puedeEditar]
+      properties:
+        id: { type: string, examples: [PROJ-MKT01] }
+        nombre: { type: string }
+        descripcion: { type: [string, 'null'] }
+        color: { type: string }
+        estado: { type: [string, 'null'] }
+        area: { type: [string, 'null'] }
+        lider: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
+        miembros: { type: integer }
+        items:
+          type: object
+          required: [total, completados, vencidos]
+          properties:
+            total: { type: integer }
+            completados: { type: integer }
+            vencidos: { type: integer }
+        puedeEditar: { type: boolean }
+    PersonaInooWork:
+      type: object
+      required: [id, nombre]
+      properties:
+        id: { type: string, description: 'Id de empleado de InooWork (EMP-…)' }
+        nombre: { type: string }
+    SubitemTablero:
+      type: object
+      required: [id, nombre, estado, responsable, fecha, vencido]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        estado: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Soporte Continuo, Bloqueado] }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
+        fecha: { type: [string, 'null'], format: date }
+        vencido: { type: boolean }
+    ItemTablero:
+      type: object
+      required: [id, nombre, estado, responsable, fecha, prioridad, notas, grupoId, valores, subitems, vencido]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        estado: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Soporte Continuo, Bloqueado] }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
+        fecha: { type: [string, 'null'], format: date }
+        prioridad: { type: string, enum: [Baja, Media, Alta, Urgente] }
+        notas: { type: string }
+        grupoId: { type: string }
+        creadoEn: { type: [string, 'null'] }
+        vencido: { type: boolean }
+        valores: { type: object, additionalProperties: { type: [string, number] }, description: 'Columnas personalizadas, por id de columna' }
+        subitems: { type: array, items: { $ref: '#/components/schemas/SubitemTablero' } }
+    TableroInooWork:
+      type: object
+      description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        descripcion: { type: [string, 'null'] }
+        color: { type: string }
+        estado: { type: [string, 'null'] }
+        area: { type: [string, 'null'] }
+        lider: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
+        personas: { type: array, items: { $ref: '#/components/schemas/PersonaInooWork' }, description: 'A quiénes se puede asignar: el líder y los miembros activos' }
+        grupos:
+          type: array
+          items:
+            type: object
+            required: [id, nombre, color]
+            properties:
+              id: { type: string }
+              nombre: { type: string }
+              color: { type: string }
+        columnas:
+          type: array
+          description: 'Columnas personalizadas de las vistas de InooWork'
+          items:
+            type: object
+            required: [id, nombre, tipo]
+            properties:
+              id: { type: string }
+              nombre: { type: string }
+              tipo: { type: string }
+        vistas:
+          type: array
+          items:
+            type: object
+            required: [tipo]
+            properties:
+              tipo: { type: string, enum: [TABLA, KANBAN, CALENDARIO, LINEA_TIEMPO, GRAFICO] }
+        items: { type: array, items: { $ref: '#/components/schemas/ItemTablero' } }
+        puedeEditar: { type: boolean }
+    CambioItemTablero:
+      type: object
+      properties:
+        nombre: { type: string }
+        estado: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Soporte Continuo, Bloqueado] }
+        responsableId: { type: [string, 'null'], description: 'Id de empleado: el líder o un miembro activo' }
+        fecha: { type: [string, 'null'], format: date }
+        prioridad: { type: string, enum: [Baja, Media, Alta, Urgente] }
+        notas: { type: [string, 'null'] }
+        grupoId: { type: string, description: 'Obligatorio al crear' }
+        valores: { type: object, additionalProperties: true }
     ComplejidadTicket:
       type: string
       enum: [BASICO, COMPLEJO]

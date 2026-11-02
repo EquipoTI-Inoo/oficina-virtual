@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { before, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -35,6 +35,9 @@ import { pruebasAgenda } from "./flujo-agenda";
 import { pruebasAccesos } from "./flujo-accesos";
 import { pruebasPersonas } from "./flujo-personas";
 import { pruebasTranscripciones } from "./flujo-transcripciones";
+import { pruebasTableros } from "./flujo-tableros";
+import { reiniciarTablerosSimulados } from "../../src/servidor/tableros";
+import { usarFetchIngreso } from "../../src/servidor/sesion-inoowork";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -53,6 +56,7 @@ let reglasCorreo = "";
 async function reiniciar() {
   const feriados = feriadosMigracion.map((f) => `('FERIADO', '${f.nombre.replace(/'/g, "''")}', DATE '${f.fecha}', DATE '${f.fecha}', DATE '${f.fecha}' - 7)`).join(",\n");
   await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${reglasCorreo}\n${SEMILLAS}\nINSERT INTO tope_ia_area (area, tope_diario_usd, tope_mensual_usd) SELECT a, 3, 30 FROM unnest(enum_range(NULL::area_equipo)) AS a;`);
+  reiniciarTablerosSimulados();
 }
 
 before(async () => {
@@ -144,6 +148,7 @@ pruebasAgenda("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasAccesos("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasPersonas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasTranscripciones("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasTableros("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {
@@ -964,5 +969,59 @@ describe("ingreso de prueba con la base real", () => {
     } finally {
       delete process.env.AUTH_MODO;
     }
+  });
+});
+
+describe("Ingreso del equipo con su usuario de InooWork · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const ingresar = (email: string, clave: string) => llamar("POST", "/sesion/ingresar", undefined, { email, clave });
+  const antes = { auth: process.env.AUTH_EQUIPO, url: process.env.INOOWORK_URL, secreto: process.env.SESION_SECRETO };
+  const pedidos: { username: string }[] = [];
+  before(() => {
+    process.env.AUTH_EQUIPO = "inoowork";
+    process.env.INOOWORK_URL = "http://inoowork.falso";
+    process.env.SESION_SECRETO = "s".repeat(40);
+    // InooWork falso: diegocastro / clave-iw es el empleado EMP-002 (Diego en el portal); fantasma, uno que no está.
+    usarFetchIngreso(async (_url, init) => {
+      const b = JSON.parse(String(init?.body)) as { username: string; password: string };
+      pedidos.push({ username: b.username });
+      if (b.password !== "clave-iw") return Response.json({ error: "Usuario o contraseña incorrectos" }, { status: 401 });
+      if (b.username === "diegocastro") return Response.json({ message: "ok", userId: 7, username: "diegocastro", employeeId: "EMP-002" });
+      if (b.username === "fantasma") return Response.json({ message: "ok", userId: 9, username: "fantasma", employeeId: "EMP-999" });
+      return Response.json({ error: "Usuario o contraseña incorrectos" }, { status: 401 });
+    });
+  });
+  after(() => {
+    usarFetchIngreso(null);
+    for (const [k, v] of [["AUTH_EQUIPO", antes.auth], ["INOOWORK_URL", antes.url], ["SESION_SECRETO", antes.secreto]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  test("con su usuario y contraseña de InooWork entra al portal como esa persona; el portal no guarda la contraseña", async () => {
+    await reiniciar();
+    const r = await ingresar("diegocastro", "clave-iw");
+    assert.equal(r.status, 200);
+    assert.match(r.json.token, /^iw\./);
+    assert.deepEqual([r.json.tipo, r.json.refreshToken], ["EQUIPO", null]);
+    const me = await llamar("GET", "/me", r.json.token);
+    assert.equal(me.json.usuario.nombre, "Diego Castro");
+    // Con su correo también: el portal usa su usuario de InooWork, que aprendió en el ingreso anterior.
+    assert.equal((await ingresar("diego.castro@inoo.pe", "clave-iw")).status, 200);
+    assert.equal(pedidos.at(-1)!.username, "diegocastro");
+    // Una clienta sigue entrando como siempre (aquí, el ingreso de prueba).
+    assert.equal((await ingresar("valeria@casaoliva.pe", "demo1234")).json.tipo, "CLIENTE");
+  });
+
+  test("contraseña incorrecta, cuenta sin enlazar, sesión alterada y demasiados intentos", async () => {
+    await reiniciar();
+    assert.equal((await ingresar("diegocastro", "mala")).json.codigo, "CREDENCIALES_INVALIDAS");
+    assert.equal((await ingresar("fantasma", "clave-iw")).json.codigo, "CUENTA_NO_ENLAZADA");
+    const token = (await ingresar("diegocastro", "clave-iw")).json.token as string;
+    const alterado = `${token.slice(0, -2)}xx`;
+    assert.equal((await llamar("GET", "/me", alterado)).status, 401);
+    for (let i = 0; i < 5; i++) await ingresar("bloqueado", "mala");
+    assert.equal((await ingresar("bloqueado", "mala")).json.codigo, "DEMASIADOS_INTENTOS");
   });
 });

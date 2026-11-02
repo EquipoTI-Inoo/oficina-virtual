@@ -38,6 +38,7 @@ import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
+import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
 import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
@@ -228,6 +229,7 @@ const E = new Proxy({} as Estado, {
 
 export function reiniciarMock() {
   G.__inooMockEstado = estadoInicial();
+  reiniciarTablerosSimulados();
 }
 
 // ───────────────────────────────────────────── utilidades
@@ -1494,6 +1496,57 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
   emitir("requerimiento.revisado", r.clienteId, { requerimientoId: r.id, decision: r.estado, nota: r.notaEquipo, usuarioId: ctx.usuario.id });
   registrarCorreo(E.usuarios[0].email, b.decision === "APROBADO" ? `Recibimos «${r.titulo}», ¡gracias!` : `Falta algo en «${r.titulo}»`, "requerimiento.revisado");
   return requerimientoVista(r);
+});
+
+const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores));
+/** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
+const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx) });
+
+// ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
+
+ruta("GET", "/tableros", async (ctx) => {
+  soloEquipo(ctx);
+  return TABLEROS.listar(yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.ver(p.id, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/items/:item", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarItem(p.id, p.item, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/subitems", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearSubitem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("PATCH", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarSubitem(p.id, p.item, p.sub, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarSubitem(p.id, p.item, p.sub, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/grupos", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearGrupo(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarGrupo(p.id, p.grupo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarGrupo(p.id, p.grupo, yoTablero(ctx));
 });
 
 // Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.
@@ -4009,7 +4062,10 @@ function problema(e: ErrorApi): Response {
 /** Credenciales del entorno de pruebas (sustituye al Hosted UI de Cognito). */
 async function ingresar(req: Request) {
   const b = await cuerpo<{ email?: string; clave?: string }>(req);
-  const u = E.usuarios.find((x) => x.email.toLowerCase() === (b.email ?? "").trim().toLowerCase());
+  const quien = (b.email ?? "").trim().toLowerCase();
+  // El equipo también entra con su usuario de InooWork (en demo: lo que va antes de la @ de su correo).
+  const u = E.usuarios.find((x) => x.email.toLowerCase() === quien)
+    ?? (quien && !quien.includes("@") ? E.usuarios.find((x) => x.tipo === "EQUIPO" && ((x.inooworkUsuario ?? "").toLowerCase() === quien || x.email.toLowerCase().split("@")[0] === quien)) : undefined);
   if (!u || u.claveDemo !== b.clave || u.activo === false) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
   const clienteId = E.miembros.find((m) => m.usuarioId === u.id)?.clienteId ?? null;
   return { token: `demo.${u.id}`, tipo: u.tipo, clienteId };

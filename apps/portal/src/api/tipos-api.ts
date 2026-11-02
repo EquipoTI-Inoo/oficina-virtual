@@ -20,6 +20,11 @@ export interface paths {
          * @description Devuelve el ID token de Cognito (va en `Authorization: Bearer`) y el refresh token para renovarlo, o el
          *     desafío `NUEVA_CLAVE` si es el primer ingreso de una persona invitada (contraseña temporal): se completa
          *     con `POST /sesion/nueva-clave`. Nunca dice si el correo existe.
+         *
+         *     Equipo con InooWork (2 nov, AUTH_EQUIPO=inoowork): con un usuario de InooWork, o el correo de alguien del
+         *     equipo, el portal verifica la contraseña con `POST /api/login` de InooWork (sin guardarla) y devuelve una
+         *     sesión firmada por el portal, de 12 horas y sin refresh token. 403 CUENTA_NO_ENLAZADA si ese empleado no está
+         *     en el portal; 503 si InooWork no responde; 429 tras 5 intentos fallidos en 15 minutos.
          */
         post: operations["ingresar"];
         delete?: never;
@@ -2201,6 +2206,169 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Menú «Proyectos → Tableros»: los proyectos de InooWork donde soy líder o miembro (el nivel ADMIN ve todos)
+         * @description InooWork es la fuente: el portal lee y guarda por la API que InooWork ya tiene, sin tocar su código.
+         *     Cada persona se reconoce por su id de empleado (usuario.inoowork_empleado_id). `conectado: false` = proyectos
+         *     de demo (falta INOOWORK_URL). Cada cambio vuelve a leer el proyecto, aplica solo ese cambio y lo guarda.
+         */
+        get: operations["listarTableros"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        /** Un proyecto de InooWork: grupos, ítems con subítems, columnas personalizadas y vistas */
+        get: operations["verTableroInooWork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agrega un ítem al grupo (Sin Iniciar, prioridad Media, como InooWork) */
+        post: operations["crearItemTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra un ítem con sus subítems */
+        delete: operations["borrarItemTablero"];
+        options?: never;
+        head?: never;
+        /** Cambia un ítem: nombre, estado, responsable, fecha, prioridad, notas, grupo o columnas */
+        patch: operations["cambiarItemTablero"];
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/subitems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agrega un subítem */
+        post: operations["crearSubitemTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/subitems/{subitemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                subitemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra un subítem */
+        delete: operations["borrarSubitemTablero"];
+        options?: never;
+        head?: never;
+        /** Cambia un subítem: nombre, estado, responsable o fecha */
+        patch: operations["cambiarSubitemTablero"];
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/grupos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agrega un grupo */
+        post: operations["crearGrupoTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/grupos/{grupoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                grupoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra un grupo: sus ítems pasan al primer grupo que queda (409 si es el último) */
+        delete: operations["borrarGrupoTablero"];
+        options?: never;
+        head?: never;
+        /** Cambia el nombre o el color de un grupo */
+        patch: operations["cambiarGrupoTablero"];
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/tareas": {
         parameters: {
             query?: never;
@@ -3440,7 +3608,7 @@ export interface components {
         /** @enum {string} */
         PoolCognito: "CLIENTES" | "EQUIPO";
         SesionIniciada: {
-            /** @description ID token de Cognito (o demo.<usuario_id> con el ingreso de prueba) */
+            /** @description ID token de Cognito, sesión del portal (iw.…) para el equipo que entra con InooWork, o demo.<usuario_id> con el ingreso de prueba */
             token: string;
             /** @description Solo Cognito */
             refreshToken?: string | null;
@@ -3810,6 +3978,104 @@ export interface components {
             menciones: components["schemas"]["PersonaMini"][];
             /** Format: date-time */
             creadoEn: string;
+        };
+        TableroResumen: {
+            /** @example PROJ-MKT01 */
+            id: string;
+            nombre: string;
+            descripcion?: string | null;
+            color: string;
+            estado?: string | null;
+            area?: string | null;
+            lider: components["schemas"]["PersonaInooWork"] | null;
+            miembros: number;
+            items: {
+                total: number;
+                completados: number;
+                vencidos: number;
+            };
+            puedeEditar: boolean;
+        };
+        PersonaInooWork: {
+            /** @description Id de empleado de InooWork (EMP-…) */
+            id: string;
+            nombre: string;
+        };
+        SubitemTablero: {
+            id: string;
+            nombre: string;
+            /** @enum {string} */
+            estado: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";
+            responsable: components["schemas"]["PersonaInooWork"] | null;
+            /** Format: date */
+            fecha: string | null;
+            vencido: boolean;
+        };
+        ItemTablero: {
+            id: string;
+            nombre: string;
+            /** @enum {string} */
+            estado: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";
+            responsable: components["schemas"]["PersonaInooWork"] | null;
+            /** Format: date */
+            fecha: string | null;
+            /** @enum {string} */
+            prioridad: "Baja" | "Media" | "Alta" | "Urgente";
+            notas: string;
+            grupoId: string;
+            creadoEn?: string | null;
+            vencido: boolean;
+            /** @description Columnas personalizadas, por id de columna */
+            valores: {
+                [key: string]: string | number;
+            };
+            subitems: components["schemas"]["SubitemTablero"][];
+        };
+        /** @description Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente */
+        TableroInooWork: {
+            id: string;
+            nombre: string;
+            descripcion?: string | null;
+            color: string;
+            estado?: string | null;
+            area?: string | null;
+            lider: components["schemas"]["PersonaInooWork"] | null;
+            /** @description A quiénes se puede asignar: el líder y los miembros activos */
+            personas: components["schemas"]["PersonaInooWork"][];
+            grupos: {
+                id: string;
+                nombre: string;
+                color: string;
+            }[];
+            /** @description Columnas personalizadas de las vistas de InooWork */
+            columnas: {
+                id: string;
+                nombre: string;
+                tipo: string;
+            }[];
+            vistas: {
+                /** @enum {string} */
+                tipo: "TABLA" | "KANBAN" | "CALENDARIO" | "LINEA_TIEMPO" | "GRAFICO";
+            }[];
+            items: components["schemas"]["ItemTablero"][];
+            puedeEditar: boolean;
+        };
+        CambioItemTablero: {
+            nombre?: string;
+            /** @enum {string} */
+            estado?: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";
+            /** @description Id de empleado: el líder o un miembro activo */
+            responsableId?: string | null;
+            /** Format: date */
+            fecha?: string | null;
+            /** @enum {string} */
+            prioridad?: "Baja" | "Media" | "Alta" | "Urgente";
+            notas?: string | null;
+            /** @description Obligatorio al crear */
+            grupoId?: string;
+            valores?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * @description La clasifica el equipo; por defecto BASICO
@@ -5526,7 +5792,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: email */
+                    /** @description Correo, o el usuario de InooWork (equipo) */
                     email: string;
                     clave: string;
                 };
@@ -5551,6 +5817,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description CUENTA_NO_ENLAZADA: el usuario de InooWork no está en el portal */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description RESTABLECER_CLAVE: Cognito pide restablecerla */
             409: {
                 headers: {
@@ -5562,6 +5837,15 @@ export interface operations {
             };
             /** @description DEMASIADOS_INTENTOS */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description INOOWORK_NO_RESPONDE */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10131,6 +10415,396 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarTableros: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["TableroResumen"][];
+                        conectado: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verTableroInooWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crearItemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CambioItemTablero"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    borrarItemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarItemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CambioItemTablero"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crearSubitemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CambioItemTablero"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    borrarSubitemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                subitemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarSubitemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                subitemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CambioItemTablero"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crearGrupoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre?: string;
+                    color?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    borrarGrupoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                grupoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarGrupoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                grupoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre?: string;
+                    color?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listarTareas: {

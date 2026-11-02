@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { LuClipboardList, LuListTodo, LuSearch } from "react-icons/lu";
 import { Enlace, useConsulta, type S } from "../base";
+import { PestanasProyectos } from "./tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, usePortal } from "../componentes";
 
 type Pipeline = { columnas: { clave: S<"ColumnaProyecto">; titulo: string }[]; datos: S<"ProyectoPipeline">[] };
@@ -40,7 +41,7 @@ function PipelineProyectos() {
   const { datos: d, error, recargar } = useConsulta<Pipeline>(`/panel/proyectos${params.toString() ? `?${params}` : ""}`);
   return (
     <>
-      <Cabecera titulo="Proyectos" bajada="Cada tarjeta es un proyecto. Entra para ver sus etapas, sus tareas y lo que le pedimos al cliente." />
+      <Cabecera titulo="Proyectos" bajada="Cada tarjeta es un proyecto. Entra para ver sus etapas, sus tareas y lo que le pedimos al cliente." accion={<PestanasProyectos actual="clientes" />} />
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <div className="chips" role="group" aria-label="Qué proyectos ver">
           <button type="button" className="chip" aria-pressed={!mios} onClick={() => setMios(false)}>

@@ -114,7 +114,7 @@ p {
 /* ───────────────────────── Marca */
 .logo {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
   font-size: 27px;
   font-weight: 700;
@@ -130,6 +130,16 @@ p {
   background: var(--c-primario);
   transform: translateY(-6px);
 }
+/* 2 nov: la marca de InooWork (la misma de su app), antes del nombre */
+.logo-marca {
+  width: 34px;
+  height: 34px;
+  margin-right: 5px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex: none;
+}
+.superior-logo .logo-marca { width: 26px; height: 26px; border-radius: 8px; }
 .logo-sub {
   display: block;
   margin-top: 8px;
@@ -2386,3 +2396,51 @@ button.cuenta { cursor: pointer; }
 .desde-transcripcion > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--c-primario); list-style: none; }
 .desde-transcripcion > summary::-webkit-details-marker { display: none; }
 .desde-transcripcion .entrada { background: var(--c-blanco); }
+
+/* Proyectos → Tableros de InooWork (2 nov): como el workspace de InooWork, con el estilo del portal */
+.segmentado a { padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--c-muted); text-decoration: none; }
+.segmentado a.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
+.tableros-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.tablero-tarjeta { display: grid; gap: 8px; padding: 16px 18px; border-top: 4px solid; color: inherit; text-decoration: none; }
+.tablero-tarjeta:hover { box-shadow: 0 4px 14px rgba(27, 29, 58, 0.08); }
+.tablero-grupo { border-left: 4px solid; padding-left: 10px; }
+.tablero-grupo-nombre { font-weight: 700; font-size: 15px; }
+.tablero-grupo-nombre .celda-texto { color: inherit; font-weight: 700; font-size: 15px; }
+.tabla-tablero { font-size: 13px; }
+.tabla-tablero td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
+.tabla-tablero tbody tr { cursor: default; }
+.celda-texto { width: 100%; min-width: 80px; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; background: transparent; font: inherit; color: inherit; }
+.celda-texto:hover { border-color: var(--c-borde); }
+.celda-texto:focus { border-color: var(--c-primario); background: var(--c-blanco); outline: none; }
+.celda-select, .celda-fecha { width: 100%; min-width: 150px; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.celda-select:hover, .celda-fecha:hover { border-color: var(--c-borde); }
+.pildora { display: inline-block; width: 100%; min-width: 96px; border: 0; border-radius: 6px; padding: 5px 8px; color: #fff; font: inherit; font-size: 12px; font-weight: 600; text-align: center; text-align-last: center; cursor: pointer; appearance: none; }
+.pildora option { color: var(--c-texto); background: var(--c-blanco); }
+.pildora--chica { width: auto; min-width: 0; padding: 2px 8px; font-size: 11px; }
+.contador-sub { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--c-neutro-suave); color: var(--c-muted); font-size: 11px; text-align: center; }
+.fila-subitem td { background: var(--c-fondo); }
+.fila-subitem td:nth-child(2) { padding-left: 26px; }
+.fila-nueva .celda-texto { color: var(--c-muted); }
+.muestra-color--chica { width: 12px; height: 12px; }
+.kanban-tablero { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.kanban-columna { display: grid; align-content: start; gap: 8px; min-height: 160px; padding: 8px; border-radius: 12px; background: var(--c-neutro-suave); }
+.kanban-columna--sobre { outline: 2px dashed var(--c-primario); }
+.kanban-cabecera { display: flex; justify-content: space-between; padding: 6px 10px; border-radius: 8px; color: #fff; font-size: 12.5px; font-weight: 700; }
+.kanban-item { display: grid; gap: 6px; padding: 10px 12px; cursor: grab; }
+.calendario-tablero { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.calendario-tablero-dia { text-align: center; text-transform: capitalize; }
+.calendario-tablero-celda { display: grid; align-content: start; gap: 3px; min-height: 84px; padding: 4px; border: 1px solid var(--c-borde); border-radius: 8px; overflow: hidden; }
+.calendario-tablero-item { padding: 2px 5px; border-left: 3px solid; border-radius: 4px; background: var(--c-fondo); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.linea-fila { display: flex; align-items: center; gap: 10px; }
+.linea-nombre { width: 180px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.linea-pista { position: relative; flex: 1; height: 18px; border-radius: 6px; background: var(--c-fondo); }
+.linea-barra { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; }
+.linea-hoy { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--c-alerta); }
+.grafico-fila { display: grid; grid-template-columns: 130px 1fr auto; align-items: center; gap: 10px; }
+.grafico-pista { height: 12px; border-radius: 6px; background: var(--c-fondo); overflow: hidden; }
+.grafico-pista > span { display: block; height: 100%; border-radius: 6px; }
+@media (max-width: 720px) {
+  .grid-2:has(.grafico-fila) { grid-template-columns: 1fr; }
+  .linea-nombre { width: 110px; }
+  .calendario-tablero-celda { min-height: 56px; }
+}
