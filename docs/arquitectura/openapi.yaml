@@ -1119,6 +1119,38 @@ paths:
                   revisados: { type: integer, description: Requerimientos vencidos revisados }
                   corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
 
+  /integraciones/recordatorios:
+    post:
+      tags: [Integraciones]
+      operationId: enviarRecordatorios
+      summary: 'n8n, una vez al día y temprano: avisa lo que vence o pasa el próximo día hábil (fase 18)'
+      description: |
+        Emite `tarea.por_vencer` (tareas internas abiertas con responsable), `requerimiento.por_vencer` (lo que el
+        cliente nos tiene que entregar) y `reunion.proxima` (reuniones programadas) para lo que cae después de hoy y
+        hasta el próximo día hábil, inclusive; n8n manda los correos. Idempotente: cada aviso sale una sola vez.
+      security: [ { apiKey: [] } ]
+      x-roles: [SERVICIO]
+      x-scopes: [recordatorios:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fecha: { type: string, format: date, description: 'Pruebas: simula otro día (por defecto, hoy en Lima)' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tareas, requerimientos, reuniones]
+                properties:
+                  tareas: { type: integer }
+                  requerimientos: { type: integer }
+                  reuniones: { type: integer }
+
   /integraciones/servicios/etapas-del-mes:
     post:
       tags: [Integraciones]
@@ -1312,6 +1344,32 @@ paths:
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/PlantillaProyecto' } }
 
+  /clientes/propuesta-desde-transcripcion:
+    post:
+      tags: [Clientes]
+      operationId: proponerAltaCliente
+      summary: 'Alta de cliente desde la transcripción de la reunión de venta (fase 17): propone marca, responsable, ingreso y alcance. No guarda nada'
+      description: 'Para Comercial y CRM (nivel por cuenta) y ADMIN. Lo propuesto llena el formulario de «Nuevo cliente», que se revisa y se envía con POST /clientes. `conIa: false` = borrador por reglas.'
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TranscripcionEntrada' }
+      responses:
+        '200':
+          description: Propuesta
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [propuesta, conIa]
+                properties:
+                  propuesta: { $ref: '#/components/schemas/PropuestaAltaCliente' }
+                  conIa: { type: boolean }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /servicios-contratados/{servicioContratadoId}:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1415,6 +1473,75 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Reunion' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/reuniones/propuesta:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Servicios]
+      operationId: proponerResumenReunion
+      summary: 'Resumen de reunión desde la transcripción (fase 18): propone resumen, si hubo acuerdos y pendientes. No guarda nada'
+      description: 'Solo equipo. El equipo revisa la propuesta y la manda con PATCH /reuniones/{id} (estado REALIZADA). `conIa: false` = borrador por reglas (IA simulada o sin respuesta útil).'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TranscripcionEntrada' }
+      responses:
+        '200':
+          description: Propuesta
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [propuesta, conIa]
+                properties:
+                  propuesta: { $ref: '#/components/schemas/PropuestaResumenReunion' }
+                  conIa: { type: boolean }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/cierre:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: verCierreProyecto
+      summary: 'Lo que falta antes de cerrar el proyecto (fase 17): etapas, tareas, entregables y requerimientos abiertos'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CierreProyecto' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: cerrarProyecto
+      summary: 'Cierra el proyecto: FINALIZADO, el mensaje queda como «Qué sigue» para el cliente y se emite servicio.cerrado'
+      description: 'Con pendientes responde 409 CIERRE_CON_PENDIENTES, salvo `forzar: true`. n8n manda el agradecimiento y la encuesta.'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mensaje]
+              properties:
+                mensaje: { type: string, minLength: 10, maxLength: 2000, description: 'Lo que ve el cliente al cerrar' }
+                forzar: { type: boolean, description: 'Cerrar aunque queden pendientes' }
+      responses:
+        '200':
+          description: Cerrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CierreProyecto' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
   /servicios-contratados/{servicioContratadoId}/comentarios:
@@ -2493,7 +2620,10 @@ paths:
     patch:
       tags: [Jarvis del equipo]
       operationId: cambiarAreaPersona
-      summary: Cambia el área de una persona del equipo (de ella depende contra qué tope se cobra su Jarvis)
+      summary: 'Cambia los datos, el área, el nivel de acceso, el rol, si es lead o si está activa una persona del equipo (nivel ADMIN). Se refleja en InooWork'
+      description: |
+        `activo: false` desactiva a la persona en el portal y en InooWork (pierde el acceso; se conservan sus
+        registros). `activo: true` la reactiva.
       x-roles: [ADMIN]
       parameters: [ { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } } ]
       requestBody:
@@ -2502,18 +2632,114 @@ paths:
           application/json:
             schema:
               type: object
-              required: [area]
+              minProperties: 1
               properties:
                 area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ] }
+                nivel: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'null = el de su área' }
+                esLead: { type: boolean }
+                nombre: { type: string }
+                correo: { type: string, format: email }
+                cargo: { type: [string, 'null'] }
+                rolEquipo: { $ref: '#/components/schemas/RolEquipo' }
+                activo: { type: boolean }
+                reportaAId: { type: [string, 'null'], format: uuid, description: 'Su jefe en el organigrama; null = nadie' }
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PersonaEquipo' }
+              schema: { $ref: '#/components/schemas/FichaPersona' }
+        '409': { $ref: '#/components/responses/Conflicto' }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
+
+  /panel/personas:
+    get:
+      tags: [Panel interno]
+      operationId: listarPersonas
+      summary: 'Todas las personas del equipo, también las desactivadas, con su correo y su estado en InooWork (nivel ADMIN)'
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, inooworkConectado]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/FichaPersona' } }
+                  inooworkConectado: { type: boolean, description: 'false = la conexión con InooWork está simulada (falta INOOWORK_URL)' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    post:
+      tags: [Panel interno]
+      operationId: crearPersona
+      summary: 'Da de alta a un colaborador en el portal y en InooWork (nivel ADMIN). El correo es su usuario en los dos'
+      description: |
+        Se crea en el portal aunque InooWork no responda: queda `inoowork.estado = PENDIENTE` y se reintenta.
+        Emite `equipo.persona_creada` para el correo de bienvenida. En InooWork nace con una contraseña aleatoria:
+        RRHH le da acceso con «Restablecer contraseña» hasta que las dos apps compartan el login.
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, correo]
+              properties:
+                nombre: { type: string }
+                correo: { type: string, format: email }
+                cargo: { type: [string, 'null'] }
+                area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ] }
+                rolEquipo: { $ref: '#/components/schemas/RolEquipo' }
+                nivel: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'null = el de su área' }
+                esLead: { type: boolean }
+                reportaAId: { type: [string, 'null'], format: uuid, description: 'Su jefe en el organigrama' }
+      responses:
+        '201':
+          description: Creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaPersona' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /panel/organigrama:
+    get:
+      tags: [Panel interno]
+      operationId: verOrganigrama
+      summary: 'Organigrama de Inoo: cada persona activa del equipo y a quién reporta. Lo ve todo el equipo'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/NodoOrganigrama' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/personas/{usuarioId}/inoowork:
+    post:
+      tags: [Panel interno]
+      operationId: reintentarInooWork
+      summary: 'Vuelve a mandar a la persona a InooWork (crea la ficha y el usuario si faltan) (nivel ADMIN)'
+      x-roles: [ADMIN]
+      parameters: [ { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FichaPersona' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /panel/ia-equipo:
     get:
@@ -2771,6 +2997,139 @@ paths:
         '502': { description: 'IA_NO_DISPONIBLE', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorOpenAi' } } } }
         '503': { description: 'SIN_CLAVE: falta DEEPSEEK_API_KEY en el portal', content: { application/json: { schema: { $ref: '#/components/schemas/ErrorOpenAi' } } } }
 
+  /clientes/{clienteId}/accesos:
+    parameters:
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Clientes]
+      operationId: accesosCuenta
+      summary: 'Quiénes del equipo ven toda la cuenta (asignados y el AM)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, puedeAsignar]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/AccesoPersona' } }
+                  puedeAsignar: { type: boolean, description: 'Nivel ADMIN o lead de un área por cuenta' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Clientes]
+      operationId: darAccesoCuenta
+      summary: 'Da acceso a la cuenta a una persona de nivel CUENTA (el ADMIN, o un lead a la gente de su área)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usuarioId]
+              properties:
+                usuarioId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Asignado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccesoPersona' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/accesos/{usuarioId}:
+    delete:
+      tags: [Clientes]
+      operationId: quitarAccesoCuenta
+      summary: Quita el acceso asignado a la cuenta
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Quitado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /clientes/{clienteId}/marca:
+    get:
+      tags: [Clientes]
+      operationId: perfilMarca
+      summary: 'Perfil de marca del cliente; lo ven también quienes trabajan en uno de sus proyectos'
+      x-roles: [EQUIPO]
+      parameters: [ { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PerfilMarca' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /servicios-contratados/{servicioContratadoId}/miembros:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: miembrosProyecto
+      summary: 'Quiénes del equipo trabajan en el proyecto (el responsable y los asignados)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, puedeAsignar]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/AccesoPersona' } }
+                  puedeAsignar: { type: boolean, description: 'Nivel ADMIN o lead de un área' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: asignarMiembroProyecto
+      summary: 'Asigna a alguien al proyecto (el ADMIN, o un lead a la gente de su área)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usuarioId]
+              properties:
+                usuarioId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Asignado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccesoPersona' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/miembros/{usuarioId}:
+    delete:
+      tags: [Servicios]
+      operationId: quitarMiembroProyecto
+      summary: Quita a alguien asignado al proyecto
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Quitado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /me/agenda:
     get:
       tags: [Calendario]
@@ -2780,6 +3139,7 @@ paths:
       parameters:
         - { name: desde, in: query, required: true, schema: { type: string, format: date } }
         - { name: hasta, in: query, required: true, schema: { type: string, format: date }, description: 'Incluida; hasta 62 días desde «desde»' }
+        - { name: usuarioId, in: query, required: false, schema: { type: string, format: uuid }, description: 'El calendario de otra persona (su lead o el ADMIN): sin sus pendientes' }
       responses:
         '200':
           description: OK
@@ -3555,7 +3915,7 @@ paths:
     post:
       tags: [Integraciones]
       operationId: sincronizarInooWork
-      summary: n8n empuja el estado leído de InooWork (proyectos/ítems y tickets). Reemplaza hitos del servicio.
+      summary: n8n empuja el estado leído de InooWork (personas, proyectos/ítems y tickets). Reemplaza hitos del servicio.
       description: |
         InooWork hoy no emite webhooks y solo expone `GET /api/projects` (todos) y `PUT` del proyecto completo.
         Por defecto n8n consulta cada 5 minutos, calcula diferencias y llama a este endpoint. Si InooWork suma
@@ -3577,6 +3937,9 @@ paths:
                 properties:
                   hitosActualizados: { type: integer }
                   ticketsActualizados: { type: integer }
+                  personasCreadas: { type: integer }
+                  personasActualizadas: { type: integer }
+                  empleadosSinCorreo: { type: array, items: { type: string }, description: 'Empleados de InooWork que no se pudieron crear porque no tienen correo' }
 
   /webhooks/inoowork:
     post:
@@ -3792,6 +4155,9 @@ components:
         iniciales: { type: string, examples: [VM] }
         tipo: { $ref: '#/components/schemas/TipoUsuario' }
         rolEquipo: { oneOf: [ { $ref: '#/components/schemas/RolEquipo' }, { type: 'null' } ] }
+        area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ] }
+        nivelAcceso: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'Solo equipo: su nivel efectivo' }
+        esLead: { type: boolean }
     PersonaMini:
       type: object
       required: [id, nombre]
@@ -3896,6 +4262,7 @@ components:
         slug: { type: string }
         estado: { $ref: '#/components/schemas/EstadoCliente' }
         logoUrl: { type: [string, 'null'], format: uri }
+        acceso: { type: string, enum: [COMPLETO, PROYECTOS], description: 'Equipo: COMPLETO ve toda la cuenta; PROYECTOS solo sus proyectos y la marca' }
     Cliente:
       description: Ficha de cliente (panel) y perfil (portal)
       allOf:
@@ -4332,7 +4699,7 @@ components:
     ColumnaProyecto: { type: string, enum: [POR_INICIAR, EN_CURSO, ESPERA_CLIENTE, CON_RETRASO, POR_CERRAR, EN_PAUSA] }
     PersonaEquipo:
       type: object
-      required: [id, nombre, iniciales]
+      required: [id, nombre, iniciales, nivel, nivelPersonalizado, esLead]
       properties:
         id: { type: string, format: uuid }
         nombre: { type: string }
@@ -4340,6 +4707,67 @@ components:
         cargo: { type: [string, 'null'] }
         rolEquipo: { oneOf: [ { $ref: '#/components/schemas/RolEquipo' }, { type: 'null' } ] }
         area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ] }
+        nivel: { $ref: '#/components/schemas/NivelAcceso' }
+        nivelPersonalizado: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'El que eligió el ADMIN; null = el de su área' }
+        esLead: { type: boolean, description: 'Lead de su área' }
+    FichaPersona:
+      description: 'Una persona del equipo vista por el ADMIN: sus datos, si está activa y cómo está en InooWork'
+      allOf:
+        - $ref: '#/components/schemas/PersonaEquipo'
+        - type: object
+          required: [correo, activo, inoowork, reportaAId]
+          properties:
+            correo: { type: string, format: email }
+            activo: { type: boolean }
+            reportaAId: { type: [string, 'null'], format: uuid }
+            inoowork: { $ref: '#/components/schemas/PersonaEnInooWork' }
+    NodoOrganigrama:
+      allOf:
+        - $ref: '#/components/schemas/PersonaEquipo'
+        - type: object
+          required: [reportaAId]
+          properties:
+            reportaAId: { type: [string, 'null'], format: uuid, description: 'null = arriba del todo' }
+    PersonaEnInooWork:
+      type: object
+      required: [empleadoId, estado, error]
+      properties:
+        empleadoId: { type: [string, 'null'], examples: [EMP-002] }
+        estado:
+          type: string
+          enum: [SINCRONIZADO, SIMULADO, PENDIENTE]
+          description: 'SIMULADO: la conexión con InooWork todavía no está configurada. PENDIENTE: InooWork no respondió; se reintenta'
+        error: { type: [string, 'null'] }
+    NivelAcceso:
+      type: string
+      enum: [ADMIN, CUENTA, PROYECTO]
+      description: 'ADMIN: todo (rol ADMIN o FINANZAS y el área de Administración). CUENTA: sus cuentas (CRM y Comercial). PROYECTO: sus proyectos y la marca de esos clientes (Audiovisual, Diseño y Marketing). Los leads ven todas las cuentas o todos los proyectos de su nivel para asignar'
+    AccesoPersona:
+      type: object
+      required: [persona, origen, puedeQuitar]
+      properties:
+        persona: { $ref: '#/components/schemas/PersonaEquipo' }
+        origen: { type: string, enum: [ASIGNADO, AM, RESPONSABLE], description: 'AM y RESPONSABLE vienen solos y no se quitan desde aquí' }
+        puedeQuitar: { type: boolean }
+    PerfilMarca:
+      type: object
+      description: 'Lo de marca de un cliente: lo ven también las personas de nivel PROYECTO que trabajan en él'
+      required: [clienteId, nombre]
+      properties:
+        clienteId: { type: string, format: uuid }
+        nombre: { type: string }
+        mensajeCentral: { type: [string, 'null'] }
+        campanaActual: { type: [string, 'null'] }
+        descripcion: { type: [string, 'null'] }
+        tono: { type: array, items: { type: string } }
+        publico: { type: [string, 'null'] }
+        proyectos: { type: array, description: 'Los proyectos de ese cliente que la persona ve', items: { $ref: '#/components/schemas/PersonaMiniProyecto' } }
+    PersonaMiniProyecto:
+      type: object
+      required: [servicioContratadoId, titulo]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        titulo: { type: string }
     AreaEquipo: { type: string, enum: [CRM, AUDIOVISUAL, DISENO, ADMINISTRACION, COMERCIAL, MARKETING], description: 'Área de Inoo (30 oct). ADMINISTRACION se muestra como «Admin»' }
     ConsumoArea:
       type: object
@@ -4577,6 +5005,17 @@ components:
       required: [persona, tareas, proyectos, resumen]
       properties:
         persona: { $ref: '#/components/schemas/PersonaMini' }
+        miArea:
+          type: [array, 'null']
+          description: 'Solo si quien mira su propio panel es lead (o ADMIN y tiene área): la carga de cada persona de su área'
+          items:
+            type: object
+            required: [persona, tareasAbiertas, tareasVencidas, proyectos]
+            properties:
+              persona: { $ref: '#/components/schemas/PersonaEquipo' }
+              tareasAbiertas: { type: integer }
+              tareasVencidas: { type: integer }
+              proyectos: { type: integer }
         tareas: { type: array, description: 'Abiertas, asignadas a la persona; vencidas primero', items: { $ref: '#/components/schemas/Tarea' } }
         proyectos:
           type: array
@@ -5067,6 +5506,63 @@ components:
               de: { type: string, enum: [CLIENTE, INOO], description: 'CLIENTE crea un requerimiento «Pendiente de la reunión»; INOO crea una tarea' }
               responsableId: { type: [string, 'null'], format: uuid, description: 'Solo INOO: a quién se le asigna la tarea' }
               diasHabiles: { type: integer, minimum: 1, maximum: 30, description: 'Plazo del pendiente (por defecto 2 días hábiles)' }
+    CierreProyecto:
+      type: object
+      required: [cerrado, listo, pendientes]
+      properties:
+        cerrado: { type: boolean }
+        listo: { type: boolean, description: 'No queda nada abierto' }
+        pendientes:
+          type: object
+          required: [etapas, tareas, entregables, requerimientos]
+          properties:
+            etapas: { type: integer, description: 'Etapas sin completar (proyectos de una vez)' }
+            tareas: { type: integer }
+            entregables: { type: integer, description: 'Sin aprobar' }
+            requerimientos: { type: integer, description: 'Lo que el cliente todavía no entrega' }
+    TranscripcionEntrada:
+      type: object
+      required: [transcripcion]
+      properties:
+        transcripcion: { type: string, minLength: 120, maxLength: 60000, description: 'Lo que se dijo en la reunión (Meet, Zoom, Fireflies…), tal cual' }
+    PropuestaAltaCliente:
+      type: object
+      required: [nombre, contacto, ingreso, alcance]
+      properties:
+        nombre: { type: [string, 'null'] }
+        contacto:
+          type: object
+          required: [nombre, email, cargo]
+          properties:
+            nombre: { type: [string, 'null'] }
+            email: { type: [string, 'null'] }
+            cargo: { type: [string, 'null'] }
+        ingreso:
+          type: object
+          required: [rubro, servicios, objetivos, resumen, tipoWeb, cantidadProductos]
+          description: 'Campos del formulario de ingreso del cliente'
+          properties:
+            rubro: { type: [string, 'null'] }
+            servicios: { type: array, items: { type: string, enum: [Branding, Social Media, Desarrollo web, SEO, CRM] } }
+            objetivos: { type: [string, 'null'] }
+            resumen: { type: [string, 'null'] }
+            tipoWeb: { type: [string, 'null'], description: 'Una de las opciones de «Tipo de proyecto (Desarrollo web)»' }
+            cantidadProductos: { type: [integer, 'null'] }
+        alcance: { type: [string, 'null'], description: 'Lo que Inoo prometió; va al alcance del proyecto al contratarlo' }
+    PropuestaResumenReunion:
+      type: object
+      required: [resumen, conAcuerdos, pendientes]
+      properties:
+        resumen: { type: string }
+        conAcuerdos: { type: boolean }
+        pendientes:
+          type: array
+          items:
+            type: object
+            required: [texto, de]
+            properties:
+              texto: { type: string }
+              de: { type: string, enum: [CLIENTE, INOO] }
     PerfilProyecto:
       description: 'Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión'
       allOf:
@@ -5687,6 +6183,7 @@ components:
         cliente: { $ref: '#/components/schemas/ClienteResumen' }
         contactoPrincipalNombre: { type: [string, 'null'] }
         accountManagerNombre: { type: [string, 'null'] }
+        proyectosActivos: { type: integer, description: 'Proyectos activos o en pausa de la cuenta' }
         estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
         atrasadas: { type: integer, description: Piezas con fechaProgramada vencida y no PUBLICADO }
         porAprobar: { type: integer }
@@ -5829,6 +6326,28 @@ components:
     SincronizacionInooWork:
       type: object
       properties:
+        empleados:
+          type: array
+          description: |
+            Personas nuevas o cambiadas en InooWork (tabla employees). Se enlazan por `id` (EMP-…) y, si el portal
+            no lo tiene, por `email`. Las que no existen se crean en el portal (sin correo no se puede: van en
+            `empleadosSinCorreo`). `status: inactive` desactiva a la persona. Nada de esto se reenvía a InooWork.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string, examples: [EMP-002] }
+              name: { type: string }
+              email: { type: [string, 'null'] }
+              role: { type: [string, 'null'], description: 'Cargo' }
+              department: { type: [string, 'null'], examples: [Diseño Grafico] }
+              status: { type: [string, 'null'], examples: [active, inactive] }
+              username: { type: [string, 'null'] }
+              supervisorUsername: { type: [string, 'null'], description: 'Username de su jefe en InooWork (organigrama)' }
+        empleadosEliminados:
+          type: array
+          description: 'Ids de empleados borrados en InooWork: en el portal se desactivan (se conserva su historial)'
+          items: { type: string }
         proyectos:
           type: array
           items:
@@ -5913,6 +6432,12 @@ components:
             - responsable.cambiado       # aprobado: invitación al sucesor y aviso al AM para contactarlo
             - miembro.invitado           # acceso nuevo al portal: alta en Cognito y correo de bienvenida
             - miembro.retirado           # el equipo quitó el acceso; deshabilitar en Cognito si no tiene otras cuentas
+            - equipo.persona_creada      # alta de un colaborador (portal o InooWork): alta en Cognito (pool equipo) y correo de bienvenida
+            - equipo.persona_desactivada # baja de un colaborador: deshabilitar en Cognito
+            - tarea.por_vencer           # recordatorio: una tarea interna vence el próximo día hábil (a su responsable)
+            - requerimiento.por_vencer   # recordatorio: el cliente tiene que entregar algo el próximo día hábil
+            - reunion.proxima            # recordatorio: reunión programada para el próximo día hábil (responsable y cliente)
+            - servicio.cerrado           # el equipo cerró el proyecto: agradecimiento y encuesta de satisfacción al cliente
         ocurridoEn: { type: string, format: date-time }
         clienteId: { type: [string, 'null'], format: uuid }
         datos: { type: object }

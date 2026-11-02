@@ -59,6 +59,10 @@ services:
       - ../../database/migraciones/0032_sin_ia_cliente.sql:/docker-entrypoint-initdb.d/01zf_sin_ia_cliente.sql:ro
       - ../../database/migraciones/0033_jarvis_por_area.sql:/docker-entrypoint-initdb.d/01zg_jarvis_por_area.sql:ro
       - ../../database/migraciones/0034_calendario_colaborador.sql:/docker-entrypoint-initdb.d/01zh_calendario_colaborador.sql:ro
+      - ../../database/migraciones/0035_accesos_por_nivel.sql:/docker-entrypoint-initdb.d/01zi_accesos_por_nivel.sql:ro
+      - ../../database/migraciones/0036_personas_inoowork.sql:/docker-entrypoint-initdb.d/01zj_personas_inoowork.sql:ro
+      - ../../database/migraciones/0037_jarvis_sin_llaves.sql:/docker-entrypoint-initdb.d/01zk_jarvis_sin_llaves.sql:ro
+      - ../../database/migraciones/0038_recordatorios.sql:/docker-entrypoint-initdb.d/01zl_recordatorios.sql:ro
       - postgres-datos:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

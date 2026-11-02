@@ -9,6 +9,7 @@
  *   comentario obligatorio al pedir cambios, Idempotency-Key, cupo de ideas, derechos de uso.
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
@@ -25,12 +26,18 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
-import { esSesionChat, hablarConBot, hermesDelArea } from "../servidor/jarvis-chat";
+import { areaDeClaveHermes, esSesionChat, hablarConBot, hermesDelArea } from "../servidor/jarvis-chat";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
+import { calcularAlcance, nivelDe, puedeAsignar, puedeSupervisar, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL } from "../dominio/accesos";
+import { cambiosDesdeEmpleado, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, type CambioPersona } from "../dominio/personas-equipo";
+import { validarTranscripcion } from "../dominio/transcripciones";
+import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
+import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
+import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
 import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
@@ -100,9 +107,16 @@ interface Estado {
   comentariosTarea: D.ComentarioTareaDemo[];
   topesIa: Record<Area, TopesArea>;
   llavesJarvis: { usuarioId: string; prefijo: string; hash: string; creadoEn: string; ultimoUso: string | null }[];
+  /** Conversaciones del chat de Jarvis y su dueño: la pasarela cobra a esa persona (2 nov). */
+  sesionesJarvis: Record<string, { usuarioId: string; area: Area }>;
+  /** Recordatorios ya enviados (fase 18): no se repiten. */
+  recordatoriosEnviados: string[];
   consumoJarvis: ConsumoJarvis[];
   botsJarvis: D.BotJarvisDemo[];
   eventosAgenda: D.EventoAgendaDemo[];
+  /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
+  accesosCuenta: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
+  miembrosProyecto: { usuarioId: string; servicioContratadoId: string; asignadoPorId: string | null }[];
   /** Conexión simulada con Google Calendar por persona (2 nov). */
   googleCalendar: Record<string, { correo: string; conectadoEn: string }>;
   solicitudesResponsable: {
@@ -177,9 +191,13 @@ function estadoInicial(): Estado {
     comentariosTarea: structuredClone(D.COMENTARIOS_TAREA_INICIALES),
     topesIa: Object.fromEntries(AREAS.map((a) => [a, { ...TOPES_INICIALES }])) as Record<Area, TopesArea>,
     llavesJarvis: llavesGuardadas(),
+    sesionesJarvis: {},
+    recordatoriosEnviados: [],
     consumoJarvis: [],
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
+    accesosCuenta: [],
+    miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
     googleCalendar: {},
     solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
@@ -214,6 +232,11 @@ export function reiniciarMock() {
 
 // ───────────────────────────────────────────── utilidades
 
+/** Quién hizo una acción del cliente: si fue alguien del equipo desde «Ver como cliente», queda firmado así. */
+const firmaCliente = (id: string | null): S<"PersonaMini"> | null => {
+  const p = persona(id);
+  return p && E.usuarios.find((u) => u.id === id)?.tipo === "EQUIPO" ? { ...p, nombre: `${p.nombre} (Inoo), en nombre del cliente` } : p;
+};
 const persona = (id: string | null): S<"PersonaMini"> | null => {
   const u = E.usuarios.find((x) => x.id === id);
   return u ? { id: u.id, nombre: u.nombre, cargo: u.cargo, email: u.email } : null;
@@ -233,6 +256,11 @@ interface Ctx {
   esEquipo: boolean;
   /** Llamada de n8n con X-Api-Key (rutas /integraciones/*). */
   esServicio?: boolean;
+  /**
+   * «Ver como cliente» (2 nov): alguien del equipo usa el portal de ese cliente con X-En-Nombre-De. La API lo
+   * trata como el cliente (ADMIN_CLIENTE) y lo que haga queda firmado con su nombre «en nombre del cliente».
+   */
+  enNombreDe?: string;
 }
 
 /** Variables de entorno sin romper la vista previa estática (que corre en el navegador). */
@@ -254,13 +282,31 @@ function autenticar(req: Request): Ctx {
   }
   const auth = req.headers.get("authorization") ?? "";
   const token = auth.replace(/^Bearer\s+/i, "");
+  const conversacion = req.headers.get("x-jarvis-conversacion");
+  if (conversacion !== null) {
+    // Jarvis (2 nov): el Hermes del área lee el portal como la persona dueña de la conversación. Solo lectura.
+    const area = areaDeClaveHermes(token);
+    if (!area) throw new ErrorApi(401, "NO_AUTENTICADO", "Clave de Jarvis inválida");
+    if (req.method !== "GET") throw new ErrorApi(403, "SOLO_LECTURA", "Jarvis solo puede leer el portal");
+    const s = E.sesionesJarvis[conversacion];
+    const usuario = s && s.area === area ? E.usuarios.find((u) => u.id === s.usuarioId && u.tipo === "EQUIPO" && u.activo !== false) : undefined;
+    if (!usuario) throw new ErrorApi(401, "NO_AUTENTICADO", "Esa conversación no existe en tu área", "Pasa en «conversacion» el código que viene en tus instrucciones.");
+    return { usuario, esEquipo: true };
+  }
   const id = token.startsWith("demo.") ? token.slice(5) : null;
-  const usuario = E.usuarios.find((u) => u.id === id);
+  const usuario = E.usuarios.find((u) => u.id === id && u.activo !== false);
   if (!usuario) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
+  const enNombreDe = req.headers.get("x-en-nombre-de");
+  if (enNombreDe && usuario.tipo === "EQUIPO") {
+    // Solo las cuentas que la persona ve completas o donde tiene proyectos.
+    if (!veCliente({ usuario, esEquipo: true }, enNombreDe)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+    return { usuario, esEquipo: false, enNombreDe };
+  }
   return { usuario, esEquipo: usuario.tipo === "EQUIPO" };
 }
 
 function rolEn(ctx: Ctx, clienteId: string) {
+  if (ctx.enNombreDe) return ctx.enNombreDe === clienteId ? ("ADMIN_CLIENTE" as const) : null;
   return E.miembros.find((m) => m.clienteId === clienteId && m.usuarioId === ctx.usuario.id && !m.invitacionPendiente)?.rol ?? null;
 }
 
@@ -272,6 +318,10 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
   if (ctx.esServicio) return;
   if (ctx.esEquipo) {
     if (roles.includes("EQUIPO") || (ctx.usuario.rolEquipo && roles.includes(ctx.usuario.rolEquipo))) return;
+    // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN.
+    if (roles.includes("ADMIN") && nivelDe(ctx.usuario) === "ADMIN") return;
+    // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.
+    if (roles.includes("ACCOUNT_MANAGER") && nivelDe(ctx.usuario) === "CUENTA") return;
     throw new ErrorApi(403, "SIN_PERMISO", "Tu rol en el equipo no permite esta acción");
   }
   const rol = clienteId ? rolEn(ctx, clienteId) : null;
@@ -329,13 +379,51 @@ function registrarEventoPieza(p: D.PiezaDemo, de: D.Estado, a: D.Estado, ctx: Ct
 }
 
 /** 404 tanto si no existe como si es de otro cliente (contrato: Visibilidad). */
-function accesoCliente(ctx: Ctx, clienteId: string) {
+/**
+ * Accesos del equipo (2 nov): `completo` exige ver toda la cuenta (ficha, pagos, usuarios, soporte…); sin él
+ * basta con trabajar en uno de sus proyectos (marca, briefs, requerimientos, piezas y entregables).
+ */
+function accesoCliente(ctx: Ctx, clienteId: string, completo = false) {
   const cliente = E.clientes.find((c) => c.id === clienteId);
-  if (!cliente || (!ctx.esEquipo && !rolEn(ctx, clienteId))) {
+  if (!cliente || (!ctx.esEquipo && !rolEn(ctx, clienteId)) || (ctx.esEquipo && !veCliente(ctx, clienteId, completo))) {
     throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   }
   return cliente;
 }
+
+const amDe = (c: D.ClienteDemo) => (c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId);
+/** Proyectos de una persona: asignada, responsable o con tareas. */
+const proyectosDePersona = (id: string) => [
+  ...E.miembrosProyecto.filter((m) => m.usuarioId === id).map((m) => m.servicioContratadoId),
+  ...E.servicios.filter((x) => x.responsableId === id).map((x) => x.id),
+  ...E.tareas.filter((t) => t.responsableId === id).map((t) => t.servicioContratadoId),
+];
+function alcanceDe(u: D.UsuarioDemo): Alcance {
+  return calcularAlcance(u, {
+    cuentas: () => [...E.accesosCuenta.filter((a) => a.usuarioId === u.id).map((a) => a.clienteId), ...E.clientes.filter((c) => amDe(c) === u.id).map((c) => c.id)],
+    proyectos: () => proyectosDePersona(u.id),
+    proyectosDeCuenta: (clienteId) => E.servicios.filter((x) => x.clienteId === clienteId).map((x) => x.id),
+    todasLasCuentas: () => E.clientes.map((c) => c.id),
+    todosLosProyectos: () => E.servicios.map((x) => x.id),
+  });
+}
+/** Las llamadas de n8n (llave de servicio) ven todo. */
+const alcance = (ctx: Ctx) => (ctx.esServicio ? ALCANCE_TOTAL : alcanceDe(ctx.usuario));
+function veCliente(ctx: Ctx, clienteId: string, completo = false) {
+  const a = alcance(ctx);
+  return veCuenta(a, clienteId) || (!completo && E.servicios.some((x) => x.clienteId === clienteId && a.proyectos.has(x.id)));
+}
+/** ¿Ve este proyecto? (404 si no: no se distingue de uno que no existe). */
+function accesoProyecto(ctx: Ctx, servicioContratadoId: string) {
+  if (ctx.esEquipo && !veProyecto(alcance(ctx), servicioContratadoId)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+}
+/** Filtro para listas dentro de un cliente: con la cuenta completa, todo; si no, sus proyectos. */
+const deMisProyectos = (ctx: Ctx) => {
+  if (!ctx.esEquipo) return () => true;
+  const a = alcance(ctx);
+  return (servicioContratadoId: string | null | undefined, clienteId?: string) => a.todo || (!!clienteId && a.cuentas.has(clienteId)) || (!!servicioContratadoId && a.proyectos.has(servicioContratadoId));
+};
+const esNivelAdmin = (ctx: Ctx) => ctx.esEquipo && !ctx.esServicio && nivelDe(ctx.usuario) === "ADMIN";
 
 function soloEquipo(ctx: Ctx) {
   if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
@@ -588,10 +676,13 @@ ruta("GET", "/me", (ctx) => {
       iniciales: ctx.usuario.iniciales,
       tipo: ctx.usuario.tipo,
       rolEquipo: ctx.usuario.rolEquipo,
+      ...(ctx.esEquipo ? { area: ctx.usuario.area, nivelAcceso: nivelDe(ctx.usuario), esLead: !!ctx.usuario.esLead } : {}),
     },
     clientes: ctx.esEquipo
       ? []
-      : E.miembros.filter((m) => m.usuarioId === ctx.usuario.id).map((m) => ({
+      : ctx.enNombreDe
+        ? [{ clienteId: ctx.enNombreDe, nombre: E.clientes.find((c) => c.id === ctx.enNombreDe)!.nombre, rol: "ADMIN_CLIENTE" as const }]
+        : E.miembros.filter((m) => m.usuarioId === ctx.usuario.id).map((m) => ({
           clienteId: m.clienteId,
           nombre: E.clientes.find((c) => c.id === m.clienteId)!.nombre,
           rol: m.rol,
@@ -608,8 +699,12 @@ ruta("POST", "/me/notificaciones/leer", () => {
 
 // Clientes
 ruta("GET", "/clientes", (ctx) => {
-  const visibles = ctx.esEquipo ? E.clientes : E.clientes.filter((c) => rolEn(ctx, c.id));
-  return { datos: visibles.map((c) => ({ id: c.id, nombre: c.nombre, slug: c.slug, estado: "ACTIVO", logoUrl: null })), paginacion: { siguienteCursor: null } };
+  const visibles = ctx.esEquipo ? E.clientes.filter((c) => veCliente(ctx, c.id)) : E.clientes.filter((c) => rolEn(ctx, c.id));
+  const completo = (id: string) => !ctx.esEquipo || veCliente(ctx, id, true);
+  return {
+    datos: visibles.map((c) => ({ id: c.id, nombre: c.nombre, slug: c.slug, estado: "ACTIVO" as const, logoUrl: null, ...(ctx.esEquipo ? { acceso: completo(c.id) ? ("COMPLETO" as const) : ("PROYECTOS" as const) } : {}) })),
+    paginacion: { siguienteCursor: null },
+  };
 });
 function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
   const f = fichaDe(c.id);
@@ -664,10 +759,10 @@ function registrarActividad(clienteIds: string[]) {
     emitir("servicio.reactivado", c.id, { servicioIds: ids });
   }
 }
-ruta("GET", "/clientes/:id", (ctx, p) => clienteVista(ctx, accesoCliente(ctx, p.id)));
+ruta("GET", "/clientes/:id", (ctx, p) => clienteVista(ctx, accesoCliente(ctx, p.id, true)));
 ruta("GET", "/clientes/:id/actividad", (ctx, p) => {
   soloEquipo(ctx);
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   return { datos: D.ACTIVIDAD.map((a) => ({ ...a, piezaId: D.uid(5, 5) })), paginacion: { siguienteCursor: null } };
 });
 const referenciaVista = ({ briefPeriodo: _b, ...r }: Estado["referencias"][number]) => ({ ...r, creadoEn: "2026-10-01T15:00:00Z" }) as S<"Referencia">;
@@ -736,13 +831,13 @@ function avisoPago(ctx: Ctx, c: D.ClienteDemo): S<"InicioCliente">["avisoPago"] 
 }
 
 ruta("GET", "/clientes/:id/estado-pago", (ctx, p) => {
-  const c = accesoCliente(ctx, p.id);
+  const c = accesoCliente(ctx, p.id, true);
   exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
   return estadoPagoVista(ctx, c);
 });
 
 ruta("PUT", "/clientes/:id/estado-pago", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
+  const c = accesoCliente(ctx, p.id, true);
   exigirRol(ctx, c.id, ["ADMIN", "FINANZAS"]);
   const b = await cuerpo<{ situacion?: "AL_DIA" | "ATRASADO"; atrasadoDesde?: string; nota?: string | null }>(req);
   const errores = validarEstadoPago(b, D.HOY);
@@ -878,18 +973,20 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
 ruta("GET", "/clientes/:id/servicios", (ctx, p) => {
   const c = accesoCliente(ctx, p.id);
   // Solo lo contratado (reunión 12 oct): lo que no se contrató no aparece.
-  const r: S<"ServiciosCliente"> = { periodo: D.PERIODO, plan: fichaDe(c.id).plan, resumenMes: progreso(piezasDelMes(c.id), cuotaMensual(c.id)), servicios: ordenados(serviciosDe(c.id)).map((s) => servicioVista(s)) };
+  const mio = deMisProyectos(ctx);
+  const r: S<"ServiciosCliente"> = { periodo: D.PERIODO, plan: fichaDe(c.id).plan, resumenMes: progreso(piezasDelMes(c.id), cuotaMensual(c.id)), servicios: ordenados(serviciosDe(c.id).filter((s) => mio(s.id, c.id))).map((s) => servicioVista(s)) };
   return r;
 });
 ruta("GET", "/clientes/:id/plan/contrato", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   return { url: "/muestras/contrato-demo.pdf", metodo: "GET", expiraEn: new Date(Date.now() + 900_000).toISOString() };
 });
 
 // Piezas
 ruta("GET", "/clientes/:id/piezas", (ctx, p, q) => {
   const c = accesoCliente(ctx, p.id);
-  const todas = piezasDe(c.id).filter((x) => ctx.esEquipo || paraCliente(x));
+  const mio = deMisProyectos(ctx);
+  const todas = piezasDe(c.id).filter((x) => (ctx.esEquipo || paraCliente(x)) && mio(x.servicioId, c.id));
   let ps = todas;
   const estados = q.getAll("estado").flatMap((e) => e.split(","));
   if (estados.length) ps = ps.filter((x) => estados.includes(estadoVisible(ctx, x.estado)));
@@ -913,6 +1010,7 @@ function buscarPieza(ctx: Ctx, id: string) {
   const p = E.piezas.find((x) => x.id === id);
   if (!p || (!ctx.esEquipo && !paraCliente(p))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   accesoCliente(ctx, p.clienteId);
+  if (!deMisProyectos(ctx)(p.servicioId, p.clienteId)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   return p;
 }
 
@@ -1071,7 +1169,7 @@ ruta("GET", "/clientes/:id/tablero", (ctx, p, q) => {
 
 // Blog
 ruta("GET", "/clientes/:id/ideas-blog", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   // El blog interno es de gestión (16 oct): el equipo operativo no lo ve.
   if (ctx.esEquipo) exigirRol(ctx, p.id, ROLES_GESTION);
   const elegidas = E.ideas.filter((i) => i.estado === "ELEGIDA").length;
@@ -1081,7 +1179,7 @@ ruta("GET", "/clientes/:id/ideas-blog", (ctx, p) => {
   };
 });
 ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, req) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<{ ideaIds?: string[] }>(req);
   const ids = b.ideaIds ?? [];
@@ -1203,7 +1301,7 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
     descripcion: pl?.descripcion ?? null, mensaje: r.mensaje, estado: r.estado, emitidoEn: r.emitidoEn, fechaLimite: r.fechaLimite,
     diasAtraso: diasAtraso(r.fechaLimite, hasta, noHabiles()), diasParaVencer: diasParaVencer(r.fechaLimite, D.HOY, noHabiles()),
     diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
-    notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: persona(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
+    notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: firmaCliente(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
     enlace: r.enlaceToken && r.enlaceVenceEn ? { url: urlFormularioPublico(r.enlaceToken), venceEn: r.enlaceVenceEn, vigente: r.enlaceVenceEn > D.HOY } : null,
     enviadoPorEnlace: r.respondidoPorNombre ?? null,
   };
@@ -1213,6 +1311,7 @@ function buscarRequerimiento(ctx: Ctx, id: string) {
   const r = E.requerimientos.find((x) => x.id === id);
   if (!r) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
   accesoCliente(ctx, r.clienteId);
+  if (!deMisProyectos(ctx)(r.servicioContratadoId, r.clienteId)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
   return r;
 }
 
@@ -1247,7 +1346,8 @@ ruta("GET", "/plantillas-requerimiento", (ctx) => {
 ruta("GET", "/clientes/:id/requerimientos", (ctx, p, q) => {
   const c = accesoCliente(ctx, p.id);
   const sc = q.get("servicioContratadoId");
-  const xs = E.requerimientos.filter((r) => r.clienteId === c.id && (!sc || r.servicioContratadoId === sc)).map(requerimientoVista);
+  const mio = deMisProyectos(ctx);
+  const xs = E.requerimientos.filter((r) => r.clienteId === c.id && (!sc || r.servicioContratadoId === sc) && mio(r.servicioContratadoId, c.id)).map(requerimientoVista);
   const abiertos = xs.filter((r) => pendienteParaCliente(r.estado)).sort((a, b) => a.fechaLimite.localeCompare(b.fechaLimite));
   const resto = xs.filter((r) => !pendienteParaCliente(r.estado)).sort((a, b) => b.emitidoEn.localeCompare(a.emitidoEn));
   return { datos: [...abiertos, ...resto], pendientes: abiertos.length, atrasados: abiertos.filter((r) => r.diasAtraso > 0).length };
@@ -1396,6 +1496,36 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
   return requerimientoVista(r);
 });
 
+// Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.
+ruta("POST", "/integraciones/recordatorios", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpo<{ fecha?: unknown }>(req);
+  const hoy = typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? b.fecha : D.HOY.slice(0, 10);
+  const v = ventanaRecordatorio(hoy, noHabiles());
+  const enviado = new Set(E.recordatoriosEnviados);
+  const nuevo = (clave: string) => !enviado.has(clave) && (E.recordatoriosEnviados.push(clave), enviado.add(clave), true);
+  let tareas = 0;
+  let requerimientos = 0;
+  let reuniones = 0;
+  for (const t of E.tareas.filter((x) => x.estado !== "HECHA" && x.responsableId && enVentana(x.fechaLimite, v))) {
+    if (!nuevo(claveRecordatorio("tarea.por_vencer", t.id, t.fechaLimite!))) continue;
+    const s = E.servicios.find((x) => x.id === t.servicioContratadoId);
+    emitir("tarea.por_vencer", s?.clienteId ?? null, { tareaId: t.id, titulo: t.titulo, servicioContratadoId: t.servicioContratadoId, responsableId: t.responsableId, fechaLimite: t.fechaLimite });
+    tareas++;
+  }
+  for (const r of E.requerimientos.filter((x) => pendienteParaCliente(x.estado) && enVentana(x.fechaLimite, v))) {
+    if (!nuevo(claveRecordatorio("requerimiento.por_vencer", r.id, r.fechaLimite))) continue;
+    emitir("requerimiento.por_vencer", r.clienteId, { requerimientoId: r.id, titulo: r.titulo, servicioContratadoId: r.servicioContratadoId, fechaLimite: r.fechaLimite });
+    requerimientos++;
+  }
+  for (const r of E.reuniones.filter((x) => x.estado === "PROGRAMADA" && enVentana(enLima(x.fecha).fecha, v))) {
+    if (!nuevo(claveRecordatorio("reunion.proxima", r.id, enLima(r.fecha).fecha))) continue;
+    emitir("reunion.proxima", r.clienteId, { reunionId: r.id, titulo: r.titulo, servicioContratadoId: r.servicioContratadoId, fecha: r.fecha });
+    reuniones++;
+  }
+  return { tareas, requerimientos, reuniones };
+});
+
 ruta("POST", "/integraciones/requerimientos/atrasos", (ctx) => {
   soloServicio(ctx);
   let revisados = 0;
@@ -1471,7 +1601,7 @@ ruta("POST", "/integraciones/servicios/inactividad", async (ctx, _p, _q, req) =>
 
 // Resultados y avance
 ruta("GET", "/clientes/:id/reportes/resultados", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   const R = D.RESULTADOS;
   const dias = ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06"];
   const total = R.recorrido[0].valor;
@@ -1489,7 +1619,7 @@ ruta("GET", "/clientes/:id/reportes/resultados", (ctx, p) => {
   return r;
 });
 ruta("GET", "/clientes/:id/reportes/informe", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   return { url: "/muestras/informe-demo.pdf", metodo: "GET", expiraEn: new Date(Date.now() + 900_000).toISOString() };
 });
 /** Avance de un servicio: etapas de su plantilla (o del mes) e ítems sincronizados de InooWork si los hay. */
@@ -1521,14 +1651,14 @@ ruta("GET", "/clientes/:id/avance", (ctx, p) => {
     periodo: D.PERIODO,
     resumenMes: progreso(ps, cuotaMensual(c.id)),
     piezasPorRevisar: ps.filter((x) => x.estado === "LISTO_REVISION" && paraCliente(x)).map((x) => ({ id: x.id, titulo: x.titulo, fechaProgramada: iso(x.fecha) })),
-    servicios: ordenados(serviciosDe(c.id)).map((s) => avanceServicio(s, ctx.esEquipo)),
+    servicios: ordenados(serviciosDe(c.id).filter((s) => deMisProyectos(ctx)(s.id, c.id))).map((s) => avanceServicio(s, ctx.esEquipo)),
   };
   return r;
 });
 
 // Soporte
 ruta("GET", "/clientes/:id/tickets", (ctx, p, q) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   const abierto = (t: { estado: string }) => !["RESUELTO", "CERRADO"].includes(t.estado);
   let ts = [...E.tickets].sort((a, b) => b.numero - a.numero);
   if (q.get("servicioContratadoId")) ts = ts.filter((t) => t.servicioContratadoId === q.get("servicioContratadoId"));
@@ -1545,7 +1675,7 @@ ruta("GET", "/clientes/:id/tickets", (ctx, p, q) => {
   };
 });
 ruta("POST", "/clientes/:id/tickets", async (ctx, p, _q, req) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   const b = await cuerpo<{ asunto?: string; categoria?: string; descripcion?: string; servicioContratadoId?: string }>(req);
   const errores: { campo: string; mensaje: string }[] = [];
   // Ticket de un servicio: solo el soporte continuo los recibe, y la categoría sale de su variante.
@@ -1594,6 +1724,7 @@ function filaPanel(c: D.ClienteDemo): S<"FilaPanelCliente"> {
     cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: "ACTIVO", logoUrl: null },
     contactoPrincipalNombre: c.contactoNombre,
     accountManagerNombre: "Diego Castro",
+    proyectosActivos: E.servicios.filter((x) => x.clienteId === c.id && x.estado !== "FINALIZADO").length,
     estadoOperativo,
     atrasadas,
     porAprobar,
@@ -1605,7 +1736,9 @@ function filaPanel(c: D.ClienteDemo): S<"FilaPanelCliente"> {
 }
 ruta("GET", "/panel/clientes", (ctx, _p, q) => {
   soloEquipo(ctx);
-  let filas = E.clientes.map(filaPanel);
+  // 2 nov: cada uno ve sus cuentas; el nivel ADMIN, todas.
+  const clientes = E.clientes.filter((c) => veCliente(ctx, c.id, true));
+  let filas = clientes.map(filaPanel);
   const gasto = E.clientes.reduce((s, c) => s + gastoDe(c), 0);
   const limite = E.clientes.reduce((s, c) => s + c.limiteGastoIaUsd, 0);
   const conRetraso = E.servicios.filter((s) => s.estado === "ACTIVO" && etapasDe(s).some((e) => etapaAtrasada(e, D.HOY)));
@@ -1649,7 +1782,8 @@ const COLUMNA: Record<D.Estado, S<"ColumnaBandeja">> = {
 };
 ruta("GET", "/panel/piezas", (ctx, _p, q) => {
   soloEquipo(ctx);
-  let ps = E.piezas;
+  const mio = deMisProyectos(ctx);
+  let ps = E.piezas.filter((x) => mio(x.servicioId, x.clienteId));
   if (q.get("clienteId")) ps = ps.filter((x) => x.clienteId === q.get("clienteId"));
   if (q.get("servicioContratadoId")) ps = ps.filter((x) => x.servicioId === q.get("servicioContratadoId"));
   if (q.get("origen")) ps = ps.filter((x) => (x.versiones[x.versiones.length - 1]?.autorTipo ?? "AGENTE") === q.get("origen"));
@@ -1714,6 +1848,15 @@ function validarClienteEntrada(b: S<"ClienteEntrada">, alta: boolean) {
 const slugDe = (t: string) =>
   t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
+// Fase 17: Comercial pega la transcripción de la venta y el portal propone el alta (no guarda nada).
+ruta("POST", "/clientes/propuesta-desde-transcripcion", async (ctx, _p, _q, req) => {
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = await cuerpo<{ transcripcion?: unknown }>(req);
+  const errores = validarTranscripcion(b.transcripcion);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  return proponerAlta(almacenMock, { usuarioId: ctx.usuario.id, area: ctx.usuario.area }, (b.transcripcion as string).trim());
+});
+
 ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ClienteEntrada">>(req);
@@ -1748,7 +1891,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     resumenFijo: undefined,
     estado: b.estado ?? "ACTIVO",
     creadoEn: new Date().toISOString(),
-    accountManagerId: b.accountManagerId ?? (ctx.usuario.rolEquipo === "ACCOUNT_MANAGER" ? ctx.usuario.id : null),
+    accountManagerId: b.accountManagerId ?? (ctx.usuario.rolEquipo === "ACCOUNT_MANAGER" || nivelDe(ctx.usuario) === "CUENTA" ? ctx.usuario.id : null),
     ingreso: ingreso && { respuestas: ingreso.respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.usuario.id },
   };
   E.clientes.push(c);
@@ -1772,7 +1915,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
 });
 
 ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
+  const c = accesoCliente(ctx, p.id, true);
   exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ClienteEntrada"> & { driveUrl?: string }>(req);
   validarClienteEntrada(b, false);
@@ -1841,7 +1984,7 @@ const solicitudVista = (x: Estado["solicitudesResponsable"][number]): S<"Solicit
 });
 
 ruta("GET", "/clientes/:id/cambio-responsable", (ctx, p) => {
-  const c = accesoCliente(ctx, p.id);
+  const c = accesoCliente(ctx, p.id, true);
   exigirRol(ctx, c.id, ["EQUIPO", "ADMIN_CLIENTE"]);
   return {
     responsable: persona(c.contactoPrincipalId),
@@ -1850,7 +1993,7 @@ ruta("GET", "/clientes/:id/cambio-responsable", (ctx, p) => {
 });
 
 ruta("POST", "/clientes/:id/cambio-responsable", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
+  const c = accesoCliente(ctx, p.id, true);
   if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Lo pide quien administra la cuenta del cliente");
   exigirRol(ctx, c.id, ["ADMIN_CLIENTE"]);
   const b = await cuerpo<{ nombre?: string; email?: string; telefono?: string; cargo?: string; motivo?: string; quitarAccesoAnterior?: boolean }>(req);
@@ -1903,12 +2046,12 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, req) =>
 });
 
 ruta("GET", "/clientes/:id/miembros", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
   return { datos: E.miembros.filter((m) => m.clienteId === p.id).map(miembroVista) };
 });
 ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<{ email?: string; nombre?: string; rol?: D.RolCliente }>(req);
   const errores: { campo: string; mensaje: string }[] = [];
@@ -1933,7 +2076,7 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
   return { __status: 201, ...miembroVista(m) };
 });
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, req) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<{ rol?: D.RolCliente }>(req);
   if (!b.rol || !["ADMIN_CLIENTE", "APROBADOR", "LECTOR"].includes(b.rol)) throw new ErrorApi(422, "VALIDACION", "Elige un rol", undefined, [{ campo: "rol", mensaje: "Elige un rol" }]);
@@ -1943,7 +2086,7 @@ ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, req) => {
   return miembroVista(m);
 });
 ruta("DELETE", "/clientes/:id/miembros/:usuario", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   buscarMiembro(p.id, p.usuario);
   protegerUltimoAdmin(p.id, p.usuario);
@@ -1975,7 +2118,7 @@ ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", (ctx, p) => {
 // ───────────────────────────────────────────── servicios contratados (admin) y avance por servicio
 
 ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
+  const c = accesoCliente(ctx, p.id, true);
   exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = await cuerpo<S<"ServicioContratadoEntrada">>(req);
   const { cat, errores } = validarContratacion(b);
@@ -2056,6 +2199,7 @@ function buscarServicio(ctx: Ctx, id: string) {
   const s = E.servicios.find((x) => x.id === id);
   if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   accesoCliente(ctx, s.clienteId);
+  accesoProyecto(ctx, s.id);
   return s;
 }
 
@@ -2091,7 +2235,7 @@ function entregableDetalle(ctx: Ctx, e: D.EntregableDemo): S<"EntregableDetalle"
     versiones: e.versiones.filter((v) => ctx.esEquipo || v.enviadaEn).map((v) => ({
       numero: v.numero, url: v.url, nombreArchivo: v.nombreArchivo, nota: v.nota, enviadaEn: v.enviadaEn, enviadaPor: persona(v.enviadaPorId), creadoEn: v.creadoEn,
     })),
-    decisiones: e.decisiones.map((d) => ({ version: d.version, decision: d.decision, comentario: d.comentario, usuario: persona(d.usuarioId)!, fecha: d.fecha })),
+    decisiones: e.decisiones.map((d) => ({ version: d.version, decision: d.decision, comentario: d.comentario, usuario: firmaCliente(d.usuarioId)!, fecha: d.fecha })),
   };
 }
 
@@ -2099,6 +2243,7 @@ function buscarEntregable(ctx: Ctx, id: string) {
   const e = E.entregables.find((x) => x.id === id);
   if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
   accesoCliente(ctx, e.clienteId);
+  accesoProyecto(ctx, e.servicioContratadoId);
   if (!ctx.esEquipo && e.versionCliente === null) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
   return e;
 }
@@ -2111,7 +2256,8 @@ ruta("GET", "/servicios-contratados/:id/entregables", (ctx, p) => {
 ruta("GET", "/clientes/:id/entregables", (ctx, p, q) => {
   const c = accesoCliente(ctx, p.id);
   const estado = q.get("estado");
-  const xs = entregablesVisibles(ctx, (e) => e.clienteId === c.id).map((e) => entregableVista(ctx, e)).filter((e) => !estado || e.estado === estado);
+  const mio = deMisProyectos(ctx);
+  const xs = entregablesVisibles(ctx, (e) => e.clienteId === c.id && mio(e.servicioContratadoId, c.id)).map((e) => entregableVista(ctx, e)).filter((e) => !estado || e.estado === estado);
   return { datos: ordenarEntregables(xs) };
 });
 
@@ -2331,12 +2477,74 @@ export function archivoPublicoMock(token: string, req: Request): Response {
 
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
-const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo, area: u.area });
-const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
+const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({
+  id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo, area: u.area,
+  nivel: nivelDe(u), nivelPersonalizado: u.nivelAcceso ?? null, esLead: !!u.esLead,
+});
+const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO" && u.activo !== false);
+
+const fichaVista = (u: D.UsuarioDemo): S<"FichaPersona"> => ({
+  ...equipoVista(u), correo: u.email, activo: u.activo !== false, reportaAId: u.reportaAId ?? null,
+  inoowork: { empleadoId: u.inooworkEmpleadoId ?? null, estado: u.inooworkEstado ?? "SIMULADO", error: u.inooworkError ?? null },
+});
+
+/** En el entorno de pruebas InooWork siempre está simulado: se asigna el id de empleado y listo. */
+function enviarAInooWork(u: D.UsuarioDemo) {
+  u.inooworkEmpleadoId ??= nuevoIdEmpleado();
+  u.inooworkEstado = "SIMULADO";
+  u.inooworkError = null;
+}
 
 ruta("GET", "/panel/equipo", (ctx) => {
   soloEquipo(ctx);
-  return { datos: E.usuarios.filter((u) => u.tipo === "EQUIPO").map(equipoVista) };
+  return { datos: E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false).map(equipoVista) };
+});
+
+/** Valida el jefe de `personaId` (equipo, activo y sin ciclos); devuelve el error para el campo reportaAId. */
+function errorJefeMock(personaId: string, jefeId: string) {
+  const jefe = E.usuarios.find((x) => x.id === jefeId && x.tipo === "EQUIPO" && x.activo !== false);
+  if (!jefe) return "Elige a una persona activa del equipo";
+  return errorReportaA(personaId, jefeId, (id) => E.usuarios.find((x) => x.id === id)?.reportaAId ?? null);
+}
+
+ruta("GET", "/panel/organigrama", (ctx) => {
+  soloEquipo(ctx);
+  const activos = E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false);
+  const ids = new Set(activos.map((u) => u.id));
+  // Si el jefe está desactivado, la persona sube al primer nivel hasta que le asignen otro.
+  return { datos: activos.map((u) => ({ ...equipoVista(u), reportaAId: u.reportaAId && ids.has(u.reportaAId) ? u.reportaAId : null })) };
+});
+
+ruta("GET", "/panel/personas", (ctx) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const equipo = E.usuarios.filter((u) => u.tipo === "EQUIPO").sort((a, b) => Number(b.activo !== false) - Number(a.activo !== false) || a.nombre.localeCompare(b.nombre, "es"));
+  return { datos: equipo.map(fichaVista), inooworkConectado: false };
+});
+
+ruta("POST", "/panel/personas", async (ctx, _p, _q, req) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const { errores, persona: n } = validarNuevaPersona(await cuerpo<Record<string, unknown>>(req), esArea);
+  if (!n) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (E.usuarios.some((u) => u.email.toLowerCase() === n.correo)) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
+  const id = nuevoId(1);
+  const jefe = n.reportaAId ? errorJefeMock(id, n.reportaAId) : null;
+  if (jefe) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "reportaAId", mensaje: jefe }]);
+  const u: D.UsuarioDemo = {
+    id, nombre: n.nombre, email: n.correo, cargo: n.cargo, iniciales: inicialesDe(n.nombre), tipo: "EQUIPO", rolEquipo: n.rolEquipo, area: n.area,
+    nivelAcceso: n.nivel, esLead: n.esLead, activo: true, reportaAId: n.reportaAId, claveDemo: "demo1234",
+  };
+  E.usuarios.push(u);
+  enviarAInooWork(u);
+  emitir("equipo.persona_creada", null, { usuarioId: u.id, email: u.email, nombre: u.nombre, origen: "PORTAL", creadoPor: ctx.usuario.id });
+  return { __status: 201, ...fichaVista(u) };
+});
+
+ruta("POST", "/panel/personas/:id/inoowork", (ctx, p) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const u = E.usuarios.find((x) => x.id === p.id && x.tipo === "EQUIPO");
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  enviarAInooWork(u);
+  return fichaVista(u);
 });
 
 function proyectoPipeline(s: D.ServicioContratadoDemo): S<"ProyectoPipeline"> {
@@ -2359,8 +2567,9 @@ ruta("GET", "/panel/proyectos", (ctx, _p, q) => {
   soloEquipo(ctx);
   const quien = q.get("responsableId");
   const texto = q.get("q")?.toLowerCase();
+  const mio = deMisProyectos(ctx);
   const datos = E.servicios
-    .filter((s) => s.estado !== "FINALIZADO")
+    .filter((s) => s.estado !== "FINALIZADO" && mio(s.id, s.clienteId))
     .map(proyectoPipeline)
     .filter((x) => !quien || x.responsable?.id === quien || E.tareas.some((t) => t.servicioContratadoId === x.servicioContratadoId && t.responsableId === quien && t.estado !== "HECHA"))
     .filter((x) => !texto || x.titulo.toLowerCase().includes(texto) || x.clienteNombre.toLowerCase().includes(texto));
@@ -2380,6 +2589,7 @@ function buscarTarea(ctx: Ctx, id: string) {
   soloEquipo(ctx);
   const t = E.tareas.find((x) => x.id === id);
   if (!t) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  accesoProyecto(ctx, t.servicioContratadoId);
   return t;
 }
 
@@ -2532,6 +2742,50 @@ ruta("GET", "/servicios-contratados/:id/reuniones", (ctx, p) => {
   return { datos: E.reuniones.filter((r) => r.servicioContratadoId === s.id).sort((a, b) => b.fecha.localeCompare(a.fecha)).map(reunionVista) };
 });
 
+// Cierre de proyecto (fase 17): lo que falta y, al cerrar, FINALIZADO con el mensaje para el cliente.
+function pendientesCierre(s: D.ServicioContratadoDemo): PendientesCierre {
+  return {
+    etapas: E.etapas.filter((e) => e.servicioContratadoId === s.id && e.periodo === null && e.estado !== "COMPLETADO").length,
+    tareas: E.tareas.filter((t) => t.servicioContratadoId === s.id && t.estado !== "HECHA").length,
+    entregables: E.entregables.filter((e) => e.servicioContratadoId === s.id && e.estado !== "APROBADO").length,
+    requerimientos: E.requerimientos.filter((r) => r.servicioContratadoId === s.id && pendienteParaCliente(r.estado)).length,
+  };
+}
+const vistaCierre = (s: D.ServicioContratadoDemo): S<"CierreProyecto"> => {
+  const pendientes = pendientesCierre(s);
+  return { cerrado: s.estado === "FINALIZADO", listo: listoParaCerrar(pendientes), pendientes };
+};
+ruta("GET", "/servicios-contratados/:id/cierre", (ctx, p) => {
+  soloEquipo(ctx);
+  return vistaCierre(buscarServicio(ctx, p.id));
+});
+ruta("POST", "/servicios-contratados/:id/cierre", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = buscarServicio(ctx, p.id);
+  const b = await cuerpo<{ mensaje?: unknown; forzar?: unknown }>(req);
+  const errores = validarCierre(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (s.estado === "FINALIZADO") throw new ErrorApi(409, "YA_CERRADO", "El proyecto ya está cerrado");
+  if (!listoParaCerrar(pendientesCierre(s)) && b.forzar !== true) throw new ErrorApi(409, "CIERRE_CON_PENDIENTES", "Quedan pendientes en el proyecto", "Revísalos o confirma que quieres cerrarlo igual.");
+  const mensaje = (b.mensaje as string).trim();
+  s.estado = "FINALIZADO";
+  s.standbyDesde = null;
+  s.siguientePaso = mensaje;
+  s.fechaFin ??= D.HOY.slice(0, 10);
+  emitir("servicio.cerrado", s.clienteId, { servicioContratadoId: s.id, mensaje, cerradoPor: ctx.usuario.id, conPendientes: b.forzar === true });
+  return vistaCierre(s);
+});
+
+// Fase 18: resumen de la reunión desde la transcripción (no guarda nada; se revisa y se cierra la reunión).
+ruta("POST", "/servicios-contratados/:id/reuniones/propuesta", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  buscarServicio(ctx, p.id);
+  const b = await cuerpo<{ transcripcion?: unknown }>(req);
+  const errores = validarTranscripcion(b.transcripcion);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  return proponerResumen(almacenMock, { usuarioId: ctx.usuario.id, area: ctx.usuario.area }, (b.transcripcion as string).trim());
+});
+
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
@@ -2629,15 +2883,32 @@ ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {
 // Solo equipo. El consumo se cobra al área de la persona, contra un tope diario y uno mensual por área.
 
 /**
- * En desarrollo, las llaves de Jarvis sobreviven a las recargas del servidor (cambiar .env.local o el código
- * vuelve a cargar este módulo): el Hermes local ya tiene la suya guardada. En pruebas y producción, no.
+ * En desarrollo, las llaves de Jarvis sobreviven a las recargas y a los reinicios del servidor: el Hermes
+ * local ya tiene la suya guardada. Se guardan en .jarvis-llaves.local.json (solo prefijo y hash, nunca la
+ * llave; fuera de git). En pruebas y producción, no.
  */
 type ConLlaves = typeof globalThis & { __inooLlavesJarvis?: Estado["llavesJarvis"] };
+const ARCHIVO_LLAVES = ".jarvis-llaves.local.json";
 function llavesGuardadas(): Estado["llavesJarvis"] {
-  return process.env.NODE_ENV === "development" ? ((globalThis as ConLlaves).__inooLlavesJarvis ??= []) : [];
+  if (process.env.NODE_ENV !== "development") return [];
+  const g = globalThis as ConLlaves;
+  if (!g.__inooLlavesJarvis) {
+    try {
+      g.__inooLlavesJarvis = existsSync(ARCHIVO_LLAVES) ? (JSON.parse(readFileSync(ARCHIVO_LLAVES, "utf8")) as Estado["llavesJarvis"]) : [];
+    } catch {
+      g.__inooLlavesJarvis = [];
+    }
+  }
+  return g.__inooLlavesJarvis;
 }
 function guardarLlaves() {
-  if (process.env.NODE_ENV === "development") (globalThis as ConLlaves).__inooLlavesJarvis = E.llavesJarvis;
+  if (process.env.NODE_ENV !== "development") return;
+  (globalThis as ConLlaves).__inooLlavesJarvis = E.llavesJarvis;
+  try {
+    writeFileSync(ARCHIVO_LLAVES, JSON.stringify(E.llavesJarvis));
+  } catch {
+    /* sin disco: quedan en memoria */
+  }
 }
 
 async function sha256Hex(texto: string) {
@@ -2670,6 +2941,10 @@ const almacenMock: AlmacenPasarela = {
     k.ultimoUso = new Date().toISOString();
     return { usuarioId: u.id, area: u.area };
   },
+  async personaDeSesion(sesionId, area) {
+    const x = E.sesionesJarvis[sesionId];
+    return x && x.area === area ? x.usuarioId : null;
+  },
   async situacion(area, ahora) {
     return { ...gastoArea(area, ahora), topes: E.topesIa[area] };
   },
@@ -2682,10 +2957,31 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
   exigirRol(ctx, null, ["ADMIN"]);
   const u = E.usuarios.find((x) => x.id === p.id && x.tipo === "EQUIPO");
   if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
-  const b = await cuerpo<{ area?: unknown }>(req);
-  if (b.area !== null && !esArea(b.area)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "area", mensaje: `Usa ${AREAS.join(", ")} o null` }]);
-  u.area = b.area;
-  return equipoVista(u);
+  const b = await cuerpo<CambioPersona>(req);
+  const errores = validarPersonaEquipo(b, esArea);
+  if (b.activo === false && u.id === ctx.usuario.id) errores.push({ campo: "activo", mensaje: "No puedes desactivarte a ti mismo" });
+  const jefe = typeof b.reportaAId === "string" ? errorJefeMock(u.id, b.reportaAId) : null;
+  if (jefe) errores.push({ campo: "reportaAId", mensaje: jefe });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const correo = typeof b.correo === "string" ? b.correo.trim().toLowerCase() : undefined;
+  if (correo && E.usuarios.some((x) => x.id !== u.id && x.email.toLowerCase() === correo)) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
+  const antes = u.activo !== false;
+  if (b.area !== undefined) u.area = b.area as D.UsuarioDemo["area"];
+  if (b.nivel !== undefined) u.nivelAcceso = b.nivel as D.UsuarioDemo["nivelAcceso"];
+  if (typeof b.esLead === "boolean") u.esLead = b.esLead;
+  if (typeof b.nombre === "string") {
+    u.nombre = b.nombre.trim();
+    u.iniciales = inicialesDe(u.nombre);
+  }
+  if (correo) u.email = correo;
+  if (b.cargo !== undefined) u.cargo = typeof b.cargo === "string" && b.cargo.trim() ? b.cargo.trim() : null;
+  if (b.rolEquipo !== undefined) u.rolEquipo = b.rolEquipo as D.UsuarioDemo["rolEquipo"];
+  if (typeof b.activo === "boolean") u.activo = b.activo;
+  if (b.reportaAId !== undefined) u.reportaAId = (b.reportaAId as string | null) ?? null;
+  // Lo que InooWork comparte (datos, área, jefe y activo) se le manda; nivel y lead son solo del portal.
+  if (["nombre", "correo", "cargo", "area", "rolEquipo", "activo", "reportaAId"].some((k) => b[k as keyof CambioPersona] !== undefined)) enviarAInooWork(u);
+  if (antes && u.activo === false) emitir("equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "PORTAL" });
+  return fichaVista(u);
 });
 
 ruta("GET", "/panel/ia-equipo", (ctx) => {
@@ -2747,7 +3043,7 @@ ruta("DELETE", "/me/jarvis/llave", (ctx) => {
 
 const botVista = (ctx: Ctx, b: D.BotJarvisDemo): S<"BotJarvis"> => ({
   id: b.id, nombre: b.nombre, color: b.color, forma: b.forma, instrucciones: b.instrucciones, creadoPor: persona(b.creadoPorId)!,
-  creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn, ultimoUso: b.ultimoUso, puedeEditar: b.creadoPorId === ctx.usuario.id || ctx.usuario.rolEquipo === "ADMIN",
+  creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn, ultimoUso: b.ultimoUso, puedeEditar: b.creadoPorId === ctx.usuario.id || esNivelAdmin(ctx) || (!!ctx.usuario.esLead && ctx.usuario.area === b.area),
 });
 /** Un bot de mi área (404 si es de otra: no se distingue de uno que no existe). */
 function botDeMiArea(ctx: Ctx, id: string) {
@@ -2756,8 +3052,9 @@ function botDeMiArea(ctx: Ctx, id: string) {
   if (!b || !ctx.usuario.area || b.area !== ctx.usuario.area) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
   return b;
 }
+const puedeEditarBot = (ctx: Ctx, b: D.BotJarvisDemo) => b.creadoPorId === ctx.usuario.id || esNivelAdmin(ctx) || (!!ctx.usuario.esLead && ctx.usuario.area === b.area);
 function exigirEditarBot(ctx: Ctx, b: D.BotJarvisDemo) {
-  if (b.creadoPorId !== ctx.usuario.id && ctx.usuario.rolEquipo !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
+  if (!puedeEditarBot(ctx, b)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
 }
 
 ruta("GET", "/jarvis/bots", (ctx) => {
@@ -2817,8 +3114,107 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
+  // La conversación es de quien la empezó: así la pasarela le cobra a esa persona.
+  const duenio = E.sesionesJarvis[b.sesionId];
+  if (duenio && duenio.usuarioId !== ctx.usuario.id) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otra persona", "Empieza una conversación nueva.");
+  E.sesionesJarvis[b.sesionId] = { usuarioId: ctx.usuario.id, area: bot.area };
   bot.ultimoUso = new Date().toISOString();
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId }, req.signal);
+  // El bot puede reescribir su trabajo (solo si quien chatea podría editarlo).
+  const alActualizarTrabajo = puedeEditarBot(ctx, bot)
+    ? async (nuevo: string) => {
+        const anterior = bot.instrucciones;
+        bot.instrucciones = nuevo;
+        bot.actualizadoEn = new Date().toISOString();
+        return { anterior };
+      }
+    : undefined;
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId, alActualizarTrabajo }, req.signal);
+});
+
+// ───────────────────────────────────────────── accesos del equipo (2 nov)
+
+function accesoPersonaVista(ctx: Ctx, u: D.UsuarioDemo, origen: "ASIGNADO" | "AM" | "RESPONSABLE"): S<"AccesoPersona"> {
+  return { persona: equipoVista(u), origen, puedeQuitar: origen === "ASIGNADO" && !ctx.esServicio && puedeAsignar(ctx.usuario, u) };
+}
+/** Valida a quién se asigna: del equipo y que quien asigna pueda (nivel ADMIN o lead de su área). */
+async function personaAsignable(ctx: Ctx, req: Request, nivel: "CUENTA" | "PROYECTO") {
+  soloEquipo(ctx);
+  const b = await cuerpo<{ usuarioId?: unknown }>(req);
+  const u = E.usuarios.find((x) => x.id === b.usuarioId && x.tipo === "EQUIPO");
+  if (!u) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "usuarioId", mensaje: "Elige a alguien del equipo" }]);
+  if (ctx.esServicio || !puedeAsignar(ctx.usuario, u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona la puede asignar");
+  if (nivel === "CUENTA" && nivelDe(u) !== "CUENTA") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "usuarioId", mensaje: "Las cuentas se asignan a gente de nivel por cuenta (CRM o Comercial); el resto va a los proyectos" }]);
+  return u;
+}
+
+ruta("GET", "/clientes/:id/accesos", (ctx, p) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id, true);
+  const am = E.usuarios.find((u) => u.id === amDe(c));
+  const datos = [
+    ...(am ? [accesoPersonaVista(ctx, am, "AM")] : []),
+    ...E.accesosCuenta.filter((a) => a.clienteId === c.id && a.usuarioId !== am?.id).map((a) => accesoPersonaVista(ctx, E.usuarios.find((u) => u.id === a.usuarioId)!, "ASIGNADO")),
+  ];
+  return { datos, puedeAsignar: !ctx.esServicio && (esNivelAdmin(ctx) || (!!ctx.usuario.esLead && nivelDe(ctx.usuario) === "CUENTA")) };
+});
+
+ruta("POST", "/clientes/:id/accesos", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id, true);
+  const u = await personaAsignable(ctx, req, "CUENTA");
+  if (!E.accesosCuenta.some((a) => a.clienteId === c.id && a.usuarioId === u.id)) E.accesosCuenta.push({ usuarioId: u.id, clienteId: c.id, asignadoPorId: ctx.usuario.id });
+  return { __status: 201, ...accesoPersonaVista(ctx, u, amDe(c) === u.id ? "AM" : "ASIGNADO") };
+});
+
+ruta("DELETE", "/clientes/:id/accesos/:usuario", (ctx, p) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id, true);
+  const a = E.accesosCuenta.find((x) => x.clienteId === c.id && x.usuarioId === p.usuario);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso asignado a la cuenta");
+  if (ctx.esServicio || !puedeAsignar(ctx.usuario, E.usuarios.find((u) => u.id === a.usuarioId)!)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona le puede quitar el acceso");
+  E.accesosCuenta = E.accesosCuenta.filter((x) => x !== a);
+  return null;
+});
+
+ruta("GET", "/clientes/:id/marca", (ctx, p) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id);
+  const f = fichaDe(c.id);
+  const mio = deMisProyectos(ctx);
+  return {
+    clienteId: c.id, nombre: c.nombre, mensajeCentral: f.marca.mensajeCentral ?? null, campanaActual: f.marca.campanaActual ?? null, descripcion: f.marca.descripcion ?? null,
+    tono: f.tono.etiquetas ?? [], publico: f.publico.descripcion ?? null,
+    proyectos: ordenados(serviciosDe(c.id).filter((x) => mio(x.id, c.id))).map((x) => ({ servicioContratadoId: x.id, titulo: tituloDe(x) })),
+  } satisfies S<"PerfilMarca">;
+});
+
+ruta("GET", "/servicios-contratados/:id/miembros", (ctx, p) => {
+  soloEquipo(ctx);
+  const sc = buscarServicio(ctx, p.id);
+  const responsable = E.usuarios.find((u) => u.id === sc.responsableId);
+  const datos = [
+    ...(responsable ? [accesoPersonaVista(ctx, responsable, "RESPONSABLE")] : []),
+    ...E.miembrosProyecto.filter((m) => m.servicioContratadoId === sc.id && m.usuarioId !== responsable?.id).map((m) => accesoPersonaVista(ctx, E.usuarios.find((u) => u.id === m.usuarioId)!, "ASIGNADO")),
+  ];
+  return { datos, puedeAsignar: !ctx.esServicio && (esNivelAdmin(ctx) || !!ctx.usuario.esLead) };
+});
+
+ruta("POST", "/servicios-contratados/:id/miembros", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const sc = buscarServicio(ctx, p.id);
+  const u = await personaAsignable(ctx, req, "PROYECTO");
+  if (!E.miembrosProyecto.some((m) => m.servicioContratadoId === sc.id && m.usuarioId === u.id)) E.miembrosProyecto.push({ usuarioId: u.id, servicioContratadoId: sc.id, asignadoPorId: ctx.usuario.id });
+  return { __status: 201, ...accesoPersonaVista(ctx, u, sc.responsableId === u.id ? "RESPONSABLE" : "ASIGNADO") };
+});
+
+ruta("DELETE", "/servicios-contratados/:id/miembros/:usuario", (ctx, p) => {
+  soloEquipo(ctx);
+  const sc = buscarServicio(ctx, p.id);
+  const m = E.miembrosProyecto.find((x) => x.servicioContratadoId === sc.id && x.usuarioId === p.usuario);
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no está asignada al proyecto");
+  if (ctx.esServicio || !puedeAsignar(ctx.usuario, E.usuarios.find((u) => u.id === m.usuarioId)!)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona la puede quitar");
+  E.miembrosProyecto = E.miembrosProyecto.filter((x) => x !== m);
+  return null;
 });
 
 // ───────────────────────────────────────────── calendario del colaborador (2 nov 2026)
@@ -2848,10 +3244,12 @@ ruta("GET", "/me/agenda", (ctx, _p, q) => {
   const errores = validarRango(desde, hasta);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const enRango = (f: string) => f >= desde! && f <= hasta!;
-  const yo = ctx.usuario.id;
+  const otro = q.get("usuarioId") && q.get("usuarioId") !== ctx.usuario.id ? E.usuarios.find((u) => u.id === q.get("usuarioId") && u.tipo === "EQUIPO") : null;
+  if (q.get("usuarioId") && q.get("usuarioId") !== ctx.usuario.id && (!otro || !puedeSupervisar(ctx.usuario, otro))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const yo = otro?.id ?? ctx.usuario.id;
   const hoy = D.HOY.slice(0, 10);
   // Mis proyectos: donde soy responsable o tengo tareas.
-  const mios = new Set([...E.servicios.filter((s) => s.responsableId === yo).map((s) => s.id), ...E.tareas.filter((t) => t.responsableId === yo).map((t) => t.servicioContratadoId)]);
+  const mios = new Set(proyectosDePersona(yo));
   const titulo = (scId: string) => tituloDe(E.servicios.find((s) => s.id === scId)!);
   const eventos: EventoAgenda[] = [];
   for (const t of E.tareas) {
@@ -2875,9 +3273,9 @@ ruta("GET", "/me/agenda", (ctx, _p, q) => {
     for (const f of diasEntre(a.fechaInicio, a.fechaFin).filter(enRango)) eventos.push(base({ id: `feriado-${a.id}-${f}`, tipo: "FERIADO", titulo: a.titulo, fecha: f }));
   }
   for (const e of E.eventosAgenda) {
-    if ((e.creadoPorId === yo || e.invitadosIds.includes(yo)) && enRango(e.fecha)) eventos.push(eventoPropioVista(ctx, e));
+    if ((e.creadoPorId === yo || e.invitadosIds.includes(yo)) && enRango(e.fecha) && !(otro && e.tipo === "PENDIENTE")) eventos.push(eventoPropioVista(ctx, e));
   }
-  return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: conexionGoogle(yo) } satisfies S<"Agenda">;
+  return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: conexionGoogle(ctx.usuario.id) } satisfies S<"Agenda">;
 });
 
 function miEvento(ctx: Ctx, id: string) {
@@ -2983,7 +3381,8 @@ ruta("GET", "/servicios-contratados/:id/reporte", (ctx, p) => {
 ruta("GET", "/panel/colaborador", (ctx, _p, q) => {
   soloEquipo(ctx);
   const quien = q.get("usuarioId") ?? ctx.usuario.id;
-  if (!esDelEquipo(quien)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const objetivo = E.usuarios.find((u) => u.id === quien && u.tipo === "EQUIPO");
+  if (!objetivo || (!ctx.esServicio && !puedeSupervisar(ctx.usuario, objetivo))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const tareas = ordenarTareas(E.tareas.filter((t) => t.responsableId === quien && t.estado !== "HECHA")).map(tareaVista);
   const suyos = E.servicios.filter((s) => s.responsableId === quien);
   const activos = suyos.filter((s) => s.estado !== "FINALIZADO");
@@ -2991,8 +3390,15 @@ ruta("GET", "/panel/colaborador", (ctx, _p, q) => {
     servicioContratadoId: s.id, titulo: tituloDe(s), clienteNombre: E.clientes.find((c) => c.id === s.clienteId)!.nombre,
     avance: avanceDe(s), columna: proyectoPipeline(s).columna, kpis: kpisDe(s),
   }));
+  const lidera = quien === ctx.usuario.id && !!ctx.usuario.area && (!!ctx.usuario.esLead || nivelDe(ctx.usuario) === "ADMIN");
+  const miArea = lidera
+    ? E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.area === ctx.usuario.area && u.id !== ctx.usuario.id).map((u) => {
+        const suyas = E.tareas.filter((t) => t.responsableId === u.id && t.estado !== "HECHA");
+        return { persona: equipoVista(u), tareasAbiertas: suyas.length, tareasVencidas: suyas.filter((t) => tareaVencida(t, D.HOY)).length, proyectos: new Set(proyectosDePersona(u.id)).size };
+      })
+    : null;
   return {
-    persona: persona(quien)!, tareas, proyectos,
+    persona: persona(quien)!, miArea, tareas, proyectos,
     resumen: {
       tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length,
       proyectosCerrados: suyos.length - activos.length,
@@ -3251,7 +3657,7 @@ const REGLAS_CORREO: S<"ReglaCorreo">[] = [
 ];
 
 ruta("GET", "/clientes/:id/correos-automaticos", (ctx, p) => {
-  accesoCliente(ctx, p.id);
+  accesoCliente(ctx, p.id, true);
   const correos = new Set(E.miembros.filter((m) => m.clienteId === p.id).map((m) => E.usuarios.find((u) => u.id === m.usuarioId)!.email));
   // El cliente ve sus propios correos; el equipo además los avisos al AM de esta cuenta.
   const recientes = E.correos.filter((c) => correos.has(c.para) || (ctx.esEquipo && c.para === E.usuarios[2].email && p.id === E.clientes[0].id));
@@ -3449,7 +3855,75 @@ const ESTADO_HITO: Record<string, S<"EstadoHito">> = {
   "Sin Iniciar": "SIN_INICIAR", "En Progreso": "EN_PROGRESO", "En Revisión": "EN_REVISION", Completado: "COMPLETADO", Bloqueado: "BLOQUEADO",
 };
 
+/** Personas que llegan de InooWork: se aplican sin reenviarlas (así no hay bucles). */
+function sincronizarEmpleados(b: Partial<S<"SincronizacionInooWork">>) {
+  let personasCreadas = 0;
+  let personasActualizadas = 0;
+  const empleadosSinCorreo: string[] = [];
+  const desactivar = (u: D.UsuarioDemo) => {
+    if (u.activo === false) return false;
+    u.activo = false;
+    emitir("equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "INOOWORK" });
+    return true;
+  };
+  for (const e of b.empleados ?? []) {
+    const correo = correoValido(e.email) ? e.email.trim().toLowerCase() : null;
+    const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.inooworkEmpleadoId === e.id) ?? (correo ? E.usuarios.find((x) => x.email.toLowerCase() === correo) : undefined);
+    if (u && u.tipo !== "EQUIPO") continue; // ese correo es de un cliente: no se toca
+    if (u) {
+      const c = cambiosDesdeEmpleado(e, { nombre: u.nombre, correo: u.email, cargo: u.cargo, area: u.area, activo: u.activo !== false });
+      if (c.correo && E.usuarios.some((x) => x.id !== u.id && x.email.toLowerCase() === c.correo)) delete c.correo;
+      const enlazada = u.inooworkEmpleadoId !== e.id;
+      if (c.nombre) {
+        u.nombre = c.nombre;
+        u.iniciales = inicialesDe(c.nombre);
+      }
+      if (c.correo) u.email = c.correo;
+      if (c.cargo !== undefined) u.cargo = c.cargo;
+      if (c.area) u.area = c.area;
+      if (c.activo === false) desactivar(u);
+      if (c.activo === true) u.activo = true;
+      u.inooworkEmpleadoId = e.id;
+      if (e.username) u.inooworkUsuario = e.username;
+      u.inooworkEstado = "SINCRONIZADO";
+      u.inooworkError = null;
+      if (enlazada || Object.keys(c).length) personasActualizadas++;
+      continue;
+    }
+    if (e.status === "inactive") continue;
+    if (!correo) {
+      empleadosSinCorreo.push(e.id);
+      continue;
+    }
+    const area = areaDeDepartamento(e.department);
+    const n: D.UsuarioDemo = {
+      id: nuevoId(1), nombre: e.name.trim(), email: correo, cargo: e.role?.trim() || null, iniciales: inicialesDe(e.name), tipo: "EQUIPO",
+      rolEquipo: e.department?.trim().toLowerCase() === "finanzas" ? "FINANZAS" : area ? ROL_DEL_AREA[area] : ROL_SIN_AREA, area, activo: true,
+      inooworkEmpleadoId: e.id, inooworkUsuario: e.username ?? null, inooworkEstado: "SINCRONIZADO", inooworkError: null, claveDemo: "demo1234",
+    };
+    E.usuarios.push(n);
+    emitir("equipo.persona_creada", null, { usuarioId: n.id, email: n.email, nombre: n.nombre, origen: "INOOWORK" });
+    personasCreadas++;
+  }
+  // Jefes, al final: el supervisor puede haber llegado en el mismo envío. Se ignoran los que harían un ciclo.
+  for (const e of b.empleados ?? []) {
+    if (e.supervisorUsername === undefined) continue;
+    const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.inooworkEmpleadoId === e.id);
+    if (!u) continue;
+    const sup = e.supervisorUsername?.trim().toLowerCase();
+    const jefe = sup ? E.usuarios.find((x) => x.tipo === "EQUIPO" && ((x.inooworkUsuario ?? "").toLowerCase() === sup || x.email.toLowerCase() === sup)) : undefined;
+    const nuevo = jefe && !errorReportaA(u.id, jefe.id, (id) => E.usuarios.find((x) => x.id === id)?.reportaAId ?? null) ? jefe.id : sup ? u.reportaAId ?? null : null;
+    if (nuevo !== (u.reportaAId ?? null)) u.reportaAId = nuevo;
+  }
+  for (const id of b.empleadosEliminados ?? []) {
+    const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.inooworkEmpleadoId === id);
+    if (u && desactivar(u)) personasActualizadas++;
+  }
+  return { personasCreadas, personasActualizadas, empleadosSinCorreo };
+}
+
 function aplicarSincronizacion(b: Partial<S<"SincronizacionInooWork">>) {
+  const personas = sincronizarEmpleados(b);
   let hitosActualizados = 0;
   let ticketsActualizados = 0;
   const ahora = new Date().toISOString();
@@ -3485,7 +3959,7 @@ function aplicarSincronizacion(b: Partial<S<"SincronizacionInooWork">>) {
     }
     ticketsActualizados++;
   }
-  return { hitosActualizados, ticketsActualizados };
+  return { hitosActualizados, ticketsActualizados, ...personas };
 }
 
 ruta("POST", "/integraciones/inoowork/sincronizacion", async (ctx, _p, _q, req) => {
@@ -3536,7 +4010,7 @@ function problema(e: ErrorApi): Response {
 async function ingresar(req: Request) {
   const b = await cuerpo<{ email?: string; clave?: string }>(req);
   const u = E.usuarios.find((x) => x.email.toLowerCase() === (b.email ?? "").trim().toLowerCase());
-  if (!u || u.claveDemo !== b.clave) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+  if (!u || u.claveDemo !== b.clave || u.activo === false) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
   const clienteId = E.miembros.find((m) => m.usuarioId === u.id)?.clienteId ?? null;
   return { token: `demo.${u.id}`, tipo: u.tipo, clienteId };
 }

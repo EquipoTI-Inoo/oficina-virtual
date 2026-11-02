@@ -6,3 +6,9 @@ playwright-report/
 .env
 .env.local
 *.tsbuildinfo
+
+# Llaves de Jarvis del entorno de desarrollo (solo hashes)
+.jarvis-llaves.local.json
+
+# Compilación aparte para las pruebas e2e
+.next-e2e/

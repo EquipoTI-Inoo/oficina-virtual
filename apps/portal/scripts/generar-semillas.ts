@@ -28,8 +28,8 @@ const salida: string[] = [
   "",
   insert(
     "usuario",
-    ["id", "email", "nombre", "cargo", "tipo", "rol_equipo", "area"],
-    D.USUARIOS.map((u) => [u.id, u.email, u.nombre, u.cargo, u.tipo, u.rolEquipo, u.area]),
+    ["id", "email", "nombre", "cargo", "tipo", "rol_equipo", "area", "nivel_acceso", "es_lead", "reporta_a_id"],
+    D.USUARIOS.map((u) => [u.id, u.email, u.nombre, u.cargo, u.tipo, u.rolEquipo, u.area, u.nivelAcceso ?? null, !!u.esLead, u.reportaAId ?? null]),
   ),
 ];
 const f = D.FICHA_CASA_OLIVA;
@@ -101,6 +101,11 @@ LEFT JOIN LATERAL (
     "bot_jarvis",
     ["id", "area", "nombre", "color", "forma", "instrucciones", "creado_por", "creado_en", "actualizado_en"],
     D.BOTS_JARVIS_INICIALES.map((b) => [b.id, b.area, b.nombre, b.color, b.forma, b.instrucciones, b.creadoPorId, b.creadoEn, b.actualizadoEn]),
+  ),
+  insert(
+    "miembro_proyecto",
+    ["usuario_id", "servicio_contratado_id", "asignado_por"],
+    D.MIEMBROS_PROYECTO_INICIALES.map((m) => [m.usuarioId, m.servicioContratadoId, m.asignadoPorId]),
   ),
   insert(
     "evento_agenda",

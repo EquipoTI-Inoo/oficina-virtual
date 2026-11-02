@@ -6,10 +6,10 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuChevronDown, LuMessageSquarePlus, LuPencil, LuPlus, LuSend, LuTrash2 } from "react-icons/lu";
+import { LuChevronDown, LuMessageSquarePlus, LuSparkles, LuPencil, LuPlus, LuSend, LuTrash2 } from "react-icons/lu";
 import { api, BASE, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
-import { COLORES_BOT, FORMAS_BOT } from "../dominio/ia-equipo";
+import { COLORES_BOT, FORMAS_BOT, saludoInicial, sinBloqueTrabajo } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
 
 type Bot = S<"BotJarvis">;
@@ -43,7 +43,7 @@ function SeccionJarvis() {
   if (!d.area) {
     return (
       <div className="tarjeta" style={{ padding: 24 }}>
-        <p className="texto-sm">Todavía no tienes un área asignada, así que no ves bots. Pídele al ADMIN que te asigne una en «Costos de IA».</p>
+        <p className="texto-sm">Todavía no tienes un área asignada, así que no ves bots. Pídele al ADMIN que te asigne una en «Equipo».</p>
       </div>
     );
   }
@@ -112,7 +112,7 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
     try {
       const cuerpo = { nombre, color, forma, instrucciones };
       const b = bot ? await api<Bot>(`/jarvis/bots/${bot.id}`, { metodo: "PATCH", cuerpo }) : await api<Bot>("/jarvis/bots", { metodo: "POST", cuerpo });
-      avisar({ titulo: bot ? "Bot actualizado" : `${b.nombre} está listo` });
+      avisar({ titulo: bot ? "Bot actualizado" : `${b.nombre} está listo para configurarse` });
       alGuardar(b);
     } catch (e2) {
       if (e2 instanceof ProblemaApi && e2.errores.length) setErr(Object.fromEntries(e2.errores.map((x) => [x.campo, x.mensaje])));
@@ -153,6 +153,12 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
             </div>
           </fieldset>
         </div>
+        {!bot && (
+          <p className="texto-xs texto-muted">
+            Al crearlo, te hará unas preguntas para entender en qué te ayuda y con eso arma su trabajo. Después lo puedes cambiar aquí o pedírselo en el chat.
+          </p>
+        )}
+        {bot && (
         <div className="campo">
           <label htmlFor="bot-trabajo">Su trabajo</label>
           <textarea
@@ -166,6 +172,7 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
           />
           {err.instrucciones && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.instrucciones}</p>}
         </div>
+        )}
         <button className="boton boton--primario boton--bloque" type="submit">
           {bot ? "Guardar" : "Crear bot"}
         </button>
@@ -175,9 +182,11 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
 }
 
 interface MensajeChat {
-  rol: "yo" | "bot";
+  rol: "yo" | "bot" | "aviso";
   texto: string;
   error?: boolean;
+  /** rol «aviso»: el bot reescribió su trabajo. */
+  trabajo?: TrabajoNuevo & { deshecho?: boolean };
 }
 
 const claveSesion = (botId: string) => `inoo.jarvis.sesion.${botId}`;
@@ -194,7 +203,9 @@ function sesionDe(botId: string) {
 }
 
 /** Lee el SSE de Hermes (formato OpenAI) y entrega cada pedazo de texto. */
-async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: string) => void) {
+type TrabajoNuevo = { anterior: string; nuevo: string };
+
+async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: string) => void, alTrabajo: (t: TrabajoNuevo) => void) {
   const lector = cuerpo.getReader();
   const dec = new TextDecoder();
   let resto = "";
@@ -208,13 +219,14 @@ async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: st
       if (!l.startsWith("data:")) continue;
       const dato = l.slice(5).trim();
       if (!dato || dato === "[DONE]") continue;
-      let j: { choices?: { delta?: { content?: string } }[]; error?: { message?: string } };
+      let j: { choices?: { delta?: { content?: string } }[]; error?: { message?: string }; inoo?: { trabajo?: TrabajoNuevo } };
       try {
         j = JSON.parse(dato);
       } catch {
         continue;
       }
       if (j.error?.message) throw new Error(j.error.message);
+      if (j.inoo?.trabajo) alTrabajo(j.inoo.trabajo);
       const c = j.choices?.[0]?.delta?.content;
       if (c) alTexto(c);
     }
@@ -223,9 +235,12 @@ async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: st
 
 function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado: boolean; alEditar: () => void; alCambiar: () => void }) {
   const [sesion, setSesion] = useState(() => (typeof window === "undefined" ? crypto.randomUUID() : sesionDe(bot.id)));
-  const [mensajes, setMensajes] = useState<MensajeChat[]>([]);
+  // Bot recién creado (sin trabajo): saluda y empieza a preguntar para configurarse, como Grok.
+  const inicio = (): MensajeChat[] => (bot.instrucciones.trim() ? [] : [{ rol: "bot", texto: saludoInicial(bot.nombre) }]);
+  const [mensajes, setMensajes] = useState<MensajeChat[]>(inicio);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [viendo, setViendo] = useState<number | null>(null);
   const [menu, setMenu] = useState(false);
   const avisar = useAviso();
   const fin = useRef<HTMLDivElement>(null);
@@ -233,7 +248,21 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
     fin.current?.scrollIntoView({ block: "end" });
   }, [mensajes]);
 
-  const ultimo = (f: (m: MensajeChat) => MensajeChat) => setMensajes((ms) => ms.map((m, i) => (i === ms.length - 1 ? f(m) : m)));
+  const ultimo = (f: (m: MensajeChat) => MensajeChat) =>
+    setMensajes((ms) => {
+      const i = ms.map((m) => m.rol).lastIndexOf("bot");
+      return ms.map((m, j) => (j === i ? f(m) : m));
+    });
+  const deshacer = async (i: number, t: TrabajoNuevo) => {
+    try {
+      await api(`/jarvis/bots/${bot.id}`, { metodo: "PATCH", cuerpo: { instrucciones: t.anterior } });
+      setMensajes((ms) => ms.map((m, j) => (j === i && m.trabajo ? { ...m, trabajo: { ...m.trabajo, deshecho: true } } : m)));
+      avisar({ titulo: "Volví a mi trabajo anterior" });
+      alCambiar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos deshacer el cambio", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     const mensaje = texto.trim();
@@ -252,7 +281,11 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
         const p = await r.json().catch(() => ({}));
         throw new Error(p.detail ? `${p.title}. ${p.detail}` : (p.title ?? p.error?.message ?? `Error ${r.status}`));
       }
-      await leerRespuesta(r.body, (t) => ultimo((m) => ({ ...m, texto: m.texto + t })));
+      await leerRespuesta(
+        r.body,
+        (t) => ultimo((m) => ({ ...m, texto: m.texto + t })),
+        (trabajo) => setMensajes((ms) => [...ms, { rol: "aviso", texto: trabajo.anterior ? "Actualicé mi trabajo." : "Listo, ya tengo mi trabajo configurado.", trabajo }]),
+      );
       alCambiar();
     } catch (err) {
       ultimo((m) => ({ ...m, texto: (err as Error).message, error: true }));
@@ -268,7 +301,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
       /* sin almacenamiento: la conversación dura mientras la pantalla esté abierta */
     }
     setSesion(n);
-    setMensajes([]);
+    setMensajes(inicio());
     setMenu(false);
   };
   const eliminar = async () => {
@@ -313,19 +346,36 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
         <span className="texto-xs texto-muted">Creado por {bot.creadoPor.nombre}</span>
       </header>
       <div className="jarvis-mensajes" aria-live="polite">
-        {mensajes.length === 0 && (
+        {(mensajes.length === 0 || (!bot.instrucciones.trim() && mensajes.length === 1)) && (
           <div className="jarvis-bienvenida">
             <AvatarBot bot={bot} tam={48} />
             <p className="negrita">{bot.nombre}</p>
-            <p className="texto-sm texto-muted" style={{ whiteSpace: "pre-wrap" }}>{bot.instrucciones || "Sin trabajo definido todavía."}</p>
+            <p className="texto-sm texto-muted" style={{ whiteSpace: "pre-wrap" }}>{bot.instrucciones || "Responde sus preguntas y se configura solo."}</p>
             {!conectado && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>El Jarvis de tu área todavía no está conectado: los bots no pueden responder aún.</p>}
           </div>
         )}
-        {mensajes.map((m, i) => (
-          <div key={i} className={`burbuja-jarvis burbuja-jarvis--${m.rol === "yo" ? "yo" : "jarvis"}${m.error ? " burbuja-jarvis--error" : ""}`}>
-            {m.texto || (enviando && i === mensajes.length - 1 ? "Pensando…" : "")}
-          </div>
-        ))}
+        {mensajes.map((m, i) =>
+          m.rol === "aviso" && m.trabajo ? (
+            <div key={i} className="aviso-trabajo" role="status">
+              <span className="fila" style={{ gap: 6 }}>
+                <LuSparkles size={14} /> {m.trabajo.deshecho ? "Deshiciste el cambio a mi trabajo." : m.texto}
+              </span>
+              {!m.trabajo.deshecho && (
+                <span className="fila" style={{ gap: 8 }}>
+                  <button className="enlace texto-xs" onClick={() => setViendo(viendo === i ? null : i)}>{viendo === i ? "Ocultar" : "Ver"}</button>
+                  {m.trabajo.anterior && bot.puedeEditar && (
+                    <button className="enlace texto-xs" onClick={() => void deshacer(i, m.trabajo!)}>Deshacer</button>
+                  )}
+                </span>
+              )}
+              {viendo === i && <p className="texto-xs" style={{ whiteSpace: "pre-wrap", flexBasis: "100%" }}>{m.trabajo.nuevo}</p>}
+            </div>
+          ) : (
+            <div key={i} className={`burbuja-jarvis burbuja-jarvis--${m.rol === "yo" ? "yo" : "jarvis"}${m.error ? " burbuja-jarvis--error" : ""}`}>
+              {(m.rol === "bot" ? sinBloqueTrabajo(m.texto) : m.texto) || (enviando && i === mensajes.length - 1 ? "Pensando…" : "")}
+            </div>
+          ),
+        )}
         <div ref={fin} />
       </div>
       <form className="jarvis-escribir" onSubmit={(e) => void enviar(e)}>

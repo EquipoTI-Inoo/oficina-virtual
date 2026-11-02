@@ -774,6 +774,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integraciones/recordatorios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * n8n, una vez al día y temprano: avisa lo que vence o pasa el próximo día hábil (fase 18)
+         * @description Emite `tarea.por_vencer` (tareas internas abiertas con responsable), `requerimiento.por_vencer` (lo que el
+         *     cliente nos tiene que entregar) y `reunion.proxima` (reuniones programadas) para lo que cae después de hoy y
+         *     hasta el próximo día hábil, inclusive; n8n manda los correos. Idempotente: cada aviso sale una sola vez.
+         */
+        post: operations["enviarRecordatorios"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/integraciones/servicios/etapas-del-mes": {
         parameters: {
             query?: never;
@@ -897,6 +919,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/propuesta-desde-transcripcion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Alta de cliente desde la transcripción de la reunión de venta (fase 17): propone marca, responsable, ingreso y alcance. No guarda nada
+         * @description Para Comercial y CRM (nivel por cuenta) y ADMIN. Lo propuesto llena el formulario de «Nuevo cliente», que se revisa y se envía con POST /clientes. `conIa: false` = borrador por reglas.
+         */
+        post: operations["proponerAltaCliente"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}": {
         parameters: {
             query?: never;
@@ -957,6 +999,51 @@ export interface paths {
         head?: never;
         /** Marcar realizada (con o sin acuerdos y su resumen), reprogramar o cancelar */
         patch: operations["actualizarReunion"];
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/reuniones/propuesta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resumen de reunión desde la transcripción (fase 18): propone resumen, si hubo acuerdos y pendientes. No guarda nada
+         * @description Solo equipo. El equipo revisa la propuesta y la manda con PATCH /reuniones/{id} (estado REALIZADA). `conIa: false` = borrador por reglas (IA simulada o sin respuesta útil).
+         */
+        post: operations["proponerResumenReunion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/cierre": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Lo que falta antes de cerrar el proyecto (fase 17): etapas, tareas, entregables y requerimientos abiertos */
+        get: operations["verCierreProyecto"];
+        put?: never;
+        /**
+         * Cierra el proyecto: FINALIZADO, el mensaje queda como «Qué sigue» para el cliente y se emite servicio.cerrado
+         * @description Con pendientes responde 409 CIERRE_CON_PENDIENTES, salvo `forzar: true`. n8n manda el agradecimiento y la encuesta.
+         */
+        post: operations["cerrarProyecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/servicios-contratados/{servicioContratadoId}/comentarios": {
@@ -1724,8 +1811,69 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Cambia el área de una persona del equipo (de ella depende contra qué tope se cobra su Jarvis) */
+        /**
+         * Cambia los datos, el área, el nivel de acceso, el rol, si es lead o si está activa una persona del equipo (nivel ADMIN). Se refleja en InooWork
+         * @description `activo: false` desactiva a la persona en el portal y en InooWork (pierde el acceso; se conservan sus
+         *     registros). `activo: true` la reactiva.
+         */
         patch: operations["cambiarAreaPersona"];
+        trace?: never;
+    };
+    "/panel/personas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Todas las personas del equipo, también las desactivadas, con su correo y su estado en InooWork (nivel ADMIN) */
+        get: operations["listarPersonas"];
+        put?: never;
+        /**
+         * Da de alta a un colaborador en el portal y en InooWork (nivel ADMIN). El correo es su usuario en los dos
+         * @description Se crea en el portal aunque InooWork no responda: queda `inoowork.estado = PENDIENTE` y se reintenta.
+         *     Emite `equipo.persona_creada` para el correo de bienvenida. En InooWork nace con una contraseña aleatoria:
+         *     RRHH le da acceso con «Restablecer contraseña» hasta que las dos apps compartan el login.
+         */
+        post: operations["crearPersona"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/organigrama": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Organigrama de Inoo: cada persona activa del equipo y a quién reporta. Lo ve todo el equipo */
+        get: operations["verOrganigrama"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/personas/{usuarioId}/inoowork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Vuelve a mandar a la persona a InooWork (crea la ficha y el usuario si faltan) (nivel ADMIN) */
+        post: operations["reintentarInooWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/panel/ia-equipo": {
@@ -1885,6 +2033,97 @@ export interface paths {
          */
         post: operations["chatJarvis"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/accesos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        /** Quiénes del equipo ven toda la cuenta (asignados y el AM) */
+        get: operations["accesosCuenta"];
+        put?: never;
+        /** Da acceso a la cuenta a una persona de nivel CUENTA (el ADMIN, o un lead a la gente de su área) */
+        post: operations["darAccesoCuenta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/accesos/{usuarioId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita el acceso asignado a la cuenta */
+        delete: operations["quitarAccesoCuenta"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/marca": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Perfil de marca del cliente; lo ven también quienes trabajan en uno de sus proyectos */
+        get: operations["perfilMarca"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/miembros": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** Quiénes del equipo trabajan en el proyecto (el responsable y los asignados) */
+        get: operations["miembrosProyecto"];
+        put?: never;
+        /** Asigna a alguien al proyecto (el ADMIN, o un lead a la gente de su área) */
+        post: operations["asignarMiembroProyecto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/miembros/{usuarioId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita a alguien asignado al proyecto */
+        delete: operations["quitarMiembroProyecto"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2499,7 +2738,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * n8n empuja el estado leído de InooWork (proyectos/ítems y tickets). Reemplaza hitos del servicio.
+         * n8n empuja el estado leído de InooWork (personas, proyectos/ítems y tickets). Reemplaza hitos del servicio.
          * @description InooWork hoy no emite webhooks y solo expone `GET /api/projects` (todos) y `PUT` del proyecto completo.
          *     Por defecto n8n consulta cada 5 minutos, calcula diferencias y llama a este endpoint. Si InooWork suma
          *     webhooks, apuntarán a `/webhooks/inoowork` con el mismo cuerpo.
@@ -2678,6 +2917,10 @@ export interface components {
             iniciales?: string;
             tipo: components["schemas"]["TipoUsuario"];
             rolEquipo?: components["schemas"]["RolEquipo"] | null;
+            area?: components["schemas"]["AreaEquipo"] | null;
+            /** @description Solo equipo: su nivel efectivo */
+            nivelAcceso?: components["schemas"]["NivelAcceso"] | null;
+            esLead?: boolean;
         };
         PersonaMini: {
             /** Format: uuid */
@@ -2802,6 +3045,11 @@ export interface components {
             estado: components["schemas"]["EstadoCliente"];
             /** Format: uri */
             logoUrl?: string | null;
+            /**
+             * @description Equipo: COMPLETO ve toda la cuenta; PROYECTOS solo sus proyectos y la marca
+             * @enum {string}
+             */
+            acceso?: "COMPLETO" | "PROYECTOS";
         };
         /** @description Ficha de cliente (panel) y perfil (portal) */
         Cliente: components["schemas"]["ClienteResumen"] & {
@@ -3265,6 +3513,69 @@ export interface components {
             cargo?: string | null;
             rolEquipo?: components["schemas"]["RolEquipo"] | null;
             area?: components["schemas"]["AreaEquipo"] | null;
+            nivel: components["schemas"]["NivelAcceso"];
+            /** @description El que eligió el ADMIN; null = el de su área */
+            nivelPersonalizado: components["schemas"]["NivelAcceso"] | null;
+            /** @description Lead de su área */
+            esLead: boolean;
+        };
+        /** @description Una persona del equipo vista por el ADMIN: sus datos, si está activa y cómo está en InooWork */
+        FichaPersona: components["schemas"]["PersonaEquipo"] & {
+            /** Format: email */
+            correo: string;
+            activo: boolean;
+            /** Format: uuid */
+            reportaAId: string | null;
+            inoowork: components["schemas"]["PersonaEnInooWork"];
+        };
+        NodoOrganigrama: components["schemas"]["PersonaEquipo"] & {
+            /**
+             * Format: uuid
+             * @description null = arriba del todo
+             */
+            reportaAId: string | null;
+        };
+        PersonaEnInooWork: {
+            /** @example EMP-002 */
+            empleadoId: string | null;
+            /**
+             * @description SIMULADO: la conexión con InooWork todavía no está configurada. PENDIENTE: InooWork no respondió; se reintenta
+             * @enum {string}
+             */
+            estado: "SINCRONIZADO" | "SIMULADO" | "PENDIENTE";
+            error: string | null;
+        };
+        /**
+         * @description ADMIN: todo (rol ADMIN o FINANZAS y el área de Administración). CUENTA: sus cuentas (CRM y Comercial). PROYECTO: sus proyectos y la marca de esos clientes (Audiovisual, Diseño y Marketing). Los leads ven todas las cuentas o todos los proyectos de su nivel para asignar
+         * @enum {string}
+         */
+        NivelAcceso: "ADMIN" | "CUENTA" | "PROYECTO";
+        AccesoPersona: {
+            persona: components["schemas"]["PersonaEquipo"];
+            /**
+             * @description AM y RESPONSABLE vienen solos y no se quitan desde aquí
+             * @enum {string}
+             */
+            origen: "ASIGNADO" | "AM" | "RESPONSABLE";
+            puedeQuitar: boolean;
+        };
+        /** @description Lo de marca de un cliente: lo ven también las personas de nivel PROYECTO que trabajan en él */
+        PerfilMarca: {
+            /** Format: uuid */
+            clienteId: string;
+            nombre: string;
+            mensajeCentral?: string | null;
+            campanaActual?: string | null;
+            descripcion?: string | null;
+            tono?: string[];
+            publico?: string | null;
+            /** @description Los proyectos de ese cliente que la persona ve */
+            proyectos?: components["schemas"]["PersonaMiniProyecto"][];
+        };
+        PersonaMiniProyecto: {
+            /** Format: uuid */
+            servicioContratadoId: string;
+            titulo: string;
         };
         /**
          * @description Área de Inoo (30 oct). ADMINISTRACION se muestra como «Admin»
@@ -3552,6 +3863,13 @@ export interface components {
         /** @description Lo de una persona del equipo (reunión 15 oct): sus tareas, sus proyectos y sus KPIs */
         PanelColaborador: {
             persona: components["schemas"]["PersonaMini"];
+            /** @description Solo si quien mira su propio panel es lead (o ADMIN y tiene área): la carga de cada persona de su área */
+            miArea?: {
+                persona: components["schemas"]["PersonaEquipo"];
+                tareasAbiertas: number;
+                tareasVencidas: number;
+                proyectos: number;
+            }[] | null;
             /** @description Abiertas, asignadas a la persona; vencidas primero */
             tareas: components["schemas"]["Tarea"][];
             /** @description Activos o en pausa donde es responsable */
@@ -4169,6 +4487,53 @@ export interface components {
                 responsableId?: string | null;
                 /** @description Plazo del pendiente (por defecto 2 días hábiles) */
                 diasHabiles?: number;
+            }[];
+        };
+        CierreProyecto: {
+            cerrado: boolean;
+            /** @description No queda nada abierto */
+            listo: boolean;
+            pendientes: {
+                /** @description Etapas sin completar (proyectos de una vez) */
+                etapas: number;
+                tareas: number;
+                /** @description Sin aprobar */
+                entregables: number;
+                /** @description Lo que el cliente todavía no entrega */
+                requerimientos: number;
+            };
+        };
+        TranscripcionEntrada: {
+            /** @description Lo que se dijo en la reunión (Meet, Zoom, Fireflies…), tal cual */
+            transcripcion: string;
+        };
+        PropuestaAltaCliente: {
+            nombre: string | null;
+            contacto: {
+                nombre: string | null;
+                email: string | null;
+                cargo: string | null;
+            };
+            /** @description Campos del formulario de ingreso del cliente */
+            ingreso: {
+                rubro: string | null;
+                servicios: ("Branding" | "Social Media" | "Desarrollo web" | "SEO" | "CRM")[];
+                objetivos: string | null;
+                resumen: string | null;
+                /** @description Una de las opciones de «Tipo de proyecto (Desarrollo web)» */
+                tipoWeb: string | null;
+                cantidadProductos: number | null;
+            };
+            /** @description Lo que Inoo prometió; va al alcance del proyecto al contratarlo */
+            alcance: string | null;
+        };
+        PropuestaResumenReunion: {
+            resumen: string;
+            conAcuerdos: boolean;
+            pendientes: {
+                texto: string;
+                /** @enum {string} */
+                de: "CLIENTE" | "INOO";
             }[];
         };
         /** @description Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión */
@@ -4848,6 +5213,8 @@ export interface components {
             cliente: components["schemas"]["ClienteResumen"];
             contactoPrincipalNombre?: string | null;
             accountManagerNombre?: string | null;
+            /** @description Proyectos activos o en pausa de la cuenta */
+            proyectosActivos?: number;
             estadoOperativo: components["schemas"]["EstadoOperativo"];
             /** @description Piezas con fechaProgramada vencida y no PUBLICADO */
             atrasadas: number;
@@ -4982,6 +5349,31 @@ export interface components {
             version: components["schemas"]["VersionEntrada"];
         };
         SincronizacionInooWork: {
+            /**
+             * @description Personas nuevas o cambiadas en InooWork (tabla employees). Se enlazan por `id` (EMP-…) y, si el portal
+             *     no lo tiene, por `email`. Las que no existen se crean en el portal (sin correo no se puede: van en
+             *     `empleadosSinCorreo`). `status: inactive` desactiva a la persona. Nada de esto se reenvía a InooWork.
+             */
+            empleados?: {
+                /** @example EMP-002 */
+                id: string;
+                name: string;
+                email?: string | null;
+                /** @description Cargo */
+                role?: string | null;
+                /** @example Diseño Grafico */
+                department?: string | null;
+                /**
+                 * @example active
+                 * @example inactive
+                 */
+                status?: string | null;
+                username?: string | null;
+                /** @description Username de su jefe en InooWork (organigrama) */
+                supervisorUsername?: string | null;
+            }[];
+            /** @description Ids de empleados borrados en InooWork: en el portal se desactivan (se conserva su historial) */
+            empleadosEliminados?: string[];
             proyectos?: {
                 /** @example PROJ-ABC123 */
                 inooworkProyectoId: string;
@@ -5020,7 +5412,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado" | "equipo.persona_creada" | "equipo.persona_desactivada" | "tarea.por_vencer" | "requerimiento.por_vencer" | "reunion.proxima" | "servicio.cerrado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -6733,6 +7125,40 @@ export interface operations {
             };
         };
     };
+    enviarRecordatorios: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: date
+                     * @description Pruebas: simula otro día (por defecto, hoy en Lima)
+                     */
+                    fecha?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tareas: number;
+                        requerimientos: number;
+                        reuniones: number;
+                    };
+                };
+            };
+        };
+    };
     generarEtapasDelMes: {
         parameters: {
             query?: never;
@@ -6994,6 +7420,35 @@ export interface operations {
             };
         };
     };
+    proponerAltaCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranscripcionEntrada"];
+            };
+        };
+        responses: {
+            /** @description Propuesta */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        propuesta: components["schemas"]["PropuestaAltaCliente"];
+                        conIa: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
     obtenerPerfilProyecto: {
         parameters: {
             query?: {
@@ -7139,6 +7594,94 @@ export interface operations {
                 };
             };
             404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    proponerResumenReunion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranscripcionEntrada"];
+            };
+        };
+        responses: {
+            /** @description Propuesta */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        propuesta: components["schemas"]["PropuestaResumenReunion"];
+                        conIa: boolean;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    verCierreProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CierreProyecto"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cerrarProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Lo que ve el cliente al cerrar */
+                    mensaje: string;
+                    /** @description Cerrar aunque queden pendientes */
+                    forzar?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Cerrado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CierreProyecto"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
         };
     };
@@ -8677,7 +9220,21 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    area: components["schemas"]["AreaEquipo"] | null;
+                    area?: components["schemas"]["AreaEquipo"] | null;
+                    /** @description null = el de su área */
+                    nivel?: components["schemas"]["NivelAcceso"] | null;
+                    esLead?: boolean;
+                    nombre?: string;
+                    /** Format: email */
+                    correo?: string;
+                    cargo?: string | null;
+                    rolEquipo?: components["schemas"]["RolEquipo"];
+                    activo?: boolean;
+                    /**
+                     * Format: uuid
+                     * @description Su jefe en el organigrama; null = nadie
+                     */
+                    reportaAId?: string | null;
                 };
             };
         };
@@ -8688,12 +9245,127 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PersonaEquipo"];
+                    "application/json": components["schemas"]["FichaPersona"];
                 };
             };
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    listarPersonas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["FichaPersona"][];
+                        /** @description false = la conexión con InooWork está simulada (falta INOOWORK_URL) */
+                        inooworkConectado: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    crearPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    /** Format: email */
+                    correo: string;
+                    cargo?: string | null;
+                    area?: components["schemas"]["AreaEquipo"] | null;
+                    rolEquipo?: components["schemas"]["RolEquipo"];
+                    /** @description null = el de su área */
+                    nivel?: components["schemas"]["NivelAcceso"] | null;
+                    esLead?: boolean;
+                    /**
+                     * Format: uuid
+                     * @description Su jefe en el organigrama
+                     */
+                    reportaAId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaPersona"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    verOrganigrama: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["NodoOrganigrama"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    reintentarInooWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FichaPersona"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     reporteJarvis: {
@@ -9125,12 +9797,203 @@ export interface operations {
             };
         };
     };
+    accesosCuenta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["AccesoPersona"][];
+                        /** @description Nivel ADMIN o lead de un área por cuenta */
+                        puedeAsignar: boolean;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    darAccesoCuenta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    usuarioId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Asignado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesoPersona"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    quitarAccesoCuenta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quitado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    perfilMarca: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PerfilMarca"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    miembrosProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["AccesoPersona"][];
+                        /** @description Nivel ADMIN o lead de un área */
+                        puedeAsignar: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    asignarMiembroProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    usuarioId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Asignado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesoPersona"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    quitarMiembroProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quitado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
     verMiAgenda: {
         parameters: {
             query: {
                 desde: string;
                 /** @description Incluida; hasta 62 días desde «desde» */
                 hasta: string;
+                /** @description El calendario de otra persona (su lead o el ADMIN): sin sus pendientes */
+                usuarioId?: string;
             };
             header?: never;
             path?: never;
@@ -10351,6 +11214,10 @@ export interface operations {
                     "application/json": {
                         hitosActualizados?: number;
                         ticketsActualizados?: number;
+                        personasCreadas?: number;
+                        personasActualizadas?: number;
+                        /** @description Empleados de InooWork que no se pudieron crear porque no tienen correo */
+                        empleadosSinCorreo?: string[];
                     };
                 };
             };

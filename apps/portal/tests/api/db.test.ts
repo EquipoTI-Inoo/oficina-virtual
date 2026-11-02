@@ -32,6 +32,9 @@ import { pruebasConsumo } from "./flujo-consumo";
 import { pruebasTallerWeb } from "./flujo-taller-web";
 import { pruebasJarvis } from "./flujo-jarvis";
 import { pruebasAgenda } from "./flujo-agenda";
+import { pruebasAccesos } from "./flujo-accesos";
+import { pruebasPersonas } from "./flujo-personas";
+import { pruebasTranscripciones } from "./flujo-transcripciones";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -87,6 +90,10 @@ before(async () => {
   await db.exec(sql("migraciones/0032_sin_ia_cliente.sql"));
   await db.exec(sql("migraciones/0033_jarvis_por_area.sql"));
   await db.exec(sql("migraciones/0034_calendario_colaborador.sql"));
+  await db.exec(sql("migraciones/0035_accesos_por_nivel.sql"));
+  await db.exec(sql("migraciones/0036_personas_inoowork.sql"));
+  await db.exec(sql("migraciones/0037_jarvis_sin_llaves.sql"));
+  await db.exec(sql("migraciones/0038_recordatorios.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -134,6 +141,9 @@ pruebasConsumo("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasTallerWeb("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasJarvis("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasAgenda("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasAccesos("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasPersonas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasTranscripciones("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {
@@ -218,7 +228,8 @@ describe("solo en Postgres", () => {
   });
 
   test("rutas aún no migradas responden 501 y lo dicen", async () => {
-    const r = await llamar("POST", "/integraciones/inoowork/sincronizacion", DIEGO, {});
+    const sync = { proyectos: [{ inooworkProyectoId: "PROJ-1", items: [] }] };
+    const r = await llamar("POST", "/integraciones/inoowork/sincronizacion", undefined, sync, { "x-api-key": "demo-n8n" });
     assert.equal(r.status, 501);
     assert.equal(r.json.codigo, "RUTA_NO_IMPLEMENTADA");
   });

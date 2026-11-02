@@ -31,7 +31,7 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
   describe(`equipo operativo, standby y responsables · ${nombre}`, () => {
     test("el blog interno es solo de gestión: el equipo operativo recibe 403", async () => {
       await reiniciar();
-      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/ideas-blog?periodo=2026-10`, CAMILA)).status, 403);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/ideas-blog?periodo=2026-10`, CAMILA)).status, 404, "por proyecto no ve la gestión de la cuenta (2 nov)");
       assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/ideas-blog?periodo=2026-10`, DIEGO)).status, 200);
       assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/ideas-blog?periodo=2026-10`, VALERIA)).status, 200);
     });
@@ -39,7 +39,7 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
     test("pagos: el equipo operativo no cambia el estado de pago", async () => {
       await reiniciar();
       const ruta = `/clientes/${CASA_OLIVA}/estado-pago`;
-      assert.equal((await llamar("PUT", ruta, CAMILA, { situacion: "AL_DIA" })).status, 403);
+      assert.equal((await llamar("PUT", ruta, CAMILA, { situacion: "AL_DIA" })).status, 404, "por proyecto ni siquiera ve los pagos (2 nov)");
       assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, CAMILA)).json.avisoPago, null, "sin detalle de pago en Inicio");
     });
 
@@ -120,7 +120,7 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
       await reiniciar();
       assert.equal((await llamar("GET", "/panel/equipo", VALERIA)).status, 403);
       const equipo = (await llamar("GET", "/panel/equipo", CAMILA)).json.datos.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
-      assert.deepEqual(equipo.map((u: any) => [u.nombre, u.rolEquipo]), [["Admin Inoo", "ADMIN"], ["Camila Paredes", "DESARROLLO_WEB"], ["Diego Castro", "ACCOUNT_MANAGER"], ["Rosa Paredes", "FINANZAS"]]);
+      assert.deepEqual(equipo.map((u: any) => [u.nombre, u.rolEquipo, u.nivel]), [["Admin Inoo", "ADMIN", "ADMIN"], ["Camila Paredes", "DESARROLLO_WEB", "PROYECTO"], ["Diego Castro", "ACCOUNT_MANAGER", "CUENTA"], ["Rosa Paredes", "FINANZAS", "ADMIN"]]);
 
       const sinElegir = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-19" });
       assert.equal(sinElegir.json.responsable.id, DIEGO_ID);
@@ -129,6 +129,8 @@ export function pruebasEquipo(nombre: string, manejar: Manejador, reiniciar: () 
       assert.deepEqual([elegido.status, elegido.json.responsable.nombre], [201, "Camila Paredes"]);
       assert.ok((await eventos()).some((e) => e.tipo === "servicio.contratado" && e.datos.responsableId === CAMILA_ID));
 
+      assert.equal((await llamar("PATCH", `/servicios-contratados/${CRM}`, CAMILA, { siguientePaso: "revisar el mapa" })).status, 404, "no está en el proyecto de CRM (2 nov)");
+      assert.equal((await llamar("POST", `/servicios-contratados/${CRM}/miembros`, `demo.${uid(1, 4)}`, { usuarioId: CAMILA_ID })).status, 201, "el ADMIN la asigna");
       assert.equal((await llamar("PATCH", `/servicios-contratados/${CRM}`, CAMILA, { responsableId: CAMILA_ID })).status, 403, "el equipo operativo no reasigna");
       assert.equal((await llamar("PATCH", `/servicios-contratados/${CRM}`, CAMILA, { siguientePaso: "revisar el mapa" })).status, 200, "pero sí actualiza el proyecto");
       const r = await llamar("PATCH", `/servicios-contratados/${CRM}`, DIEGO, { responsableId: CAMILA_ID });

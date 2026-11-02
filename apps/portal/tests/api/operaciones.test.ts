@@ -321,7 +321,7 @@ describe("InooWork", () => {
   test("sincronización: reemplaza hitos, actualiza tickets y nunca copia notas internas", async () => {
     assert.equal((await llamar("POST", "/integraciones/inoowork/sincronizacion", DIEGO, sync)).status, 403);
     const r = await llamar("POST", "/integraciones/inoowork/sincronizacion", undefined, sync, N8N);
-    assert.deepEqual(r.json, { hitosActualizados: 2, ticketsActualizados: 1 });
+    assert.deepEqual(r.json, { hitosActualizados: 2, ticketsActualizados: 1, personasCreadas: 0, personasActualizadas: 0, empleadosSinCorreo: [] });
     const av = (await llamar("GET", `/servicios-contratados/${SERVICIO_REDES}/avance`, VALERIA)).json;
     assert.deepEqual(av.hitos.map((h: any) => h.estado), ["COMPLETADO", "EN_REVISION"]);
     assert.equal(av.hitos[1].esperaCliente, true);

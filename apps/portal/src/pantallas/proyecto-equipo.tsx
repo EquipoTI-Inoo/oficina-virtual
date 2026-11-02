@@ -5,9 +5,11 @@
  * conversar con el cliente o dejar notas internas. Desde la ficha del cliente se contratan servicios
  * nuevos a partir de su plantilla.
  */
+import { EquipoAsignado } from "./accesos";
 import { useState } from "react";
-import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { entrarComoCliente } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
 import { CAUSAS_ATRASO, ETIQUETA_CAUSA } from "../dominio/kpis";
@@ -46,6 +48,7 @@ function ProyectoEquipo() {
   const [paso, setPaso] = useState<string | null>(null);
   const [vista, setVista] = useState<VistaCronograma>("TABLA");
   const [versionBolsa, setVersionBolsa] = useState(0);
+  const [cerrando, setCerrando] = useState(false);
   const d = perfil.datos;
   if (perfil.error) return <ErrorCarga error={perfil.error} reintentar={perfil.recargar} />;
   if (!d) return <Cargando />;
@@ -86,6 +89,18 @@ function ProyectoEquipo() {
       <Enlace a={`/equipo/clientes/${d.clienteId}`} className="volver">
         ← Ficha del cliente
       </Enlace>
+      {cerrando && (
+        <CerrarProyecto
+          servicioId={d.servicioContratadoId}
+          titulo={d.titulo}
+          alCerrar={() => setCerrando(false)}
+          alTerminar={() => {
+            setCerrando(false);
+            avisar({ titulo: "Proyecto cerrado", texto: "El cliente ve tu mensaje y le llega el agradecimiento con la encuesta." });
+            void perfil.recargar();
+          }}
+        />
+      )}
       <Cabecera
         antetitulo={detalleServicio({ ...d, cantidadMensual: d.progreso?.totales ?? 0, unidad: "piezas" }).toUpperCase() || undefined}
         titulo={d.titulo}
@@ -105,9 +120,12 @@ function ProyectoEquipo() {
                 <LuSparkles size={14} /> Taller web
               </Enlace>
             )}
-            <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico">
+            <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico" onClick={() => entrarComoCliente(d.clienteId)}>
               <LuExternalLink size={14} /> Ver como cliente
             </Enlace>
+            <button className="boton boton--chico" onClick={() => setCerrando(true)}>
+              <LuFlagTriangleRight size={14} /> Cerrar proyecto
+            </button>
           </span>
         }
       />
@@ -194,6 +212,7 @@ function ProyectoEquipo() {
           <ComentariosEquipo servicioId={d.servicioContratadoId} />
         </div>
         <aside className="pila">
+          <EquipoAsignado ruta={`/servicios-contratados/${d.servicioContratadoId}/miembros`} titulo="Equipo del proyecto" ayuda="Quienes trabajan en el proyecto. Cada lead asigna a la gente de su área." />
           <KpisDelProyecto servicioId={d.servicioContratadoId} version={d.etapas.map((e) => e.estado + e.fechaEstimada).join()} />
           <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Métricas que ve el cliente</h3>
@@ -400,8 +419,68 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
           Guardar reunión
         </button>
       </Modal>
-      <CerrarReunion reunion={cerrar} alCerrar={() => setCerrar(null)} alGuardar={(cuerpo) => (cerrar ? marcar(cerrar, { estado: "REALIZADA", ...cuerpo }) : Promise.resolve())} />
+      <CerrarReunion servicioId={servicioId} reunion={cerrar} alCerrar={() => setCerrar(null)} alGuardar={(cuerpo) => (cerrar ? marcar(cerrar, { estado: "REALIZADA", ...cuerpo }) : Promise.resolve())} />
     </div>
+  );
+}
+
+const PENDIENTE_CIERRE: [keyof S<"CierreProyecto">["pendientes"], string, string][] = [
+  ["etapas", "etapa sin completar", "etapas sin completar"],
+  ["tareas", "tarea abierta", "tareas abiertas"],
+  ["entregables", "entregable sin aprobar", "entregables sin aprobar"],
+  ["requerimientos", "requerimiento que el cliente no entregó", "requerimientos que el cliente no entregó"],
+];
+
+/** Cierre de proyecto (fase 17): lo que falta, el mensaje para el cliente y, con pendientes, confirmar. */
+function CerrarProyecto({ servicioId, titulo, alCerrar, alTerminar }: { servicioId: string; titulo: string; alCerrar: () => void; alTerminar: () => void }) {
+  const estado = useConsulta<S<"CierreProyecto">>(`/servicios-contratados/${servicioId}/cierre`);
+  const [mensaje, setMensaje] = useState("¡Terminamos! Gracias por confiar en Inoo. Te vamos a enviar una breve encuesta para saber cómo te fue con nosotros.");
+  const [forzar, setForzar] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const c = estado.datos;
+  const cerrar = async () => {
+    setError(null);
+    try {
+      await api(`/servicios-contratados/${servicioId}/cierre`, { metodo: "POST", cuerpo: { mensaje, forzar } });
+      alTerminar();
+    } catch (e) {
+      setError(errorDe(e) ?? "No se pudo cerrar");
+    }
+  };
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta="Cerrar proyecto">
+      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Cerrar {titulo}</h2>
+      {!c ? (
+        <Cargando />
+      ) : c.cerrado ? (
+        <p className="texto-sm">Este proyecto ya está cerrado.</p>
+      ) : c.listo ? (
+        <p className="texto-sm" style={{ color: "var(--c-exito)" }}>No queda nada abierto: el proyecto está listo para cerrarse.</p>
+      ) : (
+        <div className="pila" style={{ gap: 6 }}>
+          <p className="texto-sm negrita">Todavía queda:</p>
+          <ul className="texto-sm" style={{ margin: 0, paddingLeft: 18 }}>
+            {PENDIENTE_CIERRE.filter(([k]) => c.pendientes[k] > 0).map(([k, uno, varios]) => (
+              <li key={k}>{c.pendientes[k]} {c.pendientes[k] === 1 ? uno : varios}</li>
+            ))}
+          </ul>
+          <label className="fila texto-sm" style={{ gap: 8 }}>
+            <input type="checkbox" checked={forzar} onChange={(e) => setForzar(e.target.checked)} /> Cerrarlo igual
+          </label>
+        </div>
+      )}
+      <div className="campo">
+        <label htmlFor="cierre-mensaje">Mensaje para el cliente</label>
+        <div className="entrada">
+          <textarea id="cierre-mensaje" rows={3} value={mensaje} onChange={(e) => setMensaje(e.target.value)} />
+        </div>
+        <span className="ayuda-campo">Lo ve en su proyecto. Al cerrar le llega el agradecimiento con la encuesta de satisfacción.</span>
+      </div>
+      {error && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{error}</p>}
+      <button className="boton boton--primario boton--bloque" disabled={!c || c.cerrado || (!c.listo && !forzar) || mensaje.trim().length < 10} onClick={() => void cerrar()}>
+        Cerrar proyecto
+      </button>
+    </Modal>
   );
 }
 
@@ -411,11 +490,31 @@ type FilaPendiente = { texto: string; de: "CLIENTE" | "INOO"; responsableId: str
  * Cerrar una reunión (reunión 15 oct): cada reunión tiene un objetivo y se documenta. El resumen es
  * obligatorio; lo que quedó pendiente se le pide al cliente (requerimiento) o se asigna en Inoo (tarea).
  */
-function CerrarReunion({ reunion, alCerrar, alGuardar }: { reunion: S<"Reunion"> | null; alCerrar: () => void; alGuardar: (cuerpo: Record<string, unknown>) => Promise<void> }) {
+function CerrarReunion({ servicioId, reunion, alCerrar, alGuardar }: { servicioId: string; reunion: S<"Reunion"> | null; alCerrar: () => void; alGuardar: (cuerpo: Record<string, unknown>) => Promise<void> }) {
   const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(reunion ? "/panel/equipo" : null);
   const [acuerdos, setAcuerdos] = useState(true);
   const [resumen, setResumen] = useState("");
   const [pendientes, setPendientes] = useState<FilaPendiente[]>([]);
+  // Fase 18: con la transcripción se propone el resumen y los pendientes; se revisan antes de cerrar.
+  const [transcripcion, setTranscripcion] = useState("");
+  const [leyendo, setLeyendo] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const avisar = useAviso();
+  const proponer = async () => {
+    setLeyendo(true);
+    setAviso(null);
+    try {
+      const { propuesta: x, conIa } = await api<{ propuesta: S<"PropuestaResumenReunion">; conIa: boolean }>(`/servicios-contratados/${servicioId}/reuniones/propuesta`, { metodo: "POST", cuerpo: { transcripcion } });
+      setResumen(x.resumen);
+      setAcuerdos(x.conAcuerdos);
+      setPendientes(x.pendientes.map((p) => ({ texto: p.texto, de: p.de, responsableId: "" })));
+      setAviso(conIa ? "Revisa el resumen y los pendientes antes de cerrar." : "Borrador básico (la IA no estaba disponible): revísalo antes de cerrar.");
+    } catch (e) {
+      avisar({ titulo: "No pudimos leer la transcripción", texto: (e as ProblemaApi).errores?.[0]?.mensaje ?? (e as ProblemaApi).titulo });
+    } finally {
+      setLeyendo(false);
+    }
+  };
   const cambiar = (i: number, x: Partial<FilaPendiente>) => setPendientes(pendientes.map((p, j) => (j === i ? { ...p, ...x } : p)));
   const corto = resumen.trim().length < 10;
   const guardar = async () => {
@@ -425,10 +524,25 @@ function CerrarReunion({ reunion, alCerrar, alGuardar }: { reunion: S<"Reunion">
     });
     setResumen("");
     setPendientes([]);
+    setTranscripcion("");
+    setAviso(null);
   };
   return (
     <Modal abierto={!!reunion} alCerrar={alCerrar} etiqueta="Marcar reunión realizada">
       <h2 style={{ fontSize: 18, fontWeight: 600 }}>{reunion?.titulo}</h2>
+      <details className="desde-transcripcion">
+        <summary><LuSparkles size={14} /> Resumir desde la transcripción</summary>
+        <div className="campo">
+          <label htmlFor="cerrar-transcripcion">Transcripción de la reunión</label>
+          <div className="entrada">
+            <textarea id="cerrar-transcripcion" rows={4} value={transcripcion} placeholder="Pega lo que se dijo (Meet, Zoom…)" onChange={(e) => setTranscripcion(e.target.value)} />
+          </div>
+        </div>
+        <button className="boton" disabled={leyendo || transcripcion.trim().length < 120} onClick={() => void proponer()}>
+          <LuSparkles size={14} /> {leyendo ? "Leyendo la reunión…" : "Proponer resumen y pendientes"}
+        </button>
+        {aviso && <p className="texto-xs" role="status" style={{ color: "var(--c-exito)" }}>{aviso}</p>}
+      </details>
       <label className="fila texto-sm" style={{ gap: 8 }}>
         <input type="checkbox" checked={acuerdos} onChange={(e) => setAcuerdos(e.target.checked)} /> Terminó con acuerdos
       </label>

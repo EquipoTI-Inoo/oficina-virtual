@@ -505,3 +505,11 @@ Cada etapa atrasada registra su causa (cliente, Inoo o un tercero) y una justifi
 - **El plan de contenido** de los clientes sigue como «Planes de contenido», enlazado desde el calendario.
 - **Un solo panel.** «Panel general» y «Mi panel» se repetían; Ernesto pidió quedarse con el menos recargado, que es «Mi panel». Es el inicio del equipo; la tabla de clientes sigue en «Clientes».
 - **Inicio del cliente centrado en el avance (2 nov).** Ernesto lo veía recargado. Quedan tres bloques: «Lo que necesitamos de ti» (por aprobar, requerimientos y pago atrasado en una sola fila; «Todo al día» si no hay nada), «Tus proyectos» (una tarjeta por proyecto con avance, etapa, fecha estimada y qué sigue) y una línea con el responsable en Inoo y la carpeta de Drive. «Tu marca» pasó al detalle de los proyectos de marca o contenido; la actividad reciente salió (la campana de notificaciones ya la cubre); los contadores de arriba se fueron.
+
+**Accesos del equipo por nivel y leads de área (2 nov).** Antes cualquiera del equipo veía todas las cuentas; ahora cada uno ve lo suyo, y la API lo impone en cada consulta (una URL ajena responde 404):
+- **Nivel ADMIN:** el rol ADMIN y toda el área de Administración (Finanzas incluida). Ve todo y tiene los privilegios de admin (niveles, leads, topes de IA, «Costos de IA»).
+- **Nivel por cuenta (CRM y Comercial):** las cuentas que lleva como AM y las que le asignan, con todo lo de adentro.
+- **Nivel por proyecto (Audiovisual, Diseño y Marketing):** sus proyectos (asignado, responsable o con tareas) con briefs y requerimientos, y la marca de esos clientes («Mis marcas»). Nada comercial: ni ficha, ni pagos, ni usuarios del cliente.
+- El nivel sale del área; el ADMIN puede cambiárselo a una persona en «Costos de IA».
+- **Leads de área** (puede haber varios): asignan a la gente de su área (cuentas o proyectos), ven todas las cuentas o proyectos de su nivel para poder repartir, ven la carga de su gente en «Mi panel» y su calendario (sin los pendientes personales), y editan los bots de Jarvis de su área. No mueven topes de IA.
+- Pendiente (fase siguiente): «Ver como cliente» desde el selector de cuentas, actuando en nombre del cliente con firma.

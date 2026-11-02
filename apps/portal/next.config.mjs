@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const config = {
   output: "standalone",
+  // Otra carpeta de compilación (p. ej. para correr las pruebas e2e sin pisar la de `npm run dev`).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   reactStrictMode: true,
   poweredByHeader: false,
   // pg carga módulos nativos opcionales: se usa desde node_modules en lugar de empaquetarlo.

@@ -2,7 +2,7 @@
 # reemplaces entero. Las llaves van en ~/.hermes/.env (ver env.example).
 
 # Modelo: DeepSeek a través de la pasarela del portal, que cobra contra el tope de tu área. Hermes nunca ve
-# la clave de DeepSeek de Inoo: entra con tu llave de Jarvis (la generas en «Mi panel»).
+# la clave de DeepSeek de Inoo: entra con la clave del área (OPENAI_API_KEY, ver env.example).
 model:
   provider: openai          # con base_url, Hermes llama directo a ese endpoint en formato OpenAI
   base_url: "http://localhost:3000/api/v1/ia-equipo"
@@ -16,12 +16,21 @@ terminal:
   container_memory: 2048    # MB
   container_persistent: true
 
-# El portal, con los permisos del colaborador dueño del agente. Solo lectura.
+# El portal, con los permisos de quien está chateando (cada herramienta recibe el código de la conversación).
+# Solo lectura.
 mcp_servers:
   portal:
     command: node
     args: ["/ruta/a/inoo-oficina-virtual/integrations/hermes/mcp-portal.mjs"]
     env:
       PORTAL_URL: "http://localhost:3000/api/v1"
-      PORTAL_TOKEN: "${env:PORTAL_TOKEN}"
+      PORTAL_CLAVE: "${env:OPENAI_API_KEY}"
     timeout: 60
+
+# Memoria propia de cada bot (2 nov). El portal manda X-Hermes-Session-Key = «bot-<id>», así que cada bot tiene
+# su memoria; con esto Hermes guarda por su cuenta lo que aprende (preferencias, datos de clientes) y lo usa
+# después. Su «trabajo» no vive aquí: lo guarda el portal, y el bot lo reescribe desde el chat.
+# Verifica los nombres con `hermes config` si tu versión de Hermes los cambió.
+memory:
+  memory_enabled: true
+  user_profile_enabled: true

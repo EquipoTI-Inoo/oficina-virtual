@@ -70,7 +70,7 @@ test("piezas en el proyecto: Kanban en Social Media Pro, blogs en el soporte web
   await expect(piezas.getByRole("region", { name: "En revisión" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".nav-item", { hasText: "Bandeja de producción" })).toHaveCount(0);
   await expect(page.locator(".nav-item", { hasText: "Plan del mes" })).toHaveCount(0);
-  await expect(page.locator(".nav-item", { hasText: "Calendarios" })).toBeVisible();
+  await expect(page.locator(".nav-item", { hasText: "Calendario" })).toBeVisible();
   await piezas.getByText("Abrir pieza").first().click();
   await expect(page.getByText("← Volver al proyecto")).toBeVisible({ timeout: 30_000 });
   await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000001");
@@ -354,20 +354,36 @@ test("calendario: semana con reuniones y pendientes, crea un evento con invitada
   await camila.close();
 });
 
-test("equipo: el selector de cuentas lleva a la ficha del cliente y a todas las cuentas", async ({ page }) => {
+test("equipo: el selector de cuentas lleva a la ficha del cliente y a mis cuentas", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/mi-panel");
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
   await menu.getByRole("button", { name: "Cambiar de cuenta" }).click({ timeout: 30_000 });
   await menu.getByLabel("Buscar cliente").fill("oliva");
-  await menu.getByRole("menuitem", { name: "Casa Oliva" }).click();
+  // 2 nov: el nombre abre «ver como cliente»; la ficha, el ícono de al lado.
+  await menu.getByRole("button", { name: "Ficha de Casa Oliva" }).click();
   await expect(page).toHaveURL(/\/equipo\/clientes\/00000000-0000-4000-8002-000000000001$/, { timeout: 30_000 });
   await expect(menu.getByRole("button", { name: "Cambiar de cuenta" })).toContainText("Casa Oliva");
   await expect(page.locator(".cargando")).toHaveCount(0, { timeout: 30_000 });
   await menu.getByRole("button", { name: "Cambiar de cuenta" }).click();
-  await menu.getByRole("menuitem", { name: "Todas las cuentas" }).click();
+  // 2 nov: quien no es ADMIN ve solo sus cuentas.
+  await menu.getByRole("menuitem", { name: "Mis cuentas" }).click();
   await expect(page).toHaveURL(/\/equipo\/clientes$/, { timeout: 30_000 });
-  await expect(menu.getByRole("button", { name: "Cambiar de cuenta" })).toContainText("Todas las cuentas");
+  await expect(menu.getByRole("button", { name: "Cambiar de cuenta" })).toContainText("Mis cuentas");
+});
+
+test("ver como cliente: desde el selector de cuentas entra al portal del cliente y vuelve al equipo", async ({ page }) => {
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/mi-panel");
+  const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
+  await menu.getByRole("button", { name: "Cambiar de cuenta" }).click({ timeout: 30_000 });
+  await menu.getByRole("menuitem", { name: "Casa Oliva" }).click();
+  await expect(page).toHaveURL(/\/inicio$/, { timeout: 30_000 });
+  await expect(page.getByRole("status").filter({ hasText: "Estás viendo el portal de Casa Oliva" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/en nombre del cliente/).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tus proyectos" })).toBeVisible();
+  await page.getByRole("button", { name: "Volver al equipo" }).click();
+  await expect(page).toHaveURL(/\/equipo\/mi-panel$/, { timeout: 30_000 });
 });
 
 test("calendarios: el AM aprueba la propuesta del Jefe de Marketing", async ({ page, request }) => {
@@ -461,9 +477,11 @@ test("jarvis: cada uno ve los bots de su área, crea uno y el ADMIN amplía el t
   await page.getByRole("button", { name: "Crear un bot" }).first().click();
   const editor = page.getByRole("dialog", { name: "Crear un bot" });
   await editor.getByLabel("Nombre").fill("Cotizador");
-  await editor.getByLabel("Su trabajo").fill("Arma cotizaciones de CRM con el catálogo de Inoo.");
+  await expect(editor.getByLabel("Su trabajo")).toHaveCount(0);
   await editor.getByRole("button", { name: "Crear bot" }).click();
   await expect(lista.getByRole("button", { name: "Cotizador" })).toBeVisible({ timeout: 30_000 });
+  // Como Grok: el bot nuevo saluda y pregunta para qué será, antes de tener trabajo.
+  await expect(page.getByText("¿Para qué me vas a usar?")).toBeVisible();
   await expect(page.getByRole("button", { name: /Cotizador/ }).first()).toBeVisible();
   const otra = await browser.newPage();
   await entrarComo(otra, "operativo");
@@ -483,11 +501,62 @@ test("jarvis: cada uno ve los bots de su área, crea uno y el ADMIN amplía el t
   await admin.close();
 });
 
-test("equipo operativo: sin Blog en el menú y ve el responsable de cada servicio", async ({ page }) => {
+test("equipo por proyecto: ve «Mis marcas» con sus proyectos, sin Blog ni la ficha del cliente", async ({ page }) => {
   await entrarComo(page, "operativo");
-  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await page.goto("/equipo/clientes");
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
-  await expect(menu.getByText("Clientes", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(menu.getByText("Mis marcas", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(menu.getByText("Blog", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(/Responsable: Camila Paredes/)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Social Media Pro - Casa Oliva/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Implementación de CRM/ })).toHaveCount(0);
+  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await expect(page.getByText(/No encontramos/).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("equipo: el ADMIN invita a un colaborador con su jefe y aparece en el organigrama", async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "admin");
+  await page.goto("/equipo/personas");
+  await page.getByRole("button", { name: "Invitar colaborador" }).click({ timeout: 30_000 });
+  const d = page.getByRole("dialog", { name: "Invitar colaborador" });
+  await d.getByLabel("Nombre").fill("Lucía Rojas");
+  await d.getByLabel("Correo").fill("lucia.rojas@inoo.pe");
+  await d.getByLabel("Área", { exact: true }).selectOption("DISENO");
+  await d.getByLabel("Reporta a").selectOption({ label: "Camila Paredes · Desarrollo web" });
+  await d.getByRole("button", { name: "Invitar", exact: true }).click();
+  const fila = page.getByRole("row", { name: /Lucía Rojas/ });
+  await expect(fila).toContainText("Camila Paredes", { timeout: 20_000 });
+  await expect(fila).toContainText("InooWork simulado");
+
+  const camila = await browser.newPage();
+  await entrarComo(camila, "operativo");
+  await camila.goto("/equipo/organigrama");
+  const arbol = camila.getByRole("tree", { name: "Organigrama de Inoo" });
+  await expect(arbol.getByRole("treeitem", { name: /Camila Paredes/ }).getByText("Lucía Rojas")).toBeVisible({ timeout: 30_000 });
+  await expect(camila.locator(".nav-item", { hasText: /^Equipo$/ })).toHaveCount(0);
+  await camila.close();
+
+  page.on("dialog", (x) => x.accept());
+  await fila.getByRole("button", { name: "Desactivar" }).click();
+  await expect(page.getByRole("row", { name: /Lucía Rojas/ })).toHaveCount(0, { timeout: 20_000 });
+});
+
+test("cierre de proyecto: muestra lo que falta y deja el mensaje al cliente", async ({ page, browser }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004");
+  await page.getByRole("button", { name: "Cerrar proyecto" }).first().click({ timeout: 30_000 });
+  const d = page.getByRole("dialog", { name: "Cerrar proyecto" });
+  await expect(d.getByText("Todavía queda:")).toBeVisible({ timeout: 20_000 });
+  const cerrar = d.getByRole("button", { name: "Cerrar proyecto" });
+  await expect(cerrar).toBeDisabled();
+  await d.getByLabel("Cerrarlo igual").check();
+  await cerrar.click();
+  await expect(page.getByText("Proyecto cerrado")).toBeVisible({ timeout: 20_000 });
+  const cliente = await browser.newPage();
+  await entrarComo(cliente, "cliente");
+  await cliente.goto("/servicios/00000000-0000-4000-8004-000000000004");
+  await expect(cliente.getByText(/Gracias por confiar en Inoo/).first()).toBeVisible({ timeout: 30_000 });
+  await cliente.close();
 });

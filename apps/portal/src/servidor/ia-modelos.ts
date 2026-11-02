@@ -89,6 +89,7 @@ async function llamarGemini(p: { sistema: string; mensajes: MensajeIa[]; maxToke
       // Sin razonamiento: en Gemini Flash los tokens de razonamiento cuentan dentro de maxOutputTokens.
       generationConfig: { maxOutputTokens: p.maxTokens, thinkingConfig: { thinkingBudget: 0 } },
     }),
+    signal: AbortSignal.timeout(45_000),
   });
   if (!res.ok) throw new ErrorIa(`Gemini respondió ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const j = (await res.json()) as {

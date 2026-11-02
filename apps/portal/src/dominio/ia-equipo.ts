@@ -113,10 +113,47 @@ export function validarBot(b: { nombre?: unknown; color?: unknown; forma?: unkno
   return errores;
 }
 
-/** Lo que Hermes recibe como sistema en cada mensaje: quién es el bot y cuál es su trabajo. */
+/**
+ * El bot reescribe su propio trabajo (2 nov, como Grok): lo pone entre estas marcas en su respuesta. El portal
+ * lo guarda, lo quita de lo que se ve y muestra «Actualicé mi trabajo» con un botón para deshacer.
+ */
+export const TRABAJO_ABRE = "⟦trabajo⟧";
+export const TRABAJO_CIERRA = "⟦/trabajo⟧";
+const BLOQUE_TRABAJO = /⟦trabajo⟧([\s\S]*?)⟦\/trabajo⟧/g;
+
+/** El último trabajo que el bot escribió en su respuesta, o null. */
+export function extraerTrabajo(texto: string): string | null {
+  let ultimo: string | null = null;
+  for (const m of texto.matchAll(BLOQUE_TRABAJO)) ultimo = m[1].trim();
+  return ultimo && ultimo.length <= 4000 ? ultimo : null;
+}
+/** Lo que se ve de la respuesta: sin el bloque del trabajo (también mientras llega, a medio escribir). */
+export const sinBloqueTrabajo = (texto: string) => texto.replace(/⟦trabajo⟧[\s\S]*?(⟦\/trabajo⟧|$)/g, "").trim();
+
+/** Primer mensaje de un bot recién creado (lo muestra el portal; el bot sigue desde ahí). */
+export const saludoInicial = (nombre: string) =>
+  `¡Hola! Soy ${nombre}. Antes de empezar quiero entender bien en qué te voy a ayudar. ¿Para qué me vas a usar?`;
+
+/**
+ * Lo que Hermes recibe como sistema en cada mensaje: quién es el bot y cuál es su trabajo. Sin trabajo todavía,
+ * el bot entrevista a la persona y lo arma (como la primera configuración de Grok); con trabajo, puede
+ * reescribirlo si la persona le cambia algo de forma duradera.
+ */
 export function sistemaDelBot(bot: { nombre: string; instrucciones: string }, area: Area) {
-  const trabajo = bot.instrucciones.trim() || "Ayuda al equipo con lo que te pidan.";
-  return `Eres «${bot.nombre}», un bot del área ${NOMBRE_AREA[area]} de Inoo, una agencia de marketing en Perú. Respondes en español, claro y breve. Para datos de proyectos, tareas y clientes usa las herramientas del portal y no inventes nada.\n\nTu trabajo:\n${trabajo}`;
+  const base = `Eres «${bot.nombre}», un bot del área ${NOMBRE_AREA[area]} de Inoo, una agencia de marketing en Perú. Respondes en español, claro y breve. Para datos de proyectos, tareas y clientes usa las herramientas del portal y no inventes nada.`;
+  const formato = `escribe tu trabajo completo entre ${TRABAJO_ABRE} y ${TRABAJO_CIERRA}, en segunda persona («Revisas…», «Avisas…»), en viñetas cortas: para qué sirves, tareas concretas, con qué información trabajas, tono y formato de tus respuestas, y qué no debes hacer. Ese bloque no lo ve la persona: fuera de él, dile en una línea qué cambió.`;
+  const trabajo = bot.instrucciones.trim();
+  if (!trabajo) {
+    return `${base}
+
+Acabas de ser creado y todavía no tienes trabajo definido. Ya le preguntaste a la persona «¿Para qué me vas a usar?». Entrevístala para configurarte: haz una o dos preguntas por mensaje (qué tareas concretas, con qué clientes o proyectos, cada cuánto, qué tono y formato prefiere, qué no debes hacer). No hagas más de seis preguntas en total. Cuando tengas suficiente, resume en pocas líneas cómo vas a trabajar y pregúntale si está bien. Cuando lo confirme, ${formato}`;
+  }
+  return `${base}
+
+Tu trabajo:
+${trabajo}
+
+Si la persona te pide un cambio duradero en cómo trabajas (una tarea nueva de siempre, otro tono, algo que ya no debes hacer), ${formato} Para datos o preferencias puntuales no cambies tu trabajo: guárdalos en tu memoria.`;
 }
 
 /** Llave personal de Jarvis: «jv_» + 40 hex. Se guarda solo su sha256; los primeros 11 caracteres la ubican. */

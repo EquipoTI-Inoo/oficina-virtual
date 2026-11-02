@@ -5,7 +5,7 @@
  * tomarlas como diseño final.
  */
 import { useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuTriangleAlert, LuUpload } from "react-icons/lu";
+import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuSparkles, LuTriangleAlert, LuUpload } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
 import { respuestaVacia } from "../dominio/requerimientos";
@@ -466,6 +466,36 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>(abierto ? "/formularios/ingreso-cliente" : null);
   const [ingreso, setIngreso] = useState<Record<string, unknown>>({});
   const [err, setErr] = useState<Record<string, string>>({});
+  // Fase 17: desde la transcripción de la venta se completa el formulario; Comercial lo revisa antes de crear.
+  const [transcripcion, setTranscripcion] = useState("");
+  const [leyendo, setLeyendo] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const completar = async () => {
+    setLeyendo(true);
+    setAviso(null);
+    setErr({});
+    try {
+      const { propuesta: x, conIa } = await api<{ propuesta: S<"PropuestaAltaCliente">; conIa: boolean }>("/clientes/propuesta-desde-transcripcion", { metodo: "POST", cuerpo: { transcripcion } });
+      if (x.nombre) setNombre(x.nombre);
+      setContacto((c) => ({ nombre: x.contacto.nombre ?? c.nombre, email: x.contacto.email ?? c.email, cargo: x.contacto.cargo ?? c.cargo }));
+      const resumen = [x.ingreso.resumen, x.alcance ? `Alcance prometido: ${x.alcance}` : null].filter(Boolean).join("\n\n");
+      setIngreso((r) => ({
+        ...r,
+        ...(x.ingreso.rubro ? { rubro: x.ingreso.rubro } : {}),
+        ...(x.ingreso.servicios.length ? { servicios: x.ingreso.servicios } : {}),
+        ...(x.ingreso.objetivos ? { objetivos: x.ingreso.objetivos } : {}),
+        ...(x.ingreso.tipoWeb ? { tipoWeb: x.ingreso.tipoWeb } : {}),
+        ...(x.ingreso.cantidadProductos ? { cantidadProductos: x.ingreso.cantidadProductos } : {}),
+        ...(resumen ? { resumen } : {}),
+      }));
+      setAviso(conIa ? "Completamos lo que se dijo en la reunión. Revísalo antes de crear el cliente." : "Completamos un borrador básico (la IA no estaba disponible). Revísalo antes de crear el cliente.");
+    } catch (x) {
+      const p = x as ProblemaApi;
+      setErr(p.errores?.length ? errores(x) : { transcripcion: p.titulo });
+    } finally {
+      setLeyendo(false);
+    }
+  };
   const erroresIngreso = Object.fromEntries(Object.entries(err).filter(([k]) => k.startsWith("ingreso.")).map(([k, v]) => [k.slice(8), v]));
   const crear = async (e: FormEvent) => {
     e.preventDefault();
@@ -494,6 +524,20 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
       <form onSubmit={crear} noValidate style={{ display: "grid", gap: 14 }}>
         <h2 style={{ fontSize: 20, fontWeight: 600 }}>Nuevo cliente</h2>
         <p className="texto-xs texto-muted">Al crearlo, n8n prepara su carpeta en Drive. Si indicas su responsable, le enviamos el acceso al portal. Luego contrata sus servicios desde la ficha.</p>
+        <details className="desde-transcripcion">
+          <summary><LuSparkles size={14} /> Completar desde la transcripción de la venta</summary>
+          <div className="campo">
+            <label htmlFor="nc-transcripcion">Transcripción de la reunión</label>
+            <div className="entrada">
+              <textarea id="nc-transcripcion" rows={5} value={transcripcion} placeholder="Pega lo que se dijo en la reunión de venta (Meet, Zoom…)" onChange={(e) => setTranscripcion(e.target.value)} aria-invalid={!!err.transcripcion} />
+            </div>
+            <Ayuda error={err.transcripcion} texto="Llenamos la marca, el responsable, el ingreso y el alcance prometido. Nada se guarda hasta que crees el cliente." />
+          </div>
+          <button type="button" className="boton" disabled={leyendo || transcripcion.trim().length < 120} onClick={() => void completar()}>
+            <LuSparkles size={14} /> {leyendo ? "Leyendo la reunión…" : "Completar el formulario"}
+          </button>
+          {aviso && <p className="texto-xs" role="status" style={{ color: "var(--c-exito)" }}>{aviso}</p>}
+        </details>
         <div className="campo">
           <label htmlFor="nc-nombre">Nombre de la marca</label>
           <div className="entrada">

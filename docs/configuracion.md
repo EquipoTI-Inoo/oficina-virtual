@@ -37,8 +37,9 @@ desde memoria con los datos de Figma; cada reinicio del servidor vuelve a los da
 | `STITCH_API_KEY` | clave | — | Prototipo con Stitch (MCP de Google). Solo se usa con `IA_MODO=real`; sin clave, pantallas de relleno. No es la clave de Gemini |
 | `STITCH_URL` | URL | `https://stitch.googleapis.com/mcp` | Servidor MCP de Stitch |
 | `DEEPSEEK_API_KEY` | clave | — | Jarvis del equipo (30 oct): la clave de Inoo para DeepSeek. Solo la usa la pasarela `/api/v1/ia-equipo`; los Jarvis (Hermes) entran con su llave personal y nunca ven esta clave. Sin ella, la pasarela responde 503 `SIN_CLAVE` |
+| `DEEPSEEK_KEYS` | JSON | — | Opcional (2 nov): una clave de DeepSeek por área, `{"CRM": "sk-…"}`, para ver el consumo de cada área en el panel de DeepSeek. Las áreas sin clave usan `DEEPSEEK_API_KEY` |
 | `IA_EQUIPO_URL` | URL | `https://api.deepseek.com` | A dónde reenvía la pasarela (las pruebas usan un DeepSeek falso) |
-| `JARVIS_HERMES` | JSON | — | El Hermes de cada área, donde corren sus bots: `{"CRM": {"url": "http://127.0.0.1:8642", "clave": "…"}}`. La clave es la `API_SERVER_KEY` de ese Hermes y solo la usa el servidor del portal. Un área sin entrada ve sus bots pero no puede chatear (409 `JARVIS_NO_CONECTADO`) |
+| `JARVIS_HERMES` | JSON | — | El Hermes de cada área, donde corren sus bots: `{"CRM": {"url": "http://127.0.0.1:8642", "clave": "…"}}`. La clave es la `API_SERVER_KEY` de ese Hermes y también su `OPENAI_API_KEY` para entrar a la pasarela `/ia-equipo` (nadie del equipo genera llaves: la pasarela cobra a la persona por la marca de la conversación). Un área sin entrada ve sus bots pero no puede chatear (409 `JARVIS_NO_CONECTADO`) |
 
 > La API simulada nunca debe quedar activa en un despliegue real. Por eso un build de producción
 > la bloquea si no se activa `PERMITIR_MOCK=true` explícitamente.
@@ -184,6 +185,13 @@ Todavía no se probó contra pools reales (no existen): las pruebas simulan la A
 `DOMINIO_PORTAL` detrás de Caddy) y el despachador (`outbox`). Las variables están en `infra/hostinger/.env.example`.
 
 **Pendiente:** la sincronización con InooWork (en pausa).
+
+**Equipo, Jarvis y tareas diarias de n8n (2 nov 2026).**
+
+- **Personas del equipo e InooWork.** El ADMIN da de alta, edita y desactiva colaboradores en «Equipo» (`/panel/personas`). Cada cambio se manda a InooWork (`src/servidor/inoowork.ts`) con `INOOWORK_URL` e `INOOWORK_API_KEY`. Sin `INOOWORK_URL` queda «InooWork simulado». Lo que cambia en InooWork llega por `POST /integraciones/inoowork/sincronizacion` con `empleados` y `empleadosEliminados` (scope `inoowork:sync`). Borrar es desactivar en los dos.
+- **Jarvis sin llaves personales.** Cada Hermes de área entra a la pasarela con su clave de `JARVIS_HERMES`. El portal marca cada conversación, cobra a la persona dueña de esa conversación y deja que las herramientas del portal (`mcp-portal.mjs`) lean con sus permisos (`X-Jarvis-Conversacion`, solo lectura). Ver `integrations/hermes/`.
+- **Transcripciones.** «Nuevo cliente» y «Marcar reunión realizada» proponen datos desde la transcripción con DeepSeek, cobrados al área y a la persona que lo pide. Si el área está pausada o no hay clave, se usa un borrador por reglas. Nada se guarda hasta que una persona lo confirma.
+- **n8n, una vez al día y temprano:** `POST /integraciones/recordatorios` (scope `recordatorios:write`) emite `tarea.por_vencer`, `requerimiento.por_vencer` y `reunion.proxima` para lo que vence o pasa el próximo día hábil, una sola vez cada aviso. Al cerrar un proyecto se emite `servicio.cerrado`, para el agradecimiento y la encuesta.
 
 ## 6. Seguridad del repositorio
 

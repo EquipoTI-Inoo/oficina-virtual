@@ -4,8 +4,9 @@ Cada colaborador tendrá su agente (Hermes Agent, de Nous Research) con memoria,
 computadora (un contenedor Docker), que entra al portal con los permisos de su dueño.
 
 **Cómo paga:** Hermes no llama a DeepSeek directo. Usa la **pasarela del portal** (`/api/v1/ia-equipo`, formato
-OpenAI) con la llave personal de Jarvis, que cada uno genera en «Mi panel». El portal cobra cada llamada al
-**área** de la persona, con un tope diario y uno mensual por área que el ADMIN ajusta en «Costos de IA». La
+OpenAI) con la clave de su área, la misma de `JARVIS_HERMES` (nadie genera llaves a mano). Cada mensaje del chat
+lleva una marca de la conversación; con ella el portal cobra cada llamada a la **persona** que chatea y a su
+**área**, con un tope diario y uno mensual por área que el ADMIN ajusta en «Costos de IA». La
 clave de DeepSeek de Inoo vive solo en el portal (`DEEPSEEK_API_KEY` en `apps/portal/.env.local`).
 
 Esta prueba mide tres cosas antes de construir nada en el portal:
@@ -20,7 +21,7 @@ Esta prueba mide tres cosas antes de construir nada en el portal:
 | --- | --- |
 | `mcp-portal.mjs` | MCP del portal, solo lectura. Herramientas: `mi_panel`, `mis_proyectos`, `proyecto`, `tareas_proyecto`, `requerimientos_cliente`. Node 22, sin dependencias |
 | `config.example.yaml` | Bloques para `~/.hermes/config.yaml`: modelo por la pasarela del portal, contenedor Docker y el MCP del portal |
-| `env.example` | Llaves para `~/.hermes/.env`: tu llave de Jarvis y el token del MCP |
+| `env.example` | Llaves para `~/.hermes/.env`: la clave del área y el token del MCP |
 
 ## Paso a paso (todo dentro de WSL2)
 
@@ -47,8 +48,9 @@ alcanza al portal por `localhost`.
    ```
 5. **DeepSeek, en el portal.** Crea una API key en https://platform.deepseek.com, carga unos US$5–10 y ponla
    en `apps/portal/.env.local` como `DEEPSEEK_API_KEY`. Reinicia `npm run dev`.
-6. **Tu llave de Jarvis.** Entra al portal como equipo, ve a «Mi panel» → «Mi Jarvis» → «Generar mi llave».
-   Pégala en `~/.hermes/.env` como `OPENAI_API_KEY` (copia `env.example`).
+6. **La clave del área.** Inventa una clave larga (por ejemplo `openssl rand -hex 24`) y ponla en
+   `~/.hermes/.env` como `API_SERVER_KEY` y `OPENAI_API_KEY` (copia `env.example`), y en el portal en
+   `JARVIS_HERMES`. Se hace una sola vez por área; el equipo solo entra al portal.
 7. **Configuración.** Agrega los bloques de `config.example.yaml` a `~/.hermes/config.yaml`, con la ruta real
    de `mcp-portal.mjs`. Si el bloque `model` falla, usa `hermes model`, elige un endpoint compatible con
    OpenAI y pon el base_url de la pasarela.

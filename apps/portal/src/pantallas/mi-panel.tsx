@@ -4,8 +4,10 @@
  * abiertas (vencidas primero), los proyectos donde es responsable con sus KPIs internos, y su resumen:
  * proyectos activos y cerrados, con retraso y rebotes de sus entregables.
  */
-import { LuListTodo } from "react-icons/lu";
-import { Enlace, fCorta, useConsulta, type S } from "../base";
+import { useEffect, useState } from "react";
+import { LuCalendarDays, LuListTodo, LuUsers } from "react-icons/lu";
+import { Enlace, fCorta, useConsulta, useNavegacion, type S } from "../base";
+import { NOMBRE_AREA } from "../dominio/ia-equipo";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta } from "../componentes";
 
 const TONO: Record<S<"KpiProyecto">["nivel"], "verde" | "ambar" | "rojo"> = { OK: "verde", ALERTA: "ambar", CRITICO: "rojo" };
@@ -21,14 +23,34 @@ export function PantallaMiPanel() {
   );
 }
 
+/** ?usuarioId= de la URL: el lead (o el ADMIN) mira el panel o el calendario de alguien de su área (2 nov). */
+export function usePersonaDeLaUrl() {
+  const { ruta } = useNavegacion();
+  const [quien, setQuien] = useState<string | null>(null);
+  useEffect(() => setQuien(new URLSearchParams(window.location.search).get("usuarioId")), [ruta]);
+  return quien;
+}
+
 function MiPanel() {
-  const { datos: d, error, recargar } = useConsulta<S<"PanelColaborador">>("/panel/colaborador");
+  const quien = usePersonaDeLaUrl();
+  const { datos: d, error, recargar } = useConsulta<S<"PanelColaborador">>(quien ? `/panel/colaborador?usuarioId=${quien}` : "/panel/colaborador");
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
   const r = d.resumen;
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo" titulo={`Mi panel · ${d.persona.nombre}`} bajada="Tus tareas, tus proyectos y cómo van." />
+      {quien && (
+        <Enlace a="/equipo/mi-panel" className="volver">
+          ← Volver a mi panel
+        </Enlace>
+      )}
+      <Cabecera
+        antetitulo="Equipo Inoo"
+        titulo={quien ? `Panel de ${d.persona.nombre}` : `Mi panel · ${d.persona.nombre}`}
+        bajada={quien ? "Sus tareas, sus proyectos y cómo van." : "Tus tareas, tus proyectos y cómo van."}
+        accion={quien ? <Enlace a={`/equipo/calendario?usuarioId=${quien}`} className="boton"><LuCalendarDays size={16} /> Su calendario</Enlace> : undefined}
+      />
+      {d.miArea && <MiArea gente={d.miArea} />}
       <div className="grid-4 kpis">
         <div className="tarjeta kpi">
           <div className="kpi-cab">Tareas abiertas</div>
@@ -99,5 +121,35 @@ function MiPanel() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** Leads (2 nov): la carga de cada persona de su área, con acceso a su panel y su calendario. */
+function MiArea({ gente }: { gente: NonNullable<S<"PanelColaborador">["miArea"]> }) {
+  const area = gente[0]?.persona.area;
+  return (
+    <section className="tarjeta" style={{ padding: "18px 18px 10px", marginBottom: 20 }}>
+      <h2 className="tarjeta-titulo fila" style={{ gap: 8 }}><LuUsers size={16} /> Mi área{area ? ` · ${NOMBRE_AREA[area]}` : ""}</h2>
+      {!gente.length && <p className="texto-sm texto-muted" style={{ padding: "10px 0" }}>Todavía no hay más gente en tu área.</p>}
+      <div className="lista-lineas" style={{ marginTop: 6 }}>
+        {gente.map((g) => (
+          <div key={g.persona.id} className="fila entre texto-sm" style={{ gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: "1 1 180px" }}>
+              <span className="negrita">{g.persona.nombre}</span>
+              {g.persona.esLead && <span className="texto-xs texto-muted"> · lead</span>}
+            </span>
+            <span className="texto-xs" style={{ flex: "1 1 220px" }}>
+              {g.tareasAbiertas} {g.tareasAbiertas === 1 ? "tarea abierta" : "tareas abiertas"}
+              {g.tareasVencidas > 0 && <span style={{ color: "var(--c-alerta)" }}> · {g.tareasVencidas} vencidas</span>}
+              {" · "}{g.proyectos} {g.proyectos === 1 ? "proyecto" : "proyectos"}
+            </span>
+            <span className="fila" style={{ gap: 10 }}>
+              <Enlace a={`/equipo/mi-panel?usuarioId=${g.persona.id}`} className="enlace texto-xs">Su panel</Enlace>
+              <Enlace a={`/equipo/calendario?usuarioId=${g.persona.id}`} className="enlace texto-xs">Su calendario</Enlace>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

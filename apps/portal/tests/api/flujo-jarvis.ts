@@ -128,6 +128,107 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       }
     });
 
+    test("sin llaves personales: el Hermes del área entra con su clave y la marca de la conversación cobra a la persona", async () => {
+      await reiniciar();
+      llamadas.length = 0;
+      const antesHermes = process.env.JARVIS_HERMES;
+      const fetchPrevio = globalThis.fetch;
+      let sistema = "";
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (!String(url).startsWith("http://hermes.falso")) return fetchPrevio(url, init);
+        sistema = JSON.parse(String(init?.body)).messages[0].content;
+        return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      process.env.JARVIS_HERMES = JSON.stringify({ CRM: { url: "http://hermes.falso", clave: "hk_crm" }, DISENO: { url: "http://hermes.falso", clave: "hk_diseno" } });
+      try {
+        const bot = (await llamar("GET", "/jarvis/bots", DIEGO)).json.bots[0];
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "hola", sesionId: "conv-diego-001" })).status, 200);
+        const marca = sistema.match(/⟦inoo:[^⟧]+⟧/)?.[0];
+        assert.equal(marca, "⟦inoo:conv-diego-001⟧", "el sistema lleva la marca de la conversación");
+
+        assert.equal((await pasarela("hk_otra", mensaje)).status, 401);
+        // Hermes repite el sistema (con la marca) en su llamada a la pasarela.
+        const conMarca = { model: "deepseek-flash", messages: [{ role: "system", content: `Eres un bot.\n\n${marca}` }, { role: "user", content: "hola" }] };
+        assert.equal((await pasarela("hk_crm", conMarca)).status, 200);
+        const personas = (await llamar("GET", "/panel/ia-equipo", ADMIN)).json.areas.find((a: any) => a.area === "CRM").personas;
+        assert.ok(personas.find((x: any) => x.persona.nombre === "Diego Castro").gastoMesUsd > 0, "se cobra a Diego");
+
+        // Sin marca (algo que Hermes hizo por su cuenta): se cobra al área, a nadie en particular.
+        const antesArea = (await llamar("GET", "/panel/ia-equipo", ADMIN)).json.areas.find((a: any) => a.area === "CRM").gastoMesUsd;
+        assert.equal((await pasarela("hk_crm", mensaje)).status, 200);
+        assert.ok((await llamar("GET", "/panel/ia-equipo", ADMIN)).json.areas.find((a: any) => a.area === "CRM").gastoMesUsd > antesArea);
+        // Con la marca de una conversación de otra área, no se cobra a esa persona.
+        const gastoDiego = () => llamar("GET", "/panel/ia-equipo", ADMIN).then((r) => r.json.areas.find((a: any) => a.area === "CRM").personas.find((x: any) => x.persona.nombre === "Diego Castro").gastoMesUsd);
+        const g = await gastoDiego();
+        await pasarela("hk_diseno", conMarca);
+        assert.equal(await gastoDiego(), g);
+        // Nadie usa una conversación ajena.
+        await llamar("PATCH", `/panel/equipo/${uid(1, 6)}`, ADMIN, { area: "CRM" });
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "hola", sesionId: "conv-diego-001" })).json.codigo, "SESION_AJENA");
+
+        // Las herramientas del portal (mcp-portal.mjs) leen como la persona de la conversación, no como un usuario fijo.
+        const comoHermes = (clave: string, conv: string, metodo = "GET", camino = "/panel/colaborador") =>
+          llamar(metodo, camino, undefined, metodo === "GET" ? undefined : {}, { authorization: `Bearer ${clave}`, "x-jarvis-conversacion": conv });
+        assert.equal((await comoHermes("hk_crm", "conv-diego-001")).json.persona.nombre, "Diego Castro");
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "hola", sesionId: "conv-camila-01" })).status, 200);
+        assert.equal((await comoHermes("hk_crm", "conv-camila-01")).json.persona.nombre, "Camila Paredes", "cada conversación, su persona");
+        assert.equal((await comoHermes("hk_crm", "conv-camila-01", "GET", `/clientes/${uid(2, 2)}`)).status, 404, "con los permisos de Camila, no los de Diego");
+        assert.equal((await comoHermes("hk_diseno", "conv-diego-001")).status, 401, "la conversación es de otra área");
+        assert.equal((await comoHermes("hk_crm", "no-existe-123")).status, 401);
+        assert.equal((await comoHermes("hk_crm", "conv-diego-001", "POST", "/me/agenda/eventos")).status, 403, "solo lectura");
+      } finally {
+        globalThis.fetch = fetchPrevio;
+        if (antesHermes === undefined) delete process.env.JARVIS_HERMES;
+        else process.env.JARVIS_HERMES = antesHermes;
+      }
+    });
+
+    test("como Grok: el bot nuevo se configura preguntando y después reescribe su propio trabajo", async () => {
+      await reiniciar();
+      const antesHermes = process.env.JARVIS_HERMES;
+      const fetchPrevio = globalThis.fetch;
+      let sistema = "";
+      let respuesta = "";
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (!String(url).startsWith("http://hermes.falso")) return fetchPrevio(url, init);
+        sistema = JSON.parse(String(init?.body)).messages[0].content;
+        const trozos = [respuesta.slice(0, 20), respuesta.slice(20)].map((t) => `data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`);
+        return new Response(`${trozos.join("")}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      process.env.JARVIS_HERMES = JSON.stringify({ CRM: { url: "http://hermes.falso", clave: "hk_crm" } });
+      try {
+        const bot = (await llamar("POST", "/jarvis/bots", DIEGO, { nombre: "Cobranzas", color: "#5554d9", forma: "CIRCULO" })).json;
+        assert.equal(bot.instrucciones, "");
+        const chat = (token: string, mensaje: string) => llamar("POST", `/jarvis/bots/${bot.id}/chat`, token, { mensaje, sesionId: `conf-${token.slice(-6)}-01` });
+
+        respuesta = "Perfecto. ¿Con qué clientes trabajo y cada cuánto te aviso?";
+        await chat(DIEGO, "Para recordarme cobros pendientes");
+        assert.ok(sistema.includes("Acabas de ser creado") && sistema.includes("⟦trabajo⟧"), "sin trabajo, entrevista a la persona");
+
+        respuesta = "Listo, quedé configurado.\n⟦trabajo⟧\n- Revisas los pagos atrasados cada lunes.\n- Avisas en una lista corta.\n⟦/trabajo⟧";
+        const r = await chat(DIEGO, "Sí, así está bien");
+        assert.ok(String(r.json).includes('"inoo":{"trabajo":{"anterior":"","nuevo":"- Revisas los pagos atrasados cada lunes.\\n- Avisas en una lista corta."}}'), "avisa del trabajo nuevo al final del stream");
+        const guardado = (await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.id === bot.id).instrucciones;
+        assert.equal(guardado, "- Revisas los pagos atrasados cada lunes.\n- Avisas en una lista corta.");
+
+        respuesta = "Hecho. ⟦trabajo⟧- Revisas los pagos atrasados cada viernes.⟦/trabajo⟧";
+        await chat(DIEGO, "Mejor los viernes");
+        assert.ok(sistema.includes("Tu trabajo:\n- Revisas los pagos atrasados cada lunes."), "con trabajo, lo usa y puede cambiarlo");
+        assert.equal((await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.id === bot.id).instrucciones, "- Revisas los pagos atrasados cada viernes.");
+
+        // Quien no puede editar el bot tampoco lo cambia por el chat.
+        await llamar("PATCH", `/panel/equipo/${uid(1, 6)}`, ADMIN, { area: "CRM" });
+        respuesta = "⟦trabajo⟧- Nada.⟦/trabajo⟧";
+        const ajena = await chat(CAMILA, "Olvida todo");
+        assert.equal(String(ajena.json).includes('"inoo"'), false);
+        assert.equal((await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.id === bot.id).instrucciones, "- Revisas los pagos atrasados cada viernes.");
+      } finally {
+        globalThis.fetch = fetchPrevio;
+        if (antesHermes === undefined) delete process.env.JARVIS_HERMES;
+        else process.env.JARVIS_HERMES = antesHermes;
+      }
+    });
+
     test("la llave se muestra una vez, la pasarela cobra al área y la llave vieja deja de servir", async () => {
       await reiniciar();
       llamadas.length = 0;
@@ -141,6 +242,14 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal(r.status, 200);
       assert.equal((await r.json()).choices[0].message.content, "Hola");
       assert.equal(llamadas[0].clave, "Bearer sk-prueba", "DeepSeek recibe la clave de Inoo, no la llave de Jarvis");
+      // 2 nov: con una clave por área, DeepSeek recibe la del área (para ver su consumo en el panel de DeepSeek).
+      process.env.DEEPSEEK_KEYS = JSON.stringify({ CRM: "sk-crm", DISENO: "sk-diseno" });
+      try {
+        await pasarela(k.json.llave, mensaje);
+        assert.equal(llamadas[llamadas.length - 1].clave, "Bearer sk-crm");
+      } finally {
+        delete process.env.DEEPSEEK_KEYS;
+      }
       const mio = (await llamar("GET", "/me/jarvis", DIEGO)).json;
       assert.equal(mio.area, "CRM");
       assert.ok(mio.consumo.gastoMesUsd >= 0.09 && mio.consumo.gastoMesUsd <= 0.19, `gasto ${mio.consumo.gastoMesUsd}`);

@@ -1,11 +1,11 @@
 "use client";
 import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot,
+  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
+  LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
-import { api, cambiarClienteActivo, cerrarSesion, clienteActivo, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
+import { api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -303,13 +303,16 @@ const NAV_EQUIPO = [
   { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot /> },
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
-  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone />, grupo: "Agencia" },
+  { a: "/equipo/organigrama", texto: "Organigrama", icono: <LuNetwork />, grupo: "Agencia" },
+  { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, soloAdmin: true },
+  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone /> },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
 /** Equipo: elige un cliente para entrar a su ficha, o «Todas las cuentas» para ver la lista. */
 function CuentaEquipo({ alNavegar }: { alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
+  const todas = usePortal().sesion?.usuario.nivelAcceso === "ADMIN";
   const [abierto, setAbierto] = useState(false);
   const [q, setQ] = useState("");
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
@@ -328,7 +331,7 @@ function CuentaEquipo({ alNavegar }: { alNavegar?: () => void }) {
         <span className="avatar avatar--cuadrado">{actual ? actual.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() : "IN"}</span>
         <span>
           <span className="cuenta-nombre" style={{ display: "block" }}>{actual?.nombre ?? "Inoo · Agencia"}</span>
-          <span className="cuenta-tipo">{actual ? "Cuenta de cliente" : "Todas las cuentas"}</span>
+          <span className="cuenta-tipo">{actual ? "Cuenta de cliente" : todas ? "Todas las cuentas" : "Mis cuentas"}</span>
         </span>
         <LuChevronsUpDown className="icono-final" size={14} />
       </button>
@@ -337,18 +340,41 @@ function CuentaEquipo({ alNavegar }: { alNavegar?: () => void }) {
           <div className="entrada" style={{ marginBottom: 4 }}>
             <input aria-label="Buscar cliente" placeholder="Buscar cliente…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
           </div>
-          <button role="menuitem" aria-current={!actual} onClick={() => elegir("/equipo/clientes")}>Todas las cuentas</button>
+          <button role="menuitem" aria-current={!actual} onClick={() => elegir("/equipo/clientes")}>{todas ? "Todas las cuentas" : "Mis cuentas"}</button>
           <div className="cuenta-menu-lista">
             {!clientes.datos && <span className="texto-xs texto-muted" style={{ padding: 8 }}>Cargando…</span>}
             {clientes.datos && !lista.length && <span className="texto-xs texto-muted" style={{ padding: 8 }}>Ningún cliente se llama así</span>}
             {lista.map((c) => (
-              <button key={c.id} role="menuitem" aria-current={c.id === actualId} onClick={() => elegir(`/equipo/clientes/${c.id}`)}>
-                {c.nombre}
-              </button>
+              <div key={c.id} className="fila entre" style={{ gap: 4 }}>
+                <button role="menuitem" aria-current={c.id === actualId} style={{ flex: 1 }} title="Ver su portal como el cliente" onClick={() => { entrarComoCliente(c.id); setAbierto(false); alNavegar?.(); ir("/inicio"); }}>
+                  {c.nombre}
+                </button>
+                {c.acceso !== "PROYECTOS" && (
+                  <button className="boton-icono" aria-label={`Ficha de ${c.nombre}`} title="Ficha del cliente" onClick={() => elegir(`/equipo/clientes/${c.id}`)}>
+                    <LuIdCard size={14} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** «Ver como cliente» (2 nov): recuerda de quién es la vista y que lo que se haga queda firmado. */
+function BarraVistaCliente({ cliente, persona }: { cliente: string; persona: string }) {
+  const { ir } = useNavegacion();
+  const firmado = !!leerSesion()?.vistaCliente;
+  return (
+    <div className="barra-vista-cliente" role="status">
+      <LuEye size={16} />
+      <span>
+        Estás viendo el portal de <strong>{cliente}</strong> como lo ve el cliente.
+        {firmado ? ` Lo que hagas queda firmado como «${persona} (Inoo), en nombre del cliente».` : " Solo puedes mirar: entra desde el selector de cuentas para actuar en su nombre."}
+      </span>
+      <button className="boton boton--chico" onClick={() => { salirDeVistaCliente(); ir("/equipo/mi-panel"); }}>Volver al equipo</button>
     </div>
   );
 }
@@ -393,7 +419,11 @@ function CuentaCliente({ clientes }: { clientes: S<"Sesion">["clientes"] }) {
 
 function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
-  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
+  // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN; por proyecto, «Clientes» son sus marcas.
+  const nivel = sesion?.usuario.nivelAcceso;
+  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO)
+    .filter((n) => !("soloAdmin" in n) || nivel === "ADMIN")
+    .map((n) => (n.a === "/equipo/clientes" && nivel === "PROYECTO" ? { ...n, texto: "Mis marcas" } : n));
   const u = sesion?.usuario;
   const salir = () => {
     cerrarSesion();
@@ -539,6 +569,8 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   useEffect(() => {
     if (!leerSesion()) ir("/ingresar");
     else if (espacio === "equipo" && leerSesion()?.tipo !== "EQUIPO") ir("/inicio");
+    // Volver a las pantallas del equipo cierra «Ver como cliente».
+    if (espacio === "equipo" && leerSesion()?.vistaCliente) salirDeVistaCliente();
     else if (espacio === "cliente" && leerSesion()?.tipo === "EQUIPO" && !window.location.search.includes("vista=cliente")) {
       /* el equipo puede ver el portal del cliente de prueba */
     }
@@ -551,7 +583,8 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
   const aviso = inicio.datos?.avisos?.[0];
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
-  const nombreCuenta = espacio === "cliente" ? me.datos?.clientes[0]?.nombre ?? "Casa Oliva" : "Equipo Inoo";
+  const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? me.datos?.clientes[0]?.nombre ?? "Casa Oliva" : "Equipo Inoo";
+  const comoCliente = espacio === "cliente" && me.datos?.usuario.tipo === "EQUIPO";
   const marcarLeidas = async () => {
     setLeidas(true);
     await api("/me/notificaciones/leer", { metodo: "POST", cuerpo: {} }).catch(() => undefined);
@@ -584,7 +617,10 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
               {espacio === "cliente" ? <MenuCuenta sesion={me.datos} /> : <span className="avatar">{me.datos?.usuario.iniciales ?? ""}</span>}
             </div>
           </div>
-          <main className="contenido">{children}</main>
+          <main className="contenido">
+            {comoCliente && <BarraVistaCliente cliente={nombreCuenta} persona={me.datos!.usuario.nombre} />}
+            {children}
+          </main>
         </div>
       </div>
       {menu && (

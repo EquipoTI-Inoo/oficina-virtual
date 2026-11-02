@@ -53,6 +53,10 @@ services:
       - ../../database/migraciones/0032_sin_ia_cliente.sql:/docker-entrypoint-initdb.d/01zf_sin_ia_cliente.sql:ro
       - ../../database/migraciones/0033_jarvis_por_area.sql:/docker-entrypoint-initdb.d/01zg_jarvis_por_area.sql:ro
       - ../../database/migraciones/0034_calendario_colaborador.sql:/docker-entrypoint-initdb.d/01zh_calendario_colaborador.sql:ro
+      - ../../database/migraciones/0035_accesos_por_nivel.sql:/docker-entrypoint-initdb.d/01zi_accesos_por_nivel.sql:ro
+      - ../../database/migraciones/0036_personas_inoowork.sql:/docker-entrypoint-initdb.d/01zj_personas_inoowork.sql:ro
+      - ../../database/migraciones/0037_jarvis_sin_llaves.sql:/docker-entrypoint-initdb.d/01zk_jarvis_sin_llaves.sql:ro
+      - ../../database/migraciones/0038_recordatorios.sql:/docker-entrypoint-initdb.d/01zl_recordatorios.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

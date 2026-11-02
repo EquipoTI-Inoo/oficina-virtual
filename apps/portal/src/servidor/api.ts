@@ -27,7 +27,7 @@
  * GET /clientes/{id}/entregables, GET /entregables/{id}, POST /entregables/{id}/versiones|enviar|decision) ·
  * taller web (GET|PUT /servicios-contratados/{id}/taller-web, POST …/capturas|analisis|flujograma|documento|prototipo|demos,
  * DELETE …/demos/{id}) y GET /publico/{token} (sin sesión) · standby por inactividad (POST /integraciones/servicios/inactividad).
- * Solo InooWork (fase 6) responde 501 RUTA_NO_IMPLEMENTADA (ver docs/configuracion.md §5).
+ * De la sincronización con InooWork solo están las personas; proyectos y tickets responden 501 (ver docs/configuracion.md §5).
  *
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
  * tests/api/flujo-piezas.ts corren contra las dos.
@@ -43,6 +43,13 @@ import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { esSesionChat, hablarConBot, hermesDelArea } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
+import { areaDeDepartamento, cambiosDesdeEmpleado, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, type CambioPersona } from "../dominio/personas-equipo";
+import { inooworkConectado, sincronizarPersona } from "./inoowork";
+import { validarTranscripcion } from "../dominio/transcripciones";
+import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
+import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
+import { proponerAlta, proponerResumen } from "./transcripciones";
+import { calcularAlcance, nivelDe, puedeAsignar, puedeSupervisar, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type Nivel } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
@@ -75,6 +82,11 @@ interface Ctx {
   c: Consultor;
   esEquipo: boolean;
   esServicio: boolean;
+  /**
+   * «Ver como cliente» (2 nov): alguien del equipo usa el portal de ese cliente con X-En-Nombre-De. La API lo
+   * trata como el cliente (ADMIN_CLIENTE) y lo que haga queda firmado con su nombre «en nombre del cliente».
+   */
+  enNombreDe?: string;
   /** Feriados y días no laborables, para los plazos en días hábiles (se cargan una vez por solicitud). */
   feriados: ReadonlySet<string>;
 }
@@ -90,10 +102,81 @@ function estadoVisible(ctx: Ctx, e: Estado): S<"EstadoPieza"> {
 }
 
 /** 404 tanto si el cliente no existe como si es de otra cuenta (contrato: Visibilidad). */
-async function accesoCliente(ctx: Ctx, clienteId: string) {
+/**
+ * Accesos del equipo (2 nov): `completo` exige ver toda la cuenta (ficha, pagos, usuarios, soporte…); sin él
+ * basta con trabajar en uno de sus proyectos (marca, briefs, requerimientos, piezas y entregables).
+ */
+async function accesoCliente(ctx: Ctx, clienteId: string, completo = false) {
   if (!ctx.esEquipo && !ctx.u.clienteIds.includes(clienteId)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
-  const { rows } = await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1", [clienteId]);
+  const { rows } = await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1", [esUuid(clienteId) ? clienteId : null]);
   if (!rows.length) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  if (ctx.esEquipo && !(await veClienteDb(ctx, clienteId, completo))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+}
+
+interface PersonaAcceso { id: string; rolEquipo: string | null; area: Area | null; nivelAcceso: Nivel | null; esLead: boolean; tipo: string }
+async function personaAccesoDb(c: Consultor, id: string): Promise<PersonaAcceso | undefined> {
+  return (await c.query<PersonaAcceso>(
+    `SELECT id, rol_equipo AS "rolEquipo", area::text AS area, nivel_acceso::text AS "nivelAcceso", es_lead AS "esLead", tipo::text AS tipo FROM usuario WHERE id = $1`,
+    [esUuid(id) ? id : null],
+  )).rows[0];
+}
+/** Proyectos de una persona: asignada, responsable o con tareas. */
+async function proyectosDePersonaDb(c: Consultor, id: string) {
+  return (await c.query<{ id: string }>(
+    `SELECT servicio_contratado_id AS id FROM miembro_proyecto WHERE usuario_id = $1
+     UNION SELECT id FROM servicio_contratado WHERE responsable_id = $1
+     UNION SELECT servicio_contratado_id FROM tarea WHERE responsable_id = $1`, [id],
+  )).rows.map((r) => r.id);
+}
+const alcances = new WeakMap<Ctx, Promise<Alcance & { cliente: Map<string, string> }>>();
+/** Lo que ve la persona (se calcula una vez por solicitud). Las llamadas de n8n ven todo. */
+function alcanceDb(ctx: Ctx) {
+  let a = alcances.get(ctx);
+  if (!a) {
+    a = (async () => {
+      const proyectos = (await ctx.c.query<{ id: string; cliente_id: string }>("SELECT id, cliente_id FROM servicio_contratado")).rows;
+      const cliente = new Map(proyectos.map((x) => [x.id, x.cliente_id]));
+      if (ctx.esServicio) return { ...ALCANCE_TOTAL, cliente };
+      const yo = await personaAccesoDb(ctx.c, ctx.u.usuarioId);
+      if (!yo) return { nivel: "PROYECTO" as const, todo: false, cuentas: new Set<string>(), proyectos: new Set<string>(), cliente };
+      const cuentas = (await ctx.c.query<{ id: string }>(
+        "SELECT cliente_id AS id FROM acceso_cuenta WHERE usuario_id = $1 UNION SELECT id FROM cliente WHERE account_manager_id = $1", [yo.id],
+      )).rows.map((r) => r.id);
+      const todas = (await ctx.c.query<{ id: string }>("SELECT id FROM cliente")).rows.map((r) => r.id);
+      const mios = await proyectosDePersonaDb(ctx.c, yo.id);
+      return {
+        ...calcularAlcance(yo, {
+          cuentas: () => cuentas, proyectos: () => mios, proyectosDeCuenta: (c) => proyectos.filter((x) => x.cliente_id === c).map((x) => x.id),
+          todasLasCuentas: () => todas, todosLosProyectos: () => proyectos.map((x) => x.id),
+        }),
+        cliente,
+      };
+    })();
+    alcances.set(ctx, a);
+  }
+  return a;
+}
+async function veClienteDb(ctx: Ctx, clienteId: string, completo = false) {
+  const a = await alcanceDb(ctx);
+  return veCuenta(a, clienteId) || (!completo && [...a.proyectos].some((x) => a.cliente.get(x) === clienteId));
+}
+/** ¿Ve este proyecto? (404 si no: no se distingue de uno que no existe). */
+async function accesoProyecto(ctx: Ctx, servicioContratadoId: string | null, clienteId?: string) {
+  if (!ctx.esEquipo || !servicioContratadoId) return;
+  const a = await alcanceDb(ctx);
+  // Por la cuenta también: un proyecto recién creado no está en el alcance calculado al empezar la solicitud.
+  if (!veProyecto(a, servicioContratadoId) && !(clienteId && veCuenta(a, clienteId))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+}
+/** Filtro para listas: con la cuenta completa, todo; si no, sus proyectos. */
+async function deMisProyectos(ctx: Ctx) {
+  if (!ctx.esEquipo) return () => true;
+  const a = await alcanceDb(ctx);
+  return (servicioContratadoId: string | null | undefined, clienteId?: string) => a.todo || (!!clienteId && a.cuentas.has(clienteId)) || (!!servicioContratadoId && a.proyectos.has(servicioContratadoId));
+}
+async function esNivelAdmin(ctx: Ctx) {
+  if (!ctx.esEquipo || ctx.esServicio) return false;
+  const yo = await personaAccesoDb(ctx.c, ctx.u.usuarioId);
+  return !!yo && nivelDe(yo) === "ADMIN";
 }
 
 function accionesPara(ctx: Ctx, p: FilaPieza): S<"AccionPieza">[] {
@@ -187,6 +270,7 @@ function resumenPieza(ctx: Ctx, p: FilaPieza): S<"PiezaResumen"> & Record<string
 async function buscarPieza(ctx: Ctx, id: string): Promise<FilaPieza> {
   const { rows } = await ctx.c.query<FilaPieza>(`${SELECT_PIEZA} WHERE p.id = $1`, [id]);
   if (!rows[0] || (!ctx.esEquipo && rows[0].tipo === "BLOG")) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  if (ctx.esEquipo && !(await deMisProyectos(ctx))(rows[0].servicio_contratado_id, rows[0].cliente_id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   return rows[0];
 }
 
@@ -290,6 +374,7 @@ ruta("GET", "/me", async (ctx) => {
       cargo: ctx.u.cargo,
       iniciales: ctx.u.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
       tipo: ctx.u.tipo as S<"Sesion">["usuario"]["tipo"],
+      ...(ctx.esEquipo && !ctx.esServicio ? { area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead } : {}),
       rolEquipo: ctx.u.rolEquipo as S<"Sesion">["usuario"]["rolEquipo"],
     },
     clientes: ctx.esEquipo ? [] : nombres.map((c) => ({ clienteId: c.id, nombre: c.nombre, rol: ctx.u.roles[c.id] })),
@@ -304,6 +389,8 @@ ruta("GET", "/clientes/:id/piezas", async (ctx, p, q) => {
     `${SELECT_PIEZA} WHERE p.cliente_id = $1 ${ctx.esEquipo ? "" : "AND p.tipo <> 'BLOG'"} ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
     [p.id],
   );
+  const mio = await deMisProyectos(ctx);
+  rows.splice(0, rows.length, ...rows.filter((x) => mio(x.servicio_contratado_id, x.cliente_id)));
   const conteos: Record<string, number> = {};
   for (const x of rows) {
     const e = estadoVisible(ctx, x.estado);
@@ -466,15 +553,22 @@ ruta("POST", "/me/notificaciones/leer", async (ctx, _p, _q, cuerpo) => {
 // ───────────────────────────────────────────── clientes
 
 ruta("GET", "/clientes", async (ctx) => {
-  const { rows } = await ctx.c.query<{ id: string; nombre: string; slug: string; estado: string }>(
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; slug: string; estado: S<"EstadoCliente"> }>(
     `SELECT id, nombre, slug, estado FROM cliente ${ctx.esEquipo ? "" : "WHERE id = ANY($1::uuid[])"} ORDER BY nombre`,
     ctx.esEquipo ? [] : [ctx.u.clienteIds],
   );
-  return { datos: rows.map((c) => ({ ...c, logoUrl: null })), paginacion: { siguienteCursor: null } };
+  if (!ctx.esEquipo) return { datos: rows.map((c) => ({ ...c, logoUrl: null })), paginacion: { siguienteCursor: null } };
+  // 2 nov: cada uno ve sus cuentas (COMPLETO) y las de sus proyectos (PROYECTOS).
+  const datos = [];
+  for (const c of rows) {
+    if (await veClienteDb(ctx, c.id, true)) datos.push({ ...c, logoUrl: null, acceso: "COMPLETO" as const });
+    else if (await veClienteDb(ctx, c.id)) datos.push({ ...c, logoUrl: null, acceso: "PROYECTOS" as const });
+  }
+  return { datos, paginacion: { siguienteCursor: null } };
 });
 
 ruta("GET", "/clientes/:id", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   return clienteVista(ctx, p.id);
 });
 
@@ -606,11 +700,11 @@ async function buscarTicket(ctx: Ctx, id: string): Promise<FilaTicket> {
   return rows[0];
 }
 
-const emitirOutbox = (ctx: Ctx, tipo: string, clienteId: string, datos: Record<string, unknown>) =>
+const emitirOutbox = (ctx: Ctx, tipo: string, clienteId: string | null, datos: Record<string, unknown>) =>
   ctx.c.query("INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ($1, $2, $3)", [tipo, clienteId, JSON.stringify(datos)]);
 
 ruta("GET", "/clientes/:id/tickets", async (ctx, p, q) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const { rows } = await ctx.c.query<FilaTicket>(`${SELECT_TICKET} WHERE t.cliente_id = $1 ORDER BY t.numero DESC`, [p.id]);
   const abierto = (t: FilaTicket) => !["RESUELTO", "CERRADO"].includes(t.estado);
   let ts = rows;
@@ -628,7 +722,7 @@ ruta("GET", "/clientes/:id/tickets", async (ctx, p, q) => {
 });
 
 ruta("POST", "/clientes/:id/tickets", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const b = (await cuerpo()) as { asunto?: string; categoria?: string; descripcion?: string; piezaId?: string; servicioContratadoId?: string };
   const errores: { campo: string; mensaje: string }[] = [];
   // Ticket de un servicio: solo el soporte continuo los recibe, y la categoría sale de su variante.
@@ -903,6 +997,10 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
   if (ctx.esServicio) return;
   if (ctx.esEquipo) {
     if (roles.includes("EQUIPO") || (ctx.u.rolEquipo && roles.includes(ctx.u.rolEquipo))) return;
+    // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN.
+    if (roles.includes("ADMIN") && ctx.u.nivelAcceso === "ADMIN") return;
+    // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.
+    if (roles.includes("ACCOUNT_MANAGER") && ctx.u.nivelAcceso === "CUENTA") return;
     throw new ErrorApi(403, "SIN_PERMISO", "Tu rol en el equipo no permite esta acción");
   }
   const rol = clienteId ? ctx.u.roles[clienteId] : null;
@@ -942,7 +1040,7 @@ interface FilaBrief {
 
 async function filaBrief(ctx: Ctx, clienteId: string, periodo: string): Promise<FilaBrief | null> {
   const { rows } = await ctx.c.query<FilaBrief>(
-    "SELECT b.*, u.nombre AS enviado_por_nombre FROM brief b LEFT JOIN usuario u ON u.id = b.enviado_por WHERE b.cliente_id = $1 AND b.periodo = $2",
+    "SELECT b.*, CASE WHEN u.tipo = 'EQUIPO' THEN u.nombre || ' (Inoo), en nombre del cliente' ELSE u.nombre END AS enviado_por_nombre FROM brief b LEFT JOIN usuario u ON u.id = b.enviado_por WHERE b.cliente_id = $1 AND b.periodo = $2",
     [clienteId, periodo],
   );
   return rows[0] ?? null;
@@ -1229,13 +1327,13 @@ async function ideasDelMes(ctx: Ctx, clienteId: string, periodo: string) {
 
 // El blog interno es de gestión (pedido del 16 oct): el equipo operativo no lo ve.
 ruta("GET", "/clientes/:id/ideas-blog", async (ctx, p, q) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   if (ctx.esEquipo) exigirRol(ctx, p.id, ROLES_GESTION);
   return ideasDelMes(ctx, p.id, exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL()));
 });
 
 ruta("POST", "/clientes/:id/ideas-blog/seleccion", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as { periodo?: string; ideaIds?: string[] };
   const periodo = exigirPeriodo(b.periodo);
@@ -1403,6 +1501,7 @@ async function buscarServicio(ctx: Ctx, id: string): Promise<FilaServicio> {
   const { rows } = await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.id = $1`, [id]);
   if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
   await accesoCliente(ctx, rows[0].cliente_id);
+  await accesoProyecto(ctx, rows[0].id, rows[0].cliente_id);
   return rows[0];
 }
 
@@ -1478,7 +1577,8 @@ ruta("GET", "/servicios", async (ctx) => {
 ruta("GET", "/clientes/:id/servicios", async (ctx, p, q) => {
   await accesoCliente(ctx, p.id);
   const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
-  const servicios = await Promise.all((await serviciosDelCliente(ctx, p.id)).map(async (s) => {
+  const mio = await deMisProyectos(ctx);
+  const servicios = await Promise.all((await serviciosDelCliente(ctx, p.id)).filter((s) => mio(s.id, p.id)).map(async (s) => {
     const { etapas: _e, ...v } = await servicioVista(ctx, s, periodo);
     return v;
   }));
@@ -1498,8 +1598,10 @@ ruta("GET", "/clientes/:id/servicios", async (ctx, p, q) => {
 ruta("GET", "/clientes/:id/avance", async (ctx, p, q) => {
   await accesoCliente(ctx, p.id);
   const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
-  const servicios = await serviciosDelCliente(ctx, p.id);
-  const cuota = servicios.reduce((t, s) => t + s.entregables.reduce((x, e) => x + e.cantidadMensual, 0), 0);
+  const todosLosServicios = await serviciosDelCliente(ctx, p.id);
+  const mio = await deMisProyectos(ctx);
+  const servicios = todosLosServicios.filter((s) => mio(s.id, p.id));
+  const cuota = todosLosServicios.reduce((t, s) => t + s.entregables.reduce((x, e) => x + e.cantidadMensual, 0), 0);
   const porRevisar = (await ctx.c.query<{ id: string; titulo: string; fecha_programada: Date | null }>(
     "SELECT id, titulo, fecha_programada FROM pieza WHERE cliente_id = $1 AND periodo = $2 AND estado = 'LISTO_REVISION' AND tipo <> 'BLOG' ORDER BY fecha_programada", [p.id, periodo],
   )).rows;
@@ -1515,7 +1617,7 @@ ruta("GET", "/clientes/:id/avance", async (ctx, p, q) => {
 ruta("GET", "/servicios-contratados/:id/avance", async (ctx, p) => avanceServicio(ctx, await buscarServicio(ctx, p.id), PERIODO_ACTUAL()));
 
 ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as Partial<S<"ServicioContratadoEntrada">>;
   const { cat, errores } = validarContratacion(b);
@@ -1626,6 +1728,7 @@ async function buscarEntregable(ctx: Ctx, id: string): Promise<FilaEntregable> {
   const e = (await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.id = $1`, [id])).rows[0];
   if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese entregable");
   await accesoCliente(ctx, e.cliente_id);
+  await accesoProyecto(ctx, e.servicio_contratado_id, e.cliente_id);
   return e;
 }
 
@@ -1636,7 +1739,7 @@ async function entregableDetalleDb(ctx: Ctx, id: string): Promise<S<"EntregableD
     [id],
   )).rows;
   const decisiones = (await ctx.c.query<{ version: number; decision: "APROBADO" | "CAMBIOS_SOLICITADOS"; comentario: string | null; usuario_id: string; usuario_nombre: string; creado_en: Date }>(
-    `SELECT d.*, u.nombre AS usuario_nombre FROM decision_entregable d JOIN usuario u ON u.id = d.usuario_id WHERE d.entregable_id = $1 ORDER BY d.creado_en`,
+    `SELECT d.*, CASE WHEN u.tipo = 'EQUIPO' THEN u.nombre || ' (Inoo), en nombre del cliente' ELSE u.nombre END AS usuario_nombre FROM decision_entregable d JOIN usuario u ON u.id = d.usuario_id WHERE d.entregable_id = $1 ORDER BY d.creado_en`,
     [id],
   )).rows;
   return {
@@ -1654,7 +1757,8 @@ ruta("GET", "/servicios-contratados/:id/entregables", async (ctx, p) => {
 
 ruta("GET", "/clientes/:id/entregables", async (ctx, p, q) => {
   await accesoCliente(ctx, p.id);
-  const { rows } = await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.cliente_id = $1`, [p.id]);
+  const mio = await deMisProyectos(ctx);
+  const rows = (await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.cliente_id = $1`, [p.id])).rows.filter((e) => mio(e.servicio_contratado_id, e.cliente_id));
   const estado = q.get("estado");
   return { datos: ordenarEntregables(rows.map((e) => entregableVistaDb(ctx, e)).filter((e) => !estado || e.estado === estado)) };
 });
@@ -2027,10 +2131,165 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
 // ───────────────────────────────────────────── Jarvis del equipo: áreas, topes y la pasarela a DeepSeek (30 oct)
 // Solo equipo. El consumo se cobra al área de la persona, contra un tope diario y uno mensual por área.
 
-interface FilaPersonaEquipo { id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null; area: Area | null }
-const SELECT_PERSONA_EQUIPO = "SELECT id, nombre, cargo, rol_equipo, area::text AS area FROM usuario";
+interface FilaPersonaEquipo { id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean }
+const COLUMNAS_PERSONA_EQUIPO = "id, nombre, cargo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead";
+const SELECT_PERSONA_EQUIPO = `SELECT ${COLUMNAS_PERSONA_EQUIPO} FROM usuario`;
 const personaEquipoVista = (u: FilaPersonaEquipo): S<"PersonaEquipo"> => ({
   id: u.id, nombre: u.nombre, iniciales: u.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), cargo: u.cargo, rolEquipo: u.rol_equipo, area: u.area,
+  nivel: nivelDe({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso }), nivelPersonalizado: u.nivel_acceso, esLead: u.es_lead,
+});
+
+interface FilaFichaPersona extends FilaPersonaEquipo {
+  email: string; activo: boolean; reporta_a_id: string | null; inoowork_empleado_id: string | null; inoowork_usuario: string | null;
+  inoowork_estado: S<"PersonaEnInooWork">["estado"]; inoowork_error: string | null;
+}
+const COLUMNAS_FICHA_PERSONA = `${COLUMNAS_PERSONA_EQUIPO}, email::text AS email, activo, reporta_a_id, inoowork_empleado_id, inoowork_usuario, inoowork_estado, inoowork_error`;
+const fichaPersonaVista = (u: FilaFichaPersona): S<"FichaPersona"> => ({
+  ...personaEquipoVista(u), correo: u.email, activo: u.activo, reportaAId: u.reporta_a_id,
+  inoowork: { empleadoId: u.inoowork_empleado_id, estado: u.inoowork_estado, error: u.inoowork_error },
+});
+
+/** Manda la persona a InooWork y guarda cómo quedó. Nunca falla: si InooWork no responde, queda PENDIENTE. */
+async function enviarAInooWorkDb(ctx: Ctx, u: FilaFichaPersona, reintento = false): Promise<FilaFichaPersona> {
+  const jefe = u.reporta_a_id
+    ? (await ctx.c.query<{ usuario: string }>("SELECT coalesce(inoowork_usuario, email::text) AS usuario FROM usuario WHERE id = $1", [u.reporta_a_id])).rows[0]?.usuario ?? null
+    : null;
+  const r = await sincronizarPersona({
+    empleadoId: u.inoowork_empleado_id, nombre: u.nombre, correo: u.email, usuarioInooWork: u.inoowork_usuario, supervisorUsername: jefe,
+    cargo: u.cargo, area: u.area, rolEquipo: u.rol_equipo, activo: u.activo,
+  }, reintento);
+  return (await ctx.c.query<FilaFichaPersona>(
+    `UPDATE usuario SET inoowork_empleado_id = $2, inoowork_estado = $3, inoowork_error = $4 WHERE id = $1 RETURNING ${COLUMNAS_FICHA_PERSONA}`,
+    [u.id, r.empleadoId, r.estado, r.error],
+  )).rows[0];
+}
+
+/** Error del jefe elegido para `personaId` (equipo, activo y sin ciclos), o null si sirve. */
+async function errorJefeDb(ctx: Ctx, personaId: string | null, jefeId: string) {
+  if (!esUuid(jefeId)) return "Elige a una persona activa del equipo";
+  const filas = (await ctx.c.query<{ id: string; reporta_a_id: string | null; activo: boolean }>("SELECT id, reporta_a_id, activo FROM usuario WHERE tipo = 'EQUIPO'")).rows;
+  if (!filas.some((x) => x.id === jefeId && x.activo)) return "Elige a una persona activa del equipo";
+  if (!personaId) return null;
+  const jefes = new Map(filas.map((x) => [x.id, x.reporta_a_id]));
+  return errorReportaA(personaId, jefeId, (id) => jefes.get(id) ?? null);
+}
+
+ruta("GET", "/panel/organigrama", async (ctx) => {
+  soloEquipo(ctx);
+  // Si el jefe está desactivado, la persona sube al primer nivel hasta que le asignen otro.
+  const { rows } = await ctx.c.query<FilaPersonaEquipo & { reporta_a_id: string | null }>(
+    `SELECT ${COLUMNAS_PERSONA_EQUIPO.split(", ").map((c) => `u.${c}`).join(", ")}, j.id AS reporta_a_id
+     FROM usuario u LEFT JOIN usuario j ON j.id = u.reporta_a_id AND j.activo WHERE u.tipo = 'EQUIPO' AND u.activo ORDER BY u.nombre`,
+  );
+  return { datos: rows.map((u) => ({ ...personaEquipoVista(u), reportaAId: u.reporta_a_id })) };
+});
+
+const correoEnUso = async (ctx: Ctx, correo: string, salvo: string | null = null) =>
+  (await ctx.c.query("SELECT 1 FROM usuario WHERE email = $1 AND id IS DISTINCT FROM $2", [correo, salvo])).rows.length > 0;
+
+ruta("GET", "/panel/personas", async (ctx) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const { rows } = await ctx.c.query<FilaFichaPersona>(`SELECT ${COLUMNAS_FICHA_PERSONA} FROM usuario WHERE tipo = 'EQUIPO' ORDER BY activo DESC, nombre`);
+  return { datos: rows.map(fichaPersonaVista), inooworkConectado: inooworkConectado() };
+});
+
+ruta("POST", "/panel/personas", async (ctx, _p, _q, cuerpo) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const { errores, persona: n } = validarNuevaPersona(await cuerpo(), esArea);
+  if (!n) validacion(errores);
+  if (await correoEnUso(ctx, n!.correo)) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
+  const jefe = n!.reportaAId ? await errorJefeDb(ctx, null, n!.reportaAId) : null;
+  if (jefe) validacion([{ campo: "reportaAId", mensaje: jefe }]);
+  const u = (await ctx.c.query<FilaFichaPersona>(
+    `INSERT INTO usuario (email, nombre, cargo, tipo, rol_equipo, area, nivel_acceso, es_lead, reporta_a_id)
+     VALUES ($1, $2, $3, 'EQUIPO', $4::rol_equipo, $5::area_equipo, $6::nivel_acceso, $7, $8) RETURNING ${COLUMNAS_FICHA_PERSONA}`,
+    [n!.correo, n!.nombre, n!.cargo, n!.rolEquipo, n!.area, n!.nivel, n!.esLead, n!.reportaAId],
+  )).rows[0];
+  await emitirOutbox(ctx, "equipo.persona_creada", null, { usuarioId: u.id, email: u.email, nombre: u.nombre, origen: "PORTAL", creadoPor: ctx.u.usuarioId });
+  return { __status: 201, ...fichaPersonaVista(await enviarAInooWorkDb(ctx, u)) };
+});
+
+ruta("POST", "/panel/personas/:id/inoowork", async (ctx, p) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const u = (await ctx.c.query<FilaFichaPersona>(`SELECT ${COLUMNAS_FICHA_PERSONA} FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'`, [p.id])).rows[0];
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  return fichaPersonaVista(await enviarAInooWorkDb(ctx, u, true));
+});
+
+/** Personas que llegan de InooWork (n8n o webhook): se aplican sin reenviarlas, así no hay bucles. */
+async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInooWork">>) {
+  let personasCreadas = 0;
+  let personasActualizadas = 0;
+  const empleadosSinCorreo: string[] = [];
+  const desactivada = (u: { id: string; email: string }) => emitirOutbox(ctx, "equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "INOOWORK" });
+  for (const e of b.empleados ?? []) {
+    const correo = correoValidoPersona(e.email) ? e.email.trim().toLowerCase() : null;
+    const u = (await ctx.c.query<FilaFichaPersona & { tipo: string }>(
+      `SELECT ${COLUMNAS_FICHA_PERSONA}, tipo FROM usuario WHERE (tipo = 'EQUIPO' AND inoowork_empleado_id = $1) OR ($2::text IS NOT NULL AND email = $2) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST LIMIT 1`,
+      [e.id, correo],
+    )).rows[0];
+    if (u && u.tipo !== "EQUIPO") continue; // ese correo es de un cliente: no se toca
+    if (u) {
+      const c = cambiosDesdeEmpleado(e, { nombre: u.nombre, correo: u.email, cargo: u.cargo, area: u.area, activo: u.activo });
+      if (c.correo && (await correoEnUso(ctx, c.correo, u.id))) delete c.correo;
+      await ctx.c.query(
+        `UPDATE usuario SET nombre = coalesce($2, nombre), email = coalesce($3, email), cargo = CASE WHEN $4 THEN $5 ELSE cargo END,
+           area = coalesce($6::area_equipo, area), activo = coalesce($7, activo), inoowork_empleado_id = $8, inoowork_usuario = coalesce($9, inoowork_usuario),
+           inoowork_estado = 'SINCRONIZADO', inoowork_error = NULL
+         WHERE id = $1`,
+        [u.id, c.nombre ?? null, c.correo ?? null, c.cargo !== undefined, c.cargo ?? null, c.area ?? null, c.activo ?? null, e.id, e.username ?? null],
+      );
+      if (c.activo === false) await desactivada(u);
+      if (u.inoowork_empleado_id !== e.id || Object.keys(c).length) personasActualizadas++;
+      continue;
+    }
+    if (e.status === "inactive") continue;
+    if (!correo) {
+      empleadosSinCorreo.push(e.id);
+      continue;
+    }
+    const area = areaDeDepartamento(e.department);
+    const rol = e.department?.trim().toLowerCase() === "finanzas" ? "FINANZAS" : area ? ROL_DEL_AREA[area] : ROL_SIN_AREA;
+    const n = (await ctx.c.query<{ id: string }>(
+      `INSERT INTO usuario (email, nombre, cargo, tipo, rol_equipo, area, inoowork_empleado_id, inoowork_usuario, inoowork_estado)
+       VALUES ($1, $2, $3, 'EQUIPO', $4::rol_equipo, $5::area_equipo, $6, $7, 'SINCRONIZADO') RETURNING id`,
+      [correo, e.name.trim(), e.role?.trim() || null, rol, area, e.id, e.username ?? null],
+    )).rows[0];
+    await emitirOutbox(ctx, "equipo.persona_creada", null, { usuarioId: n.id, email: correo, nombre: e.name.trim(), origen: "INOOWORK" });
+    personasCreadas++;
+  }
+  // Jefes, al final: el supervisor puede haber llegado en el mismo envío. Se ignoran los que harían un ciclo.
+  for (const e of b.empleados ?? []) {
+    if (e.supervisorUsername === undefined) continue;
+    const u = (await ctx.c.query<{ id: string; reporta_a_id: string | null }>("SELECT id, reporta_a_id FROM usuario WHERE tipo = 'EQUIPO' AND inoowork_empleado_id = $1", [e.id])).rows[0];
+    if (!u) continue;
+    const sup = e.supervisorUsername?.trim().toLowerCase() || null;
+    const jefe = sup
+      ? (await ctx.c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND (lower(inoowork_usuario) = $1 OR lower(email::text) = $1) LIMIT 1", [sup])).rows[0]?.id ?? null
+      : null;
+    const nuevo = jefe && !(await errorJefeDb(ctx, u.id, jefe)) ? jefe : sup ? u.reporta_a_id : null;
+    if (nuevo !== u.reporta_a_id) await ctx.c.query("UPDATE usuario SET reporta_a_id = $2 WHERE id = $1", [u.id, nuevo]);
+  }
+  for (const id of b.empleadosEliminados ?? []) {
+    const u = (await ctx.c.query<{ id: string; email: string }>(
+      "UPDATE usuario SET activo = false WHERE tipo = 'EQUIPO' AND inoowork_empleado_id = $1 AND activo RETURNING id, email::text", [id],
+    )).rows[0];
+    if (u) {
+      await desactivada(u);
+      personasActualizadas++;
+    }
+  }
+  return { personasCreadas, personasActualizadas, empleadosSinCorreo };
+}
+
+ruta("POST", "/integraciones/inoowork/sincronizacion", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "inoowork:sync");
+  const b = (await cuerpo()) as Partial<S<"SincronizacionInooWork">>;
+  if (b.proyectos?.length || b.tickets?.length) {
+    throw new ErrorApi(501, "RUTA_NO_IMPLEMENTADA", "El backend todavía no sincroniza proyectos ni tickets de InooWork", "Por ahora solo personas (empleados y empleadosEliminados).");
+  }
+  return { hitosActualizados: 0, ticketsActualizados: 0, ...(await sincronizarEmpleadosDb(ctx, b)) };
 });
 
 async function consumoAreaDb(c: Consultor, area: Area, ahora = new Date()) {
@@ -2067,6 +2326,8 @@ const almacenDb: AlmacenPasarela = {
     await c.query("UPDATE llave_jarvis SET ultimo_uso = now() WHERE id = $1", [k.id]);
     return { usuarioId: k.usuario_id, area: k.area };
   }),
+  personaDeSesion: (sesionId, area) => comoSistema(async (c) =>
+    (await c.query<{ usuario_id: string }>("UPDATE sesion_jarvis SET ultimo_uso = now() WHERE sesion_id = $1 AND area = $2 RETURNING usuario_id", [sesionId, area])).rows[0]?.usuario_id ?? null),
   situacion: (area, ahora) => comoSistema((c) => consumoAreaDb(c, area, ahora)),
   registrar: (x) => comoSistema(async (c) => {
     await c.query(
@@ -2080,14 +2341,30 @@ const almacenDb: AlmacenPasarela = {
 ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
   exigirRol(ctx, null, ["ADMIN"]);
   if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
-  const b = (await cuerpo()) as { area?: unknown };
-  if (b.area !== null && !esArea(b.area)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "area", mensaje: `Usa ${AREAS.join(", ")} o null` }]);
-  const u = (await ctx.c.query<FilaPersonaEquipo>(
-    "UPDATE usuario SET area = $2::area_equipo WHERE id = $1 AND tipo = 'EQUIPO' RETURNING id, nombre, cargo, rol_equipo, area::text AS area",
-    [p.id, b.area],
+  const b = (await cuerpo()) as CambioPersona;
+  const errores = validarPersonaEquipo(b, esArea);
+  if (b.activo === false && p.id === ctx.u.usuarioId) errores.push({ campo: "activo", mensaje: "No puedes desactivarte a ti mismo" });
+  const jefe = typeof b.reportaAId === "string" && esUuid(p.id) ? await errorJefeDb(ctx, p.id, b.reportaAId) : null;
+  if (jefe) errores.push({ campo: "reportaAId", mensaje: jefe });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const correo = typeof b.correo === "string" ? b.correo.trim().toLowerCase() : null;
+  if (correo && (await correoEnUso(ctx, correo, p.id))) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
+  const antes = (await ctx.c.query<{ activo: boolean }>("SELECT activo FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [p.id])).rows[0];
+  if (!antes) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const cargo = typeof b.cargo === "string" && b.cargo.trim() ? b.cargo.trim() : null;
+  let u = (await ctx.c.query<FilaFichaPersona>(
+    `UPDATE usuario SET area = CASE WHEN $2 THEN $3::area_equipo ELSE area END, nivel_acceso = CASE WHEN $4 THEN $5::nivel_acceso ELSE nivel_acceso END,
+       es_lead = coalesce($6, es_lead), nombre = coalesce($7, nombre), email = coalesce($8, email), cargo = CASE WHEN $9 THEN $10 ELSE cargo END,
+       rol_equipo = coalesce($11::rol_equipo, rol_equipo), activo = coalesce($12, activo), reporta_a_id = CASE WHEN $13 THEN $14::uuid ELSE reporta_a_id END
+     WHERE id = $1 AND tipo = 'EQUIPO' RETURNING ${COLUMNAS_FICHA_PERSONA}`,
+    [p.id, b.area !== undefined, b.area ?? null, b.nivel !== undefined, b.nivel ?? null, typeof b.esLead === "boolean" ? b.esLead : null,
+      typeof b.nombre === "string" ? b.nombre.trim() : null, correo, b.cargo !== undefined, cargo, b.rolEquipo ?? null, typeof b.activo === "boolean" ? b.activo : null,
+      b.reportaAId !== undefined, (b.reportaAId as string | null | undefined) ?? null],
   )).rows[0];
-  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
-  return personaEquipoVista(u);
+  if (antes.activo && !u.activo) await emitirOutbox(ctx, "equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "PORTAL" });
+  // Lo que InooWork comparte (datos, área y activo) se le manda; nivel y lead son solo del portal.
+  if ((["nombre", "correo", "cargo", "area", "rolEquipo", "activo", "reportaAId"] as const).some((k) => b[k] !== undefined)) u = await enviarAInooWorkDb(ctx, u);
+  return fichaPersonaVista(u);
 });
 
 ruta("GET", "/panel/ia-equipo", async (ctx) => {
@@ -2162,7 +2439,7 @@ const SELECT_BOT = `SELECT b.id, b.area::text AS area, b.nombre, b.color, b.form
   u.email::text AS cp_email, b.creado_en, b.actualizado_en, b.ultimo_uso FROM bot_jarvis b JOIN usuario u ON u.id = b.creado_por`;
 const botVistaDb = (ctx: Ctx, b: FilaBot): S<"BotJarvis"> => ({
   id: b.id, nombre: b.nombre, color: b.color, forma: b.forma, instrucciones: b.instrucciones, creadoPor: { id: b.creado_por, nombre: b.cp_nombre, cargo: b.cp_cargo, email: b.cp_email },
-  creadoEn: iso(b.creado_en)!, actualizadoEn: iso(b.actualizado_en)!, ultimoUso: iso(b.ultimo_uso), puedeEditar: b.creado_por === ctx.u.usuarioId || ctx.u.rolEquipo === "ADMIN",
+  creadoEn: iso(b.creado_en)!, actualizadoEn: iso(b.actualizado_en)!, ultimoUso: iso(b.ultimo_uso), puedeEditar: b.creado_por === ctx.u.usuarioId || ctx.u.nivelAcceso === "ADMIN" || (!!ctx.u.esLead && ctx.u.area === b.area),
 });
 const miArea = async (ctx: Ctx) => (await ctx.c.query<{ area: Area | null }>("SELECT area::text AS area FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0]?.area ?? null;
 /** Un bot de mi área (404 si es de otra: no se distingue de uno que no existe). */
@@ -2173,8 +2450,9 @@ async function botDeMiAreaDb(ctx: Ctx, id: string) {
   if (!b) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
   return b;
 }
+const puedeEditarBotDb = (ctx: Ctx, b: FilaBot) => b.creado_por === ctx.u.usuarioId || ctx.u.nivelAcceso === "ADMIN" || (!!ctx.u.esLead && ctx.u.area === b.area);
 function exigirEditarBotDb(ctx: Ctx, b: FilaBot) {
-  if (b.creado_por !== ctx.u.usuarioId && ctx.u.rolEquipo !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
+  if (!puedeEditarBotDb(ctx, b)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
 }
 
 ruta("GET", "/jarvis/bots", async (ctx) => {
@@ -2230,8 +2508,130 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
+  // La conversación es de quien la empezó: así la pasarela le cobra a esa persona.
+  const sesion = (await ctx.c.query<{ usuario_id: string }>(
+    `INSERT INTO sesion_jarvis (sesion_id, usuario_id, bot_id, area) VALUES ($1, $2, $3, $4::area_equipo)
+     ON CONFLICT (sesion_id) DO UPDATE SET ultimo_uso = now() RETURNING usuario_id`,
+    [b.sesionId, ctx.u.usuarioId, bot.id, bot.area],
+  )).rows[0];
+  if (sesion.usuario_id !== ctx.u.usuarioId) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otra persona", "Empieza una conversación nueva.");
   await ctx.c.query("UPDATE bot_jarvis SET ultimo_uso = now() WHERE id = $1", [bot.id]);
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId });
+  // El bot puede reescribir su trabajo (solo si quien chatea podría editarlo). Se guarda al terminar el
+  // streaming, cuando la transacción de esta solicitud ya cerró: por eso va aparte.
+  const alActualizarTrabajo = puedeEditarBotDb(ctx, bot)
+    ? (nuevo: string) => comoSistema(async (c) => {
+        const anterior = (await c.query<{ instrucciones: string }>("SELECT instrucciones FROM bot_jarvis WHERE id = $1", [bot.id])).rows[0]?.instrucciones;
+        if (anterior === undefined) return null;
+        await c.query("UPDATE bot_jarvis SET instrucciones = $2, actualizado_en = now() WHERE id = $1", [bot.id, nuevo]);
+        return { anterior };
+      })
+    : undefined;
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId, alActualizarTrabajo });
+});
+
+// ───────────────────────────────────────────── accesos del equipo (2 nov)
+
+/** Quien llama, para las reglas de accesos (área, nivel efectivo y lead vienen de la autenticación). */
+const yoDb = (ctx: Ctx) => ({ id: ctx.u.usuarioId, rolEquipo: ctx.u.rolEquipo, area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead });
+
+function accesoPersonaVistaDb(ctx: Ctx, u: FilaPersonaEquipo, origen: "ASIGNADO" | "AM" | "RESPONSABLE"): S<"AccesoPersona"> {
+  return { persona: personaEquipoVista(u), origen, puedeQuitar: origen === "ASIGNADO" && !ctx.esServicio && puedeAsignar(yoDb(ctx), u) };
+}
+/** Valida a quién se asigna: del equipo y que quien asigna pueda (nivel ADMIN o lead de su área). */
+async function personaAsignableDb(ctx: Ctx, cuerpo: () => Promise<unknown>, nivel: "CUENTA" | "PROYECTO") {
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as { usuarioId?: unknown };
+  const u = typeof b.usuarioId === "string" && esUuid(b.usuarioId)
+    ? (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE id = $1 AND tipo = 'EQUIPO' AND activo`, [b.usuarioId])).rows[0]
+    : undefined;
+  if (!u) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "usuarioId", mensaje: "Elige a alguien del equipo" }]);
+  if (ctx.esServicio || !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona la puede asignar");
+  if (nivel === "CUENTA" && nivelDe({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso }) !== "CUENTA") {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "usuarioId", mensaje: "Las cuentas se asignan a gente de nivel por cuenta (CRM o Comercial); el resto va a los proyectos" }]);
+  }
+  return u;
+}
+
+ruta("GET", "/clientes/:id/accesos", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  const am = (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE id = (SELECT account_manager_id FROM cliente WHERE id = $1)`, [p.id])).rows[0];
+  const asignados = (await ctx.c.query<FilaPersonaEquipo>(
+    `SELECT ${COLUMNAS_PERSONA_EQUIPO.split(", ").map((c) => `u.${c}`).join(", ")} FROM acceso_cuenta a JOIN usuario u ON u.id = a.usuario_id WHERE a.cliente_id = $1 ORDER BY u.nombre`, [p.id],
+  )).rows.filter((u) => u.id !== am?.id);
+  return {
+    datos: [...(am ? [accesoPersonaVistaDb(ctx, am, "AM")] : []), ...asignados.map((u) => accesoPersonaVistaDb(ctx, u, "ASIGNADO"))],
+    puedeAsignar: !ctx.esServicio && (ctx.u.nivelAcceso === "ADMIN" || (!!ctx.u.esLead && ctx.u.nivelAcceso === "CUENTA")),
+  };
+});
+
+ruta("POST", "/clientes/:id/accesos", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  const u = await personaAsignableDb(ctx, cuerpo, "CUENTA");
+  await ctx.c.query("INSERT INTO acceso_cuenta (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [u.id, p.id, ctx.u.usuarioId]);
+  const esAm = (await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1 AND account_manager_id = $2", [p.id, u.id])).rows.length > 0;
+  return { __status: 201, ...accesoPersonaVistaDb(ctx, u, esAm ? "AM" : "ASIGNADO") };
+});
+
+ruta("DELETE", "/clientes/:id/accesos/:usuario", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  const u = esUuid(p.usuario)
+    ? (await ctx.c.query<FilaPersonaEquipo>(`SELECT ${COLUMNAS_PERSONA_EQUIPO.split(", ").map((c) => `u.${c}`).join(", ")} FROM acceso_cuenta a JOIN usuario u ON u.id = a.usuario_id WHERE a.cliente_id = $1 AND a.usuario_id = $2`, [p.id, p.usuario])).rows[0]
+    : undefined;
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso asignado a la cuenta");
+  if (ctx.esServicio || !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona le puede quitar el acceso");
+  await ctx.c.query("DELETE FROM acceso_cuenta WHERE cliente_id = $1 AND usuario_id = $2", [p.id, u.id]);
+  return null;
+});
+
+ruta("GET", "/clientes/:id/marca", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const c = (await ctx.c.query<{ nombre: string; marca: Record<string, any>; tono: Record<string, any>; publico: Record<string, any> }>(
+    "SELECT nombre, marca, tono, publico FROM cliente WHERE id = $1", [p.id],
+  )).rows[0];
+  const mio = await deMisProyectos(ctx);
+  const proyectos = (await serviciosDelCliente(ctx, p.id)).filter((x) => mio(x.id, p.id));
+  return {
+    clienteId: p.id, nombre: c.nombre, mensajeCentral: c.marca?.mensajeCentral ?? null, campanaActual: c.marca?.campanaActual ?? null, descripcion: c.marca?.descripcion ?? null,
+    tono: c.tono?.etiquetas ?? [], publico: c.publico?.descripcion ?? null,
+    proyectos: proyectos.map((x) => ({ servicioContratadoId: x.id, titulo: tituloServicio(x.nombre, x.marca ?? x.cliente_nombre) })),
+  } satisfies S<"PerfilMarca">;
+});
+
+ruta("GET", "/servicios-contratados/:id/miembros", async (ctx, p) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const responsable = sc.responsable_id ? (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE id = $1`, [sc.responsable_id])).rows[0] : undefined;
+  const asignados = (await ctx.c.query<FilaPersonaEquipo>(
+    `SELECT ${COLUMNAS_PERSONA_EQUIPO.split(", ").map((c) => `u.${c}`).join(", ")} FROM miembro_proyecto m JOIN usuario u ON u.id = m.usuario_id WHERE m.servicio_contratado_id = $1 ORDER BY u.nombre`, [sc.id],
+  )).rows.filter((u) => u.id !== responsable?.id);
+  return {
+    datos: [...(responsable ? [accesoPersonaVistaDb(ctx, responsable, "RESPONSABLE")] : []), ...asignados.map((u) => accesoPersonaVistaDb(ctx, u, "ASIGNADO"))],
+    puedeAsignar: !ctx.esServicio && (ctx.u.nivelAcceso === "ADMIN" || !!ctx.u.esLead),
+  };
+});
+
+ruta("POST", "/servicios-contratados/:id/miembros", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const u = await personaAsignableDb(ctx, cuerpo, "PROYECTO");
+  await ctx.c.query("INSERT INTO miembro_proyecto (usuario_id, servicio_contratado_id, asignado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [u.id, sc.id, ctx.u.usuarioId]);
+  return { __status: 201, ...accesoPersonaVistaDb(ctx, u, sc.responsable_id === u.id ? "RESPONSABLE" : "ASIGNADO") };
+});
+
+ruta("DELETE", "/servicios-contratados/:id/miembros/:usuario", async (ctx, p) => {
+  soloEquipo(ctx);
+  const sc = await buscarServicio(ctx, p.id);
+  const u = esUuid(p.usuario)
+    ? (await ctx.c.query<FilaPersonaEquipo>(`SELECT ${COLUMNAS_PERSONA_EQUIPO.split(", ").map((c) => `u.${c}`).join(", ")} FROM miembro_proyecto m JOIN usuario u ON u.id = m.usuario_id WHERE m.servicio_contratado_id = $1 AND m.usuario_id = $2`, [sc.id, p.usuario])).rows[0]
+    : undefined;
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no está asignada al proyecto");
+  if (ctx.esServicio || !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona la puede quitar");
+  await ctx.c.query("DELETE FROM miembro_proyecto WHERE servicio_contratado_id = $1 AND usuario_id = $2", [sc.id, u.id]);
+  return null;
 });
 
 // ───────────────────────────────────────────── calendario del colaborador (2 nov 2026)
@@ -2270,12 +2670,20 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   const hasta = q.get("hasta");
   const errores = validarRango(desde, hasta);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  const yo = ctx.u.usuarioId;
+  const pedido = q.get("usuarioId");
+  let yo = ctx.u.usuarioId;
+  if (pedido && pedido !== yo) {
+    const otro = (await ctx.c.query<{ id: string; area: Area | null }>("SELECT id, area::text AS area FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [esUuid(pedido) ? pedido : null])).rows[0];
+    if (!otro || !puedeSupervisar(yoDb(ctx), otro)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+    yo = otro.id;
+  }
+  const otro = yo !== ctx.u.usuarioId;
   const hoy = HOY_LIMA();
-  // Mis proyectos: donde soy responsable o tengo tareas.
+  // Mis proyectos: asignados, donde soy responsable o tengo tareas.
   const proyectos = new Map((await ctx.c.query<{ id: string; nombre: string; marca: string | null; cliente_nombre: string }>(
     `SELECT sc.id, s.nombre, sc.marca, c.nombre AS cliente_nombre FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id JOIN cliente c ON c.id = sc.cliente_id
-     WHERE sc.responsable_id = $1 OR sc.id IN (SELECT servicio_contratado_id FROM tarea WHERE responsable_id = $1)`, [yo],
+     WHERE sc.responsable_id = $1 OR sc.id IN (SELECT servicio_contratado_id FROM tarea WHERE responsable_id = $1)
+        OR sc.id IN (SELECT servicio_contratado_id FROM miembro_proyecto WHERE usuario_id = $1)`, [yo],
   )).rows.map((p) => [p.id, tituloServicio(p.nombre, p.marca ?? p.cliente_nombre)]));
   const ids = `{${[...proyectos.keys()].join(",")}}`;
   const enlace = (scId: string) => `/equipo/proyectos/${scId}`;
@@ -2322,7 +2730,7 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
     `${SELECT_EVENTO_AGENDA} WHERE e.fecha BETWEEN $2 AND $3 AND (e.creado_por = $1 OR e.id IN (SELECT evento_id FROM evento_agenda_invitado WHERE usuario_id = $1))`,
     [yo, desde, hasta],
   );
-  eventos.push(...propios.rows.map((e) => eventoPropioVistaDb(ctx, e)));
+  eventos.push(...propios.rows.filter((e) => !(otro && e.tipo === "PENDIENTE")).map((e) => eventoPropioVistaDb(ctx, e)));
   return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: await conexionGoogleDb(ctx) } satisfies S<"Agenda">;
 });
 
@@ -2456,10 +2864,10 @@ ruta("GET", "/servicios-contratados/:id/reporte", async (ctx, p) => {
 ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const quien = q.get("usuarioId") ?? ctx.u.usuarioId;
-  const persona = (await ctx.c.query<{ id: string; nombre: string; cargo: string | null; email: string }>(
-    "SELECT id, nombre, cargo, email::text FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [esUuid(quien) ? quien : null],
+  const persona = (await ctx.c.query<{ id: string; nombre: string; cargo: string | null; email: string; area: Area | null }>(
+    "SELECT id, nombre, cargo, email::text, area::text AS area FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [esUuid(quien) ? quien : null],
   )).rows[0];
-  if (!persona) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  if (!persona || (!ctx.esServicio && !puedeSupervisar(yoDb(ctx), persona))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const hoy = HOY_LIMA();
   const tareas = ordenarTareas((await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.responsable_id = $1 AND t.estado <> 'HECHA'`, [quien])).rows.map(tareaVistaDb));
   const suyos = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.responsable_id = $1 ORDER BY c.nombre, s.orden`, [quien])).rows;
@@ -2480,8 +2888,18 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   const rebotes = activos.length
     ? (await ctx.c.query<{ n: number }>("SELECT coalesce(sum(rebotes), 0)::int AS n FROM entregable WHERE servicio_contratado_id = ANY($1::uuid[])", [`{${activos.map((s) => s.id).join(",")}}`])).rows[0].n
     : 0;
+  const lidera = quien === ctx.u.usuarioId && !!ctx.u.area && (!!ctx.u.esLead || ctx.u.nivelAcceso === "ADMIN");
+  let miArea: S<"PanelColaborador">["miArea"] = null;
+  if (lidera) {
+    const gente = (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE tipo = 'EQUIPO' AND activo AND area = $1 AND id <> $2 ORDER BY nombre`, [ctx.u.area, ctx.u.usuarioId])).rows;
+    miArea = [];
+    for (const g of gente) {
+      const suyas = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.responsable_id = $1 AND t.estado <> 'HECHA'`, [g.id])).rows.map(tareaVistaDb);
+      miArea.push({ persona: personaEquipoVista(g), tareasAbiertas: suyas.length, tareasVencidas: suyas.filter((t) => t.vencida).length, proyectos: (await proyectosDePersonaDb(ctx.c, g.id)).length });
+    }
+  }
   return {
-    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, tareas, proyectos,
+    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, miArea, tareas, proyectos,
     resumen: {
       tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length,
       proyectosCerrados: suyos.length - activos.length, rebotes, conRetraso,
@@ -2499,7 +2917,8 @@ ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const periodo = PERIODO_ACTUAL();
   const hoy = HOY_LIMA();
-  const servicios = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.estado <> 'FINALIZADO' ORDER BY c.nombre, s.orden, sc.fecha_inicio`)).rows;
+  const mio = await deMisProyectos(ctx);
+  const servicios = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.estado <> 'FINALIZADO' ORDER BY c.nombre, s.orden, sc.fecha_inicio`)).rows.filter((x) => mio(x.id, x.cliente_id));
   const am = new Map((await ctx.c.query<{ id: string; am_id: string | null; am_nombre: string | null }>(
     "SELECT c.id, u.id AS am_id, u.nombre AS am_nombre FROM cliente c LEFT JOIN usuario u ON u.id = c.account_manager_id",
   )).rows.map((r) => [r.id, r.am_id ? { id: r.am_id, nombre: r.am_nombre ?? "" } : null]));
@@ -2577,6 +2996,7 @@ async function buscarTarea(ctx: Ctx, id: string): Promise<FilaTarea> {
   if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
   const t = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.id = $1`, [id])).rows[0];
   if (!t) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa tarea");
+  await accesoProyecto(ctx, t.servicio_contratado_id, t.cliente_id);
   return t;
 }
 
@@ -2769,6 +3189,48 @@ ruta("GET", "/servicios-contratados/:id/reuniones", async (ctx, p) => {
   return { datos: rows.map(reunionVistaDb) };
 });
 
+// Cierre de proyecto (fase 17): lo que falta y, al cerrar, FINALIZADO con el mensaje para el cliente.
+async function vistaCierreDb(ctx: Ctx, id: string, estado: string): Promise<S<"CierreProyecto">> {
+  const r = (await ctx.c.query<{ etapas: number; tareas: number; entregables: number; requerimientos: number }>(
+    `SELECT (SELECT count(*)::int FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND periodo IS NULL AND estado <> 'COMPLETADO') AS etapas,
+            (SELECT count(*)::int FROM tarea WHERE servicio_contratado_id = $1 AND estado <> 'HECHA') AS tareas,
+            (SELECT count(*)::int FROM entregable WHERE servicio_contratado_id = $1 AND estado <> 'APROBADO') AS entregables,
+            (SELECT count(*)::int FROM requerimiento WHERE servicio_contratado_id = $1 AND estado IN ('PENDIENTE', 'OBSERVADO')) AS requerimientos`,
+    [id],
+  )).rows[0];
+  const pendientes: PendientesCierre = { etapas: r.etapas, tareas: r.tareas, entregables: r.entregables, requerimientos: r.requerimientos };
+  return { cerrado: estado === "FINALIZADO", listo: listoParaCerrar(pendientes), pendientes };
+}
+ruta("GET", "/servicios-contratados/:id/cierre", async (ctx, p) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  return vistaCierreDb(ctx, s.id, s.estado);
+});
+ruta("POST", "/servicios-contratados/:id/cierre", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { mensaje?: unknown; forzar?: unknown };
+  validacion(validarCierre(b));
+  if (s.estado === "FINALIZADO") throw new ErrorApi(409, "YA_CERRADO", "El proyecto ya está cerrado");
+  if (!(await vistaCierreDb(ctx, s.id, s.estado)).listo && b.forzar !== true) throw new ErrorApi(409, "CIERRE_CON_PENDIENTES", "Quedan pendientes en el proyecto", "Revísalos o confirma que quieres cerrarlo igual.");
+  const mensaje = (b.mensaje as string).trim();
+  await ctx.c.query(
+    "UPDATE servicio_contratado SET estado = 'FINALIZADO', standby_desde = NULL, siguiente_paso = $2, fecha_fin = coalesce(fecha_fin, $3::date) WHERE id = $1",
+    [s.id, mensaje, HOY_LIMA()],
+  );
+  await emitirOutbox(ctx, "servicio.cerrado", s.cliente_id, { servicioContratadoId: s.id, mensaje, cerradoPor: ctx.u.usuarioId, conPendientes: b.forzar === true });
+  return vistaCierreDb(ctx, s.id, "FINALIZADO");
+});
+
+// Fase 18: resumen de la reunión desde la transcripción (no guarda nada; se revisa y se cierra la reunión).
+ruta("POST", "/servicios-contratados/:id/reuniones/propuesta", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { transcripcion?: unknown };
+  validacion(validarTranscripcion(b.transcripcion));
+  return proponerResumen(almacenDb, { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (b.transcripcion as string).trim());
+});
+
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
@@ -2896,13 +3358,13 @@ async function estadoPagoDb(ctx: Ctx, clienteId: string): Promise<S<"EstadoPago"
 }
 
 ruta("GET", "/clientes/:id/estado-pago", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
   return estadoPagoDb(ctx, p.id);
 });
 
 ruta("PUT", "/clientes/:id/estado-pago", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ADMIN", "FINANZAS"]);
   const b = (await cuerpo()) as { situacion?: SituacionPago; atrasadoDesde?: string; nota?: string | null };
   validacion(validarEstadoPago(b, HOY_LIMA()));
@@ -3001,7 +3463,7 @@ interface FilaReq {
 }
 const SELECT_REQ = `
   SELECT r.*, pr.descripcion AS plantilla_descripcion, s.nombre AS servicio_nombre, sc.marca AS servicio_marca, c.nombre AS cliente_nombre,
-         ue.nombre AS enviado_por_nombre, uc.nombre AS creado_por_nombre
+         CASE WHEN ue.tipo = 'EQUIPO' THEN ue.nombre || ' (Inoo), en nombre del cliente' ELSE ue.nombre END AS enviado_por_nombre, uc.nombre AS creado_por_nombre
   FROM requerimiento r
   JOIN servicio_contratado sc ON sc.id = r.servicio_contratado_id
   JOIN servicio s ON s.id = sc.servicio_id
@@ -3031,6 +3493,7 @@ async function buscarReq(ctx: Ctx, id: string, bloquear = false): Promise<FilaRe
   const { rows } = await ctx.c.query<FilaReq>(`${SELECT_REQ} WHERE r.id = $1${bloquear ? " FOR UPDATE OF r" : ""}`, [id]);
   if (!rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
   await accesoCliente(ctx, rows[0].cliente_id);
+  if (!(await deMisProyectos(ctx))(rows[0].servicio_contratado_id, rows[0].cliente_id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese requerimiento");
   return rows[0];
 }
 
@@ -3072,7 +3535,8 @@ ruta("GET", "/clientes/:id/requerimientos", async (ctx, p, q) => {
     p.id, sc && esUuid(sc) ? sc : null,
   ]);
   const dias = await noHabilesDb(ctx);
-  const xs = rows.map((r) => reqVista(r, dias));
+  const mio = await deMisProyectos(ctx);
+  const xs = rows.filter((r) => mio(r.servicio_contratado_id, r.cliente_id)).map((r) => reqVista(r, dias));
   const abiertos = xs.filter((r) => pendienteParaCliente(r.estado));
   const resto = xs.filter((r) => !pendienteParaCliente(r.estado)).sort((a, b) => b.emitidoEn.localeCompare(a.emitidoEn));
   return { datos: [...abiertos, ...resto], pendientes: abiertos.length, atrasados: abiertos.filter((r) => r.diasAtraso > 0).length };
@@ -3179,6 +3643,43 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
 });
 
 // n8n, una vez al día: corre el cronograma por los requerimientos vencidos y pide el correo de aviso.
+// Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.
+ruta("POST", "/integraciones/recordatorios", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "recordatorios:write");
+  const b = (await cuerpo()) as { fecha?: unknown };
+  const hoy = typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? b.fecha : HOY_LIMA();
+  const v = ventanaRecordatorio(hoy, await noHabilesDb(ctx));
+  const nuevo = async (clave: string) => (await ctx.c.query("INSERT INTO recordatorio_enviado (clave) VALUES ($1) ON CONFLICT DO NOTHING RETURNING clave", [clave])).rows.length === 1;
+  let tareas = 0;
+  let requerimientos = 0;
+  let reuniones = 0;
+  const ts = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; cliente_id: string; responsable_id: string; fecha: string }>(
+    `SELECT id, titulo, servicio_contratado_id, cliente_id, responsable_id, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha
+     FROM tarea WHERE estado <> 'HECHA' AND responsable_id IS NOT NULL AND fecha_limite > $1::date AND fecha_limite <= $2::date`, [v.desde, v.hasta]);
+  for (const t of ts.rows) {
+    if (!(await nuevo(claveRecordatorio("tarea.por_vencer", t.id, t.fecha)))) continue;
+    await emitirOutbox(ctx, "tarea.por_vencer", t.cliente_id, { tareaId: t.id, titulo: t.titulo, servicioContratadoId: t.servicio_contratado_id, responsableId: t.responsable_id, fechaLimite: t.fecha });
+    tareas++;
+  }
+  const rs = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; cliente_id: string; fecha: string }>(
+    `SELECT id, titulo, servicio_contratado_id, cliente_id, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha
+     FROM requerimiento WHERE estado IN ('PENDIENTE', 'OBSERVADO') AND fecha_limite > $1::date AND fecha_limite <= $2::date`, [v.desde, v.hasta]);
+  for (const r of rs.rows) {
+    if (!(await nuevo(claveRecordatorio("requerimiento.por_vencer", r.id, r.fecha)))) continue;
+    await emitirOutbox(ctx, "requerimiento.por_vencer", r.cliente_id, { requerimientoId: r.id, titulo: r.titulo, servicioContratadoId: r.servicio_contratado_id, fechaLimite: r.fecha });
+    requerimientos++;
+  }
+  const us = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; cliente_id: string; fecha: Date; dia: string }>(
+    `SELECT id, titulo, servicio_contratado_id, cliente_id, fecha, to_char(fecha AT TIME ZONE 'America/Lima', 'YYYY-MM-DD') AS dia
+     FROM reunion WHERE estado = 'PROGRAMADA' AND (fecha AT TIME ZONE 'America/Lima')::date > $1::date AND (fecha AT TIME ZONE 'America/Lima')::date <= $2::date`, [v.desde, v.hasta]);
+  for (const r of us.rows) {
+    if (!(await nuevo(claveRecordatorio("reunion.proxima", r.id, r.dia)))) continue;
+    await emitirOutbox(ctx, "reunion.proxima", r.cliente_id, { reunionId: r.id, titulo: r.titulo, servicioContratadoId: r.servicio_contratado_id, fecha: iso(r.fecha) });
+    reuniones++;
+  }
+  return { tareas, requerimientos, reuniones };
+});
+
 ruta("POST", "/integraciones/requerimientos/atrasos", async (ctx) => {
   soloServicio(ctx, "requerimientos:write");
   const hoy = HOY_LIMA();
@@ -3283,14 +3784,14 @@ const solicitudVista = (x: FilaSolicitud): S<"SolicitudResponsable"> => ({
 
 // Usuarios del cliente (solo lectura para el cliente; los gestiona el equipo).
 ruta("GET", "/clientes/:id/miembros", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
   const { rows } = await ctx.c.query<S<"Miembro">>(`${SELECT_MIEMBRO} WHERE m.cliente_id = $1 ORDER BY m.creado_en, m.rol, u.nombre`, [p.id]);
   return { datos: rows };
 });
 
 ruta("GET", "/clientes/:id/cambio-responsable", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["EQUIPO", "ADMIN_CLIENTE"]);
   const r = (await ctx.c.query<{ id: string | null; nombre: string | null; cargo: string | null; email: string | null }>(
     "SELECT u.id, u.nombre, u.cargo, u.email::text AS email FROM cliente c LEFT JOIN usuario u ON u.id = c.contacto_principal_id WHERE c.id = $1", [p.id],
@@ -3300,7 +3801,7 @@ ruta("GET", "/clientes/:id/cambio-responsable", async (ctx, p) => {
 });
 
 ruta("POST", "/clientes/:id/cambio-responsable", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Lo pide quien administra la cuenta del cliente");
   exigirRol(ctx, p.id, ["ADMIN_CLIENTE"]);
   const b = (await cuerpo()) as { nombre?: string; email?: string; telefono?: string; cargo?: string; motivo?: string; quitarAccesoAnterior?: boolean };
@@ -3439,6 +3940,14 @@ async function invitarMiembro(ctx: Ctx, clienteId: string, usuarioId: string, ro
   await emitirOutbox(ctx, "miembro.invitado", clienteId, { usuarioId, email: u.email, nombre: u.nombre, rol, invitadoPor: ctx.u.usuarioId });
 }
 
+// Fase 17: Comercial pega la transcripción de la venta y el portal propone el alta (no guarda nada).
+ruta("POST", "/clientes/propuesta-desde-transcripcion", async (ctx, _p, _q, cuerpo) => {
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const b = (await cuerpo()) as { transcripcion?: unknown };
+  validacion(validarTranscripcion(b.transcripcion));
+  return proponerAlta(almacenDb, { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (b.transcripcion as string).trim());
+});
+
 ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as S<"ClienteEntrada">;
@@ -3455,7 +3964,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
     validacion(errores.map((e) => ({ ...e, campo: `contacto.${e.campo}` })));
   }
   const contactoId = k ? await usuarioCliente(ctx, k.email.trim().toLowerCase(), k.nombre.trim(), k.cargo?.trim() || null) : b.contactoPrincipalId ?? null;
-  const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" ? ctx.u.usuarioId : null);
+  const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" || ctx.u.nivelAcceso === "CUENTA" ? ctx.u.usuarioId : null);
   const id = (await ctx.c.query<{ id: string }>(
     `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario, ingreso)
      VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
@@ -3475,7 +3984,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
 const registroIngreso = (ctx: Ctx, respuestas: Record<string, unknown>) => ({ respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.esServicio ? null : ctx.u.usuarioId });
 
 ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as S<"ClienteEntrada"> & { driveUrl?: string; driveCarpetaId?: string };
   await validarClienteEntrada(ctx, b, false);
@@ -3532,7 +4041,7 @@ async function protegerUltimoAdmin(ctx: Ctx, clienteId: string, usuarioId: strin
 }
 
 ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as { email?: string; nombre?: string; rol?: string };
   const errores: { campo: string; mensaje: string }[] = [];
@@ -3549,7 +4058,7 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, cuerpo) => {
 });
 
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as { rol?: string };
   if (!b.rol || !ROLES_CLIENTE.includes(b.rol)) validacion([{ campo: "rol", mensaje: "Elige un rol" }]);
@@ -3560,7 +4069,7 @@ ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, cuerpo) => {
 });
 
 ruta("DELETE", "/clientes/:id/miembros/:usuario", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
   await buscarMiembro(ctx, p.id, p.usuario);
   await protegerUltimoAdmin(ctx, p.id, p.usuario);
@@ -3581,7 +4090,7 @@ const ESTADO_LEGIBLE: Record<Estado, string> = {
 
 ruta("GET", "/clientes/:id/actividad", async (ctx, p) => {
   soloEquipo(ctx);
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const { rows } = await ctx.c.query<{ tipo: "EVENTO" | "VERSION"; fecha: Date; pieza_id: string; titulo: string; version_actual: number; estado: Estado | null; version: number | null; usuario: string | null; usuario_tipo: string | null; agente: string | null }>(
     `SELECT * FROM (
        SELECT 'EVENTO' AS tipo, e.creado_en AS fecha, p.id AS pieza_id, p.titulo, p.version_actual, e.a_estado AS estado, e.version,
@@ -3726,7 +4235,7 @@ const redondear = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
 interface FilaPanelDb {
   id: string; nombre: string; slug: string; estado: S<"EstadoCliente">; contacto: string | null; am: string | null; am_id: string | null;
-  limite: string; umbral: number; gasto: string; atrasadas: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
+  limite: string; umbral: number; gasto: string; atrasadas: number; proyectos_activos: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
 }
 
 /** Una fila por cliente (sin los dados de baja): atrasos, aprobaciones, tickets y gasto de IA del mes. */
@@ -3737,6 +4246,7 @@ async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelClien
             coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.cliente_id = c.id
                       AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1), 0) AS gasto,
             (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado <> 'PUBLICADO' AND p.fecha_programada < now()) AS atrasadas,
+            (SELECT count(*)::int FROM servicio_contratado sc WHERE sc.cliente_id = c.id AND sc.estado <> 'FINALIZADO') AS proyectos_activos,
             (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG') AS por_aprobar,
             (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')) AS tickets_abiertos,
             (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')
@@ -3755,6 +4265,7 @@ async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelClien
       cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: c.estado, logoUrl: null },
       contactoPrincipalNombre: c.contacto,
       accountManagerNombre: c.am,
+      proyectosActivos: c.proyectos_activos,
       amId: c.am_id,
       estadoOperativo: c.atrasadas > 0 ? "ATENCION" : c.por_aprobar === 0 ? "AL_DIA" : "EN_CURSO",
       atrasadas: c.atrasadas,
@@ -3779,7 +4290,9 @@ function filtrarPanel<T extends S<"FilaPanelCliente"> & { amId: string | null }>
 ruta("GET", "/panel/clientes", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const periodo = exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL());
-  const todas = await filasPanel(ctx, periodo);
+  // 2 nov: cada uno ve sus cuentas; el nivel ADMIN, todas.
+  const a = await alcanceDb(ctx);
+  const todas = (await filasPanel(ctx, periodo)).filter((f) => veCuenta(a, f.cliente.id));
   const gasto = redondear(todas.reduce((t, f) => t + f.gastoIa.gastoUsd, 0));
   const limite = todas.reduce((t, f) => t + f.gastoIa.limiteUsd, 0);
   // Reunión 15 oct: el panel mira proyectos (etapas atrasadas) y requerimientos, no solo piezas.
@@ -3851,6 +4364,8 @@ ruta("GET", "/panel/piezas", async (ctx, _p, q) => {
      ${filtros.length ? `WHERE ${filtros.join(" AND ")}` : ""} ORDER BY p.fecha_programada NULLS LAST, p.titulo`,
     params,
   );
+  const mio = await deMisProyectos(ctx);
+  rows.splice(0, rows.length, ...rows.filter((x) => mio(x.servicio_contratado_id, x.cliente_id)));
   const ahora = Date.now();
   const atrasada = (x: FilaPieza) => x.estado !== "PUBLICADO" && !!x.fecha_programada && new Date(x.fecha_programada).getTime() < ahora;
   const porColumna = Math.min(Math.max(Number(q.get("porColumna") ?? 10) || 10, 1), 50);
@@ -4147,7 +4662,7 @@ ruta("GET", "/piezas/:id/descarga", async (ctx, p, q) => {
 });
 
 ruta("GET", "/clientes/:id/plan/contrato", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const { rows } = await ctx.c.query<FilaArchivo>(
     "SELECT a.* FROM plan_cliente pl JOIN archivo a ON a.id = pl.contrato_archivo_id AND a.estado <> 'ELIMINADO' WHERE pl.cliente_id = $1 AND pl.vigente",
     [p.id],
@@ -4175,7 +4690,7 @@ function mesAnterior(f: string) {
 const variacion = (actual: number, antes: number) => (antes > 0 ? Math.round(((actual - antes) / antes) * 1000) / 10 : null);
 
 ruta("GET", "/clientes/:id/reportes/resultados", async (ctx, p, q) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const hoy = HOY_LIMA();
   const fechaOk = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
   const hasta = fechaOk(q.get("hasta")) ?? hoy;
@@ -4243,7 +4758,7 @@ ruta("GET", "/clientes/:id/reportes/resultados", async (ctx, p, q) => {
 });
 
 ruta("GET", "/clientes/:id/reportes/informe", async (ctx, p, q) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const periodo = exigirPeriodo(q.get("periodo"));
   const { rows } = await ctx.c.query<FilaArchivo>(
     `SELECT a.* FROM resumen_resultados r JOIN archivo a ON a.id = r.informe_archivo_id AND a.estado <> 'ELIMINADO'
@@ -4305,7 +4820,7 @@ async function reglasDe(ctx: Ctx, clienteId: string | null): Promise<FilaRegla[]
 }
 
 ruta("GET", "/clientes/:id/correos-automaticos", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
+  await accesoCliente(ctx, p.id, true);
   const ORDEN = Object.keys(PLANTILLAS_CORREO);
   const reglas = (await reglasDe(ctx, p.id)).sort((a, b) => ORDEN.indexOf(a.evento) - ORDEN.indexOf(b.evento));
   // El cliente ve los correos que recibió su gente; el equipo, además, los avisos al AM de esta cuenta.
@@ -4732,7 +5247,13 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
         const previa = await idempotencia(c, u.usuarioId, clave, hash);
         if (previa) return previa;
       }
-      const ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
+      let ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
+      const enNombreDe = req.headers.get("x-en-nombre-de");
+      if (enNombreDe && u.tipo === "EQUIPO") {
+        // Solo las cuentas que la persona ve completas o donde tiene proyectos.
+        if (!esUuid(enNombreDe) || !(await veClienteDb(ctx, enNombreDe))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+        ctx = { ...ctx, u: { ...u, clienteIds: [enNombreDe], roles: { [enNombreDe]: "ADMIN_CLIENTE" } }, esEquipo: false, enNombreDe };
+      }
       ctx.feriados = await noHabilesDb(ctx);
       const resultado = await encontrada.fn(ctx, encontrada.params!, url.searchParams, cuerpo);
       // Descargas (CSV): la ruta arma la respuesta completa.

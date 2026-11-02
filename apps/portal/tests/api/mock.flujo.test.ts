@@ -19,6 +19,9 @@ import { pruebasConsumo } from "./flujo-consumo";
 import { pruebasTallerWeb } from "./flujo-taller-web";
 import { pruebasJarvis } from "./flujo-jarvis";
 import { pruebasAgenda } from "./flujo-agenda";
+import { pruebasAccesos } from "./flujo-accesos";
+import { pruebasPersonas } from "./flujo-personas";
+import { pruebasTranscripciones } from "./flujo-transcripciones";
 import { HOY } from "../../src/mock/datos";
 
 const manejar = (req: Request) => manejarSolicitud(req);
@@ -43,3 +46,6 @@ pruebasTallerWeb("API simulada", manejar, reiniciarMock);
 pruebasEquipo("API simulada", manejar, reiniciarMock, eventos);
 pruebasJarvis("API simulada", manejar, reiniciarMock);
 pruebasAgenda("API simulada", manejar, reiniciarMock);
+pruebasAccesos("API simulada", manejar, reiniciarMock);
+pruebasPersonas("API simulada", manejar, reiniciarMock);
+pruebasTranscripciones("API simulada", manejar, reiniciarMock);

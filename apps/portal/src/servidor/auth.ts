@@ -13,12 +13,19 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Consultor, SesionDb } from "./db";
 import { ErrorApi } from "./errores";
+import { nivelDe, type Nivel } from "../dominio/accesos";
+import type { Area } from "../dominio/ia-equipo";
+import { areaDeClaveHermes } from "./jarvis-chat";
 
 export interface Usuario extends SesionDb {
   nombre: string;
   email: string;
   cargo: string | null;
   rolEquipo: string | null;
+  /** Solo equipo (2 nov): área, nivel de acceso efectivo y si es lead. */
+  area?: Area | null;
+  nivelAcceso?: Nivel | null;
+  esLead?: boolean;
   roles: Record<string, "ADMIN_CLIENTE" | "APROBADOR" | "LECTOR">;
   /** Solo llaves de integración. */
   scopes?: string[];
@@ -92,7 +99,16 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   if (!token) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
 
   let filtro: { columna: "id" | "cognito_sub"; valor: string };
-  if (modo() === "cognito") {
+  const conversacion = req.headers.get("x-jarvis-conversacion");
+  if (conversacion !== null) {
+    // Jarvis (2 nov): el Hermes del área lee el portal como la persona dueña de la conversación. Solo lectura.
+    const area = areaDeClaveHermes(token);
+    if (!area) throw new ErrorApi(401, "NO_AUTENTICADO", "Clave de Jarvis inválida");
+    if (req.method !== "GET") throw new ErrorApi(403, "SOLO_LECTURA", "Jarvis solo puede leer el portal");
+    const s = (await c.query<{ usuario_id: string }>("SELECT usuario_id FROM sesion_jarvis WHERE sesion_id = $1 AND area = $2::area_equipo", [conversacion, area])).rows[0];
+    if (!s) throw new ErrorApi(401, "NO_AUTENTICADO", "Esa conversación no existe en tu área", "Pasa en «conversacion» el código que viene en tus instrucciones.");
+    filtro = { columna: "id", valor: s.usuario_id };
+  } else if (modo() === "cognito") {
     const payload = await verificarCognito(token);
     filtro = { columna: "cognito_sub", valor: String(payload.sub) };
     // Primer ingreso: el usuario del portal todavía no tiene su sub de Cognito; se vincula por el correo verificado.
@@ -113,8 +129,8 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   }
 
   // usuario y miembro_cliente no tienen RLS: se leen antes de activar la sesión restringida.
-  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null }>(
-    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
+  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean }>(
+    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
     [filtro.valor],
   );
   const u = rows[0];
@@ -129,6 +145,7 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     cargo: u.cargo,
     tipo: u.tipo,
     rolEquipo: u.rol_equipo,
+    ...(u.tipo === "EQUIPO" ? { area: u.area, nivelAcceso: nivelDe({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso }), esLead: u.es_lead } : {}),
     clienteIds: m.rows.map((r) => r.cliente_id),
     roles: Object.fromEntries(m.rows.map((r) => [r.cliente_id, r.rol])),
   };

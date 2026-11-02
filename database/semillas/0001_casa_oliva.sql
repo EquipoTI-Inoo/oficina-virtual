@@ -3,14 +3,14 @@
 -- Requiere las migraciones de database/migraciones/. Ejecutar como dueño del esquema (RLS no aplica).
 BEGIN;
 
-INSERT INTO usuario (id, email, nombre, cargo, tipo, rol_equipo, area)
+INSERT INTO usuario (id, email, nombre, cargo, tipo, rol_equipo, area, nivel_acceso, es_lead, reporta_a_id)
 VALUES
-  ('00000000-0000-4000-8001-000000000001', 'valeria@casaoliva.pe', 'Valeria Mendoza', 'Administradora', 'CLIENTE', NULL, NULL),
-  ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL, NULL),
-  ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER', 'CRM'),
-  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN', 'ADMINISTRACION'),
-  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS', 'ADMINISTRACION'),
-  ('00000000-0000-4000-8001-000000000006', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB', 'DISENO');
+  ('00000000-0000-4000-8001-000000000001', 'valeria@casaoliva.pe', 'Valeria Mendoza', 'Administradora', 'CLIENTE', NULL, NULL, NULL, false, NULL),
+  ('00000000-0000-4000-8001-000000000002', 'martin@casaoliva.pe', 'Martín Salas', 'Marketing', 'CLIENTE', NULL, NULL, NULL, false, NULL),
+  ('00000000-0000-4000-8001-000000000003', 'diego.castro@inoo.pe', 'Diego Castro', 'Equipo de agencia', 'EQUIPO', 'ACCOUNT_MANAGER', 'CRM', NULL, true, '00000000-0000-4000-8001-000000000004'),
+  ('00000000-0000-4000-8001-000000000004', 'admin@inoo.pe', 'Admin Inoo', 'Administración', 'EQUIPO', 'ADMIN', 'ADMINISTRACION', NULL, false, NULL),
+  ('00000000-0000-4000-8001-000000000005', 'finanzas@inoo.pe', 'Rosa Paredes', 'Administración y Finanzas', 'EQUIPO', 'FINANZAS', 'ADMINISTRACION', NULL, false, '00000000-0000-4000-8001-000000000004'),
+  ('00000000-0000-4000-8001-000000000006', 'camila.paredes@inoo.pe', 'Camila Paredes', 'Desarrollo web', 'EQUIPO', 'DESARROLLO_WEB', 'DISENO', NULL, false, '00000000-0000-4000-8001-000000000004');
 
 INSERT INTO cliente (id, nombre, slug, marca, tono, publico, pilares_contenido, canales, account_manager_id, contacto_principal_id, drive_carpeta_id, drive_url, limite_gasto_ia_usd, fecha_aniversario, situacion_pago, pago_atrasado_desde, pago_nota, pago_actualizado_por, pago_actualizado_en)
 VALUES
@@ -117,6 +117,10 @@ INSERT INTO bot_jarvis (id, area, nombre, color, forma, instrucciones, creado_po
 VALUES
   ('00000000-0000-4000-8036-000000000001', 'CRM', 'Seguimiento de clientes', '#5554d9', 'CIRCULO', 'Cada vez que te pregunten, revisa mis proyectos y tareas en el portal: qué está vencido, qué vence esta semana y qué le falta entregar a cada cliente. Termina con una lista corta de próximos pasos.', '00000000-0000-4000-8001-000000000003', '2026-11-02T14:00:00Z', '2026-11-02T14:00:00Z'),
   ('00000000-0000-4000-8036-000000000002', 'CRM', 'Redactor de correos', '#1f9d74', 'CUADRADO', 'Redacta correos breves y cordiales para clientes en español peruano, firmados por la persona del equipo que te escribe. Nunca menciones IA ni herramientas.', '00000000-0000-4000-8001-000000000003', '2026-11-02T14:05:00Z', '2026-11-02T14:05:00Z');
+
+INSERT INTO miembro_proyecto (usuario_id, servicio_contratado_id, asignado_por)
+VALUES
+  ('00000000-0000-4000-8001-000000000006', '00000000-0000-4000-8004-000000000004', '00000000-0000-4000-8001-000000000004');
 
 INSERT INTO evento_agenda (id, tipo, titulo, notas, fecha, hora_inicio, hora_fin, hecho, creado_por, creado_en, actualizado_en)
 VALUES

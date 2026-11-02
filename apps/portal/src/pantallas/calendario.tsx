@@ -10,6 +10,7 @@ import { LuCalendarPlus, LuCheck, LuChevronLeft, LuChevronRight, LuExternalLink,
 import { api, Enlace, HOY_DEMO, ProblemaApi, useConsulta, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import type { TipoAgenda } from "../dominio/agenda";
+import { usePersonaDeLaUrl } from "./mi-panel";
 
 type Evento = S<"EventoAgenda">;
 type Vista = "MES" | "SEMANA" | "DIA";
@@ -96,7 +97,11 @@ function Calendario() {
     }
   };
   const { desde, hasta } = rangoDe(vista, ancla);
-  const agenda = useConsulta<S<"Agenda">>(`/me/agenda?desde=${desde}&hasta=${hasta}`);
+  // 2 nov: el lead (o el ADMIN) puede ver el calendario de alguien de su área, sin sus pendientes.
+  const quien = usePersonaDeLaUrl();
+  const agenda = useConsulta<S<"Agenda">>(`/me/agenda?desde=${desde}&hasta=${hasta}${quien ? `&usuarioId=${quien}` : ""}`);
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(quien ? "/panel/equipo" : null);
+  const deQuien = equipo.datos?.datos.find((p) => p.id === quien);
   const visibles = useMemo(() => (agenda.datos?.eventos ?? []).filter((e) => !ocultos.has(e.tipo)), [agenda.datos, ocultos]);
   const mover = (n: number) => setAncla(vista === "MES" ? sumarMeses(ancla, n) : sumarDias(ancla, n * (vista === "SEMANA" ? 7 : 1)));
   const irAlDia = (f: string) => {
@@ -107,15 +112,20 @@ function Calendario() {
 
   return (
     <>
+      {quien && (
+        <Enlace a="/equipo/calendario" className="volver">
+          ← Volver a mi calendario
+        </Enlace>
+      )}
       <Cabecera
         antetitulo="Equipo Inoo"
-        titulo="Calendario"
-        bajada="Tus reuniones, pendientes, vencimientos de tareas y lo que deben entregar tus clientes."
-        accion={
+        titulo={quien ? `Calendario de ${deQuien?.nombre ?? "…"}` : "Calendario"}
+        bajada={quien ? "Sus reuniones, eventos y vencimientos. Sus pendientes personales no se muestran." : "Tus reuniones, pendientes, vencimientos de tareas y lo que deben entregar tus clientes."}
+        accion={quien ? undefined : (
           <button className="boton boton--primario" onClick={() => setEditando({ fecha: vista === "MES" ? hoy : ancla, hora: null })}>
             <LuPlus size={18} /> Nuevo
           </button>
-        }
+        )}
       />
       <div className="calendario">
         <aside className="calendario-lateral" aria-label="Filtros del calendario">
@@ -138,7 +148,7 @@ function Calendario() {
               );
             })}
           </div>
-          <div className="tarjeta calendario-google">
+          {!quien && <div className="tarjeta calendario-google">
             <p className="negrita texto-sm fila" style={{ gap: 8 }}>
               <LogoGoogle /> Google Calendar
             </p>
@@ -148,7 +158,7 @@ function Calendario() {
               <p className="texto-xs texto-muted">Ve tus reuniones de Google aquí y lleva lo del portal a tu Google.</p>
             )}
             <button className="boton boton--chico" onClick={() => setGoogle(true)}>{g?.conectado ? "Administrar" : "Conectar"}</button>
-          </div>
+          </div>}
           <Enlace a="/equipo/calendarios" className="enlace texto-sm">Planes de contenido de clientes →</Enlace>
         </aside>
 
@@ -173,9 +183,9 @@ function Calendario() {
           ) : !agenda.datos ? (
             <Cargando />
           ) : vista === "MES" ? (
-            <VistaMes desde={desde} ancla={ancla} hoy={hoy} eventos={visibles} alAbrir={setAbierto} alCrear={(f) => setEditando({ fecha: f, hora: null })} alVerDia={irAlDia} />
+            <VistaMes desde={desde} ancla={ancla} hoy={hoy} eventos={visibles} alAbrir={setAbierto} alCrear={(f) => !quien && setEditando({ fecha: f, hora: null })} alVerDia={irAlDia} />
           ) : (
-            <VistaHoras dias={vista === "DIA" ? [ancla] : Array.from({ length: 7 }, (_, i) => sumarDias(desde, i))} hoy={hoy} eventos={visibles} alAbrir={setAbierto} alCrear={(fecha, hora) => setEditando({ fecha, hora })} alVerDia={irAlDia} />
+            <VistaHoras dias={vista === "DIA" ? [ancla] : Array.from({ length: 7 }, (_, i) => sumarDias(desde, i))} hoy={hoy} eventos={visibles} alAbrir={setAbierto} alCrear={(fecha, hora) => !quien && setEditando({ fecha, hora })} alVerDia={irAlDia} />
           )}
         </section>
       </div>

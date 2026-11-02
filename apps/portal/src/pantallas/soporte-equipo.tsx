@@ -14,6 +14,7 @@ import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimien
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
+import { EquipoAsignado } from "./accesos";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -389,20 +390,18 @@ const ESTADO_OPERATIVO: Record<string, [string, "azul" | "ambar" | "verde"]> = {
 };
 const usd = (n: number) => `US$ ${Math.round(n)}`;
 
-function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total: number }) {
+function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas: boolean }) {
   return (
     <div className="tarjeta" style={{ padding: "26px 18px 16px" }}>
       <div className="fila entre" style={{ marginBottom: 18 }}>
-        <h2 className="tarjeta-titulo">Todos los clientes</h2>
-        <span className="texto-xs texto-muted">
-          {filas.length} de {total} cuentas
-        </span>
+        <h2 className="tarjeta-titulo">{todas ? "Todos los clientes" : "Tus cuentas"}</h2>
+        <span className="texto-xs texto-muted">{filas.length === 1 ? "1 cuenta" : `${filas.length} cuentas`}</span>
       </div>
       <div className="tabla-envoltura">
         <table className="tabla" style={{ fontSize: 12 }}>
           <thead>
             <tr>
-              {["Cliente", "Estado", "Atrasadas", "Por aprobar", "IA del mes / límite", "Acción"].map((h, i) => (
+              {["Cliente", "Estado", "Proyectos activos", "Atrasadas", "Por aprobar", "Acción"].map((h, i) => (
                 <th key={h} style={{ textTransform: "none", fontSize: 10.5, padding: "10px 14px", background: "var(--c-fondo)", borderBottom: 0, borderRadius: i === 0 ? "10px 0 0 10px" : i === 5 ? "0 10px 10px 0" : 0 }}>
                   {h}
                 </th>
@@ -425,17 +424,10 @@ function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total
                       {f.pagoAtrasadoDias != null && <Etiqueta tono="rojo">Pago atrasado · {f.pagoAtrasadoDias} días</Etiqueta>}
                     </div>
                   </td>
+                  {/* 2 nov: la IA del cliente ya no existe; en su lugar, cuántos proyectos tiene en curso. */}
+                  <td style={{ fontSize: 15, fontWeight: 600 }}>{f.proyectosActivos ?? 0}</td>
                   <td style={{ fontSize: 15, color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
                   <td style={{ fontSize: 15, color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
-                  <td style={{ width: 200 }}>
-                    <p className="negrita" style={{ fontSize: 11 }}>
-                      {usd(f.gastoIa.gastoUsd)} / {usd(f.gastoIa.limiteUsd)} · {f.gastoIa.pctLimite} %
-                    </p>
-                    <div style={{ margin: "6px 0 5px" }}>
-                      <Barra pct={f.gastoIa.pctLimite} tono={f.gastoIa.alerta ? "ambar" : undefined} />
-                    </div>
-                    <p style={{ fontSize: 9, color: f.gastoIa.alerta ? "var(--c-alerta)" : "var(--c-muted)" }}>{f.gastoIa.alerta ? "Alerta · Umbral ≥ 80 %" : "Dentro del límite"}</p>
-                  </td>
                   <td>
                     <Enlace a={`/equipo/clientes/${f.cliente.id}`} className="enlace" style={{ fontSize: 11 }}>
                       Ver ficha →
@@ -447,9 +439,6 @@ function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total
           </tbody>
         </table>
       </div>
-      <p className="texto-xs texto-muted" style={{ fontSize: 9.5, marginTop: 12 }}>
-        Costo acumulado del 1 al 6 oct · Moneda: dólares estadounidenses (US$). Alerta a partir del 80 % del límite mensual por cliente.
-      </p>
     </div>
   );
 }
@@ -463,6 +452,13 @@ export function PantallaClientesEquipo() {
   );
 }
 function ClientesEquipo() {
+  const nivel = usePortal().sesion?.usuario.nivelAcceso;
+  if (!nivel) return <Cargando />;
+  // 2 nov: quien trabaja por proyecto no tiene cuentas a su cargo; ve las marcas con las que trabaja.
+  return nivel === "PROYECTO" ? <MisMarcas /> : <TusCuentas todas={nivel === "ADMIN"} />;
+}
+
+function TusCuentas({ todas }: { todas: boolean }) {
   const { ir } = useNavegacion();
   const avisar = useAviso();
   const [nuevo, setNuevo] = useState(false);
@@ -474,14 +470,14 @@ function ClientesEquipo() {
       <Cabecera
         antetitulo="Equipo Inoo · Cuentas"
         titulo="Clientes"
-        bajada="Todas las cuentas activas de la agencia."
+        bajada={todas ? "Todas las cuentas activas de la agencia." : "Las cuentas que tienes a tu cargo o que te asignaron."}
         accion={
           <button className="boton boton--primario" onClick={() => setNuevo(true)}>
             <LuPlus size={18} /> Nuevo cliente
           </button>
         }
       />
-      <TablaClientes filas={d.datos} total={d.resumen.clientesActivos} />
+      <TablaClientes filas={d.datos} todas={todas} />
       <NuevoCliente
         abierto={nuevo}
         alCerrar={() => setNuevo(false)}
@@ -492,6 +488,49 @@ function ClientesEquipo() {
         }}
       />
     </>
+  );
+}
+
+/** Por proyecto (Audiovisual, Diseño, Marketing): la marca de cada cliente con el que trabaja y sus proyectos. */
+function MisMarcas() {
+  const { datos, error, recargar } = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
+  if (error) return <ErrorCarga error={error} reintentar={recargar} />;
+  if (!datos) return <Cargando />;
+  return (
+    <>
+      <Cabecera antetitulo="Equipo Inoo · Marcas" titulo="Mis marcas" bajada="Las marcas de los clientes con los que trabajas y tus proyectos con cada una." />
+      {!datos.datos.length && (
+        <div className="tarjeta vacio">
+          <p className="negrita">Todavía no tienes proyectos asignados</p>
+          <p className="texto-sm">El lead de tu área o un ADMIN te asigna a los proyectos.</p>
+        </div>
+      )}
+      <div className="proyectos-cliente">
+        {datos.datos.map((c) => <TarjetaMarca key={c.id} clienteId={c.id} />)}
+      </div>
+    </>
+  );
+}
+
+function TarjetaMarca({ clienteId }: { clienteId: string }) {
+  const { datos: m } = useConsulta<S<"PerfilMarca">>(`/clientes/${clienteId}/marca`);
+  if (!m) return <div className="tarjeta" style={{ padding: 20 }}><Cargando /></div>;
+  return (
+    <section className="tarjeta" style={{ padding: 20, display: "grid", gap: 10, alignContent: "start" }}>
+      <h2 className="tarjeta-titulo">{m.nombre}</h2>
+      {m.mensajeCentral && <p className="texto-sm"><strong>«{m.mensajeCentral}»</strong></p>}
+      {!!m.tono?.length && <p className="texto-xs texto-muted">Tono: {m.tono.join(" · ")}</p>}
+      {m.descripcion && <p className="texto-sm texto-muted" style={{ lineHeight: 1.6 }}>{m.descripcion}</p>}
+      {m.publico && <p className="texto-xs texto-muted"><span className="negrita">Público: </span>{m.publico}</p>}
+      {m.campanaActual && <p className="texto-xs">{m.campanaActual}</p>}
+      {!m.mensajeCentral && !m.descripcion && !m.publico && <p className="texto-xs texto-muted">Su perfil de marca todavía no está cargado.</p>}
+      <div className="pila" style={{ gap: 6, marginTop: 6 }}>
+        <span className="texto-xs negrita texto-muted">TUS PROYECTOS</span>
+        {(m.proyectos ?? []).map((x) => (
+          <Enlace key={x.servicioContratadoId} a={`/equipo/proyectos/${x.servicioContratadoId}`} className="enlace texto-sm">{x.titulo} →</Enlace>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -640,6 +679,7 @@ function Ficha() {
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}
+          <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5, paddingLeft: 4 }}>Referencias de marca</h3>
             <div style={{ height: 120, borderRadius: 12, backgroundImage: "url(/muestras/serum.jpg)", backgroundSize: "cover", backgroundPosition: "center 65%" }} role="img" aria-label="Referencia de marca" />

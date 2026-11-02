@@ -6,9 +6,8 @@
  */
 import { useState } from "react";
 import { LuPencil } from "react-icons/lu";
-import { api, ProblemaApi, useConsulta, type S } from "../base";
+import { api, Enlace, ProblemaApi, useConsulta, type S } from "../base";
 import { Barra, Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
-import { AREAS, NOMBRE_AREA } from "../dominio/ia-equipo";
 
 export const usd = (n: number) => `US$ ${n.toFixed(2).replace(".", ",")}`;
 const pct = (n: number) => `${String(n).replace(".", ",")} %`;
@@ -40,7 +39,6 @@ export function JarvisPorArea() {
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const d = r.datos;
-  const personas = [...d.areas.flatMap((a) => a.personas ?? []).map((x) => x.persona), ...d.sinArea].sort((a, b) => a.nombre.localeCompare(b.nombre));
   return (
     <div className="tarjeta seccion" style={{ padding: "22px 18px" }}>
       <div className="fila entre" style={{ marginBottom: 4 }}>
@@ -71,7 +69,7 @@ export function JarvisPorArea() {
                 <td><EstadoArea a={a} /></td>
                 <td className="texto-xs">
                   {(a.personas ?? []).length
-                    ? a.personas!.map((x) => `${x.persona.nombre} (${usd(x.gastoMesUsd)}${x.llaveVigente ? "" : ", sin llave"})`).join(" · ")
+                    ? a.personas!.map((x) => `${x.persona.nombre} (${usd(x.gastoMesUsd)})`).join(" · ")
                     : <span className="texto-muted">Nadie todavía</span>}
                 </td>
                 <td>
@@ -84,38 +82,16 @@ export function JarvisPorArea() {
           </tbody>
         </table>
       </div>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14, margin: "22px 0 10px" }}>Área de cada persona</h3>
-      {d.sinArea.length > 0 && (
-        <p className="texto-xs" style={{ color: "var(--c-alerta)", marginBottom: 10 }}>
-          {d.sinArea.length === 1 ? "1 persona no tiene área" : `${d.sinArea.length} personas no tienen área`}: no pueden usar Jarvis hasta que les asignes una.
-        </p>
-      )}
-      <div className="pila" style={{ gap: 8 }}>
-        {personas.map((p) => <AreaDePersona key={p.id} p={p} alCambiar={() => void r.recargar()} />)}
-      </div>
+      {/* 2 nov: el área, el acceso y los leads se manejan en «Equipo», junto con las altas y bajas. */}
+      <p className="texto-xs texto-muted" style={{ marginTop: 18 }}>
+        {d.sinArea.length > 0 && (
+          <span style={{ color: "var(--c-alerta)" }}>
+            {d.sinArea.length === 1 ? "1 persona no tiene área" : `${d.sinArea.length} personas no tienen área`} y no puede usar Jarvis.{" "}
+          </span>
+        )}
+        El área de cada persona se cambia en <Enlace a="/equipo/personas" className="enlace">Equipo</Enlace>.
+      </p>
       {editando && <EditarTopes a={editando} alCerrar={() => setEditando(null)} alGuardar={() => { setEditando(null); void r.recargar(); }} />}
-    </div>
-  );
-}
-
-function AreaDePersona({ p, alCambiar }: { p: S<"PersonaEquipo">; alCambiar: () => void }) {
-  const avisar = useAviso();
-  const cambiar = async (area: string) => {
-    try {
-      await api(`/panel/equipo/${p.id}`, { metodo: "PATCH", cuerpo: { area: area || null } });
-      avisar({ titulo: `${p.nombre}: ${area ? NOMBRE_AREA[area as keyof typeof NOMBRE_AREA] : "sin área"}` });
-      alCambiar();
-    } catch (e) {
-      avisar({ titulo: "No pudimos cambiar el área", texto: e instanceof ProblemaApi ? e.titulo : undefined });
-    }
-  };
-  return (
-    <div className="fila entre texto-sm" style={{ gap: 12 }}>
-      <span>{p.nombre} <span className="texto-muted">· {p.cargo ?? "Equipo"}</span></span>
-      <select className="input" style={{ width: 180 }} aria-label={`Área de ${p.nombre}`} value={p.area ?? ""} onChange={(e) => void cambiar(e.target.value)}>
-        <option value="">Sin área</option>
-        {AREAS.map((a) => <option key={a} value={a}>{NOMBRE_AREA[a]}</option>)}
-      </select>
     </div>
   );
 }

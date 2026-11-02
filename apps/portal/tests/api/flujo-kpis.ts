@@ -81,8 +81,9 @@ export function pruebasKpis(nombre: string, manejar: Manejador, reiniciar: () =>
       assert.ok(p.proyectos.every((x: any) => x.kpis.length >= 3));
       assert.ok(p.tareas.every((t: any) => t.responsable.nombre === "Diego Castro" && t.estado !== "HECHA"));
       assert.deepEqual([p.resumen.proyectosActivos, p.resumen.tareasAbiertas, p.resumen.rebotes], [3, p.tareas.length, 1]);
-      const admin = (await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 4)}`, DIEGO)).json;
-      assert.deepEqual([admin.persona.nombre, admin.proyectos.length], ["Admin Inoo", 0]);
+      assert.equal((await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 4)}`, DIEGO)).status, 404, "el panel del Admin no es de su área (2 nov)");
+      const deDiego = (await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 3)}`, `demo.${uid(1, 4)}`)).json;
+      assert.equal(deDiego.persona.nombre, "Diego Castro", "el ADMIN ve el de cualquiera");
       assert.equal((await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 1)}`, DIEGO)).status, 404, "una clienta no tiene panel de colaborador");
       assert.equal((await llamar("GET", "/panel/colaborador", VALERIA)).status, 403);
     });

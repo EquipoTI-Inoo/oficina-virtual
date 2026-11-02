@@ -25,10 +25,11 @@ export const ProveedorNavegacion = ({ valor, children }: { valor: Navegacion; ch
 );
 export const useNavegacion = () => useContext(NavCtx);
 
-export function Enlace({ a, children, ...resto }: { a: string; children: ReactNode } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
+export function Enlace({ a, children, onClick, ...resto }: { a: string; children: ReactNode } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
   const { ir } = useNavegacion();
   const alClic = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    onClick?.(e);
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
     ir(a);
   };
@@ -49,6 +50,8 @@ export interface SesionLocal {
   /** Solo con Cognito: para renovar el token (vence a la hora) sin volver a pedir la contraseña. */
   refreshToken?: string | null;
   pool?: "CLIENTES" | "EQUIPO";
+  /** «Ver como cliente» (2 nov): el cliente cuyo portal está usando alguien del equipo. */
+  vistaCliente?: string | null;
 }
 
 export function leerSesion(): SesionLocal | null {
@@ -69,10 +72,31 @@ export function guardarSesion(s: SesionLocal, recordar: boolean) {
 
 /** Cambia la cuenta de cliente activa (personas que pertenecen a más de una), en el mismo almacén de la sesión. */
 export function cambiarClienteActivo(clienteId: string) {
+  actualizarSesion({ clienteId });
+}
+
+function actualizarSesion(cambios: Partial<SesionLocal>) {
   const s = leerSesion();
   if (!s) return;
   const almacen = window.sessionStorage.getItem(CLAVE_SESION) ? window.sessionStorage : window.localStorage;
-  almacen.setItem(CLAVE_SESION, JSON.stringify({ ...s, clienteId }));
+  almacen.setItem(CLAVE_SESION, JSON.stringify({ ...s, ...cambios }));
+}
+
+/**
+ * «Ver como cliente» (2 nov): alguien del equipo entra al portal de un cliente. Mientras esté en las pantallas
+ * del cliente, la API lo trata como ese cliente y lo que haga queda firmado «en nombre del cliente».
+ */
+export function entrarComoCliente(clienteId: string) {
+  actualizarSesion({ clienteId, vistaCliente: clienteId });
+}
+export function salirDeVistaCliente() {
+  actualizarSesion({ vistaCliente: null });
+}
+/** El cliente que el equipo está viendo, solo mientras está en las pantallas del cliente. */
+export function vistaClienteActiva(): string | null {
+  const s = leerSesion();
+  if (!s || s.tipo !== "EQUIPO" || !s.vistaCliente || typeof window === "undefined" || window.location.pathname.startsWith("/equipo")) return null;
+  return s.vistaCliente;
 }
 
 export function cerrarSesion() {
@@ -122,6 +146,8 @@ export async function api<T = unknown>(
   const sesion = leerSesion();
   const headers: Record<string, string> = { accept: "application/json" };
   if (sesion) headers.authorization = `Bearer ${sesion.token}`;
+  const comoCliente = vistaClienteActiva();
+  if (comoCliente) headers["x-en-nombre-de"] = comoCliente;
   if (opciones.cuerpo !== undefined) headers["content-type"] = "application/json";
   if (opciones.idempotente) headers["idempotency-key"] = crypto.randomUUID();
   const res = await fetch(`${BASE}${camino}`, {
