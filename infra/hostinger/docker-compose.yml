@@ -77,6 +77,10 @@ services:
   portal:
     build: { context: ../../apps/portal }
     restart: unless-stopped
+    # Hermes corre en el mismo VPS (fuera de Docker): entra a la pasarela por 127.0.0.1:3000, sin pasar por
+    # Caddy, y el portal le habla por host.docker.internal (JARVIS_HERMES).
+    ports: ["127.0.0.1:3000:3000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
     environment: &entorno-portal
       API_MODO: db
       AUTH_MODO: ${AUTH_MODO:-cognito}
