@@ -36,6 +36,9 @@ desde memoria con los datos de Figma; cada reinicio del servidor vuelve a los da
 | `CHROMIUM_PATH` | ruta | — | Chromium del sistema. La imagen Docker (Alpine) usa el de `apk`; en local basta `npx playwright install chromium` |
 | `STITCH_API_KEY` | clave | — | Prototipo con Stitch (MCP de Google). Solo se usa con `IA_MODO=real`; sin clave, pantallas de relleno. No es la clave de Gemini |
 | `STITCH_URL` | URL | `https://stitch.googleapis.com/mcp` | Servidor MCP de Stitch |
+| `DEEPSEEK_API_KEY` | clave | — | Jarvis del equipo (30 oct): la clave de Inoo para DeepSeek. Solo la usa la pasarela `/api/v1/ia-equipo`; los Jarvis (Hermes) entran con su llave personal y nunca ven esta clave. Sin ella, la pasarela responde 503 `SIN_CLAVE` |
+| `IA_EQUIPO_URL` | URL | `https://api.deepseek.com` | A dónde reenvía la pasarela (las pruebas usan un DeepSeek falso) |
+| `JARVIS_HERMES` | JSON | — | El Hermes de cada área, donde corren sus bots: `{"CRM": {"url": "http://127.0.0.1:8642", "clave": "…"}}`. La clave es la `API_SERVER_KEY` de ese Hermes y solo la usa el servidor del portal. Un área sin entrada ve sus bots pero no puede chatear (409 `JARVIS_NO_CONECTADO`) |
 
 > La API simulada nunca debe quedar activa en un despliegue real. Por eso un build de producción
 > la bloquea si no se activa `PERMITIR_MOCK=true` explícitamente.

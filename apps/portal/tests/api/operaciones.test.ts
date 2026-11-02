@@ -358,9 +358,9 @@ test("el mock implementa exactamente las operaciones del contrato (método + rut
     const m = linea.match(/^    (get|post|put|patch|delete):/);
     if (m) enContrato.add(`${m[1].toUpperCase()} ${camino}`);
   }
-  // El webhook de InooWork y lo público (archivos del taller, formularios por enlace) se atienden antes del enrutador, sin token.
+  // El webhook de InooWork, lo público (archivos del taller, formularios por enlace) y la pasarela de Jarvis (con su llave) se atienden antes del enrutador.
   const formularios = ["GET /publico/formularios/{}", "PUT /publico/formularios/{}/respuesta", "POST /publico/formularios/{}/archivos", "POST /publico/formularios/{}/archivos/{}/confirmar"];
-  const implementadas = new Set([...RUTAS_IMPLEMENTADAS.map((r) => r.replace(/\{\w+\}/g, "{}")), "POST /webhooks/inoowork", "GET /publico/{}", ...formularios, ...["ingresar", "nueva-clave", "olvide-clave", "restablecer", "renovar"].map((x) => `POST /sesion/${x}`)]);
+  const implementadas = new Set([...RUTAS_IMPLEMENTADAS.map((r) => r.replace(/\{\w+\}/g, "{}")), "POST /webhooks/inoowork", "GET /publico/{}", ...formularios, "GET /ia-equipo/models", "POST /ia-equipo/chat/completions", ...["ingresar", "nueva-clave", "olvide-clave", "restablecer", "renovar"].map((x) => `POST /sesion/${x}`)]);
   assert.deepEqual([...enContrato].filter((o) => !implementadas.has(o)), [], "operaciones del contrato sin implementar");
   assert.deepEqual([...implementadas].filter((o) => !enContrato.has(o)), [], "rutas del mock que no están en el contrato");
 });

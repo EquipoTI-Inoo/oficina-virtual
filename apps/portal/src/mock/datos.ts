@@ -10,6 +10,7 @@
 import { etapasDesdePlantilla, plantillaPara, type CodigoServicio, type EstadoEtapa } from "../dominio/servicios";
 import { fechaLimite, plantillaRequerimiento } from "../dominio/requerimientos";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../dominio/calendario";
+import type { Area } from "../dominio/ia-equipo";
 
 export const HOY = "2026-10-06T15:00:00Z";
 export const PERIODO = "2026-10";
@@ -29,18 +30,21 @@ export interface UsuarioDemo {
   iniciales: string;
   tipo: TipoUsuario;
   rolEquipo: "ACCOUNT_MANAGER" | "DISENO" | "AUDIOVISUAL" | "PAID_MEDIA" | "DESARROLLO_WEB" | "ADMIN" | "FINANZAS" | null;
+  /** Área de Inoo (solo equipo): contra su tope se cobra el Jarvis de la persona (30 oct). */
+  area: Area | null;
   /** Solo entorno de pruebas. Nunca existe en producción (Cognito gestiona las contraseñas). */
   claveDemo: string;
 }
 
+// Áreas de relleno (30 oct): se ajustan con las personas reales.
 export const USUARIOS: UsuarioDemo[] = [
-  { id: uid(1, 1), nombre: "Valeria Mendoza", email: "valeria@casaoliva.pe", cargo: "Administradora", iniciales: "VM", tipo: "CLIENTE", rolEquipo: null, claveDemo: "demo1234" },
-  { id: uid(1, 2), nombre: "Martín Salas", email: "martin@casaoliva.pe", cargo: "Marketing", iniciales: "MS", tipo: "CLIENTE", rolEquipo: null, claveDemo: "demo1234" },
-  { id: uid(1, 3), nombre: "Diego Castro", email: "diego.castro@inoo.pe", cargo: "Equipo de agencia", iniciales: "DC", tipo: "EQUIPO", rolEquipo: "ACCOUNT_MANAGER", claveDemo: "demo1234" },
-  { id: uid(1, 4), nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", claveDemo: "demo1234" },
-  { id: uid(1, 5), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", claveDemo: "demo1234" },
+  { id: uid(1, 1), nombre: "Valeria Mendoza", email: "valeria@casaoliva.pe", cargo: "Administradora", iniciales: "VM", tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "demo1234" },
+  { id: uid(1, 2), nombre: "Martín Salas", email: "martin@casaoliva.pe", cargo: "Marketing", iniciales: "MS", tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "demo1234" },
+  { id: uid(1, 3), nombre: "Diego Castro", email: "diego.castro@inoo.pe", cargo: "Equipo de agencia", iniciales: "DC", tipo: "EQUIPO", rolEquipo: "ACCOUNT_MANAGER", area: "CRM", claveDemo: "demo1234" },
+  { id: uid(1, 4), nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", area: "ADMINISTRACION", claveDemo: "demo1234" },
+  { id: uid(1, 5), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", area: "ADMINISTRACION", claveDemo: "demo1234" },
   // Equipo operativo (16 oct): no ve el blog ni el detalle de pagos; es responsable del e-commerce de Casa Oliva.
-  { id: uid(1, 6), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", claveDemo: "demo1234" },
+  { id: uid(1, 6), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", area: "DISENO", claveDemo: "demo1234" },
 ];
 
 export const MIEMBROS: { clienteId: string; usuarioId: string; rol: RolCliente }[] = [
@@ -718,84 +722,62 @@ export const COMENTARIOS_PROYECTO_INICIALES: ComentarioProyectoDemo[] = [
   { id: uid(24, 3), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 3), texto: "Confirmar movilidad para la capacitación presencial.", interno: true, creadoEn: "2026-10-05T18:06:00Z" },
 ];
 
-// ───────────────────────────── IA del cliente (fase 16a): sus agentes, conocimiento y Content AI
+// ───────────────────────────── Bots del área de CRM (Jarvis, 2 nov; relleno)
 
-export interface AgenteIaDemo {
+export interface BotJarvisDemo {
   id: string;
-  clienteId: string;
+  area: Area;
   nombre: string;
-  rol: string;
-  tono: "CERCANO" | "FORMAL" | "ENTUSIASTA";
-  saludo: string;
+  color: string;
+  forma: "CIRCULO" | "CUADRADO" | "ROMBO";
   instrucciones: string;
-  conocimientoIds: string[];
-  acciones: ("CREAR_LEAD" | "AGENDAR_CITA" | "ENVIAR_CATALOGO" | "DERIVAR_PERSONA")[];
-  derivarCuando: string | null;
-  plantillaCodigo: string | null;
-  razonamientoAvanzado: boolean;
-  estado: "BORRADOR" | "PUBLICADO" | "PAUSADO";
-  version: number;
-  /** Configuración de la última versión publicada (para saber si hay cambios sin publicar). */
-  publicada: string | null;
-  canales: { canal: "PRUEBA" | "WHATSAPP" | "WEB"; estado: "ACTIVO" | "SOLICITADO" }[];
-  publicadoEn: string | null;
-  creadoPorId: string | null;
+  creadoPorId: string;
   creadoEn: string;
   actualizadoEn: string;
+  ultimoUso: string | null;
 }
-export interface BaseConocimientoDemo { id: string; clienteId: string; nombre: string; articulos: { id: string; titulo: string; contenido: string }[]; creadoEn: string; actualizadoEn: string }
-export interface MensajeIaDemo { rol: "CONTACTO" | "AGENTE"; texto: string; accion: string | null; sinRespuesta: boolean; simulado: boolean; costoPen: number; creadoEn: string }
-export interface ConversacionIaDemo { id: string; clienteId: string; agenteId: string; canal: "PRUEBA" | "WHATSAPP" | "WEB"; contacto: string; mensajes: MensajeIaDemo[]; iniciadaEn: string }
-export interface PreguntaSinRespuestaDemo { id: string; clienteId: string; agenteId: string; pregunta: string; resuelta: boolean; creadoEn: string }
-export interface ContenidoIaDemo {
-  id: string; clienteId: string; destino: "REDES" | "BLOG" | "EMAIL" | "WEB" | "CONVERSACION"; indicacion: string; tono: "CERCANO" | "FORMAL" | "ENTUSIASTA" | null;
-  variaciones: string[]; palabras: number; costoPen: number; simulado: boolean; creadoPorId: string | null; creadoEn: string;
-}
+export const BOTS_JARVIS_INICIALES: BotJarvisDemo[] = [
+  {
+    id: uid(36, 1), area: "CRM", nombre: "Seguimiento de clientes", color: "#5554d9", forma: "CIRCULO",
+    instrucciones: "Cada vez que te pregunten, revisa mis proyectos y tareas en el portal: qué está vencido, qué vence esta semana y qué le falta entregar a cada cliente. Termina con una lista corta de próximos pasos.",
+    creadoPorId: uid(1, 3), creadoEn: "2026-11-02T14:00:00Z", actualizadoEn: "2026-11-02T14:00:00Z", ultimoUso: null,
+  },
+  {
+    id: uid(36, 2), area: "CRM", nombre: "Redactor de correos", color: "#1f9d74", forma: "CUADRADO",
+    instrucciones: "Redacta correos breves y cordiales para clientes en español peruano, firmados por la persona del equipo que te escribe. Nunca menciones IA ni herramientas.",
+    creadoPorId: uid(1, 3), creadoEn: "2026-11-02T14:05:00Z", actualizadoEn: "2026-11-02T14:05:00Z", ultimoUso: null,
+  },
+];
 
-const AGENTE_CO = uid(30, 1);
-const BASE_CO = uid(31, 1);
-const CONFIG_AGENTE_CO = {
-  nombre: "Asistente de Casa Oliva", rol: "Atención al cliente", tono: "CERCANO" as const,
-  saludo: "¡Hola! Soy el asistente de Casa Oliva. ¿En qué te ayudo?",
-  instrucciones: "Ayuda con dudas de productos, envíos, cambios y devoluciones según la base de conocimiento. Recomienda productos para piel sensible cuando te lo pidan. Si la persona está molesta, pásala con una persona.",
-  conocimientoIds: [BASE_CO], acciones: ["ENVIAR_CATALOGO", "CREAR_LEAD", "DERIVAR_PERSONA"] as AgenteIaDemo["acciones"],
-  derivarCuando: "La persona pide hablar con alguien o tiene un reclamo.",
-};
-export const AGENTES_IA_INICIALES: AgenteIaDemo[] = [
+// Calendario del colaborador (2 nov 2026): pendientes y eventos propios de relleno, alrededor de HOY.
+export interface EventoAgendaDemo {
+  id: string;
+  tipo: "PENDIENTE" | "EVENTO";
+  titulo: string;
+  notas: string | null;
+  fecha: string;
+  horaInicio: string | null;
+  horaFin: string | null;
+  hecho: boolean;
+  creadoPorId: string;
+  invitadosIds: string[];
+  creadoEn: string;
+}
+export const EVENTOS_AGENDA_INICIALES: EventoAgendaDemo[] = [
   {
-    id: AGENTE_CO, clienteId: uid(2, 1), ...CONFIG_AGENTE_CO, plantillaCodigo: "ATENCION_CLIENTE", razonamientoAvanzado: false, estado: "PUBLICADO", version: 1,
-    publicada: JSON.stringify(CONFIG_AGENTE_CO), canales: [{ canal: "PRUEBA", estado: "ACTIVO" }], publicadoEn: "2026-10-03T15:00:00Z",
-    creadoPorId: uid(1, 1), creadoEn: "2026-10-02T14:00:00Z", actualizadoEn: "2026-10-03T15:00:00Z",
+    id: uid(37, 1), tipo: "EVENTO", titulo: "Planificación interna de noviembre", notas: "Repartir los proyectos nuevos y revisar cargas.", fecha: "2026-10-07",
+    horaInicio: "10:00", horaFin: "11:00", hecho: false, creadoPorId: uid(1, 3), invitadosIds: [uid(1, 6)], creadoEn: "2026-10-01T15:00:00Z",
   },
-];
-export const BASES_CONOCIMIENTO_INICIALES: BaseConocimientoDemo[] = [
   {
-    id: BASE_CO, clienteId: uid(2, 1), nombre: "Casa Oliva · preguntas frecuentes", creadoEn: "2026-10-02T14:00:00Z", actualizadoEn: "2026-10-02T14:30:00Z",
-    articulos: [
-      { id: "a1", titulo: "Horarios y ubicación", contenido: "Nuestra tienda está en Av. Larco 345, Miraflores. Atendemos de lunes a sábado de 10:00 a 20:00." },
-      { id: "a2", titulo: "Envíos", contenido: "Hacemos envíos a todo Lima en 24 a 48 horas. El envío es gratis en compras desde S/ 150. A provincias, de 3 a 5 días hábiles." },
-      { id: "a3", titulo: "Cambios y devoluciones", contenido: "Aceptamos cambios dentro de los 7 días con el producto sellado y la boleta. Las devoluciones se reembolsan en 5 días hábiles." },
-      { id: "a4", titulo: "Productos para piel sensible", contenido: "Para piel sensible recomendamos el sérum calmante de manzanilla y la crema hidratante sin fragancia. Todos nuestros productos son libres de parabenos." },
-    ],
+    id: uid(37, 2), tipo: "PENDIENTE", titulo: "Llamar a Valeria por el mapa de procesos", notas: null, fecha: "2026-10-06",
+    horaInicio: null, horaFin: null, hecho: false, creadoPorId: uid(1, 3), invitadosIds: [], creadoEn: "2026-10-02T15:00:00Z",
   },
-];
-export const CONVERSACIONES_IA_INICIALES: ConversacionIaDemo[] = [
   {
-    id: uid(32, 1), clienteId: uid(2, 1), agenteId: AGENTE_CO, canal: "PRUEBA", contacto: "Prueba", iniciadaEn: "2026-10-05T16:00:00Z",
-    mensajes: [
-      { rol: "CONTACTO", texto: "¿Hacen envíos a provincia?", accion: null, sinRespuesta: false, simulado: true, costoPen: 0, creadoEn: "2026-10-05T16:00:00Z" },
-      { rol: "AGENTE", texto: "Sí, a provincias llegamos en 3 a 5 días hábiles. En Lima, en 24 a 48 horas.", accion: null, sinRespuesta: false, simulado: true, costoPen: 0.05, creadoEn: "2026-10-05T16:00:03Z" },
-      { rol: "CONTACTO", texto: "¿Tienen tienda en Arequipa?", accion: null, sinRespuesta: false, simulado: true, costoPen: 0, creadoEn: "2026-10-05T16:01:00Z" },
-      { rol: "AGENTE", texto: "No tengo esa información todavía. Si quieres, te paso con una persona de nuestro equipo.", accion: null, sinRespuesta: true, simulado: true, costoPen: 0.05, creadoEn: "2026-10-05T16:01:02Z" },
-    ],
+    id: uid(37, 3), tipo: "PENDIENTE", titulo: "Enviar propuesta a Nativa Café", notas: null, fecha: "2026-10-05",
+    horaInicio: "16:00", horaFin: null, hecho: true, creadoPorId: uid(1, 3), invitadosIds: [], creadoEn: "2026-10-02T15:10:00Z",
   },
-];
-export const SIN_RESPUESTA_INICIALES: PreguntaSinRespuestaDemo[] = [
-  { id: uid(33, 1), clienteId: uid(2, 1), agenteId: AGENTE_CO, pregunta: "¿Tienen tienda en Arequipa?", resuelta: false, creadoEn: "2026-10-05T16:01:02Z" },
-];
-export const CONTENIDO_IA_INICIAL: ContenidoIaDemo[] = [
   {
-    id: uid(34, 1), clienteId: uid(2, 1), destino: "REDES", indicacion: "Promoción del sérum calmante por el día de la madre", tono: "CERCANO",
-    variaciones: ["✨ Este mes, regálale calma: sérum calmante de manzanilla con 15 % de descuento. #DíaDeLaMadre"], palabras: 15, costoPen: 0.03, simulado: true, creadoPorId: uid(1, 1), creadoEn: "2026-10-04T15:00:00Z",
+    id: uid(37, 4), tipo: "EVENTO", titulo: "Bloque de trabajo: diseño de la tienda", notas: null, fecha: "2026-10-08",
+    horaInicio: "09:00", horaFin: "12:00", hecho: false, creadoPorId: uid(1, 6), invitadosIds: [], creadoEn: "2026-10-02T16:00:00Z",
   },
 ];

@@ -16,8 +16,9 @@ import { pruebasEntregables } from "./flujo-entregables";
 import { pruebasEstructura } from "./flujo-estructura";
 import { pruebasKpis } from "./flujo-kpis";
 import { pruebasConsumo } from "./flujo-consumo";
-import { pruebasIaCliente } from "./flujo-ia-cliente";
 import { pruebasTallerWeb } from "./flujo-taller-web";
+import { pruebasJarvis } from "./flujo-jarvis";
+import { pruebasAgenda } from "./flujo-agenda";
 import { HOY } from "../../src/mock/datos";
 
 const manejar = (req: Request) => manejarSolicitud(req);
@@ -38,6 +39,7 @@ pruebasEntregables("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0,
 pruebasEstructura("API simulada", manejar, reiniciarMock);
 pruebasKpis("API simulada", manejar, reiniciarMock);
 pruebasConsumo("API simulada", manejar, reiniciarMock);
-pruebasIaCliente("API simulada", manejar, reiniciarMock);
 pruebasTallerWeb("API simulada", manejar, reiniciarMock);
 pruebasEquipo("API simulada", manejar, reiniciarMock, eventos);
+pruebasJarvis("API simulada", manejar, reiniciarMock);
+pruebasAgenda("API simulada", manejar, reiniciarMock);

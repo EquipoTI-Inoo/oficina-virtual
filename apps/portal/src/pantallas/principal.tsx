@@ -16,6 +16,7 @@ import {
 import { AvisosInicio } from "./avisos";
 import { DocumentosPorRevisar } from "./entregables";
 import { AvanceOConsumo } from "./consumo";
+import { esPorConsumo } from "../dominio/consumo";
 import { ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 
 type PiezaUI = S<"PiezaResumen"> & { formato?: string; diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean } };
@@ -37,12 +38,12 @@ export function PantallaIngreso() {
 
   useEffect(() => {
     const s = leerSesion();
-    if (s) ir(s.tipo === "EQUIPO" ? "/equipo/panel" : "/inicio");
+    if (s) ir(s.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
   }, [ir]);
 
   const entrar = (r: S<"SesionIniciada">) => {
     guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: r.refreshToken ?? null, pool: r.pool }, recordar);
-    ir(r.tipo === "EQUIPO" ? "/equipo/panel" : "/inicio");
+    ir(r.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
   };
 
   const enviar = async (e: FormEvent) => {
@@ -315,122 +316,106 @@ function Inicio() {
   const cuenta = d.cuenta;
   const pago = d.avisoPago;
   const req = d.indicadores.requerimientosPendientes;
+  const porAprobar = d.indicadores.porAprobar;
+  const nada = !pago && !porAprobar && !req;
   return (
     <>
       <Cabecera
         antetitulo={fHoyLargo(HOY_DEMO).toUpperCase()}
         titulo={`Hola, ${nombre} 👋`}
         ligero
-        bajada={`Así va todo lo que hacemos para ${cuenta?.nombre ?? sesion?.clientes[0]?.nombre ?? "tu marca"}.`}
+        bajada={`Así van tus proyectos con Inoo${cuenta?.nombre ? `, ${cuenta.nombre}` : ""}.`}
       />
-      <AvisosInicio avisos={d.avisos ?? []} />
-      {pago && (
-        <Aviso icono={<LuWallet size={18} />} tono="alerta">
-          Tienes un pago con {pago.diasAtraso} {pago.diasAtraso === 1 ? "día" : "días"} de atraso. Si ya pagaste, envíale el comprobante a administración.{" "}
-          <Enlace a="/cuenta/pagos" className="enlace">
-            Ver mis pagos →
-          </Enlace>
-        </Aviso>
-      )}
-      <div className={`grid-3 kpis${pago ? " seccion" : ""}`}>
-        <Enlace a="/servicios" className="tarjeta kpi">
-          <div className="kpi-cab">
-            Servicios activos <LuLayers size={16} />
-          </div>
-          <div className="kpi-valor">{d.indicadores.serviciosActivos}</div>
-          <div className="kpi-pie">{d.plan?.nombre ?? "Tu plan"}</div>
-        </Enlace>
-        <Enlace a="/entregables" className={`tarjeta kpi${d.indicadores.porAprobar > 0 ? " kpi--destacado" : ""}`}>
-          <div className="kpi-cab">
-            Por aprobar <LuCircleCheck size={16} />
-          </div>
-          <div className="kpi-valor">{d.indicadores.porAprobar}</div>
-          <div className="kpi-pie">{d.indicadores.porAprobar === 1 ? "Entregable listo para ti" : "Entregables listos para ti"}</div>
-        </Enlace>
-        <Enlace a="/requerimientos" className={`tarjeta kpi${req > 0 ? " kpi--destacado" : ""}`}>
-          <div className="kpi-cab">
-            Requerimientos <LuClipboardList size={16} />
-          </div>
-          <div className="kpi-valor">{req}</div>
-          <div className="kpi-pie">{req === 0 ? "No te pedimos nada por ahora" : req === 1 ? "Pendiente de enviarnos" : "Pendientes de enviarnos"}</div>
-        </Enlace>
-      </div>
-
-      <div className="con-lateral seccion">
-        <div className="pila">
-          <section className="tarjeta" style={{ padding: "22px 20px" }}>
-            <div className="fila entre" style={{ alignItems: "flex-start" }}>
-              <div>
-                <h2 className="tarjeta-titulo">Tu cuenta</h2>
-                <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
-                  {cuenta?.nombre} · {d.plan?.nombre}
-                  {d.plan?.fechaFin ? ` · Contrato hasta el ${fCorta(d.plan.fechaFin)}` : ""}
-                </p>
-              </div>
-              <Enlace a="/servicios" className="enlace">
-                Ver mis servicios →
-              </Enlace>
+      {/* El primer aviso ya está en el menú lateral; arriba solo se repite en celular, donde el menú se esconde. */}
+      <div className="solo-movil"><AvisosInicio avisos={(d.avisos ?? []).slice(0, 1)} /></div>
+      <AvisosInicio avisos={(d.avisos ?? []).slice(1)} />
+      {/* 2 nov (Ernesto): el inicio se centra en el avance. Lo que el cliente debe hacer va en una sola fila. */}
+      <section className={`tarjeta pendientes-cliente${nada ? " pendientes-cliente--al-dia" : ""}`} aria-label="Lo que necesitamos de ti">
+        {nada ? (
+          <p className="fila texto-sm" style={{ gap: 8 }}>
+            <LuCircleCheck size={18} style={{ color: "var(--c-exito)" }} /> Todo al día: por ahora no necesitamos nada de ti.
+          </p>
+        ) : (
+          <>
+            <h2 className="tarjeta-titulo">Lo que necesitamos de ti</h2>
+            <div className="pendientes-cliente-lista">
+              {porAprobar > 0 && (
+                <Enlace a="/entregables" className="pendiente-cliente">
+                  <LuCircleCheck size={18} /> <span><strong>{porAprobar}</strong> {porAprobar === 1 ? "entregable listo para que lo apruebes" : "entregables listos para que los apruebes"}</span>
+                </Enlace>
+              )}
+              {req > 0 && (
+                <Enlace a="/requerimientos" className="pendiente-cliente">
+                  <LuClipboardList size={18} /> <span><strong>{req}</strong> {req === 1 ? "requerimiento por enviarnos" : "requerimientos por enviarnos"}</span>
+                </Enlace>
+              )}
+              {pago && (
+                <Enlace a="/cuenta/pagos" className="pendiente-cliente pendiente-cliente--alerta">
+                  <LuWallet size={18} /> <span>Tienes un pago con {pago.diasAtraso} {pago.diasAtraso === 1 ? "día" : "días"} de atraso. Si ya pagaste, envíale el comprobante a administración.</span>
+                </Enlace>
+              )}
             </div>
-            <div style={{ display: "grid", gap: 18, marginTop: 20 }}>
-              {d.servicios.map((x) => (
-                <div key={x.servicioContratadoId} style={{ display: "grid", gap: 8 }}>
-                  <Enlace a={`/servicios/${x.servicioContratadoId}`} className="fila" style={{ color: "inherit", textDecoration: "none" }}>
-                    <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
-                    <span className="negrita" style={{ fontSize: 13 }}>{x.titulo}</span>
-                  </Enlace>
-                  <AvanceOConsumo s={x} compacto />
-                </div>
-              ))}
-            </div>
-          </section>
+          </>
+        )}
+      </section>
 
-          {d.marca && <TuMarca marca={d.marca} />}
-
-          {d.actividad && d.actividad.length > 0 && (
-            <section className="tarjeta" style={{ padding: "20px 20px 12px" }}>
-              <h2 className="tarjeta-titulo" style={{ marginBottom: 6 }}>Actividad reciente</h2>
-              <div className="lista-lineas">
-                {d.actividad.map((x) => (
-                  <div key={`${x.fecha}-${x.texto}`} className="fila entre" style={{ paddingRight: 0 }}>
-                    <span className="texto-sm">{x.texto}</span>
-                    <span className="texto-xs texto-muted" style={{ whiteSpace: "nowrap" }}>{fDiaMes(x.fecha)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+      <section className="seccion">
+        <div className="seccion-cab">
+          <h2 className="seccion-titulo">Tus proyectos</h2>
+          <Enlace a="/servicios" className="enlace">Ver todos →</Enlace>
         </div>
-
-        <aside className="pila">
-          {cuenta?.responsable && (
-            <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
-              <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Tu equipo Inoo</h3>
-              <div className="fila">
-                <span className="avatar">{cuenta.responsable.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
-                <span>
-                  <span className="negrita" style={{ display: "block", fontSize: 13 }}>{cuenta.responsable.nombre}</span>
-                  <span className="texto-xs texto-muted">Responsable de tu cuenta</span>
+        <div className="proyectos-cliente">
+          {d.servicios.map((x) => {
+            const etapa = x.avance.etapaActual;
+            return (
+              <Enlace key={x.servicioContratadoId} a={`/servicios/${x.servicioContratadoId}`} className="tarjeta proyecto-cliente">
+                <span className="fila" style={{ gap: 10 }}>
+                  <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
+                  <span className="negrita" style={{ fontSize: 15 }}>{x.titulo}</span>
                 </span>
-              </div>
-            </div>
+                {esPorConsumo(x.codigo) ? <span className="texto-xs texto-muted">Servicio mensual: el consumo de tu bolsa está en el proyecto.</span> : <AvanceOConsumo s={x} />}
+                {etapa?.fechaEstimada && !etapa.atrasada && <span className="texto-xs texto-muted">Esta etapa termina hacia el {fCorta(etapa.fechaEstimada)}.</span>}
+                {x.siguientePaso && (
+                  <span className="texto-sm">
+                    <span className="texto-muted">Qué sigue: </span>
+                    {x.siguientePaso}
+                  </span>
+                )}
+                <span className="enlace texto-sm" style={{ marginTop: "auto" }}>Ver proyecto →</span>
+              </Enlace>
+            );
+          })}
+        </div>
+      </section>
+
+      {(cuenta?.responsable || cuenta?.driveUrl) && (
+        <p className="contacto-cliente texto-sm seccion">
+          {cuenta?.responsable && (
+            <span className="fila" style={{ gap: 10 }}>
+              <span className="avatar">{cuenta.responsable.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
+              <span>
+                Tu responsable en Inoo: <strong>{cuenta.responsable.nombre}</strong>
+                {cuenta.responsable.email && (
+                  <>
+                    {" · "}
+                    <a className="enlace" href={`mailto:${cuenta.responsable.email}`}>{cuenta.responsable.email}</a>
+                  </>
+                )}
+              </span>
+            </span>
           )}
           {cuenta?.driveUrl && (
-            <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
-              <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Carpeta de Drive</h3>
-              <p className="texto-xs texto-muted">Tu material, entregables y documentos del proyecto.</p>
-              <a className="boton boton--bloque" href={cuenta.driveUrl} target="_blank" rel="noreferrer">
-                <LuExternalLink size={16} /> Abrir carpeta
-              </a>
-            </div>
+            <a className="enlace fila" style={{ gap: 6 }} href={cuenta.driveUrl} target="_blank" rel="noreferrer">
+              <LuExternalLink size={15} /> Carpeta de Drive
+            </a>
           )}
-        </aside>
-      </div>
+        </p>
+      )}
     </>
   );
 }
-
-/** «Tu marca»: un resumen corto que se puede abrir. Solo aparece con servicios de marca o contenido. */
-function TuMarca({ marca: m }: { marca: NonNullable<S<"InicioCliente">["marca"]> }) {
+/** «Tu marca»: un resumen corto que se puede abrir. Desde el 2 nov va en el detalle de los proyectos de marca o contenido, no en el inicio. */
+export function TuMarca({ marca: m }: { marca: NonNullable<S<"InicioCliente">["marca"]> }) {
   const [abierto, setAbierto] = useState(false);
   return (
     <section className="tarjeta" style={{ padding: "20px 20px" }}>

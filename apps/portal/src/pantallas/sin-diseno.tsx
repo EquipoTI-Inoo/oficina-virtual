@@ -10,6 +10,7 @@ import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, P
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
 import { respuestaVacia } from "../dominio/requerimientos";
 import { CamposFormulario } from "./requerimientos";
+import { JarvisPorArea } from "./jarvis";
 
 const usd = (n: number) => `US$ ${n.toFixed(2).replace(".", ",")}`;
 const errores = (x: unknown) => Object.fromEntries((x as ProblemaApi).errores.map((e) => [e.campo, e.mensaje]));
@@ -163,7 +164,7 @@ function Biblioteca() {
 
 export function PantallaCalendarioEquipo() {
   return (
-    <Estructura espacio="equipo" migas="Calendarios">
+    <Estructura espacio="equipo" migas="Planes de contenido">
       <CalendarioEquipo />
     </Estructura>
   );
@@ -209,7 +210,7 @@ function CalendarioEquipo() {
   const [et, tono] = d ? ESTADO_CAL[d.estado] : ["", "verde" as const];
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Planificación" titulo="Calendarios" bajada="Revisa la propuesta mensual del Jefe de Marketing antes de que los agentes produzcan." />
+      <Cabecera antetitulo="Equipo Inoo · Calendario" titulo="Planes de contenido" bajada="Revisa la propuesta mensual del Jefe de Marketing antes de que los agentes produzcan." accion={<Enlace a="/equipo/calendario" className="boton">← Mi calendario</Enlace>} />
       <div className="fila" style={{ gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Selector etiqueta="Cliente" valor={clienteId} alCambiar={setClienteId} opciones={(clientes.datos?.datos ?? [{ id: CLIENTE_DEMO, nombre: "Casa Oliva" }]).map((c) => [c.id, c.nombre] as [string, string])} />
         <div className="fila" style={{ gap: 4 }}>
@@ -331,7 +332,7 @@ function CostosIa() {
       <>
         <Cabecera antetitulo="Equipo Inoo · Gobernanza" titulo="Costos de IA" />
         <Aviso icono={<LuTriangleAlert size={18} />} titulo="Solo para administración">
-          El detalle por modelo y las ejecuciones los ve el rol ADMIN. El consumo por cliente está en el <Enlace a="/equipo/panel" className="enlace">Panel general</Enlace>.
+          El detalle por modelo y las ejecuciones los ve el rol ADMIN. El consumo por cliente está en <Enlace a="/equipo/clientes" className="enlace">Clientes</Enlace>.
         </Aviso>
       </>
     );
@@ -366,6 +367,7 @@ function CostosIa() {
           <div className="kpi-pie">Revisar en n8n</div>
         </div>
       </div>
+      <JarvisPorArea />
       <div className="tarjeta seccion" style={{ padding: "22px 18px" }}>
         <h2 className="tarjeta-titulo" style={{ marginBottom: 16 }}>Por cliente</h2>
         <div className="tabla-envoltura">

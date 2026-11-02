@@ -1,0 +1,341 @@
+"use client";
+/**
+ * Sección «Jarvis» de la barra lateral del equipo (2 nov 2026, pedido de Ernesto), al estilo de Grok Bot:
+ * a la izquierda, los bots de MI área (solo esos) y el «+» para crear uno; a la derecha, el chat con el bot
+ * elegido. Arriba del chat, el nombre del bot abre sus opciones (editar, nueva conversación, eliminar).
+ * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
+ */
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { LuChevronDown, LuMessageSquarePlus, LuPencil, LuPlus, LuSend, LuTrash2 } from "react-icons/lu";
+import { api, BASE, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
+import { Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
+import { COLORES_BOT, FORMAS_BOT } from "../dominio/ia-equipo";
+import { EstadoArea, usd } from "./jarvis";
+
+type Bot = S<"BotJarvis">;
+
+export function PantallaJarvis() {
+  return (
+    <Estructura espacio="equipo" migas="Jarvis">
+      <SeccionJarvis />
+    </Estructura>
+  );
+}
+
+export function AvatarBot({ bot, tam = 30 }: { bot: Pick<Bot, "nombre" | "color" | "forma">; tam?: number }) {
+  const radio = bot.forma === "CIRCULO" ? "50%" : bot.forma === "CUADRADO" ? "8px" : "4px";
+  return (
+    <span className="avatar-bot" aria-hidden style={{ width: tam, height: tam, background: bot.color, borderRadius: radio, transform: bot.forma === "ROMBO" ? "rotate(45deg) scale(0.8)" : undefined }}>
+      <span style={{ transform: bot.forma === "ROMBO" ? "rotate(-45deg)" : undefined }}>{bot.nombre.trim()[0]?.toUpperCase()}</span>
+    </span>
+  );
+}
+
+function SeccionJarvis() {
+  const r = useConsulta<S<"BotsDelArea">>("/jarvis/bots");
+  const [elegido, setElegido] = useState<string | null>(null);
+  const [editor, setEditor] = useState<Bot | "nuevo" | null>(null);
+  if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
+  if (!r.datos) return <Cargando />;
+  const d = r.datos;
+  const bot = d.bots.find((b) => b.id === elegido) ?? d.bots[0] ?? null;
+
+  if (!d.area) {
+    return (
+      <div className="tarjeta" style={{ padding: 24 }}>
+        <p className="texto-sm">Todavía no tienes un área asignada, así que no ves bots. Pídele al ADMIN que te asigne una en «Costos de IA».</p>
+      </div>
+    );
+  }
+  return (
+    <div className="jarvis">
+      <aside className="jarvis-lista" aria-label={`Bots de ${d.consumo?.nombre}`}>
+        <div className="fila entre" style={{ padding: "4px 6px 10px" }}>
+          <span className="jarvis-lista-titulo">Bots de {d.consumo?.nombre}</span>
+          <button className="boton-icono" aria-label="Crear un bot" title="Crear un bot" onClick={() => setEditor("nuevo")}>
+            <LuPlus size={16} />
+          </button>
+        </div>
+        {d.bots.length === 0 && <p className="texto-xs texto-muted" style={{ padding: "0 6px" }}>Tu área aún no tiene bots. Crea el primero con «+».</p>}
+        {d.bots.map((b) => (
+          <button key={b.id} className="jarvis-item" aria-current={bot?.id === b.id ? "true" : undefined} onClick={() => setElegido(b.id)}>
+            <AvatarBot bot={b} tam={26} />
+            <span className="jarvis-item-nombre">{b.nombre}</span>
+          </button>
+        ))}
+        {d.consumo && (
+          <div className="jarvis-consumo">
+            <EstadoArea a={d.consumo} />
+            <span className="texto-xs texto-muted">
+              Hoy {usd(d.consumo.gastoDiaUsd)} de {usd(d.consumo.topeDiarioUsd)} · mes {usd(d.consumo.gastoMesUsd)} de {usd(d.consumo.topeMensualUsd)}
+            </span>
+          </div>
+        )}
+      </aside>
+      <section className="jarvis-chat">
+        {bot ? (
+          <ChatBot key={bot.id} bot={bot} conectado={d.conectado} alEditar={() => setEditor(bot)} alCambiar={() => void r.recargar()} />
+        ) : (
+          <div className="jarvis-vacio">
+            <p className="texto-sm texto-muted">Crea un bot para tu área: dale un nombre y cuéntale cuál es su trabajo.</p>
+            <button className="boton boton--primario" onClick={() => setEditor("nuevo")}>
+              <LuPlus size={14} /> Crear un bot
+            </button>
+          </div>
+        )}
+      </section>
+      {editor && (
+        <EditorBot
+          bot={editor === "nuevo" ? null : editor}
+          alCerrar={() => setEditor(null)}
+          alGuardar={(b) => {
+            setEditor(null);
+            setElegido(b.id);
+            void r.recargar();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: () => void; alGuardar: (b: Bot) => void }) {
+  const [nombre, setNombre] = useState(bot?.nombre ?? "");
+  const [color, setColor] = useState<string>(bot?.color ?? COLORES_BOT[0]);
+  const [forma, setForma] = useState<Bot["forma"]>(bot?.forma ?? "CIRCULO");
+  const [instrucciones, setInstrucciones] = useState(bot?.instrucciones ?? "");
+  const [err, setErr] = useState<Record<string, string>>({});
+  const avisar = useAviso();
+  const guardar = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr({});
+    try {
+      const cuerpo = { nombre, color, forma, instrucciones };
+      const b = bot ? await api<Bot>(`/jarvis/bots/${bot.id}`, { metodo: "PATCH", cuerpo }) : await api<Bot>("/jarvis/bots", { metodo: "POST", cuerpo });
+      avisar({ titulo: bot ? "Bot actualizado" : `${b.nombre} está listo` });
+      alGuardar(b);
+    } catch (e2) {
+      if (e2 instanceof ProblemaApi && e2.errores.length) setErr(Object.fromEntries(e2.errores.map((x) => [x.campo, x.mensaje])));
+      else avisar({ titulo: "No pudimos guardar el bot", texto: e2 instanceof ProblemaApi ? e2.detalle ?? e2.titulo : undefined });
+    }
+  };
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta={bot ? "Editar bot" : "Crear un bot"}>
+      <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void guardar(e)}>
+        <div className="fila" style={{ gap: 12 }}>
+          <AvatarBot bot={{ nombre: nombre || "?", color, forma }} tam={44} />
+          <h2 style={{ fontSize: 18, fontWeight: 600 }}>{bot ? "Editar bot" : "Crear un bot"}</h2>
+        </div>
+        <div className="campo">
+          <label htmlFor="bot-nombre">Nombre</label>
+          <div className="entrada">
+            <input id="bot-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Seguimiento de clientes" maxLength={60} />
+          </div>
+          {err.nombre && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.nombre}</p>}
+        </div>
+        <div className="fila" style={{ gap: 20, flexWrap: "wrap" }}>
+          <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+            <legend>Color</legend>
+            <div className="fila" style={{ gap: 6 }}>
+              {COLORES_BOT.map((c) => (
+                <button key={c} type="button" aria-label={`Color ${c}`} aria-pressed={color === c} className="muestra-color" style={{ background: c, outline: color === c ? `2px solid ${c}` : undefined }} onClick={() => setColor(c)} />
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+            <legend>Forma</legend>
+            <div className="fila" style={{ gap: 6 }}>
+              {FORMAS_BOT.map((f) => (
+                <button key={f} type="button" aria-label={`Forma ${f.toLowerCase()}`} aria-pressed={forma === f} className="boton boton--chico" style={forma === f ? { borderColor: color } : undefined} onClick={() => setForma(f)}>
+                  <AvatarBot bot={{ nombre: " ", color, forma: f }} tam={16} />
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+        <div className="campo">
+          <label htmlFor="bot-trabajo">Su trabajo</label>
+          <textarea
+            id="bot-trabajo"
+            className="input"
+            rows={6}
+            value={instrucciones}
+            onChange={(e) => setInstrucciones(e.target.value)}
+            placeholder="Qué hace, con qué información trabaja y qué no debe hacer. Ej.: «Cada mañana revisa mis proyectos en el portal y dime qué está atrasado»."
+            maxLength={4000}
+          />
+          {err.instrucciones && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.instrucciones}</p>}
+        </div>
+        <button className="boton boton--primario boton--bloque" type="submit">
+          {bot ? "Guardar" : "Crear bot"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+interface MensajeChat {
+  rol: "yo" | "bot";
+  texto: string;
+  error?: boolean;
+}
+
+const claveSesion = (botId: string) => `inoo.jarvis.sesion.${botId}`;
+function sesionDe(botId: string) {
+  try {
+    const s = window.localStorage.getItem(claveSesion(botId));
+    if (s) return s;
+    const n = crypto.randomUUID();
+    window.localStorage.setItem(claveSesion(botId), n);
+    return n;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+/** Lee el SSE de Hermes (formato OpenAI) y entrega cada pedazo de texto. */
+async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: string) => void) {
+  const lector = cuerpo.getReader();
+  const dec = new TextDecoder();
+  let resto = "";
+  for (;;) {
+    const { done, value } = await lector.read();
+    if (done) break;
+    resto += dec.decode(value, { stream: true });
+    const lineas = resto.split("\n");
+    resto = lineas.pop() ?? "";
+    for (const l of lineas) {
+      if (!l.startsWith("data:")) continue;
+      const dato = l.slice(5).trim();
+      if (!dato || dato === "[DONE]") continue;
+      let j: { choices?: { delta?: { content?: string } }[]; error?: { message?: string } };
+      try {
+        j = JSON.parse(dato);
+      } catch {
+        continue;
+      }
+      if (j.error?.message) throw new Error(j.error.message);
+      const c = j.choices?.[0]?.delta?.content;
+      if (c) alTexto(c);
+    }
+  }
+}
+
+function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado: boolean; alEditar: () => void; alCambiar: () => void }) {
+  const [sesion, setSesion] = useState(() => (typeof window === "undefined" ? crypto.randomUUID() : sesionDe(bot.id)));
+  const [mensajes, setMensajes] = useState<MensajeChat[]>([]);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const avisar = useAviso();
+  const fin = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    fin.current?.scrollIntoView({ block: "end" });
+  }, [mensajes]);
+
+  const ultimo = (f: (m: MensajeChat) => MensajeChat) => setMensajes((ms) => ms.map((m, i) => (i === ms.length - 1 ? f(m) : m)));
+  const enviar = async (e: FormEvent) => {
+    e.preventDefault();
+    const mensaje = texto.trim();
+    if (!mensaje || enviando) return;
+    setTexto("");
+    setEnviando(true);
+    setMensajes((ms) => [...ms, { rol: "yo", texto: mensaje }, { rol: "bot", texto: "" }]);
+    try {
+      const s = leerSesion();
+      const r = await fetch(`${BASE}/jarvis/bots/${bot.id}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
+        body: JSON.stringify({ mensaje, sesionId: sesion }),
+      });
+      if (!r.ok || !r.body) {
+        const p = await r.json().catch(() => ({}));
+        throw new Error(p.detail ? `${p.title}. ${p.detail}` : (p.title ?? p.error?.message ?? `Error ${r.status}`));
+      }
+      await leerRespuesta(r.body, (t) => ultimo((m) => ({ ...m, texto: m.texto + t })));
+      alCambiar();
+    } catch (err) {
+      ultimo((m) => ({ ...m, texto: (err as Error).message, error: true }));
+    } finally {
+      setEnviando(false);
+    }
+  };
+  const nuevaConversacion = () => {
+    const n = crypto.randomUUID();
+    try {
+      window.localStorage.setItem(claveSesion(bot.id), n);
+    } catch {
+      /* sin almacenamiento: la conversación dura mientras la pantalla esté abierta */
+    }
+    setSesion(n);
+    setMensajes([]);
+    setMenu(false);
+  };
+  const eliminar = async () => {
+    setMenu(false);
+    if (!window.confirm(`¿Eliminar ${bot.nombre}? Tu área deja de verlo.`)) return;
+    try {
+      await api(`/jarvis/bots/${bot.id}`, { metodo: "DELETE" });
+      avisar({ titulo: `${bot.nombre} eliminado` });
+      alCambiar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos eliminar el bot", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+
+  return (
+    <>
+      <header className="jarvis-cabecera">
+        <div style={{ position: "relative" }}>
+          <button className="jarvis-nombre" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+            <AvatarBot bot={bot} tam={30} />
+            <span>{bot.nombre}</span>
+            <LuChevronDown size={14} />
+          </button>
+          {menu && (
+            <div className="jarvis-menu" role="menu">
+              <button role="menuitem" onClick={nuevaConversacion}>
+                <LuMessageSquarePlus size={14} /> Nueva conversación
+              </button>
+              {bot.puedeEditar && (
+                <button role="menuitem" onClick={() => { setMenu(false); alEditar(); }}>
+                  <LuPencil size={14} /> Editar bot
+                </button>
+              )}
+              {bot.puedeEditar && (
+                <button role="menuitem" className="jarvis-menu-peligro" onClick={() => void eliminar()}>
+                  <LuTrash2 size={14} /> Eliminar bot
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        <span className="texto-xs texto-muted">Creado por {bot.creadoPor.nombre}</span>
+      </header>
+      <div className="jarvis-mensajes" aria-live="polite">
+        {mensajes.length === 0 && (
+          <div className="jarvis-bienvenida">
+            <AvatarBot bot={bot} tam={48} />
+            <p className="negrita">{bot.nombre}</p>
+            <p className="texto-sm texto-muted" style={{ whiteSpace: "pre-wrap" }}>{bot.instrucciones || "Sin trabajo definido todavía."}</p>
+            {!conectado && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>El Jarvis de tu área todavía no está conectado: los bots no pueden responder aún.</p>}
+          </div>
+        )}
+        {mensajes.map((m, i) => (
+          <div key={i} className={`burbuja-jarvis burbuja-jarvis--${m.rol === "yo" ? "yo" : "jarvis"}${m.error ? " burbuja-jarvis--error" : ""}`}>
+            {m.texto || (enviando && i === mensajes.length - 1 ? "Pensando…" : "")}
+          </div>
+        ))}
+        <div ref={fin} />
+      </div>
+      <form className="jarvis-escribir" onSubmit={(e) => void enviar(e)}>
+        <div className="entrada" style={{ flex: 1 }}>
+          <input aria-label={`Mensaje para ${bot.nombre}`} placeholder={`Escríbele a ${bot.nombre}…`} value={texto} onChange={(e) => setTexto(e.target.value)} disabled={enviando} />
+        </div>
+        <button className="boton boton--primario" type="submit" disabled={enviando || !texto.trim()} aria-label="Enviar">
+          <LuSend size={14} />
+        </button>
+      </form>
+    </>
+  );
+}

@@ -237,5 +237,20 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-16" })).json.codigo, "SERVICIO_YA_CONTRATADO");
       assert.ok((await eventos()).some((e) => e.tipo === "servicio.contratado" && e.datos.variante === "FOTOGRAFIA"));
     });
+
+    test("Cosmiq: solo los proyectos de CRM llevan el enlace, y el cliente lo ve en su inicio", async () => {
+      await reiniciar();
+      const enlace = "https://app.cosmiq.example/casa-oliva";
+      const ruta = (id: string) => `/servicios-contratados/${id}`;
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json.cuenta.enlaceCosmiq, null);
+      const enWeb = await llamar("PATCH", ruta(uid(4, 4)), DIEGO, { detalle: { enlaceCosmiq: enlace } });
+      assert.deepEqual([enWeb.status, enWeb.json.errores?.[0]?.campo], [422, "detalle.enlaceCosmiq"]);
+      const sinHttps = await llamar("PATCH", ruta(CRM), DIEGO, { detalle: { crm: "HubSpot", enlaceCosmiq: "http://app.cosmiq.example" } });
+      assert.deepEqual([sinHttps.status, sinHttps.json.errores?.[0]?.campo], [422, "detalle.enlaceCosmiq"]);
+      const ok = await llamar("PATCH", ruta(CRM), DIEGO, { detalle: { crm: "HubSpot", enlaceCosmiq: enlace } });
+      assert.deepEqual([ok.status, ok.json.detalle.enlaceCosmiq], [200, enlace]);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/inicio`, VALERIA)).json.cuenta.enlaceCosmiq, enlace);
+      assert.equal((await llamar("GET", ruta(CRM), VALERIA)).json.detalle.enlaceCosmiq, enlace);
+    });
   });
 }

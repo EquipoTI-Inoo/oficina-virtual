@@ -14,7 +14,6 @@ import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimien
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
-import { IaDelCliente } from "./ia";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -376,7 +375,8 @@ function CrearTicket() {
   );
 }
 
-// ═════════════════════════════════════════════ Equipo · Panel general
+// ═════════════════════════════════════════════ Equipo · tabla de clientes
+// «Panel general» se unió con «Mi panel» el 2 nov 2026; su tabla sigue en «Clientes».
 
 interface PanelResp {
   resumen: S<"ResumenAgencia">;
@@ -388,14 +388,6 @@ const ESTADO_OPERATIVO: Record<string, [string, "azul" | "ambar" | "verde"]> = {
   AL_DIA: ["Al día", "verde"],
 };
 const usd = (n: number) => `US$ ${Math.round(n)}`;
-
-export function PantallaPanel() {
-  return (
-    <Estructura espacio="equipo" migas="Panel general">
-      <Panel />
-    </Estructura>
-  );
-}
 
 function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total: number }) {
   return (
@@ -462,123 +454,7 @@ function TablaClientes({ filas, total }: { filas: S<"FilaPanelCliente">[]; total
   );
 }
 
-function Panel() {
-  const avisar = useAviso();
-  const [q, setQ] = useState("");
-  const [estado, setEstado] = useState("");
-  const camino = `/panel/clientes?periodo=${PERIODO_DEMO}${q ? `&q=${encodeURIComponent(q)}` : ""}${estado ? `&estadoOperativo=${estado}` : ""}`;
-  const { datos: d, error, recargar } = useConsulta<PanelResp>(camino);
-  const exportar = async () => {
-    try {
-      const csv = await api<string>(`/panel/clientes/exportar?periodo=${PERIODO_DEMO}`);
-      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "panel-octubre-2026.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      avisar({ titulo: "No pudimos exportar", texto: (e as ProblemaApi).titulo });
-    }
-  };
-  if (error) return <ErrorCarga error={error} reintentar={recargar} />;
-  if (!d) return <Cargando />;
-  const r = d.resumen;
-  const umbral = r.clientesSobreUmbral ?? [];
-  const luma = d.datos.find((f) => f.atrasadas >= 2);
-  const casaOliva = d.datos.find((f) => f.cliente.id === CLIENTE_DEMO);
-  return (
-    <>
-      <Cabecera
-        antetitulo="Equipo Inoo · Visión de agencia"
-        titulo="Panel general"
-        bajada={`${r.clientesActivos} cuentas activas: cómo van sus proyectos, lo que nos deben y el consumo de IA.`}
-        accion={
-          <button className="boton" onClick={exportar}>
-            <LuDownload size={18} /> Exportar resumen
-          </button>
-        }
-      />
-      <div className="grid-4">
-        <Enlace a="/equipo/proyectos" className="tarjeta kpi" style={{ color: "inherit", textDecoration: "none" }}>
-          <div className="kpi-cab">Proyectos con retraso</div>
-          <div className="kpi-valor">{r.proyectosConRetraso ?? 0}</div>
-          <div className="kpi-pie">{r.retrasoPorCliente?.length ? r.retrasoPorCliente.map((a) => `${a.proyectos} de ${a.clienteNombre}`).join(" · ") : "Todos al día"}</div>
-        </Enlace>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Requerimientos atrasados</div>
-          <div className="kpi-valor">{r.requerimientosAtrasados ?? 0}</div>
-          <div className="kpi-pie">Lo que los clientes nos deben</div>
-        </div>
-        <div className="tarjeta kpi kpi--destacado">
-          <div className="kpi-cab">Aprobaciones pendientes</div>
-          <div className="kpi-valor">{r.aprobacionesPendientes}</div>
-          <div className="kpi-pie">En espera de cada cliente</div>
-        </div>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Costo de IA del mes</div>
-          <div className="kpi-valor">{usd(r.gastoIaUsd)}</div>
-          <div className="kpi-pie">
-            Límite total: {usd(r.limiteIaUsd)} · {String(r.pctLimite).replace(".", ",")} %
-          </div>
-        </div>
-      </div>
-      {umbral.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <Aviso tono="alerta" icono={<LuTriangleAlert size={18} />} titulo={`${umbral.length} clientes llegaron al 80 % de su límite de IA`}>
-            {umbral.map((u) => `${u.clienteNombre}: ${usd(u.gastoUsd!)} / ${usd(u.limiteUsd!)} = ${u.pctLimite} %.`).join(" ")} Revisar consumo antes de nuevas ejecuciones.
-          </Aviso>
-        </div>
-      )}
-      <div style={{ margin: "22px 0 18px" }}>
-        <label htmlFor="buscar-cliente" className="negrita" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-          Buscar cliente
-        </label>
-        <div className="fila fila-filtros">
-          <div className="entrada" style={{ flex: 1 }}>
-            <input id="buscar-cliente" placeholder="Nombre de marca o contacto..." value={q} onChange={(e) => setQ(e.target.value)} />
-            <span className="icono-campo">
-              <LuSearch size={16} />
-            </span>
-          </div>
-          <label className="boton" style={{ position: "relative" }}>
-            <LuChevronDown size={16} />
-            <select aria-label="Filtrar por estado" value={estado} onChange={(e) => setEstado(e.target.value)} style={{ appearance: "none", border: 0, background: "none", fontWeight: 600, outline: "none", cursor: "pointer" }}>
-              <option value="">Todos los estados</option>
-              <option value="EN_CURSO">En curso</option>
-              <option value="ATENCION">Atención</option>
-              <option value="AL_DIA">Al día</option>
-            </select>
-          </label>
-          <span className="boton">
-            <LuCalendarDays size={18} /> Octubre 2026
-          </span>
-        </div>
-      </div>
-      <TablaClientes filas={d.datos} total={r.clientesActivos} />
-      <div className="grid-2 seccion" style={{ marginTop: 22 }}>
-        <div className="tarjeta" style={{ padding: "24px 18px", display: "grid", gap: 14 }}>
-          <h3 className="tarjeta-titulo">Producción que necesita atención</h3>
-          {luma && <p className="negrita" style={{ fontSize: 12 }}>{luma.cliente.nombre} · {luma.atrasadas} piezas atrasadas</p>}
-          <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>Nativa Café · 1 pieza atrasada. Coordina responsables y nuevas fechas en el Kanban de piezas de cada proyecto.</p>
-          <Enlace a="/equipo/proyectos" className="enlace">
-            Abrir proyectos →
-          </Enlace>
-        </div>
-        <div className="tarjeta" style={{ padding: "24px 18px", display: "grid", gap: 14 }}>
-          <h3 className="tarjeta-titulo">Aprobaciones de Casa Oliva</h3>
-          <p className="negrita" style={{ fontSize: 12 }}>{casaOliva?.porAprobar ?? 0} piezas listas para revisión</p>
-          <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>La versión 2 de «Tu ritual, tu momento» continúa sin aprobación. Próxima publicación prevista: 08 oct.</p>
-          <Enlace a={`/equipo/clientes/${CLIENTE_DEMO}`} className="enlace">
-            Ver ficha de Casa Oliva →
-          </Enlace>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/** Sin diseño en Figma: reutiliza la tabla del panel general (ver docs/diseno.md). */
+/** Sin diseño en Figma: la tabla que antes estaba en el panel general (ver docs/diseno.md). */
 export function PantallaClientesEquipo() {
   return (
     <Estructura espacio="equipo" migas="Clientes">
@@ -761,7 +637,6 @@ function Ficha() {
           <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
           <EstadoPagoDelCliente clienteId={id} />
-          <IaDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}

@@ -50,6 +50,9 @@ services:
       - ../../database/migraciones/0029_horario_correos.sql:/docker-entrypoint-initdb.d/01zc_horario_correos.sql:ro
       - ../../database/migraciones/0030_formularios_de_monday.sql:/docker-entrypoint-initdb.d/01zd_formularios_de_monday.sql:ro
       - ../../database/migraciones/0031_formularios_con_enlace.sql:/docker-entrypoint-initdb.d/01ze_formularios_con_enlace.sql:ro
+      - ../../database/migraciones/0032_sin_ia_cliente.sql:/docker-entrypoint-initdb.d/01zf_sin_ia_cliente.sql:ro
+      - ../../database/migraciones/0033_jarvis_por_area.sql:/docker-entrypoint-initdb.d/01zg_jarvis_por_area.sql:ro
+      - ../../database/migraciones/0034_calendario_colaborador.sql:/docker-entrypoint-initdb.d/01zh_calendario_colaborador.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

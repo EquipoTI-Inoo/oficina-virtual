@@ -6,6 +6,7 @@ export const USUARIOS = {
   equipo: { email: "diego.castro@inoo.pe", clave: "demo1234" },
   operativo: { email: "camila.paredes@inoo.pe", clave: "demo1234" },
   finanzas: { email: "finanzas@inoo.pe", clave: "demo1234" },
+  admin: { email: "admin@inoo.pe", clave: "demo1234" },
 } as const;
 
 /** Vuelve la API simulada a los datos de Figma. */

@@ -67,6 +67,14 @@ export function guardarSesion(s: SesionLocal, recordar: boolean) {
   almacen.setItem(CLAVE_SESION, JSON.stringify(s));
 }
 
+/** Cambia la cuenta de cliente activa (personas que pertenecen a más de una), en el mismo almacén de la sesión. */
+export function cambiarClienteActivo(clienteId: string) {
+  const s = leerSesion();
+  if (!s) return;
+  const almacen = window.sessionStorage.getItem(CLAVE_SESION) ? window.sessionStorage : window.localStorage;
+  almacen.setItem(CLAVE_SESION, JSON.stringify({ ...s, clienteId }));
+}
+
 export function cerrarSesion() {
   window.localStorage.removeItem(CLAVE_SESION);
   window.sessionStorage.removeItem(CLAVE_SESION);
@@ -90,7 +98,7 @@ export class ProblemaApi extends Error {
   }
 }
 
-const BASE = "/api/v1";
+export const BASE = "/api/v1";
 
 /** Pide un token nuevo con el refresh token de Cognito y lo guarda donde estaba la sesión. */
 async function renovarSesion(s: SesionLocal): Promise<boolean> {

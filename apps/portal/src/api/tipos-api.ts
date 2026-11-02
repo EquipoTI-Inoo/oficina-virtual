@@ -1694,295 +1694,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/clientes/{clienteId}/ia/resumen": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        /** Inicio de la sección: consumo del mes, métricas de los agentes y si las respuestas se simulan */
-        get: operations["resumenIa"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/clientes/{clienteId}/ia/agentes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        /** Agentes de IA que creó el cliente (nunca los internos de Inoo) */
-        get: operations["listarAgentesIa"];
-        put?: never;
-        /** Crea un agente en borrador (desde cero o desde una plantilla) */
-        post: operations["crearAgenteIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/clientes/{clienteId}/ia/borrador-agente": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** «Crear con IA»: describe tu negocio y devuelve una propuesta de agente (no la guarda). Usa Claude Sonnet 5.5. */
-        post: operations["borradorAgenteIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ia/agentes/{agenteId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        /** Detalle del agente */
-        get: operations["obtenerAgenteIa"];
-        put?: never;
-        post?: never;
-        /** Elimina el agente y sus conversaciones */
-        delete: operations["eliminarAgenteIa"];
-        options?: never;
-        head?: never;
-        /** Edita el borrador del agente, o lo pausa y reactiva */
-        patch: operations["actualizarAgenteIa"];
-        trace?: never;
-    };
-    "/ia/agentes/{agenteId}/publicar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Publica la configuración actual como una versión nueva */
-        post: operations["publicarAgenteIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ia/agentes/{agenteId}/probar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Chat de prueba: le escribe al agente (borrador incluido) y devuelve su respuesta. Cobra por mensaje; 409 TOPE_ALCANZADO si se llegó al tope del mes. */
-        post: operations["probarAgenteIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ia/agentes/{agenteId}/conectar-canal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** El cliente pide conectar el agente a WhatsApp o a su web: queda SOLICITADO y se abre un ticket para el equipo */
-        post: operations["conectarCanalAgenteIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/clientes/{clienteId}/ia/conocimiento": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        /** Bases de conocimiento del cliente */
-        get: operations["listarConocimientoIa"];
-        put?: never;
-        /** Crea una base de conocimiento */
-        post: operations["crearConocimientoIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ia/conocimiento/{baseId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                baseId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Elimina la base (los agentes dejan de usarla) */
-        delete: operations["eliminarConocimientoIa"];
-        options?: never;
-        head?: never;
-        /** Cambia el nombre o los artículos (reemplaza la lista completa) */
-        patch: operations["actualizarConocimientoIa"];
-        trace?: never;
-    };
-    "/clientes/{clienteId}/ia/sin-respuesta": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        /** Preguntas que los agentes no pudieron responder (pendientes primero) */
-        get: operations["listarSinRespuestaIa"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ia/sin-respuesta/{preguntaId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                preguntaId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Marca la pregunta como resuelta (ya se agregó a la base de conocimiento) */
-        patch: operations["resolverSinRespuestaIa"];
-        trace?: never;
-    };
-    "/ia/plantillas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Plantillas hechas por Inoo (agentes y contenido) */
-        get: operations["plantillasAgenteIa"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/clientes/{clienteId}/ia/contenido": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        /** Content AI: lo que generó el cliente (más reciente primero). No se mezcla con las piezas que hace Inoo. */
-        get: operations["listarContenidoIa"];
-        put?: never;
-        /** Content AI: genera texto (Gemini Flash). Cobra por variación; 409 TOPE_ALCANZADO si se llegó al tope del mes. */
-        post: operations["generarContenidoIa"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/clientes/{clienteId}/ia/conversaciones": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        /** Registro de conversaciones de los agentes (más reciente primero) */
-        get: operations["listarConversacionesIa"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ia/conversaciones/{conversacionId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversacionId: string;
-            };
-            cookie?: never;
-        };
-        /** Conversación con todos sus mensajes */
-        get: operations["obtenerConversacionIa"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/panel/equipo": {
         parameters: {
             query?: never;
@@ -1995,6 +1706,257 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/equipo/{usuarioId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Cambia el área de una persona del equipo (de ella depende contra qué tope se cobra su Jarvis) */
+        patch: operations["cambiarAreaPersona"];
+        trace?: never;
+    };
+    "/panel/ia-equipo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Consumo de los Jarvis por área contra sus topes (hoy y el mes, en Lima), con el gasto de cada persona */
+        get: operations["reporteJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/ia-equipo/areas/{area}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Cambia (o amplía) los topes diario y mensual de un área. Si el área estaba pausada y el nuevo tope lo permite, se reactiva al instante */
+        put: operations["cambiarTopesArea"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mi área, cómo va contra sus topes y si tengo una llave de Jarvis vigente */
+        get: operations["miJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/llave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Genera mi llave de Jarvis. Reemplaza la anterior (deja de funcionar al instante) y solo se muestra esta vez */
+        post: operations["generarLlaveJarvis"];
+        /** Revoca mi llave de Jarvis */
+        delete: operations["revocarLlaveJarvis"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/bots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sección «Jarvis»: los bots de mi área (solo los de mi área), cómo va el área contra sus topes y si su Hermes está conectado */
+        get: operations["botsDeMiArea"];
+        put?: never;
+        /** Crea un bot en mi área (nombre, apariencia y su trabajo). Lo ve toda el área */
+        post: operations["crearBot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/bots/{botId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Elimina un bot de mi área (quien lo creó o un ADMIN) */
+        delete: operations["eliminarBot"];
+        options?: never;
+        head?: never;
+        /** Edita un bot de mi área (quien lo creó o un ADMIN) */
+        patch: operations["editarBot"];
+        trace?: never;
+    };
+    "/jarvis/bots/{botId}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Le escribe a un bot de mi área y devuelve su respuesta en streaming (SSE en formato OpenAI)
+         * @description El portal reenvía el mensaje, desde el servidor, al Hermes del área (JARVIS_HERMES), con el trabajo del bot como sistema, X-Hermes-Session-Id (la conversación) y X-Hermes-Session-Key (la memoria del bot). El navegador nunca ve la clave de Hermes. Antes revisa el tope del área; el gasto lo cobra la pasarela /ia-equipo.
+         */
+        post: operations["chatConBot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia-equipo/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Modelos que acepta la pasarela (formato OpenAI) */
+        get: operations["modelosJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ia-equipo/chat/completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pasarela a DeepSeek en formato OpenAI Chat Completions, con o sin streaming
+         * @description Revisa el tope del área de quien llama antes de llamar a DeepSeek (con la clave de Inoo, que solo vive en el portal) y anota tokens y costo contra el área y la persona, también en streaming (agrega stream_options.include_usage). Modelos: deepseek-flash y deepseek-v4-pro. Los errores siguen el formato de OpenAI; los de DeepSeek pasan tal cual y no cuestan.
+         */
+        post: operations["chatJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/agenda": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calendario del colaborador: sus tareas, las reuniones y requerimientos de sus proyectos, feriados, y sus pendientes y eventos, entre dos fechas (hora de Lima) */
+        get: operations["verMiAgenda"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/agenda/eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Crea un pendiente o un evento (reunión interna, llamada, bloque de trabajo). Los invitados lo ven en su calendario */
+        post: operations["crearEventoAgenda"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/agenda/eventos/{eventoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Elimina un pendiente o evento (solo quien lo creó; desaparece también del calendario de los invitados) */
+        delete: operations["eliminarEventoAgenda"];
+        options?: never;
+        head?: never;
+        /** Edita o marca como hecho un pendiente o evento (solo quien lo creó) */
+        patch: operations["editarEventoAgenda"];
+        trace?: never;
+    };
+    "/me/agenda/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Conecta el calendario con Google Calendar. Por ahora es simulado: guarda la conexión con el correo de la persona, pero todavía no sincroniza */
+        put: operations["conectarGoogleCalendar"];
+        post?: never;
+        /** Desconecta Google Calendar */
+        delete: operations["desconectarGoogleCalendar"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2902,6 +2864,11 @@ export interface components {
                 responsable?: components["schemas"]["PersonaMini"] | null;
                 /** Format: uri */
                 driveUrl?: string | null;
+                /**
+                 * Format: uri
+                 * @description Enlace a su cuenta en Cosmiq si tiene un proyecto de CRM vigente que lo lleva; si no, null. El portal lo muestra en el menú del cliente
+                 */
+                enlaceCosmiq?: string | null;
             };
             /** @description Solo si está atrasado, sin montos (reunión 15 oct). Solo para ADMIN_CLIENTE, ADMIN y FINANZAS; si no, null. */
             avisoPago?: {
@@ -2946,6 +2913,8 @@ export interface components {
                 avance: components["schemas"]["AvanceProyecto"];
                 /** @description Responsable del servicio en Inoo */
                 responsable?: components["schemas"]["PersonaMini"] | null;
+                /** @description Qué sigue en el proyecto, en minúscula para leerse tras «Qué sigue:» (2 nov: el inicio del cliente se centra en el avance) */
+                siguientePaso?: string | null;
             }[];
             proximaPublicacion?: {
                 /** Format: uuid */
@@ -3295,6 +3264,197 @@ export interface components {
             iniciales: string;
             cargo?: string | null;
             rolEquipo?: components["schemas"]["RolEquipo"] | null;
+            area?: components["schemas"]["AreaEquipo"] | null;
+        };
+        /**
+         * @description Área de Inoo (30 oct). ADMINISTRACION se muestra como «Admin»
+         * @enum {string}
+         */
+        AreaEquipo: "CRM" | "AUDIOVISUAL" | "DISENO" | "ADMINISTRACION" | "COMERCIAL" | "MARKETING";
+        ConsumoArea: {
+            area: components["schemas"]["AreaEquipo"];
+            /** @example Diseño */
+            nombre: string;
+            topeDiarioUsd: number;
+            topeMensualUsd: number;
+            /** @description Hoy, en Lima */
+            gastoDiaUsd: number;
+            /** @description El mes en curso, en Lima */
+            gastoMesUsd: number;
+            pctDia: number;
+            pctMes: number;
+            /**
+             * @description Qué tope alcanzó (la pasarela responde 429); null si sigue disponible
+             * @enum {string|null}
+             */
+            pausado: "DIARIO" | "MENSUAL" | null;
+            /** @description Desde el 80 % de cualquiera de los dos topes */
+            alerta: boolean;
+            /** @description Solo en el reporte del ADMIN: quién gastó cuánto este mes */
+            personas?: {
+                persona: components["schemas"]["PersonaEquipo"];
+                gastoMesUsd: number;
+                llaveVigente: boolean;
+            }[];
+        };
+        ReporteJarvis: {
+            /** Format: date */
+            dia: string;
+            mes: components["schemas"]["Periodo"];
+            totalMesUsd: number;
+            areas: components["schemas"]["ConsumoArea"][];
+            /** @description Personas del equipo sin área: no pueden usar Jarvis */
+            sinArea: components["schemas"]["PersonaEquipo"][];
+        };
+        MiJarvis: {
+            area: components["schemas"]["AreaEquipo"] | null;
+            /** @description El de mi área (sin el detalle por persona) */
+            consumo: components["schemas"]["ConsumoArea"] | null;
+            llave: {
+                /** @example jv_3f9a1c2e */
+                prefijo: string;
+                /** Format: date-time */
+                creadoEn: string;
+                /** Format: date-time */
+                ultimoUso?: string | null;
+            } | null;
+            /**
+             * @description Ruta de la pasarela para el base_url de Hermes
+             * @example /api/v1/ia-equipo
+             */
+            urlPasarela: string;
+            /**
+             * @example [
+             *       "deepseek-flash",
+             *       "deepseek-v4-pro"
+             *     ]
+             */
+            modelos: string[];
+        };
+        /**
+         * @description REUNION de un proyecto; TAREA que vence; REQUERIMIENTO que el cliente debe entregar; FERIADO o día no laborable; PENDIENTE y EVENTO los crea la persona
+         * @enum {string}
+         */
+        TipoAgenda: "REUNION" | "TAREA" | "REQUERIMIENTO" | "FERIADO" | "PENDIENTE" | "EVENTO";
+        EventoAgenda: {
+            /** @description Único en la agenda: el tipo y el id de lo que representa */
+            id: string;
+            tipo: components["schemas"]["TipoAgenda"];
+            titulo: string;
+            /**
+             * Format: date
+             * @description Día en Lima
+             */
+            fecha: string;
+            /** @description null = todo el día */
+            horaInicio: string | null;
+            horaFin: string | null;
+            /** @description El proyecto al que pertenece */
+            detalle: string | null;
+            /** @description Ruta del portal donde se ve */
+            enlace: string | null;
+            /** @description Pendiente marcado como hecho o reunión ya realizada */
+            hecho: boolean;
+            /** @description Tarea o requerimiento cuya fecha ya pasó sin cerrarse */
+            vencido: boolean;
+            /** @enum {string} */
+            origen: "PORTAL" | "GOOGLE";
+            /**
+             * Format: uuid
+             * @description Solo PENDIENTE y EVENTO
+             */
+            eventoId: string | null;
+            /** @description Lo creó la persona (los invitados no lo editan) */
+            editable: boolean;
+            notas: string | null;
+            invitados: components["schemas"]["PersonaMini"][];
+        };
+        /** @description Al crear: tipo, titulo y fecha obligatorios. Sin horaInicio es de todo el día; un evento con hora y sin horaFin dura una hora. hecho solo para pendientes; invitados solo para eventos */
+        EventoAgendaEntrada: {
+            /** @enum {string} */
+            tipo?: "PENDIENTE" | "EVENTO";
+            titulo?: string;
+            /** Format: date */
+            fecha?: string;
+            horaInicio?: string | null;
+            horaFin?: string | null;
+            notas?: string | null;
+            hecho?: boolean;
+            /** @description Personas del equipo */
+            invitadosIds?: string[];
+        };
+        ConexionGoogle: {
+            conectado: boolean;
+            correo: string | null;
+            /** Format: date-time */
+            conectadoEn: string | null;
+            /** @description true mientras la sincronización real con Google no esté activa */
+            simulada: boolean;
+        };
+        Agenda: {
+            /** Format: date */
+            desde: string;
+            /** Format: date */
+            hasta: string;
+            /** @description Por día; lo de todo el día primero */
+            eventos: components["schemas"]["EventoAgenda"][];
+            google: components["schemas"]["ConexionGoogle"];
+        };
+        BotEntrada: {
+            /** @example Seguimiento de clientes */
+            nombre?: string;
+            /** @enum {string} */
+            color?: "#5554d9" | "#1f9d74" | "#d9822b" | "#d64545" | "#2b7bd9" | "#9b51e0" | "#475467";
+            /** @enum {string} */
+            forma?: "CIRCULO" | "CUADRADO" | "ROMBO";
+            /** @description Su trabajo: qué hace, con qué fuentes y qué no debe hacer */
+            instrucciones?: string;
+        };
+        BotJarvis: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+            color: string;
+            /** @enum {string} */
+            forma: "CIRCULO" | "CUADRADO" | "ROMBO";
+            instrucciones: string;
+            creadoPor: components["schemas"]["PersonaMini"];
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** Format: date-time */
+            ultimoUso: string | null;
+            /** @description Quien lo creó o un ADMIN */
+            puedeEditar: boolean;
+        };
+        BotsDelArea: {
+            /** @description Sin área no hay bots */
+            area: components["schemas"]["AreaEquipo"] | null;
+            consumo: components["schemas"]["ConsumoArea"] | null;
+            /** @description El Hermes del área está registrado en el portal */
+            conectado: boolean;
+            bots: components["schemas"]["BotJarvis"][];
+        };
+        LlaveJarvisNueva: {
+            /**
+             * @description Solo se muestra esta vez
+             * @example jv_0000000000000000000000000000000000000000
+             */
+            llave: string;
+            prefijo: string;
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        /** @description Error de la pasarela /ia-equipo en el formato de OpenAI, para que Hermes lo muestre */
+        ErrorOpenAi: {
+            error: {
+                message: string;
+                /** @example insufficient_quota */
+                type: string;
+                /** @example TOPE_AREA */
+                code: string;
+            };
         };
         Tarea: {
             /** Format: uuid */
@@ -3339,208 +3499,6 @@ export interface components {
             menciones: components["schemas"]["PersonaMini"][];
             /** Format: date-time */
             creadoEn: string;
-        };
-        /** @enum {string} */
-        AccionAgente: "CREAR_LEAD" | "AGENDAR_CITA" | "ENVIAR_CATALOGO" | "DERIVAR_PERSONA";
-        /** @enum {string} */
-        TonoAgente: "CERCANO" | "FORMAL" | "ENTUSIASTA";
-        /** @enum {string} */
-        DestinoContenido: "REDES" | "BLOG" | "EMAIL" | "WEB" | "CONVERSACION";
-        PlantillaAgente: {
-            /** @example RECEPCIONISTA */
-            codigo: string;
-            /** @enum {string} */
-            categoria: "AGENTE" | "CONTENIDO";
-            nombre: string;
-            descripcion: string;
-            rol: string;
-            tono: components["schemas"]["TonoAgente"];
-            saludo: string;
-            instrucciones: string;
-            acciones: components["schemas"]["AccionAgente"][];
-        };
-        /** @description Al crear: nombre obligatorio. razonamientoAvanzado solo lo cambia el equipo (usa Claude, más caro). */
-        AgenteIaEntrada: {
-            nombre?: string;
-            rol?: string;
-            tono?: components["schemas"]["TonoAgente"];
-            saludo?: string;
-            instrucciones?: string;
-            conocimientoIds?: string[];
-            acciones?: components["schemas"]["AccionAgente"][];
-            /** @description Cuándo pasar con una persona */
-            derivarCuando?: string | null;
-            plantillaCodigo?: string | null;
-            /**
-             * @description PATCH: pausar o reactivar. Para publicar una versión nueva, POST .../publicar
-             * @enum {string}
-             */
-            estado?: "BORRADOR" | "PUBLICADO" | "PAUSADO";
-            razonamientoAvanzado?: boolean;
-        };
-        AgenteIa: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            clienteId: string;
-            /** @example Asistente de Casa Oliva */
-            nombre: string;
-            rol: string;
-            tono: components["schemas"]["TonoAgente"];
-            saludo: string;
-            instrucciones: string;
-            conocimientoIds: string[];
-            acciones: components["schemas"]["AccionAgente"][];
-            derivarCuando?: string | null;
-            plantillaCodigo?: string | null;
-            /** @enum {string} */
-            estado: "BORRADOR" | "PUBLICADO" | "PAUSADO";
-            /** @description Última versión publicada (0 si nunca se publicó) */
-            version: number;
-            cambiosSinPublicar?: boolean;
-            razonamientoAvanzado: boolean;
-            /** @description PRUEBA siempre está activo; los demás se piden con conectar-canal y los conecta el equipo */
-            canales: {
-                /** @enum {string} */
-                canal: "PRUEBA" | "WHATSAPP" | "WEB";
-                /** @enum {string} */
-                estado: "ACTIVO" | "SOLICITADO";
-            }[];
-            conversaciones: number;
-            /** Format: date-time */
-            publicadoEn?: string | null;
-            /** Format: date-time */
-            creadoEn: string;
-            /** Format: date-time */
-            actualizadoEn: string;
-        };
-        ArticuloConocimiento: {
-            id?: string;
-            titulo: string;
-            contenido: string;
-        };
-        BaseConocimientoEntrada: {
-            nombre?: string;
-            articulos?: components["schemas"]["ArticuloConocimiento"][];
-        };
-        BaseConocimiento: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            clienteId: string;
-            nombre: string;
-            articulos: components["schemas"]["ArticuloConocimiento"][];
-            /** @description Preguntas que sus agentes no pudieron responder (para mejorarla) */
-            preguntasSinRespuesta: number;
-            /** Format: date-time */
-            creadoEn: string;
-            /** Format: date-time */
-            actualizadoEn: string;
-        };
-        PreguntaSinRespuesta: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            agenteId: string;
-            agenteNombre: string;
-            pregunta: string;
-            resuelta: boolean;
-            /** Format: date-time */
-            creadoEn: string;
-        };
-        ConversacionIa: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            agenteId: string;
-            agenteNombre: string;
-            /** @enum {string} */
-            canal: "PRUEBA" | "WHATSAPP" | "WEB";
-            /** @example Prueba */
-            contacto: string;
-            mensajes: number;
-            acciones: number;
-            /** Format: date-time */
-            iniciadaEn: string;
-            /** Format: date-time */
-            ultimaEn: string;
-            /** @description Soles */
-            costo: number;
-        };
-        MensajeIa: {
-            /** @enum {string} */
-            rol: "CONTACTO" | "AGENTE";
-            texto: string;
-            accion?: components["schemas"]["AccionAgente"] | null;
-            sinRespuesta?: boolean;
-            /** @description Respondido en modo de prueba, sin llamar al modelo */
-            simulado?: boolean;
-            /** Format: date-time */
-            creadoEn: string;
-        };
-        ConversacionIaDetalle: components["schemas"]["ConversacionIa"] & {
-            historial: components["schemas"]["MensajeIa"][];
-        };
-        RespuestaPrueba: {
-            /** Format: uuid */
-            conversacionId: string;
-            respuesta: components["schemas"]["MensajeIa"];
-            consumo: components["schemas"]["ConsumoIa"];
-        };
-        ContenidoIaEntrada: {
-            destino: components["schemas"]["DestinoContenido"];
-            indicacion: string;
-            tono?: components["schemas"]["TonoAgente"];
-            /** @description Por defecto 1 */
-            variaciones?: number;
-        };
-        ContenidoIa: {
-            /** Format: uuid */
-            id: string;
-            destino: components["schemas"]["DestinoContenido"];
-            indicacion: string;
-            tono?: components["schemas"]["TonoAgente"] | null;
-            variaciones: string[];
-            palabras: number;
-            /** @description Soles */
-            costo: number;
-            simulado: boolean;
-            creadoPor?: components["schemas"]["PersonaMini"] | null;
-            /** Format: date-time */
-            creadoEn: string;
-        };
-        /** @description Consumo del mes en soles. El tope es el límite de gasto de IA del cliente convertido a soles; al llegar, se pausa la generación. */
-        ConsumoIa: {
-            /** @example 2026-10 */
-            periodo: string;
-            /** @enum {string} */
-            moneda: "PEN";
-            agentes: number;
-            contenido: number;
-            /** @example 34.5 */
-            total: number;
-            tope: number;
-            pct: number;
-            /** @description Desde el 80 % del tope */
-            alerta: boolean;
-            pausado: boolean;
-            tarifasDeRelleno: boolean;
-        };
-        ResumenIa: {
-            consumo: components["schemas"]["ConsumoIa"];
-            metricas: {
-                contactos: number;
-                conversaciones: number;
-                acciones: number;
-                citas: number;
-                minutosAhorrados: number;
-            };
-            agentes: {
-                total: number;
-                publicados: number;
-            };
-            /** @description Las respuestas se simulan (fase de prueba, sin llamadas a los modelos) */
-            modoSimulado?: boolean;
         };
         /**
          * @description La clasifica el equipo; por defecto BASICO
@@ -3919,7 +3877,7 @@ export interface components {
             /** @example Landing page */
             nombre: string;
         };
-        /** @description Datos propios del servicio (reunión 15 oct). Web: tamaño, páginas, productos, CMS y si incluye el panel de administración. CRM: qué CRM, licencias, usuarios, plataformas, y si incluye agente de IA o WhatsApp API (ahí la IA es el producto). */
+        /** @description Datos propios del servicio (reunión 15 oct). Web: tamaño, páginas, productos, CMS y si incluye el panel de administración. CRM: qué CRM, licencias, usuarios, plataformas, si incluye agente de IA o WhatsApp API (ahí la IA es el producto) y el enlace a la cuenta del cliente en Cosmiq. */
         DetalleServicio: {
             /**
              * @description Escala los días de las etapas (factores de relleno)
@@ -3940,6 +3898,11 @@ export interface components {
             agenteIa?: boolean;
             /** @description CRM: incluye la configuración de WhatsApp API */
             whatsappApi?: boolean;
+            /**
+             * Format: uri
+             * @description Solo proyectos de CRM (implementación, integración y soporte continuo de CRM): enlace https a la cuenta del cliente en Cosmiq, el CRM de Inoo. Lo pone el equipo y lo ve el cliente; en otro servicio, 422
+             */
+            enlaceCosmiq?: string;
             /** @example HubSpot */
             crm?: string;
             /** @example Sales Hub Professional */
@@ -8679,583 +8642,6 @@ export interface operations {
             404: components["responses"]["NoEncontrado"];
         };
     };
-    resumenIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResumenIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    listarAgentesIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["AgenteIa"][];
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    crearAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgenteIaEntrada"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgenteIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    borradorAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    descripcion: string;
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        agente: components["schemas"]["AgenteIaEntrada"];
-                        simulado: boolean;
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    obtenerAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgenteIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    eliminarAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Eliminado */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    actualizarAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgenteIaEntrada"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgenteIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    publicarAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgenteIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    probarAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    mensaje: string;
-                    /** Format: uuid */
-                    conversacionId?: string | null;
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RespuestaPrueba"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            409: components["responses"]["Conflicto"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    conectarCanalAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agenteId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {string} */
-                    canal: "WHATSAPP" | "WEB";
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgenteIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            409: components["responses"]["Conflicto"];
-        };
-    };
-    listarConocimientoIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["BaseConocimiento"][];
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    crearConocimientoIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BaseConocimientoEntrada"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BaseConocimiento"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    eliminarConocimientoIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                baseId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Eliminada */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    actualizarConocimientoIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                baseId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BaseConocimientoEntrada"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BaseConocimiento"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    listarSinRespuestaIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["PreguntaSinRespuesta"][];
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    resolverSinRespuestaIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                preguntaId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    resuelta: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreguntaSinRespuesta"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    plantillasAgenteIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["PlantillaAgente"][];
-                    };
-                };
-            };
-        };
-    };
-    listarContenidoIa: {
-        parameters: {
-            query?: {
-                destino?: components["schemas"]["DestinoContenido"];
-            };
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["ContenidoIa"][];
-                        resumen: {
-                            palabras: number;
-                            costo: number;
-                            palabrasPorDia: number;
-                        };
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    generarContenidoIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ContenidoIaEntrada"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContenidoIa"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-            409: components["responses"]["Conflicto"];
-            422: components["responses"]["Validacion"];
-        };
-    };
-    listarConversacionesIa: {
-        parameters: {
-            query?: {
-                agenteId?: string;
-            };
-            header?: never;
-            path: {
-                clienteId: components["parameters"]["ClienteId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        datos: components["schemas"]["ConversacionIa"][];
-                    };
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
-    obtenerConversacionIa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversacionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversacionIaDetalle"];
-                };
-            };
-            403: components["responses"]["SinPermiso"];
-            404: components["responses"]["NoEncontrado"];
-        };
-    };
     listarEquipo: {
         parameters: {
             query?: never;
@@ -9274,6 +8660,611 @@ export interface operations {
                     "application/json": {
                         datos: components["schemas"]["PersonaEquipo"][];
                     };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    cambiarAreaPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    area: components["schemas"]["AreaEquipo"] | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonaEquipo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    reporteJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReporteJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    cambiarTopesArea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                area: components["schemas"]["AreaEquipo"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    topeDiarioUsd: number;
+                    /** @description No puede ser menor que el diario */
+                    topeMensualUsd: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumoArea"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    miJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    generarLlaveJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlaveJarvisNueva"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description SIN_AREA: la persona no tiene área asignada */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    revocarLlaveJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revocada (o no había) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    botsDeMiArea: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotsDelArea"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    crearBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BotEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description SIN_AREA: la persona no tiene área asignada */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    editarBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BotEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    chatConBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    mensaje: string;
+                    /** @description La genera el navegador por conversación */
+                    sesionId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Respuesta del bot en streaming */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description JARVIS_NO_CONECTADO: el área todavía no tiene su Hermes */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+            /** @description TOPE_AREA: el área llegó a su tope diario o mensual */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description JARVIS_APAGADO o JARVIS_ERROR */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+        };
+    };
+    modelosJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        object: "list";
+                        data: {
+                            /** @example deepseek-flash */
+                            id: string;
+                            /** @enum {string} */
+                            object: "model";
+                            owned_by: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description LLAVE_INVALIDA */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+            /** @description SIN_AREA */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+        };
+    };
+    chatJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    model: "deepseek-flash" | "deepseek-v4-pro" | "deepseek-v4-flash";
+                    messages: {
+                        [key: string]: unknown;
+                    }[];
+                    stream?: boolean;
+                } & {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Respuesta de DeepSeek tal cual: JSON, o text/event-stream si stream=true */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                    "text/event-stream": string;
+                };
+            };
+            /** @description VALIDACION o MODELO_NO_PERMITIDO */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+            /** @description LLAVE_INVALIDA */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+            /** @description SIN_AREA */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+            /** @description TOPE_AREA: el área llegó a su tope diario o mensual */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+            /** @description IA_NO_DISPONIBLE */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+            /** @description SIN_CLAVE: falta DEEPSEEK_API_KEY en el portal */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOpenAi"];
+                };
+            };
+        };
+    };
+    verMiAgenda: {
+        parameters: {
+            query: {
+                desde: string;
+                /** @description Incluida; hasta 62 días desde «desde» */
+                hasta: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Agenda"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    crearEventoAgenda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventoAgendaEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventoAgenda"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    eliminarEventoAgenda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    editarEventoAgenda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventoAgendaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventoAgenda"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    conectarGoogleCalendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConexionGoogle"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    desconectarGoogleCalendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConexionGoogle"];
                 };
             };
             403: components["responses"]["SinPermiso"];

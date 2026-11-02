@@ -6,10 +6,10 @@
  * Reemplaza a «Avance de proyectos» (que era la misma información que «Servicios contratados»).
  */
 import { useState } from "react";
-import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
+import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
-import { AsiVaElMes } from "./principal";
+import { AsiVaElMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
 import { ConsumoDelServicio } from "./consumo";
@@ -97,6 +97,8 @@ function Proyecto() {
             )}
           </section>
 
+          {SERVICIOS_DE_MARCA.includes(d.codigo) && <MarcaDelProyecto />}
+
           <EntregablesDelProyecto entregables={d.entregables ?? []} />
 
           {d.porRevisar.length > 0 && (
@@ -142,6 +144,13 @@ function Proyecto() {
             {typeof d.detalle?.usuarios === "number" && <Fila etiqueta="Usuarios">{d.detalle.usuarios}</Fila>}
             {d.detalle?.agenteIa && <Fila etiqueta="Agente de IA">Incluido</Fila>}
             {d.detalle?.whatsappApi && <Fila etiqueta="WhatsApp API">Incluido</Fila>}
+            {d.detalle?.enlaceCosmiq && (
+              <Fila etiqueta="Cosmiq">
+                <a href={d.detalle.enlaceCosmiq} target="_blank" rel="noreferrer">
+                  Abrir tu cuenta <LuExternalLink size={12} />
+                </a>
+              </Fila>
+            )}
             {d.responsable && <Fila etiqueta="Responsable">{d.responsable.nombre} · Inoo</Fila>}
             {d.fechaInicio && <Fila etiqueta="Inicio">{fCorta(d.fechaInicio)}</Fila>}
             {d.fechaFin && <Fila etiqueta={d.modalidad === "MENSUAL" ? "Contrato hasta" : "Fin previsto"}>{fCorta(d.fechaFin)}</Fila>}
@@ -424,4 +433,11 @@ function Comentarios({ servicioId }: { servicioId: string }) {
       )}
     </section>
   );
+}
+
+/** «Tu marca» (2 nov): salió del inicio y vive en los proyectos de marca o contenido. */
+const SERVICIOS_DE_MARCA: string[] = ["SOCIAL_MEDIA_PRO", "BRANDFORMANCE", "PAID_MEDIA"];
+function MarcaDelProyecto() {
+  const { datos } = useConsulta<S<"InicioCliente">>(`/clientes/${clienteActivo()}/inicio`);
+  return datos?.marca ? <TuMarca marca={datos.marca} /> : null;
 }

@@ -32,23 +32,24 @@
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
  * tests/api/flujo-piezas.ts corren contra las dos.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
 import type { EnviarCorreo } from "./correo-smtp";
 import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideClave, type Pool, renovar, restablecerClave, type Tokens } from "./cognito";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
+import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, validarBot, validarTopes, type Area } from "../dominio/ia-equipo";
+import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
+import { esSesionChat, hablarConBot, hermesDelArea } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
+import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
-import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
-import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "./ia-cliente";
-import { ErrorIa } from "./ia-modelos";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
 import {
@@ -63,7 +64,7 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_
 import {
   correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
 } from "../dominio/requerimientos";
-import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -2023,358 +2024,383 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
 
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
-// ───────────────────────────────────────────── IA del cliente (fase 16a): agentes, conocimiento y Content AI
-// La IA que el cliente elige usar: aquí sí se nombra. Nunca se listan los agentes internos de Inoo.
+// ───────────────────────────────────────────── Jarvis del equipo: áreas, topes y la pasarela a DeepSeek (30 oct)
+// Solo equipo. El consumo se cobra al área de la persona, contra un tope diario y uno mensual por área.
 
-const ESCRIBEN_IA = ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"];
-interface FilaAgenteIa {
-  id: string; cliente_id: string; nombre: string; rol: string; tono: S<"TonoAgente">; saludo: string; instrucciones: string; conocimiento_ids: string[];
-  acciones: S<"AccionAgente">[]; derivar_cuando: string | null; plantilla_codigo: string | null; razonamiento_avanzado: boolean; estado: S<"AgenteIa">["estado"];
-  version: number; canales: S<"AgenteIa">["canales"]; publicado_en: Date | null; creado_en: Date; actualizado_en: Date; publicada: unknown; conversaciones: number;
-}
-const SELECT_AGENTE_IA = `
-  SELECT a.*, (SELECT v.config FROM version_agente_ia v WHERE v.agente_id = a.id AND v.numero = a.version) AS publicada,
-         (SELECT count(*)::int FROM conversacion_ia c WHERE c.agente_id = a.id) AS conversaciones
-  FROM agente_ia a`;
-const configAgenteDb = (a: Pick<FilaAgenteIa, "nombre" | "rol" | "tono" | "saludo" | "instrucciones" | "conocimiento_ids" | "acciones" | "derivar_cuando">) =>
-  ({ nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimiento_ids, acciones: a.acciones, derivarCuando: a.derivar_cuando });
-/** JSON con las claves ordenadas: Postgres reordena las claves de un jsonb al guardarlo. */
-const jsonEstable = (v: unknown): string =>
-  Array.isArray(v) ? `[${v.map(jsonEstable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${jsonEstable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v);
-const agenteIaVistaDb = (a: FilaAgenteIa): S<"AgenteIa"> => ({
-  id: a.id, clienteId: a.cliente_id, nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimiento_ids,
-  acciones: a.acciones, derivarCuando: a.derivar_cuando, plantillaCodigo: a.plantilla_codigo, estado: a.estado, version: a.version,
-  cambiosSinPublicar: a.version === 0 || jsonEstable(a.publicada ?? null) !== jsonEstable(configAgenteDb(a)), razonamientoAvanzado: a.razonamiento_avanzado,
-  canales: a.canales, conversaciones: a.conversaciones, publicadoEn: iso(a.publicado_en), creadoEn: iso(a.creado_en)!, actualizadoEn: iso(a.actualizado_en)!,
+interface FilaPersonaEquipo { id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null; area: Area | null }
+const SELECT_PERSONA_EQUIPO = "SELECT id, nombre, cargo, rol_equipo, area::text AS area FROM usuario";
+const personaEquipoVista = (u: FilaPersonaEquipo): S<"PersonaEquipo"> => ({
+  id: u.id, nombre: u.nombre, iniciales: u.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), cargo: u.cargo, rolEquipo: u.rol_equipo, area: u.area,
 });
-async function buscarAgenteIaDb(ctx: Ctx, id: string) {
-  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese agente");
-  const a = (await ctx.c.query<FilaAgenteIa>(`${SELECT_AGENTE_IA} WHERE a.id = $1`, [id])).rows[0];
-  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese agente");
-  await accesoCliente(ctx, a.cliente_id);
-  return a;
-}
-async function basesDelCliente(ctx: Ctx, clienteId: string, ids: string[] | undefined) {
-  if (!ids?.length) return [];
-  const validos = ids.filter(esUuid);
-  const { rows } = await ctx.c.query<{ id: string }>("SELECT id FROM base_conocimiento WHERE cliente_id = $1 AND id = ANY($2::uuid[])", [clienteId, `{${validos.join(",")}}`]);
-  return rows.length === ids.length ? [] : [{ campo: "conocimientoIds", mensaje: "Esa base de conocimiento no es de esta cuenta" }];
-}
 
-/** Consumo del mes del cliente: respuestas de sus agentes + Content AI, contra su tope. */
-async function consumoIaDb(ctx: Ctx, clienteId: string, periodo = PERIODO_ACTUAL()) {
-  const { rows } = await ctx.c.query<{ agentes: string; contenido: string; limite: string }>(
-    `SELECT (SELECT coalesce(sum(costo_pen), 0) FROM mensaje_ia WHERE cliente_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2) AS agentes,
-            (SELECT coalesce(sum(costo_pen), 0) FROM contenido_ia WHERE cliente_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2) AS contenido,
-            (SELECT limite_gasto_ia_usd FROM cliente WHERE id = $1) AS limite`,
-    [clienteId, periodo],
-  );
-  return calcularConsumoIa(periodo, Number(rows[0].agentes), Number(rows[0].contenido), Number(rows[0].limite));
+async function consumoAreaDb(c: Consultor, area: Area, ahora = new Date()) {
+  const { dia, mes } = diaYMesLima(ahora);
+  const t = (await c.query<{ diario: string; mensual: string }>("SELECT tope_diario_usd AS diario, tope_mensual_usd AS mensual FROM tope_ia_area WHERE area = $1", [area])).rows[0];
+  const g = (await c.query<{ dia: string; mes: string }>(
+    `SELECT coalesce(sum(costo_usd) FILTER (WHERE (creado_en AT TIME ZONE 'America/Lima')::date = $2::date), 0) AS dia,
+            coalesce(sum(costo_usd), 0) AS mes
+     FROM consumo_jarvis WHERE area = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $3`,
+    [area, dia, mes],
+  )).rows[0];
+  return { topes: { diarioUsd: Number(t.diario), mensualUsd: Number(t.mensual) }, gastoDiaUsd: Number(g.dia), gastoMesUsd: Number(g.mes) };
 }
-async function exigirSaldoIaDb(ctx: Ctx, clienteId: string) {
-  if ((await consumoIaDb(ctx, clienteId)).pausado) throw new ErrorApi(409, "TOPE_ALCANZADO", "Llegaste al tope de consumo de IA de este mes", "Pide a tu equipo Inoo que lo amplíe, o espera al próximo mes.");
-}
-const nombreClienteDb = async (ctx: Ctx, id: string) => (await ctx.c.query<{ nombre: string }>("SELECT nombre FROM cliente WHERE id = $1", [id])).rows[0].nombre;
-const iaNoDisponible = (e: unknown, titulo: string) => {
-  if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", titulo, e.message);
-  throw e;
+const vistaConsumoAreaDb = async (c: Consultor, area: Area) => {
+  const x = await consumoAreaDb(c, area);
+  return consumoArea(area, x.topes, x.gastoDiaUsd, x.gastoMesUsd);
 };
 
-ruta("GET", "/clientes/:id/ia/resumen", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
-  const m = (await ctx.c.query<{ contactos: number; conversaciones: number; respuestas: number; acciones: number; citas: number }>(
-    `SELECT (SELECT count(DISTINCT contacto)::int FROM conversacion_ia WHERE cliente_id = $1) AS contactos,
-            (SELECT count(*)::int FROM conversacion_ia WHERE cliente_id = $1) AS conversaciones,
-            count(*) FILTER (WHERE rol = 'AGENTE')::int AS respuestas,
-            count(*) FILTER (WHERE accion IS NOT NULL)::int AS acciones,
-            count(*) FILTER (WHERE accion = 'AGENDAR_CITA')::int AS citas
-     FROM mensaje_ia WHERE cliente_id = $1`, [p.id],
+/** La pasarela trabaja como sistema (SERVICIO): la llave de Jarvis no trae sesión del portal. */
+async function comoSistema<T>(fn: (c: Consultor) => Promise<T>) {
+  const db = await baseDatos();
+  return db.transaccion(async (c) => {
+    await comoUsuario(c, { usuarioId: "", tipo: "SERVICIO", clienteIds: [] });
+    return fn(c);
+  });
+}
+const almacenDb: AlmacenPasarela = {
+  buscarLlave: (llave) => comoSistema(async (c) => {
+    const k = (await c.query<{ id: string; hash: string; usuario_id: string; area: Area | null }>(
+      `SELECT k.id, k.hash, k.usuario_id, u.area::text AS area FROM llave_jarvis k JOIN usuario u ON u.id = k.usuario_id AND u.activo AND u.tipo = 'EQUIPO' WHERE k.prefijo = $1`,
+      [llave.slice(0, PREFIJO_LLAVE)],
+    )).rows[0];
+    if (!k || k.hash !== createHash("sha256").update(llave).digest("hex")) return null;
+    await c.query("UPDATE llave_jarvis SET ultimo_uso = now() WHERE id = $1", [k.id]);
+    return { usuarioId: k.usuario_id, area: k.area };
+  }),
+  situacion: (area, ahora) => comoSistema((c) => consumoAreaDb(c, area, ahora)),
+  registrar: (x) => comoSistema(async (c) => {
+    await c.query(
+      `INSERT INTO consumo_jarvis (usuario_id, area, modelo, tokens_entrada, tokens_cache, tokens_salida, costo_usd, hora_pico, creado_en)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [x.usuarioId, x.area, x.modelo, x.entrada, x.cache, x.salida, x.costoUsd, x.horaPico, x.creadoEn],
+    );
+  }),
+};
+
+ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const b = (await cuerpo()) as { area?: unknown };
+  if (b.area !== null && !esArea(b.area)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "area", mensaje: `Usa ${AREAS.join(", ")} o null` }]);
+  const u = (await ctx.c.query<FilaPersonaEquipo>(
+    "UPDATE usuario SET area = $2::area_equipo WHERE id = $1 AND tipo = 'EQUIPO' RETURNING id, nombre, cargo, rol_equipo, area::text AS area",
+    [p.id, b.area],
   )).rows[0];
-  const a = (await ctx.c.query<{ total: number; publicados: number }>(
-    "SELECT count(*)::int AS total, count(*) FILTER (WHERE estado = 'PUBLICADO')::int AS publicados FROM agente_ia WHERE cliente_id = $1", [p.id],
-  )).rows[0];
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  return personaEquipoVista(u);
+});
+
+ruta("GET", "/panel/ia-equipo", async (ctx) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const { dia, mes } = diaYMesLima(new Date());
+  const equipo = (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre`)).rows;
+  const porPersona = new Map((await ctx.c.query<{ usuario_id: string; gasto: string }>(
+    "SELECT usuario_id, sum(costo_usd) AS gasto FROM consumo_jarvis WHERE to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1 GROUP BY usuario_id",
+    [mes],
+  )).rows.map((r) => [r.usuario_id, Number(r.gasto)]));
+  const conLlave = new Set((await ctx.c.query<{ usuario_id: string }>("SELECT usuario_id FROM llave_jarvis")).rows.map((r) => r.usuario_id));
+  const areas = [];
+  for (const a of AREAS) {
+    areas.push({
+      ...(await vistaConsumoAreaDb(ctx.c, a)),
+      personas: equipo.filter((u) => u.area === a).map((u) => ({ persona: personaEquipoVista(u), gastoMesUsd: Math.round((porPersona.get(u.id) ?? 0) * 100) / 100, llaveVigente: conLlave.has(u.id) })),
+    });
+  }
+  return { dia, mes, totalMesUsd: Math.round(areas.reduce((t, a) => t + a.gastoMesUsd, 0) * 100) / 100, areas, sinArea: equipo.filter((u) => !u.area).map(personaEquipoVista) } satisfies S<"ReporteJarvis">;
+});
+
+ruta("PUT", "/panel/ia-equipo/areas/:area", async (ctx, p, _q, cuerpo) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  if (!esArea(p.area)) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa área no existe");
+  const b = (await cuerpo()) as { topeDiarioUsd?: unknown; topeMensualUsd?: unknown };
+  const errores = validarTopes(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  await ctx.c.query(
+    "UPDATE tope_ia_area SET tope_diario_usd = $2, tope_mensual_usd = $3, actualizado_por = $4, actualizado_en = now() WHERE area = $1",
+    [p.area, b.topeDiarioUsd, b.topeMensualUsd, ctx.esServicio ? null : ctx.u.usuarioId],
+  );
+  return (await vistaConsumoAreaDb(ctx.c, p.area)) satisfies S<"ConsumoArea">;
+});
+
+ruta("GET", "/me/jarvis", async (ctx) => {
+  soloEquipo(ctx);
+  const area = (await ctx.c.query<{ area: Area | null }>("SELECT area::text AS area FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0]?.area ?? null;
+  const k = (await ctx.c.query<{ prefijo: string; creado_en: Date; ultimo_uso: Date | null }>("SELECT prefijo, creado_en, ultimo_uso FROM llave_jarvis WHERE usuario_id = $1", [ctx.u.usuarioId])).rows[0];
   return {
-    consumo: await consumoIaDb(ctx, p.id),
-    metricas: { contactos: m.contactos, conversaciones: m.conversaciones, acciones: m.acciones, citas: m.citas, minutosAhorrados: Math.round(m.respuestas * MINUTOS_POR_RESPUESTA * 10) / 10 },
-    agentes: a, modoSimulado: iaSimulada(),
-  } satisfies S<"ResumenIa">;
+    area, consumo: area ? await vistaConsumoAreaDb(ctx.c, area) : null,
+    llave: k ? { prefijo: k.prefijo, creadoEn: iso(k.creado_en)!, ultimoUso: iso(k.ultimo_uso) } : null,
+    urlPasarela: "/api/v1/ia-equipo", modelos: [...MODELOS_JARVIS],
+  } satisfies S<"MiJarvis">;
 });
 
-ruta("GET", "/clientes/:id/ia/agentes", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
-  return { datos: (await ctx.c.query<FilaAgenteIa>(`${SELECT_AGENTE_IA} WHERE a.cliente_id = $1 ORDER BY a.actualizado_en DESC`, [p.id])).rows.map(agenteIaVistaDb) };
+ruta("POST", "/me/jarvis/llave", async (ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las llaves de Jarvis son de personas del equipo");
+  const area = (await ctx.c.query<{ area: Area | null }>("SELECT area::text AS area FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0]?.area;
+  if (!area) throw new ErrorApi(409, "SIN_AREA", "No tienes un área asignada", "Pídele al ADMIN que te asigne una en «Costos de IA».");
+  const llave = `jv_${randomBytes(20).toString("hex")}`;
+  const { rows } = await ctx.c.query<{ creado_en: Date }>(
+    `INSERT INTO llave_jarvis (usuario_id, prefijo, hash) VALUES ($1, $2, $3)
+     ON CONFLICT (usuario_id) DO UPDATE SET prefijo = EXCLUDED.prefijo, hash = EXCLUDED.hash, creado_en = now(), ultimo_uso = NULL
+     RETURNING creado_en`,
+    [ctx.u.usuarioId, llave.slice(0, PREFIJO_LLAVE), createHash("sha256").update(llave).digest("hex")],
+  );
+  return { __status: 201, llave, prefijo: llave.slice(0, PREFIJO_LLAVE), creadoEn: iso(rows[0].creado_en)! };
 });
 
-ruta("POST", "/clientes/:id/ia/agentes", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as Partial<S<"AgenteIaEntrada">>;
-  const errores = validarAgente(b, false);
-  if (b.razonamientoAvanzado && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
-  errores.push(...(await basesDelCliente(ctx, p.id, b.conocimientoIds)));
-  validacion(errores);
-  const pl = plantillaAgente(b.plantillaCodigo);
-  const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO agente_ia (cliente_id, nombre, rol, tono, saludo, instrucciones, conocimiento_ids, acciones, derivar_cuando, plantilla_codigo, razonamiento_avanzado, creado_por)
-     VALUES ($1, $2, $3, $4::tono_agente_ia, $5, $6, $7::uuid[], $8::text[], $9, $10, $11, $12) RETURNING id`,
-    [p.id, b.nombre!.trim(), b.rol?.trim() ?? pl?.rol ?? "Asistente virtual", b.tono ?? pl?.tono ?? "CERCANO", b.saludo ?? pl?.saludo ?? "", b.instrucciones ?? pl?.instrucciones ?? "",
-     `{${(b.conocimientoIds ?? []).join(",")}}`, b.acciones ?? pl?.acciones ?? [], b.derivarCuando ?? null, b.plantillaCodigo ?? null, !!b.razonamientoAvanzado, ctx.esServicio ? null : ctx.u.usuarioId],
-  )).rows[0].id;
-  return { __status: 201, ...agenteIaVistaDb(await buscarAgenteIaDb(ctx, id)) };
-});
-
-ruta("POST", "/clientes/:id/ia/borrador-agente", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as { descripcion?: string };
-  if (!(typeof b.descripcion === "string" && b.descripcion.trim().length >= 20 && b.descripcion.length <= 1500)) {
-    validacion([{ campo: "descripcion", mensaje: "Cuéntanos de tu negocio (20 a 1500 caracteres)" }]);
-  }
-  try {
-    return await borradorAgente(b.descripcion!.trim(), await nombreClienteDb(ctx, p.id));
-  } catch (e) {
-    return iaNoDisponible(e, "No pudimos generar la propuesta");
-  }
-});
-
-ruta("GET", "/ia/agentes/:id", async (ctx, p) => agenteIaVistaDb(await buscarAgenteIaDb(ctx, p.id)));
-
-ruta("PATCH", "/ia/agentes/:id", async (ctx, p, _q, cuerpo) => {
-  const a = await buscarAgenteIaDb(ctx, p.id);
-  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as Partial<S<"AgenteIaEntrada">>;
-  const errores = validarAgente(b, true);
-  if (b.razonamientoAvanzado !== undefined && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
-  if (b.estado === "PUBLICADO" && a.version === 0) errores.push({ campo: "estado", mensaje: "Publica el agente al menos una vez" });
-  errores.push(...(await basesDelCliente(ctx, a.cliente_id, b.conocimientoIds)));
-  validacion(errores);
-  const cambios: [string, unknown, string][] = [];
-  const poner = (col: string, v: unknown, tipo = "") => v !== undefined && cambios.push([col, typeof v === "string" && tipo !== "::tono_agente_ia" && tipo !== "::estado_agente_ia" ? v.trim() : v, tipo]);
-  poner("nombre", b.nombre);
-  poner("rol", b.rol);
-  poner("tono", b.tono, "::tono_agente_ia");
-  poner("saludo", b.saludo);
-  poner("instrucciones", b.instrucciones);
-  poner("conocimiento_ids", b.conocimientoIds === undefined ? undefined : `{${b.conocimientoIds.join(",")}}`, "::uuid[]");
-  poner("acciones", b.acciones, "::text[]");
-  poner("derivar_cuando", b.derivarCuando);
-  poner("razonamiento_avanzado", b.razonamientoAvanzado);
-  poner("estado", b.estado, "::estado_agente_ia");
-  if (cambios.length) {
-    await ctx.c.query(`UPDATE agente_ia SET ${cambios.map(([c, , t], i) => `${c} = $${i + 2}${t}`).join(", ")}, actualizado_en = now() WHERE id = $1`, [a.id, ...cambios.map(([, v]) => v)]);
-  }
-  return agenteIaVistaDb(await buscarAgenteIaDb(ctx, a.id));
-});
-
-ruta("DELETE", "/ia/agentes/:id", async (ctx, p) => {
-  const a = await buscarAgenteIaDb(ctx, p.id);
-  exigirRol(ctx, a.cliente_id, ["EQUIPO", "ADMIN_CLIENTE"]);
-  await ctx.c.query("DELETE FROM agente_ia WHERE id = $1", [a.id]);
+ruta("DELETE", "/me/jarvis/llave", async (ctx) => {
+  soloEquipo(ctx);
+  await ctx.c.query("DELETE FROM llave_jarvis WHERE usuario_id = $1", [ctx.u.usuarioId]);
   return null;
 });
 
-ruta("POST", "/ia/agentes/:id/publicar", async (ctx, p) => {
-  const a = await buscarAgenteIaDb(ctx, p.id);
-  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
-  if (!a.instrucciones.trim()) validacion([{ campo: "instrucciones", mensaje: "Escribe las instrucciones antes de publicar" }]);
-  await ctx.c.query("INSERT INTO version_agente_ia (agente_id, numero, cliente_id, config, publicado_por) VALUES ($1, $2, $3, $4, $5)", [
-    a.id, a.version + 1, a.cliente_id, JSON.stringify(configAgenteDb(a)), ctx.esServicio ? null : ctx.u.usuarioId,
-  ]);
-  await ctx.c.query("UPDATE agente_ia SET version = version + 1, estado = 'PUBLICADO', publicado_en = now(), actualizado_en = now() WHERE id = $1", [a.id]);
-  return agenteIaVistaDb(await buscarAgenteIaDb(ctx, a.id));
+interface FilaBot {
+  id: string; area: Area; nombre: string; color: string; forma: S<"BotJarvis">["forma"]; instrucciones: string; creado_por: string;
+  cp_nombre: string; cp_cargo: string | null; cp_email: string; creado_en: Date; actualizado_en: Date; ultimo_uso: Date | null;
+}
+const SELECT_BOT = `SELECT b.id, b.area::text AS area, b.nombre, b.color, b.forma, b.instrucciones, b.creado_por, u.nombre AS cp_nombre, u.cargo AS cp_cargo,
+  u.email::text AS cp_email, b.creado_en, b.actualizado_en, b.ultimo_uso FROM bot_jarvis b JOIN usuario u ON u.id = b.creado_por`;
+const botVistaDb = (ctx: Ctx, b: FilaBot): S<"BotJarvis"> => ({
+  id: b.id, nombre: b.nombre, color: b.color, forma: b.forma, instrucciones: b.instrucciones, creadoPor: { id: b.creado_por, nombre: b.cp_nombre, cargo: b.cp_cargo, email: b.cp_email },
+  creadoEn: iso(b.creado_en)!, actualizadoEn: iso(b.actualizado_en)!, ultimoUso: iso(b.ultimo_uso), puedeEditar: b.creado_por === ctx.u.usuarioId || ctx.u.rolEquipo === "ADMIN",
 });
-
-ruta("POST", "/ia/agentes/:id/probar", async (ctx, p, _q, cuerpo) => {
-  const a = await buscarAgenteIaDb(ctx, p.id);
-  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as { mensaje?: string; conversacionId?: string | null };
-  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
-  if (!mensaje || mensaje.length > 1000) validacion([{ campo: "mensaje", mensaje: "Escribe un mensaje (hasta 1000 caracteres)" }]);
-  if (a.estado === "PAUSADO") throw new ErrorApi(409, "AGENTE_PAUSADO", "Este agente está pausado", "Reactívalo para probarlo.");
-  await exigirSaldoIaDb(ctx, a.cliente_id);
-  let convId = b.conversacionId ?? null;
-  if (convId && !(esUuid(convId) && (await ctx.c.query("SELECT 1 FROM conversacion_ia WHERE id = $1 AND agente_id = $2", [convId, a.id])).rows.length)) {
-    throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
-  }
-  const historial = convId
-    ? (await ctx.c.query<{ rol: "CONTACTO" | "AGENTE"; texto: string }>("SELECT rol, texto FROM mensaje_ia WHERE conversacion_id = $1 ORDER BY id", [convId])).rows
-    : [];
-  const articulos = (await ctx.c.query<{ articulos: { id: string; titulo: string; contenido: string }[] }>(
-    "SELECT articulos FROM base_conocimiento WHERE cliente_id = $1 AND id = ANY($2::uuid[])", [a.cliente_id, `{${a.conocimiento_ids.join(",")}}`],
-  )).rows.flatMap((x) => x.articulos);
-  let r: Awaited<ReturnType<typeof responderAgente>>;
-  try {
-    r = await responderAgente({
-      config: { nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, acciones: a.acciones, derivarCuando: a.derivar_cuando, negocio: await nombreClienteDb(ctx, a.cliente_id) },
-      razonamientoAvanzado: a.razonamiento_avanzado, articulos, historial, mensaje,
-    });
-  } catch (e) {
-    return iaNoDisponible(e, "El agente no pudo responder");
-  }
-  convId ??= (await ctx.c.query<{ id: string }>("INSERT INTO conversacion_ia (cliente_id, agente_id) VALUES ($1, $2) RETURNING id", [a.cliente_id, a.id])).rows[0].id;
-  await ctx.c.query("INSERT INTO mensaje_ia (conversacion_id, cliente_id, rol, texto, simulado) VALUES ($1, $2, 'CONTACTO', $3, $4)", [convId, a.cliente_id, mensaje, r.simulado]);
-  const fila = (await ctx.c.query<{ creado_en: Date }>(
-    `INSERT INTO mensaje_ia (conversacion_id, cliente_id, rol, texto, accion, sin_respuesta, simulado, modelo, tokens_entrada, tokens_salida, costo_pen)
-     VALUES ($1, $2, 'AGENTE', $3, $4, $5, $6, $7, $8, $9, $10) RETURNING creado_en`,
-    [convId, a.cliente_id, r.texto, r.accion, r.sinRespuesta, r.simulado, r.modelo, r.tokensEntrada, r.tokensSalida, r.costoPen],
-  )).rows[0];
-  if (r.sinRespuesta) await ctx.c.query("INSERT INTO pregunta_sin_respuesta (cliente_id, agente_id, pregunta) VALUES ($1, $2, $3)", [a.cliente_id, a.id, mensaje]);
-  return {
-    conversacionId: convId,
-    respuesta: { rol: "AGENTE", texto: r.texto, accion: r.accion, sinRespuesta: r.sinRespuesta, simulado: r.simulado, creadoEn: iso(fila.creado_en)! },
-    consumo: await consumoIaDb(ctx, a.cliente_id),
-  } satisfies S<"RespuestaPrueba">;
-});
-
-ruta("POST", "/ia/agentes/:id/conectar-canal", async (ctx, p, _q, cuerpo) => {
-  const a = await buscarAgenteIaDb(ctx, p.id);
-  exigirRol(ctx, a.cliente_id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as { canal?: string };
-  if (b.canal !== "WHATSAPP" && b.canal !== "WEB") validacion([{ campo: "canal", mensaje: "Elige WhatsApp o tu web" }]);
-  if (a.version === 0) throw new ErrorApi(409, "AGENTE_SIN_PUBLICAR", "Publica el agente antes de conectarlo");
-  if (a.canales.some((c) => c.canal === b.canal)) throw new ErrorApi(409, "CANAL_YA_PEDIDO", "Ya pediste conectar ese canal");
-  await ctx.c.query("UPDATE agente_ia SET canales = canales || $2::jsonb, actualizado_en = now() WHERE id = $1", [a.id, JSON.stringify([{ canal: b.canal, estado: "SOLICITADO" }])]);
-  // El equipo lo conecta: se abre un ticket (sirve aunque el cliente no tenga Soporte continuo).
-  const canal = b.canal === "WHATSAPP" ? "WhatsApp" : "la web";
-  const t = (await ctx.c.query<{ id: string; numero: string }>(
-    `INSERT INTO ticket (cliente_id, creado_por, asunto, categoria, descripcion, resumen_estado, sla_primera_respuesta_en)
-     VALUES ($1, $2, $3, $4::categoria_ticket, $5, 'Recibimos tu pedido. Te escribimos para coordinar la conexión.', now() + interval '1 day') RETURNING id, numero`,
-    [a.cliente_id, ctx.u.usuarioId, `Conectar «${a.nombre}» a ${canal}`, b.canal === "WHATSAPP" ? "CRM" : "WEB", `El cliente pidió conectar su agente de IA «${a.nombre}» a ${canal}.`],
-  )).rows[0];
-  await emitirOutbox(ctx, "ticket.creado", a.cliente_id, { ticketId: t.id, numero: Number(t.numero), categoria: "OTRO", asunto: `Conectar agente a ${canal}`, servicioContratadoId: null, usuarioId: ctx.u.usuarioId });
-  return agenteIaVistaDb(await buscarAgenteIaDb(ctx, a.id));
-});
-
-interface FilaBase { id: string; cliente_id: string; nombre: string; articulos: S<"ArticuloConocimiento">[]; creado_en: Date; actualizado_en: Date; sin_respuesta: number }
-const SELECT_BASE = `
-  SELECT b.*, (SELECT count(*)::int FROM pregunta_sin_respuesta q JOIN agente_ia a ON a.id = q.agente_id WHERE NOT q.resuelta AND b.id = ANY(a.conocimiento_ids)) AS sin_respuesta
-  FROM base_conocimiento b`;
-const baseVistaDb = (b: FilaBase): S<"BaseConocimiento"> => ({
-  id: b.id, clienteId: b.cliente_id, nombre: b.nombre, articulos: b.articulos, preguntasSinRespuesta: b.sin_respuesta, creadoEn: iso(b.creado_en)!, actualizadoEn: iso(b.actualizado_en)!,
-});
-const articulosNormalizados = (xs: S<"ArticuloConocimiento">[]) => JSON.stringify(xs.map((x, i) => ({ id: x.id ?? `a${i + 1}`, titulo: x.titulo.trim(), contenido: x.contenido.trim() })));
-async function buscarBaseDb(ctx: Ctx, id: string) {
-  if (!esUuid(id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
-  const b = (await ctx.c.query<FilaBase>(`${SELECT_BASE} WHERE b.id = $1`, [id])).rows[0];
-  if (!b) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
-  await accesoCliente(ctx, b.cliente_id);
+const miArea = async (ctx: Ctx) => (await ctx.c.query<{ area: Area | null }>("SELECT area::text AS area FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0]?.area ?? null;
+/** Un bot de mi área (404 si es de otra: no se distingue de uno que no existe). */
+async function botDeMiAreaDb(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const area = await miArea(ctx);
+  const b = esUuid(id) && area ? (await ctx.c.query<FilaBot>(`${SELECT_BOT} WHERE b.id = $1 AND b.area = $2`, [id, area])).rows[0] : undefined;
+  if (!b) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
   return b;
 }
+function exigirEditarBotDb(ctx: Ctx, b: FilaBot) {
+  if (b.creado_por !== ctx.u.usuarioId && ctx.u.rolEquipo !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
+}
 
-ruta("GET", "/clientes/:id/ia/conocimiento", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
-  return { datos: (await ctx.c.query<FilaBase>(`${SELECT_BASE} WHERE b.cliente_id = $1 ORDER BY b.creado_en`, [p.id])).rows.map(baseVistaDb) };
+ruta("GET", "/jarvis/bots", async (ctx) => {
+  soloEquipo(ctx);
+  const area = await miArea(ctx);
+  const bots = area ? (await ctx.c.query<FilaBot>(`${SELECT_BOT} WHERE b.area = $1 ORDER BY b.nombre`, [area])).rows : [];
+  return { area, consumo: area ? await vistaConsumoAreaDb(ctx.c, area) : null, conectado: area ? !!hermesDelArea(area) : false, bots: bots.map((b) => botVistaDb(ctx, b)) } satisfies S<"BotsDelArea">;
 });
-ruta("POST", "/clientes/:id/ia/conocimiento", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as Partial<S<"BaseConocimientoEntrada">>;
-  validacion(validarBase(b, false));
-  const id = (await ctx.c.query<{ id: string }>("INSERT INTO base_conocimiento (cliente_id, nombre, articulos) VALUES ($1, $2, $3) RETURNING id", [p.id, b.nombre!.trim(), articulosNormalizados(b.articulos ?? [])])).rows[0].id;
-  return { __status: 201, ...baseVistaDb(await buscarBaseDb(ctx, id)) };
+
+ruta("POST", "/jarvis/bots", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Los bots los crean personas del equipo");
+  const area = await miArea(ctx);
+  if (!area) throw new ErrorApi(409, "SIN_AREA", "No tienes un área asignada", "Pídele al ADMIN que te asigne una en «Costos de IA».");
+  const b = (await cuerpo()) as { nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown };
+  const errores = validarBot(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO bot_jarvis (area, nombre, color, forma, instrucciones, creado_por) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    [area, (b.nombre as string).trim(), b.color, b.forma, typeof b.instrucciones === "string" ? b.instrucciones.trim() : "", ctx.u.usuarioId],
+  );
+  return { __status: 201, ...botVistaDb(ctx, await botDeMiAreaDb(ctx, rows[0].id)) };
 });
-ruta("PATCH", "/ia/conocimiento/:id", async (ctx, p, _q, cuerpo) => {
-  const base = await buscarBaseDb(ctx, p.id);
-  exigirRol(ctx, base.cliente_id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as Partial<S<"BaseConocimientoEntrada">>;
-  validacion(validarBase(b, true));
-  await ctx.c.query("UPDATE base_conocimiento SET nombre = coalesce($2, nombre), articulos = coalesce($3::jsonb, articulos), actualizado_en = now() WHERE id = $1", [
-    base.id, b.nombre?.trim() ?? null, b.articulos === undefined ? null : articulosNormalizados(b.articulos),
-  ]);
-  return baseVistaDb(await buscarBaseDb(ctx, base.id));
+
+ruta("PATCH", "/jarvis/bots/:id", async (ctx, p, _q, cuerpo) => {
+  const bot = await botDeMiAreaDb(ctx, p.id);
+  exigirEditarBotDb(ctx, bot);
+  const b = (await cuerpo()) as { nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown };
+  const errores = validarBot(b, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  await ctx.c.query(
+    `UPDATE bot_jarvis SET nombre = coalesce($2, nombre), color = coalesce($3, color), forma = coalesce($4, forma), instrucciones = coalesce($5, instrucciones), actualizado_en = now() WHERE id = $1`,
+    [bot.id, typeof b.nombre === "string" ? b.nombre.trim() : null, b.color ?? null, b.forma ?? null, typeof b.instrucciones === "string" ? b.instrucciones.trim() : null],
+  );
+  return botVistaDb(ctx, await botDeMiAreaDb(ctx, bot.id));
 });
-ruta("DELETE", "/ia/conocimiento/:id", async (ctx, p) => {
-  const base = await buscarBaseDb(ctx, p.id);
-  exigirRol(ctx, base.cliente_id, ["EQUIPO", "ADMIN_CLIENTE"]);
-  await ctx.c.query("UPDATE agente_ia SET conocimiento_ids = array_remove(conocimiento_ids, $1::uuid) WHERE cliente_id = $2", [base.id, base.cliente_id]);
-  await ctx.c.query("DELETE FROM base_conocimiento WHERE id = $1", [base.id]);
+
+ruta("DELETE", "/jarvis/bots/:id", async (ctx, p) => {
+  const bot = await botDeMiAreaDb(ctx, p.id);
+  exigirEditarBotDb(ctx, bot);
+  await ctx.c.query("DELETE FROM bot_jarvis WHERE id = $1", [bot.id]);
   return null;
 });
 
-interface FilaPregunta { id: string; agente_id: string; agente_nombre: string; pregunta: string; resuelta: boolean; creado_en: Date; cliente_id: string }
-const preguntaVistaDb = (x: FilaPregunta): S<"PreguntaSinRespuesta"> => ({ id: x.id, agenteId: x.agente_id, agenteNombre: x.agente_nombre, pregunta: x.pregunta, resuelta: x.resuelta, creadoEn: iso(x.creado_en)! });
-const SELECT_PREGUNTA = "SELECT q.*, a.nombre AS agente_nombre FROM pregunta_sin_respuesta q JOIN agente_ia a ON a.id = q.agente_id";
-ruta("GET", "/clientes/:id/ia/sin-respuesta", async (ctx, p) => {
-  await accesoCliente(ctx, p.id);
-  return { datos: (await ctx.c.query<FilaPregunta>(`${SELECT_PREGUNTA} WHERE q.cliente_id = $1 ORDER BY q.resuelta, q.creado_en DESC`, [p.id])).rows.map(preguntaVistaDb) };
-});
-ruta("PATCH", "/ia/sin-respuesta/:id", async (ctx, p, _q, cuerpo) => {
-  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa pregunta");
-  const x = (await ctx.c.query<FilaPregunta>(`${SELECT_PREGUNTA} WHERE q.id = $1`, [p.id])).rows[0];
-  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa pregunta");
-  await accesoCliente(ctx, x.cliente_id);
-  exigirRol(ctx, x.cliente_id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as { resuelta?: unknown };
-  if (typeof b.resuelta !== "boolean") validacion([{ campo: "resuelta", mensaje: "Sí o no" }]);
-  await ctx.c.query("UPDATE pregunta_sin_respuesta SET resuelta = $2 WHERE id = $1", [x.id, b.resuelta]);
-  return preguntaVistaDb({ ...x, resuelta: b.resuelta as boolean });
-});
-
-ruta("GET", "/ia/plantillas", async () => ({ datos: PLANTILLAS_AGENTE }));
-
-interface FilaContenido { id: string; destino: S<"DestinoContenido">; indicacion: string; tono: S<"TonoAgente"> | null; variaciones: string[]; palabras: number; costo_pen: string; simulado: boolean; creado_por: string | null; autor_nombre: string | null; creado_en: Date }
-const contenidoVistaDb = (c: FilaContenido): S<"ContenidoIa"> => ({
-  id: c.id, destino: c.destino, indicacion: c.indicacion, tono: c.tono, variaciones: c.variaciones, palabras: c.palabras, costo: Number(c.costo_pen), simulado: c.simulado,
-  creadoPor: persona(c.creado_por, c.autor_nombre), creadoEn: iso(c.creado_en)!,
-});
-const SELECT_CONTENIDO = "SELECT c.*, u.nombre AS autor_nombre FROM contenido_ia c LEFT JOIN usuario u ON u.id = c.creado_por";
-ruta("GET", "/clientes/:id/ia/contenido", async (ctx, p, q) => {
-  await accesoCliente(ctx, p.id);
-  const destino = q.get("destino");
-  const datos = (await ctx.c.query<FilaContenido>(`${SELECT_CONTENIDO} WHERE c.cliente_id = $1 AND ($2::text IS NULL OR c.destino = $2) ORDER BY c.creado_en DESC`, [p.id, destino])).rows.map(contenidoVistaDb);
-  const mes = (await ctx.c.query<{ palabras: number; costo: string }>(
-    "SELECT coalesce(sum(palabras), 0)::int AS palabras, coalesce(sum(costo_pen), 0) AS costo FROM contenido_ia WHERE cliente_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2",
-    [p.id, PERIODO_ACTUAL()],
-  )).rows[0];
-  const dia = Number(HOY_LIMA().slice(8, 10));
-  return { datos, resumen: { palabras: mes.palabras, costo: Math.round(Number(mes.costo) * 100) / 100, palabrasPorDia: Math.round((mes.palabras / dia) * 10) / 10 } };
-});
-ruta("POST", "/clientes/:id/ia/contenido", async (ctx, p, _q, cuerpo) => {
-  await accesoCliente(ctx, p.id);
-  exigirRol(ctx, p.id, ESCRIBEN_IA);
-  const b = (await cuerpo()) as Partial<S<"ContenidoIaEntrada">>;
-  validacion(validarContenido(b));
-  await exigirSaldoIaDb(ctx, p.id);
-  let r: Awaited<ReturnType<typeof generarContenido>>;
-  try {
-    r = await generarContenido({ negocio: await nombreClienteDb(ctx, p.id), destino: b.destino!, indicacion: b.indicacion!.trim(), tono: b.tono ?? null, variaciones: b.variaciones ?? 1 });
-  } catch (e) {
-    return iaNoDisponible(e, "No pudimos generar el contenido");
+ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
+  const bot = await botDeMiAreaDb(ctx, p.id);
+  const b = (await cuerpo()) as { mensaje?: unknown; sesionId?: unknown };
+  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
+  if (!mensaje || mensaje.length > 8000 || !esSesionChat(b.sesionId)) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "mensaje", mensaje: "Escribe tu mensaje (hasta 8000 caracteres)" }]);
   }
-  const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO contenido_ia (cliente_id, destino, indicacion, tono, variaciones, palabras, costo_pen, simulado, modelo, creado_por)
-     VALUES ($1, $2, $3, $4::tono_agente_ia, $5, $6, $7, $8, $9, $10) RETURNING id`,
-    [p.id, b.destino, b.indicacion!.trim(), b.tono ?? null, JSON.stringify(r.variaciones), r.palabras, r.costoPen, r.simulado, r.modelo, ctx.esServicio ? null : ctx.u.usuarioId],
-  )).rows[0].id;
-  return { __status: 201, ...contenidoVistaDb((await ctx.c.query<FilaContenido>(`${SELECT_CONTENIDO} WHERE c.id = $1`, [id])).rows[0]) };
+  const consumo = await vistaConsumoAreaDb(ctx.c, bot.area);
+  if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
+  const hermes = hermesDelArea(bot.area);
+  if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
+  await ctx.c.query("UPDATE bot_jarvis SET ultimo_uso = now() WHERE id = $1", [bot.id]);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId });
 });
 
-interface FilaConversacion { id: string; agente_id: string; agente_nombre: string; canal: S<"ConversacionIa">["canal"]; contacto: string; iniciada_en: Date; mensajes: number; acciones: number; ultima_en: Date | null; costo: string; cliente_id: string }
-const SELECT_CONVERSACION = `
-  SELECT c.*, a.nombre AS agente_nombre, count(m.id)::int AS mensajes, count(m.accion)::int AS acciones, max(m.creado_en) AS ultima_en, coalesce(sum(m.costo_pen), 0) AS costo
-  FROM conversacion_ia c JOIN agente_ia a ON a.id = c.agente_id LEFT JOIN mensaje_ia m ON m.conversacion_id = c.id`;
-const conversacionVistaDb = (c: FilaConversacion): S<"ConversacionIa"> => ({
-  id: c.id, agenteId: c.agente_id, agenteNombre: c.agente_nombre, canal: c.canal, contacto: c.contacto, mensajes: c.mensajes, acciones: c.acciones,
-  iniciadaEn: iso(c.iniciada_en)!, ultimaEn: iso(c.ultima_en ?? c.iniciada_en)!, costo: Math.round(Number(c.costo) * 100) / 100,
+// ───────────────────────────────────────────── calendario del colaborador (2 nov 2026)
+
+type EventoAgenda = S<"EventoAgenda">;
+const baseAgenda = (x: Pick<EventoAgenda, "id" | "tipo" | "titulo" | "fecha">): EventoAgenda => ({
+  horaInicio: null, horaFin: null, detalle: null, enlace: null, hecho: false, vencido: false, origen: "PORTAL", eventoId: null, editable: false, notas: null, invitados: [], ...x,
 });
-ruta("GET", "/clientes/:id/ia/conversaciones", async (ctx, p, q) => {
-  await accesoCliente(ctx, p.id);
-  const agente = q.get("agenteId");
-  const { rows } = await ctx.c.query<FilaConversacion>(
-    `${SELECT_CONVERSACION} WHERE c.cliente_id = $1 AND ($2::uuid IS NULL OR c.agente_id = $2) GROUP BY c.id, a.nombre ORDER BY ultima_en DESC NULLS LAST`,
-    [p.id, agente && esUuid(agente) ? agente : null],
+
+interface FilaEventoAgenda {
+  id: string; tipo: TipoPropio; titulo: string; notas: string | null; fecha: string; hora_inicio: string | null; hora_fin: string | null; hecho: boolean;
+  origen: "PORTAL" | "GOOGLE"; creado_por: string; personas: { id: string; nombre: string; cargo: string | null; email: string }[];
+}
+// El creador y los invitados (todos), para mostrar a cada uno quién más está.
+const SELECT_EVENTO_AGENDA = `SELECT e.id, e.tipo, e.titulo, e.notas, to_char(e.fecha, 'YYYY-MM-DD') AS fecha, to_char(e.hora_inicio, 'HH24:MI') AS hora_inicio,
+  to_char(e.hora_fin, 'HH24:MI') AS hora_fin, e.hecho, e.origen, e.creado_por,
+  (SELECT coalesce(json_agg(json_build_object('id', u.id, 'nombre', u.nombre, 'cargo', u.cargo, 'email', u.email::text) ORDER BY u.id = e.creado_por DESC, u.nombre), '[]')
+     FROM usuario u WHERE u.id = e.creado_por OR u.id IN (SELECT i.usuario_id FROM evento_agenda_invitado i WHERE i.evento_id = e.id)) AS personas
+  FROM evento_agenda e`;
+const eventoPropioVistaDb = (ctx: Ctx, e: FilaEventoAgenda): EventoAgenda => ({
+  ...baseAgenda({ id: `evento-${e.id}`, tipo: e.tipo, titulo: e.titulo, fecha: e.fecha }),
+  horaInicio: e.hora_inicio, horaFin: e.hora_fin, hecho: e.hecho, origen: e.origen, eventoId: e.id, editable: e.creado_por === ctx.u.usuarioId, notas: e.notas,
+  invitados: e.personas.filter((p) => p.id !== ctx.u.usuarioId),
+});
+
+async function conexionGoogleDb(ctx: Ctx): Promise<S<"ConexionGoogle">> {
+  const c = (await ctx.c.query<{ correo: string; conectado_en: Date; simulada: boolean }>(
+    "SELECT correo::text AS correo, conectado_en, simulada FROM conexion_google_calendar WHERE usuario_id = $1", [ctx.u.usuarioId],
+  )).rows[0];
+  return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: iso(c?.conectado_en) ?? null, simulada: c?.simulada ?? true };
+}
+
+ruta("GET", "/me/agenda", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const desde = q.get("desde");
+  const hasta = q.get("hasta");
+  const errores = validarRango(desde, hasta);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const yo = ctx.u.usuarioId;
+  const hoy = HOY_LIMA();
+  // Mis proyectos: donde soy responsable o tengo tareas.
+  const proyectos = new Map((await ctx.c.query<{ id: string; nombre: string; marca: string | null; cliente_nombre: string }>(
+    `SELECT sc.id, s.nombre, sc.marca, c.nombre AS cliente_nombre FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id JOIN cliente c ON c.id = sc.cliente_id
+     WHERE sc.responsable_id = $1 OR sc.id IN (SELECT servicio_contratado_id FROM tarea WHERE responsable_id = $1)`, [yo],
+  )).rows.map((p) => [p.id, tituloServicio(p.nombre, p.marca ?? p.cliente_nombre)]));
+  const ids = `{${[...proyectos.keys()].join(",")}}`;
+  const enlace = (scId: string) => `/equipo/proyectos/${scId}`;
+  const eventos: EventoAgenda[] = [];
+
+  const tareas = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; fecha: string }>(
+    "SELECT id, titulo, servicio_contratado_id, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha FROM tarea WHERE responsable_id = $1 AND estado <> 'HECHA' AND fecha_limite BETWEEN $2 AND $3",
+    [yo, desde, hasta],
   );
-  return { datos: rows.map(conversacionVistaDb) };
+  for (const t of tareas.rows) {
+    eventos.push({ ...baseAgenda({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fecha }), detalle: proyectos.get(t.servicio_contratado_id) ?? null, enlace: enlace(t.servicio_contratado_id), vencido: t.fecha < hoy });
+  }
+  // Reuniones del proyecto: se guardan con hora (timestamptz); el rango se amplía un día y se filtra en Lima.
+  const reuniones = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; fecha: Date; estado: string; duracion_min: number }>(
+    `SELECT id, titulo, servicio_contratado_id, fecha, estado::text AS estado, duracion_min FROM reunion
+     WHERE servicio_contratado_id = ANY($1::uuid[]) AND estado <> 'CANCELADA' AND fecha >= $2::date - 1 AND fecha < $3::date + 2`,
+    [ids, desde, hasta],
+  );
+  for (const r of reuniones.rows) {
+    const { fecha, hora } = enLima(r.fecha);
+    if (fecha < desde! || fecha > hasta!) continue;
+    eventos.push({
+      ...baseAgenda({ id: `reunion-${r.id}`, tipo: "REUNION", titulo: r.titulo, fecha }), horaInicio: hora, horaFin: sumarMinutos(hora, r.duracion_min),
+      detalle: proyectos.get(r.servicio_contratado_id) ?? null, enlace: enlace(r.servicio_contratado_id), hecho: r.estado === "REALIZADA",
+    });
+  }
+  const reqs = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; fecha: string }>(
+    `SELECT id, titulo, servicio_contratado_id, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha FROM requerimiento
+     WHERE servicio_contratado_id = ANY($1::uuid[]) AND estado IN ('PENDIENTE', 'OBSERVADO') AND fecha_limite BETWEEN $2 AND $3`,
+    [ids, desde, hasta],
+  );
+  for (const r of reqs.rows) {
+    eventos.push({ ...baseAgenda({ id: `requerimiento-${r.id}`, tipo: "REQUERIMIENTO", titulo: `El cliente entrega: ${r.titulo}`, fecha: r.fecha }), detalle: proyectos.get(r.servicio_contratado_id) ?? null, enlace: enlace(r.servicio_contratado_id), vencido: r.fecha < hoy });
+  }
+  const avisos = await ctx.c.query<{ id: string; titulo: string; inicio: string; fin: string }>(
+    `SELECT id, titulo, to_char(fecha_inicio, 'YYYY-MM-DD') AS inicio, to_char(fecha_fin, 'YYYY-MM-DD') AS fin FROM aviso
+     WHERE cliente_id IS NULL AND tipo <> 'GENERAL' AND fecha_inicio <= $2 AND fecha_fin >= $1`,
+    [desde, hasta],
+  );
+  for (const a of avisos.rows) {
+    for (const f of diasEntre(a.inicio, a.fin).filter((d) => d >= desde! && d <= hasta!)) eventos.push(baseAgenda({ id: `feriado-${a.id}-${f}`, tipo: "FERIADO", titulo: a.titulo, fecha: f }));
+  }
+  const propios = await ctx.c.query<FilaEventoAgenda>(
+    `${SELECT_EVENTO_AGENDA} WHERE e.fecha BETWEEN $2 AND $3 AND (e.creado_por = $1 OR e.id IN (SELECT evento_id FROM evento_agenda_invitado WHERE usuario_id = $1))`,
+    [yo, desde, hasta],
+  );
+  eventos.push(...propios.rows.map((e) => eventoPropioVistaDb(ctx, e)));
+  return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: await conexionGoogleDb(ctx) } satisfies S<"Agenda">;
 });
-ruta("GET", "/ia/conversaciones/:id", async (ctx, p) => {
-  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
-  const c = (await ctx.c.query<FilaConversacion>(`${SELECT_CONVERSACION} WHERE c.id = $1 GROUP BY c.id, a.nombre`, [p.id])).rows[0];
-  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
-  await accesoCliente(ctx, c.cliente_id);
-  const historial = (await ctx.c.query<{ rol: "CONTACTO" | "AGENTE"; texto: string; accion: S<"AccionAgente"> | null; sin_respuesta: boolean; simulado: boolean; creado_en: Date }>(
-    "SELECT rol, texto, accion, sin_respuesta, simulado, creado_en FROM mensaje_ia WHERE conversacion_id = $1 ORDER BY id", [c.id],
-  )).rows.map((m) => ({ rol: m.rol, texto: m.texto, accion: m.accion, sinRespuesta: m.sin_respuesta, simulado: m.simulado, creadoEn: iso(m.creado_en)! }));
-  return { ...conversacionVistaDb(c), historial } satisfies S<"ConversacionIaDetalle">;
+
+async function miEventoDb(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const e = esUuid(id)
+    ? (await ctx.c.query<FilaEventoAgenda>(`${SELECT_EVENTO_AGENDA} WHERE e.id = $1 AND (e.creado_por = $2 OR e.id IN (SELECT evento_id FROM evento_agenda_invitado WHERE usuario_id = $2))`, [id, ctx.u.usuarioId])).rows[0]
+    : undefined;
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese evento");
+  return e;
+}
+async function exigirMiEventoDb(ctx: Ctx, id: string) {
+  const e = await miEventoDb(ctx, id);
+  if (e.creado_por !== ctx.u.usuarioId) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien lo creó lo puede cambiar");
+  return e;
+}
+async function invitadosValidosDb(ctx: Ctx, ids: unknown) {
+  const xs = [...new Set((ids as string[] | undefined) ?? [])].filter((id) => id !== ctx.u.usuarioId);
+  const ok = xs.every(esUuid) && (!xs.length || (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM usuario WHERE id = ANY($1::uuid[]) AND tipo = 'EQUIPO'", [`{${xs.join(",")}}`])).rows[0].n === xs.length);
+  if (!ok) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "invitadosIds", mensaje: "Los invitados deben ser del equipo" }]);
+  return xs;
+}
+async function guardarInvitadosDb(ctx: Ctx, eventoId: string, ids: string[]) {
+  await ctx.c.query("DELETE FROM evento_agenda_invitado WHERE evento_id = $1", [eventoId]);
+  if (ids.length) await ctx.c.query("INSERT INTO evento_agenda_invitado (evento_id, usuario_id) SELECT $1, unnest($2::uuid[])", [eventoId, `{${ids.join(",")}}`]);
+}
+const notasDe = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+ruta("POST", "/me/agenda/eventos", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "El calendario es de las personas del equipo");
+  const b = (await cuerpo()) as EventoEntrada;
+  const errores = validarEvento(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const invitados = await invitadosValidosDb(ctx, b.invitadosIds);
+  const tipo = b.tipo as TipoPropio;
+  const horas = horasAlGuardar(tipo, (b.horaInicio as string | null | undefined) ?? null, (b.horaFin as string | null | undefined) ?? null);
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO evento_agenda (tipo, titulo, notas, fecha, hora_inicio, hora_fin, hecho, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+    [tipo, (b.titulo as string).trim(), notasDe(b.notas), b.fecha, horas.horaInicio, horas.horaFin, b.hecho === true, ctx.u.usuarioId],
+  );
+  await guardarInvitadosDb(ctx, rows[0].id, invitados);
+  return { __status: 201, ...eventoPropioVistaDb(ctx, await miEventoDb(ctx, rows[0].id)) };
+});
+
+ruta("PATCH", "/me/agenda/eventos/:id", async (ctx, p, _q, cuerpo) => {
+  const e = await exigirMiEventoDb(ctx, p.id);
+  const b = (await cuerpo()) as EventoEntrada;
+  const errores = validarEvento(b, { tipo: e.tipo, horaInicio: e.hora_inicio, horaFin: e.hora_fin });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const invitados = b.invitadosIds !== undefined ? await invitadosValidosDb(ctx, b.invitadosIds) : null;
+  const inicio = b.horaInicio !== undefined ? (b.horaInicio as string | null) : e.hora_inicio;
+  const fin = inicio === null ? null : b.horaFin !== undefined ? (b.horaFin as string | null) : e.hora_fin;
+  await ctx.c.query(
+    `UPDATE evento_agenda SET titulo = $2, notas = $3, fecha = $4, hora_inicio = $5, hora_fin = $6, hecho = $7, actualizado_en = now() WHERE id = $1`,
+    [e.id, typeof b.titulo === "string" ? b.titulo.trim() : e.titulo, b.notas !== undefined ? notasDe(b.notas) : e.notas, typeof b.fecha === "string" ? b.fecha : e.fecha, inicio, fin, typeof b.hecho === "boolean" ? b.hecho : e.hecho],
+  );
+  if (invitados) await guardarInvitadosDb(ctx, e.id, invitados);
+  return eventoPropioVistaDb(ctx, await miEventoDb(ctx, e.id));
+});
+
+ruta("DELETE", "/me/agenda/eventos/:id", async (ctx, p) => {
+  const e = await exigirMiEventoDb(ctx, p.id);
+  await ctx.c.query("DELETE FROM evento_agenda WHERE id = $1", [e.id]);
+  return null;
+});
+
+ruta("PUT", "/me/agenda/google", async (ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "El calendario es de las personas del equipo");
+  await ctx.c.query("INSERT INTO conexion_google_calendar (usuario_id, correo) VALUES ($1, $2) ON CONFLICT (usuario_id) DO NOTHING", [ctx.u.usuarioId, ctx.u.email]);
+  return conexionGoogleDb(ctx);
+});
+
+ruta("DELETE", "/me/agenda/google", async (ctx) => {
+  soloEquipo(ctx);
+  await ctx.c.query("DELETE FROM conexion_google_calendar WHERE usuario_id = $1", [ctx.u.usuarioId]);
+  return conexionGoogleDb(ctx);
 });
 
 // ───────────────────────────────────────────── KPIs, reporte y panel del colaborador (reunión 15 oct)
@@ -2465,11 +2491,8 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
 
 ruta("GET", "/panel/equipo", async (ctx) => {
   soloEquipo(ctx);
-  const { rows } = await ctx.c.query<{ id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null }>(
-    "SELECT id, nombre, cargo, rol_equipo FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre",
-  );
-  const iniciales = (n: string) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-  return { datos: rows.map((u) => ({ id: u.id, nombre: u.nombre, iniciales: iniciales(u.nombre), cargo: u.cargo, rolEquipo: u.rol_equipo })) };
+  const { rows } = await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre`);
+  return { datos: rows.map(personaEquipoVista) };
 });
 
 ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
@@ -2720,7 +2743,7 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   if (b.responsableId !== undefined) exigirRol(ctx, s.cliente_id, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
   if (b.estado !== undefined && !ESTADOS_SERVICIO.includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO, STANDBY o FINALIZADO" });
-  if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle));
+  if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle, s));
   if (b.responsableId != null && !(await esDelEquipoDb(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   validacion(errores);
@@ -3649,7 +3672,8 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
      WHERE c.id = $1`,
     [p.id],
   )).rows[0];
-  const servicios = await Promise.all((await serviciosDelCliente(ctx, p.id)).map(async (s) => {
+  const filasServicio = await serviciosDelCliente(ctx, p.id);
+  const servicios = await Promise.all(filasServicio.map(async (s) => {
     const { etapas: _e, ...v } = await servicioVista(ctx, s, periodo);
     return v;
   }));
@@ -3679,6 +3703,7 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
       contactoPrincipal: c.cp_id ? { id: c.cp_id, nombre: c.cp_nombre!, cargo: c.cp_cargo, email: c.cp_email ?? undefined } : null,
       responsable: c.am_id ? { id: c.am_id, nombre: c.am_nombre!, cargo: c.am_cargo, email: c.am_email ?? undefined } : null,
       driveUrl: c.drive_url,
+      enlaceCosmiq: enlaceCosmiqDe(filasServicio),
     },
     avisoPago: veePagos ? await avisoPago(ctx, p.id) : null,
     marca: servicios.some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
@@ -3688,7 +3713,7 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
     actividad: await actividadReciente(ctx, p.id),
     avanceMes: await progresoPiezas(ctx, null, p.id, periodo, cuota),
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
-    servicios: servicios.map((s) => ({ codigo: s.codigo, nombre: s.nombre, titulo: s.titulo, servicioContratadoId: s.servicioContratadoId, cantidadMensual: s.cantidadMensual, unidad: s.unidad, estado: s.estado, avance: s.avance, responsable: s.responsable })),
+    servicios: servicios.map((s, i) => ({ codigo: s.codigo, nombre: s.nombre, titulo: s.titulo, servicioContratadoId: s.servicioContratadoId, cantidadMensual: s.cantidadMensual, unidad: s.unidad, estado: s.estado, avance: s.avance, responsable: s.responsable, siguientePaso: filasServicio[i].siguiente_paso || null })),
     proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha_programada)! } : null,
     ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado })),
   };
@@ -4672,6 +4697,15 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
   const formulario = camino.match(/^\/publico\/formularios\/([0-9a-f]{64})(\/.*)?$/);
   if (formulario) return formularioPublicoDb(req, formulario[1], formulario[2] ?? "");
   if (req.method === "POST" && camino === "/__pruebas/ingresar") return ingresarDemo(req);
+  // Pasarela de IA del equipo: entra con la llave de Jarvis, no con la sesión del portal.
+  if (camino.startsWith("/ia-equipo/")) {
+    try {
+      return await pasarelaIa(req, camino.slice("/ia-equipo".length), almacenDb);
+    } catch (e) {
+      console.error(e);
+      return Response.json({ error: { message: "Algo salió mal en la pasarela", type: "server_error", code: "ERROR_INTERNO" } }, { status: 500 });
+    }
+  }
   if (req.method === "POST" && RUTAS_SESION.includes(camino)) return sesion(camino, req);
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);
   if (!encontrada) {

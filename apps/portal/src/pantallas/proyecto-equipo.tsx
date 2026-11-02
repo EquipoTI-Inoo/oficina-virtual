@@ -18,6 +18,7 @@ import { EntregablesEquipo } from "./entregables";
 import { ConsumoDelServicio, TicketsDelSoporte } from "./consumo";
 import { BlogsDelSoporte, KanbanPiezas } from "./piezas-proyecto";
 import { BOLSAS_POR_PLAN, bolsaDe, esPorConsumo } from "../dominio/consumo";
+import { esServicioCrm } from "../dominio/servicios";
 import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type EventoCalendario, type VistaCronograma } from "./cronograma";
 
 type Perfil = S<"PerfilProyecto">;
@@ -482,12 +483,14 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
   const inicial = () => ({
     responsableId: d.responsable?.id ?? "", alcance: d.alcance ?? "", tamano: d.detalle?.tamano ?? "", cms: d.detalle?.cms ?? "", alcanceWeb: d.detalle?.alcanceWeb ?? "",
     paginas: d.detalle?.paginas?.toString() ?? "", productos: d.detalle?.productos?.toString() ?? "", agenteIa: !!d.detalle?.agenteIa, whatsappApi: !!d.detalle?.whatsappApi,
+    enlaceCosmiq: d.detalle?.enlaceCosmiq ?? "",
     ...Object.fromEntries(Object.entries(bolsaDe(d.variante?.codigo, d.detalle)).map(([k, v]) => [`bolsa.${k}`, typeof v === "boolean" ? v : String(v)])),
   });
   const [f, setF] = useState<ReturnType<typeof inicial> & Record<string, string | boolean>>(inicial);
   const esWeb = d.codigo === "WEB";
   const esCrm = d.codigo === "CRM_IMPLEMENTACION" || d.codigo === "CRM_INTEGRACION";
   const esSoporte = esPorConsumo(d.codigo);
+  const conCosmiq = esServicioCrm(d.codigo, d.variante?.codigo ?? null);
   const delPlan = BOLSAS_POR_PLAN[d.variante?.codigo === "CRM" ? "CRM" : "WEB"];
   const guardar = async () => {
     const detalle: Record<string, unknown> = { ...d.detalle };
@@ -509,6 +512,7 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
       detalle.agenteIa = f.agenteIa;
       detalle.whatsappApi = f.whatsappApi;
     }
+    if (conCosmiq) poner("enlaceCosmiq", String(f.enlaceCosmiq).trim());
     await alGuardar({ responsableId: f.responsableId || null, alcance: f.alcance || null, detalle });
     setEditando(false);
   };
@@ -547,6 +551,14 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
         <div className="fila entre texto-sm">
           <span className="texto-muted">Plataforma</span>
           <span className="negrita">{CMS[d.detalle.cms]}</span>
+        </div>
+      )}
+      {conCosmiq && d.detalle?.enlaceCosmiq && (
+        <div className="fila entre texto-sm">
+          <span className="texto-muted">Cosmiq</span>
+          <a className="negrita" href={d.detalle.enlaceCosmiq} target="_blank" rel="noreferrer">
+            Abrir cuenta <LuExternalLink size={12} />
+          </a>
         </div>
       )}
       {d.alcance && <p className="texto-xs texto-muted">{d.alcance}</p>}
@@ -607,6 +619,14 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
               <input type="checkbox" checked={f.whatsappApi} onChange={(e) => setF({ ...f, whatsappApi: e.target.checked })} /> Incluye WhatsApp API
             </label>
           </>
+        )}
+        {conCosmiq && (
+          <div className="campo">
+            <label htmlFor="dp-cosmiq">Enlace a la cuenta en Cosmiq (lo ve el cliente)</label>
+            <div className="entrada">
+              <input id="dp-cosmiq" type="url" placeholder="https://" value={String(f.enlaceCosmiq)} onChange={(e) => setF({ ...f, enlaceCosmiq: e.target.value })} />
+            </div>
+          </div>
         )}
         <div className="campo">
           <label htmlFor="dp-alcance">Alcance prometido (lo ve el cliente)</label>

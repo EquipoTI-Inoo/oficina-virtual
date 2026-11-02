@@ -1,5 +1,6 @@
-import { PantallaPanel } from "@/src/pantallas/soporte-equipo";
+import { redirect } from "next/navigation";
 
+// «Panel general» se unió con «Mi panel» (2 nov 2026): se quedó el menos recargado.
 export default function Pagina() {
-  return <PantallaPanel />;
+  redirect("/equipo/mi-panel");
 }

@@ -1167,65 +1167,6 @@ a.avatar:hover {
   text-align: center;
 }
 
-/* Agentes de IA del cliente (fase 16a). */
-.editor-agente {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-  gap: 18px;
-  align-items: start;
-}
-.chat-prueba {
-  position: sticky;
-  top: 16px;
-  padding: 18px 16px;
-  display: grid;
-  gap: 10px;
-}
-.chat-mensajes {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 260px;
-  max-height: 52vh;
-  overflow-y: auto;
-  padding: 10px;
-  background: var(--c-fondo);
-  border-radius: 12px;
-}
-.burbuja {
-  max-width: 85%;
-  padding: 8px 12px;
-  border-radius: 14px;
-  font-size: 13px;
-  line-height: 1.45;
-  display: grid;
-  gap: 4px;
-}
-.burbuja--agente { align-self: flex-start; background: var(--c-blanco); border: 1px solid var(--c-borde); border-bottom-left-radius: 4px; }
-.burbuja--contacto { align-self: flex-end; background: var(--c-primario); color: var(--c-blanco); border-bottom-right-radius: 4px; }
-.propuesta-agente {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-  border: 1px dashed var(--c-primario-borde);
-  border-radius: 12px;
-  background: var(--c-primario-suave);
-}
-.variacion {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background: var(--c-blanco);
-  border: 1px solid var(--c-borde);
-  border-radius: 10px;
-}
-@media (max-width: 900px) {
-  .editor-agente { grid-template-columns: 1fr; }
-  .chat-prueba { position: static; }
-}
-
 /* Soporte por consumo: bolsa del mes (fase 15). */
 .consumo-fichas { gap: 12px; }
 .consumo-ficha {
@@ -1558,6 +1499,7 @@ a.avatar:hover {
   z-index: 60;
   padding: 16px;
 }
+/* 2 nov: un modal largo (briefs, editor de bots…) nunca pasa del alto de la pantalla; scrollea por dentro. */
 .modal {
   width: min(420px, 100%);
   background: var(--c-blanco);
@@ -1565,13 +1507,20 @@ a.avatar:hover {
   box-shadow: var(--sombra-flotante);
   padding: 24px;
   display: grid;
+  align-content: start;
   gap: 14px;
   position: relative;
+}
+.velo .modal {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .modal-cerrar {
   position: absolute;
   top: 20px;
   right: 20px;
+  z-index: 1;
   background: none;
   border: 0;
   color: var(--c-muted);
@@ -2169,3 +2118,220 @@ a.avatar:hover {
     scroll-snap-align: start;
   }
 }
+
+/* Sección «Jarvis» (2 nov): bots del área a la izquierda y chat a la derecha, como Grok Bot. */
+.jarvis {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  height: calc(100dvh - 150px);
+  min-height: 460px;
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--c-superficie, #fff);
+  border: 1px solid var(--c-borde);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.jarvis-lista {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+  background: var(--c-fondo);
+  border-right: 1px solid var(--c-borde);
+  overflow-y: auto;
+}
+.jarvis-lista-titulo { font-size: 12px; font-weight: 600; color: var(--c-texto-suave, #667085); text-transform: uppercase; letter-spacing: 0.04em; }
+.boton-icono {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--c-borde);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.jarvis-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.jarvis-item:hover { background: #fff; }
+.jarvis-item[aria-current="true"] { background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); font-weight: 600; }
+.jarvis-item-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-consumo { margin-top: auto; display: grid; gap: 6px; padding: 12px 6px 2px; border-top: 1px solid var(--c-borde); }
+.avatar-bot {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.jarvis-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.jarvis-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--c-borde); }
+.jarvis-nombre { display: inline-flex; align-items: center; gap: 10px; padding: 4px 8px; border: 0; border-radius: 10px; background: transparent; font-size: 15px; font-weight: 600; cursor: pointer; }
+.jarvis-nombre:hover { background: var(--c-fondo); }
+.jarvis-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 210px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--c-borde);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+}
+.jarvis-menu button { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; font-size: 13px; text-align: left; cursor: pointer; }
+.jarvis-menu button:hover { background: var(--c-fondo); }
+.jarvis-menu-peligro { color: var(--c-alerta); }
+.jarvis-mensajes { flex: 1; min-height: 0; display: grid; gap: 10px; align-content: start; padding: 18px; overflow-y: auto; }
+.jarvis-bienvenida { display: grid; justify-items: center; gap: 8px; max-width: 520px; margin: 40px auto 0; text-align: center; }
+.jarvis-vacio { display: grid; place-content: center; justify-items: center; gap: 12px; height: 100%; padding: 24px; text-align: center; }
+.jarvis-escribir { display: flex; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--c-borde); }
+.muestra-color { width: 22px; height: 22px; border: 0; border-radius: 50%; outline-offset: 2px; cursor: pointer; }
+@media (max-width: 760px) {
+  .jarvis { grid-template-columns: 1fr; height: auto; }
+  .jarvis-lista { border-right: 0; border-bottom: 1px solid var(--c-borde); max-height: 220px; }
+  .jarvis-mensajes { min-height: 360px; max-height: 65dvh; }
+}
+.burbuja-jarvis {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.burbuja-jarvis--yo {
+  justify-self: end;
+  background: var(--c-primario);
+  color: #fff;
+}
+.burbuja-jarvis--jarvis {
+  justify-self: start;
+  background: var(--c-fondo);
+}
+.burbuja-jarvis--error {
+  color: var(--c-alerta);
+}
+
+/* ───────────────────────── Calendario del colaborador (2 nov) */
+.calendario { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 18px; align-items: start; }
+.calendario-lateral { display: grid; gap: 18px; position: sticky; top: 16px; }
+.calendario-subtitulo { font-size: 12px; font-weight: 600; color: var(--c-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.calendario-filtro { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 2px; cursor: pointer; }
+.calendario-filtro input { width: 16px; height: 16px; }
+.calendario-google { padding: 14px; display: grid; gap: 8px; justify-items: start; }
+.calendario-principal { background: var(--c-blanco); border: 1px solid var(--c-borde); border-radius: 16px; overflow: hidden; min-width: 0; }
+.calendario-barra { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--c-borde); }
+.calendario-titulo { font-size: 17px; font-weight: 600; margin-left: 6px; color: var(--c-tinta); }
+.segmentado { display: inline-flex; padding: 3px; gap: 2px; background: var(--c-neutro-suave); border-radius: 10px; }
+.segmentado button { border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--c-muted); cursor: pointer; }
+.segmentado button.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
+
+.mini-mes { display: grid; gap: 8px; }
+.mini-mes-grilla { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: 11px; }
+.mini-mes-grilla button { border: 0; background: none; aspect-ratio: 1; border-radius: 50%; font-size: 11.5px; color: var(--c-texto); cursor: pointer; }
+.mini-mes-grilla button:hover { background: var(--c-fondo); }
+.mini-mes-grilla button.fuera { color: var(--c-tenue); }
+.mini-mes-grilla button.elegido { background: var(--c-primario-suave); color: var(--c-primario); font-weight: 600; }
+.mini-mes-grilla button.hoy { background: var(--c-primario); color: #fff; font-weight: 600; }
+
+.vista-mes { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.vista-mes-cab { padding: 8px; font-size: 11px; font-weight: 600; color: var(--c-muted); text-transform: uppercase; text-align: center; border-bottom: 1px solid var(--c-borde); }
+.vista-mes-dia { min-height: 112px; padding: 4px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--c-borde); border-bottom: 1px solid var(--c-borde); cursor: pointer; min-width: 0; }
+.vista-mes-dia:nth-child(7n) { border-right: 0; }
+.vista-mes-dia.fuera { background: var(--c-fondo); }
+.vista-mes-dia.fuera .num-dia { color: var(--c-tenue); }
+.vista-mes-dia.feriado { background: var(--c-semaforo-rojo-suave); }
+.num-dia { align-self: center; border: 0; background: none; width: 26px; height: 26px; border-radius: 50%; font-size: 12px; font-weight: 600; color: var(--c-texto); cursor: pointer; }
+.num-dia:hover { background: var(--c-neutro-suave); }
+.num-dia.hoy { background: var(--c-primario); color: #fff; }
+.chip-agenda { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; border: 0; border-radius: 6px; background: transparent; padding: 2px 5px; font-size: 11.5px; text-align: left; color: var(--c-tinta); cursor: pointer; }
+.chip-agenda:hover { background: var(--c-neutro-suave); }
+.chip-agenda--lleno { color: #fff; }
+.chip-agenda--lleno:hover { filter: brightness(0.95); background: inherit; }
+.chip-agenda--hecho .chip-texto { text-decoration: line-through; opacity: 0.7; }
+.chip-agenda .punto { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.chip-hora { flex: none; color: var(--c-muted); font-variant-numeric: tabular-nums; }
+.chip-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-mas { border: 0; background: none; text-align: left; padding: 2px 5px; font-size: 11px; font-weight: 600; color: var(--c-muted); cursor: pointer; }
+
+.vista-horas { display: grid; }
+.vista-horas-cab, .vista-horas-todo { display: grid; border-bottom: 1px solid var(--c-borde); }
+.vista-horas-todo { min-height: 34px; background: var(--c-fondo); }
+.vista-horas-dia { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border: 0; background: none; color: var(--c-muted); cursor: pointer; }
+.vista-horas-dia .num { font-size: 20px; font-weight: 600; color: var(--c-tinta); width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
+.vista-horas-dia.hoy, .vista-horas-dia.hoy .num { color: var(--c-primario); }
+.vista-horas-dia.hoy .num { background: var(--c-primario); color: #fff; }
+.vista-horas-cuerpo { height: calc(100dvh - 330px); min-height: 380px; overflow-y: auto; }
+.vista-horas-grilla { display: grid; position: relative; }
+.vista-horas-etiquetas { position: relative; }
+.vista-horas-etiquetas span { position: absolute; right: 8px; transform: translateY(-50%); font-size: 10.5px; color: var(--c-muted); }
+.vista-horas-etiquetas span:first-child { transform: none; }
+.vista-horas-columna { position: relative; border-left: 1px solid var(--c-borde); }
+.vista-horas-celda { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--c-borde); background: none; cursor: pointer; }
+.vista-horas-celda:hover { background: var(--c-fondo); }
+.bloque-agenda { position: absolute; display: grid; align-content: start; gap: 1px; overflow: hidden; padding: 3px 6px; border: 0; border-left: 3px solid; border-radius: 6px; font-size: 11.5px; text-align: left; color: var(--c-tinta); cursor: pointer; }
+.bloque-agenda > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bloque-agenda--hecho { opacity: 0.6; }
+.linea-ahora { position: absolute; left: 0; right: 0; height: 2px; background: var(--c-semaforo-rojo); pointer-events: none; }
+.linea-ahora::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--c-semaforo-rojo); }
+.cuadro-tipo { flex: none; width: 14px; height: 14px; margin-top: 6px; border-radius: 4px; }
+.invitados { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-persona { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--c-borde); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
+.chip-persona input { display: none; }
+.chip-persona.activo { border-color: var(--c-primario); background: var(--c-primario-suave); color: var(--c-primario); font-weight: 600; }
+@media (max-width: 960px) {
+  .calendario { grid-template-columns: 1fr; }
+  .calendario-lateral { position: static; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .vista-mes-dia { min-height: 76px; }
+  .vista-mes-dia .chip-hora { display: none; }
+}
+@media (max-width: 600px) {
+  .vista-mes-dia .chip-agenda { padding: 1px 2px; font-size: 10px; }
+  .vista-horas-cuerpo { height: 60dvh; }
+}
+
+/* ───────────────────────── Inicio del cliente centrado en el avance (2 nov) */
+.pendientes-cliente { padding: 18px 20px; display: grid; gap: 12px; margin-top: 4px; }
+.pendientes-cliente--al-dia { padding: 14px 18px; background: var(--c-exito-suave); border-color: transparent; color: var(--c-exito); }
+.pendientes-cliente-lista { display: flex; flex-wrap: wrap; gap: 10px; }
+.pendiente-cliente { display: inline-flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--c-primario-suave); color: var(--c-primario); font-size: 13.5px; text-decoration: none; flex: 1 1 240px; }
+.pendiente-cliente span { color: var(--c-tinta); }
+.pendiente-cliente:hover { filter: brightness(0.97); }
+.pendiente-cliente--alerta { background: var(--c-alerta-suave); color: var(--c-alerta); }
+.proyectos-cliente { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.proyecto-cliente { display: flex; flex-direction: column; gap: 12px; padding: 20px; color: inherit; text-decoration: none; transition: box-shadow 0.15s; }
+.proyecto-cliente:hover { box-shadow: var(--sombra-flotante); }
+.contacto-cliente { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 18px; border-top: 1px solid var(--c-borde); color: var(--c-texto); }
+@media (max-width: 600px) {
+  .proyectos-cliente { grid-template-columns: 1fr; }
+}
+.pendiente-cliente svg { flex: none; }
+.solo-movil { display: none; }
+@media (max-width: 960px) {
+  .solo-movil { display: block; }
+}
+
+/* Cuenta del cliente en el menú (2 nov): fija si tiene una sola; selector real si pertenece a varias. */
+button.cuenta { cursor: pointer; }
+.cuenta-menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; display: grid; gap: 2px; padding: 6px; background: var(--c-blanco); border: 1px solid var(--c-borde); border-radius: 12px; box-shadow: var(--sombra-flotante); }
+.cuenta-menu button { padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; font-size: 13px; text-align: left; cursor: pointer; }
+.cuenta-menu button:hover { background: var(--c-fondo); }
+.cuenta-menu button[aria-current="true"] { font-weight: 600; color: var(--c-primario); }
+.cuenta-menu-lista { display: grid; gap: 2px; max-height: 280px; overflow-y: auto; }

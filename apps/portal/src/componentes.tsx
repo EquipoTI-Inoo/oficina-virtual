@@ -1,11 +1,11 @@
 "use client";
 import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLayoutGrid, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuBot,
+  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuCoins, LuCalendarCheck, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
+  LuUserCog, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
-import { api, cerrarSesion, clienteActivo, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
+import { api, cambiarClienteActivo, cerrarSesion, clienteActivo, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -294,21 +294,104 @@ const NAV_CLIENTE = [
   { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
   { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: "porAprobar" },
   { a: "/requerimientos", texto: "Requerimientos", icono: <LuClipboardList />, contador: "requerimientos" },
-  // Fase 16a: la IA que el cliente elige usar (sus agentes y Content AI). Visible para todos los clientes.
-  { a: "/ia", texto: "Agentes de IA", icono: <LuBot /> },
 ];
 const NAV_EQUIPO = [
-  { a: "/equipo/panel", texto: "Panel general", icono: <LuLayoutGrid /> },
+  // 2 nov: «Panel general» se unió con «Mi panel»; el calendario es de cada colaborador (no solo contenido).
   { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound /> },
+  { a: "/equipo/calendario", texto: "Calendario", icono: <LuCalendarDays /> },
+  // Jarvis (2 nov): los agentes de IA del equipo por área y el chat con el propio.
+  { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot /> },
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
-  // Fase 15b (17 oct): la bandeja vive dentro del proyecto de Social Media Pro y Paid Media; Plan del mes desapareció.
-  { a: "/equipo/calendarios", texto: "Calendarios", icono: <LuCalendarCheck /> },
   { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone />, grupo: "Agencia" },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
 ];
 
-function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; alNavegar?: () => void }) {
+/** Equipo: elige un cliente para entrar a su ficha, o «Todas las cuentas» para ver la lista. */
+function CuentaEquipo({ alNavegar }: { alNavegar?: () => void }) {
+  const { ruta, ir } = useNavegacion();
+  const [abierto, setAbierto] = useState(false);
+  const [q, setQ] = useState("");
+  const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
+  const actualId = /^\/equipo\/clientes\/([^/?]+)/.exec(ruta)?.[1];
+  const actual = clientes.datos?.datos.find((c) => c.id === actualId);
+  const lista = (clientes.datos?.datos ?? []).filter((c) => c.nombre.toLowerCase().includes(q.trim().toLowerCase()));
+  const elegir = (a: string) => {
+    setAbierto(false);
+    setQ("");
+    alNavegar?.();
+    ir(a);
+  };
+  return (
+    <div style={{ position: "relative" }}>
+      <button className="cuenta" type="button" aria-label="Cambiar de cuenta" aria-expanded={abierto} onClick={() => setAbierto((x) => !x)}>
+        <span className="avatar avatar--cuadrado">{actual ? actual.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() : "IN"}</span>
+        <span>
+          <span className="cuenta-nombre" style={{ display: "block" }}>{actual?.nombre ?? "Inoo · Agencia"}</span>
+          <span className="cuenta-tipo">{actual ? "Cuenta de cliente" : "Todas las cuentas"}</span>
+        </span>
+        <LuChevronsUpDown className="icono-final" size={14} />
+      </button>
+      {abierto && (
+        <div className="cuenta-menu" role="menu">
+          <div className="entrada" style={{ marginBottom: 4 }}>
+            <input aria-label="Buscar cliente" placeholder="Buscar cliente…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+          </div>
+          <button role="menuitem" aria-current={!actual} onClick={() => elegir("/equipo/clientes")}>Todas las cuentas</button>
+          <div className="cuenta-menu-lista">
+            {!clientes.datos && <span className="texto-xs texto-muted" style={{ padding: 8 }}>Cargando…</span>}
+            {clientes.datos && !lista.length && <span className="texto-xs texto-muted" style={{ padding: 8 }}>Ningún cliente se llama así</span>}
+            {lista.map((c) => (
+              <button key={c.id} role="menuitem" aria-current={c.id === actualId} onClick={() => elegir(`/equipo/clientes/${c.id}`)}>
+                {c.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CuentaCliente({ clientes }: { clientes: S<"Sesion">["clientes"] }) {
+  const [abierto, setAbierto] = useState(false);
+  const activo = clientes.find((c) => c.clienteId === clienteActivo()) ?? clientes[0];
+  if (!activo) return null;
+  const iniciales = activo.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const contenido = (
+    <>
+      <span className="avatar avatar--cuadrado avatar--cliente">{iniciales}</span>
+      <span>
+        <span className="cuenta-nombre" style={{ display: "block" }}>{activo.nombre}</span>
+        <span className="cuenta-tipo">Cuenta de cliente</span>
+      </span>
+    </>
+  );
+  if (clientes.length < 2) return <div className="cuenta cuenta--fija">{contenido}</div>;
+  const elegir = (id: string) => {
+    cambiarClienteActivo(id);
+    window.location.assign("/inicio");
+  };
+  return (
+    <div style={{ position: "relative" }}>
+      <button className="cuenta" type="button" aria-label="Cambiar de cuenta" aria-expanded={abierto} onClick={() => setAbierto((x) => !x)}>
+        {contenido}
+        <LuChevronsUpDown className="icono-final" size={14} />
+      </button>
+      {abierto && (
+        <div className="cuenta-menu" role="menu">
+          {clientes.map((c) => (
+            <button key={c.clienteId} role="menuitem" aria-current={c.clienteId === activo.clienteId} onClick={() => (c.clienteId === activo.clienteId ? setAbierto(false) : elegir(c.clienteId))}>
+              {c.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO).filter((n) => !("soloAdmin" in n) || sesion?.usuario.rolEquipo === "ADMIN");
   const u = sesion?.usuario;
@@ -319,18 +402,13 @@ function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "
   return (
     <aside className="lateral" aria-label="Menú principal">
       <div className="lateral-interior">
-      <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/panel"} className="logo-bloque" aria-label="Ir al inicio" onClick={alNavegar} style={{ display: "block", color: "inherit", textDecoration: "none" }}>
+      <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/mi-panel"} className="logo-bloque" aria-label="Ir al inicio" onClick={alNavegar} style={{ display: "block", color: "inherit", textDecoration: "none" }}>
         <span className="logo">inoo</span>
         <span className="logo-sub">{espacio === "cliente" ? "Portal de clientes" : "Espacio de equipo"}</span>
       </Enlace>
-      <button className="cuenta" type="button" aria-label="Cambiar de cuenta">
-        <span className={`avatar avatar--cuadrado${espacio === "cliente" ? " avatar--cliente" : ""}`}>{espacio === "cliente" ? "CO" : "IN"}</span>
-        <span>
-          <span className="cuenta-nombre" style={{ display: "block" }}>{espacio === "cliente" ? sesion?.clientes[0]?.nombre ?? "Casa Oliva" : "Inoo · Agencia"}</span>
-          <span className="cuenta-tipo">{espacio === "cliente" ? "Cuenta de cliente" : "Todas las cuentas"}</span>
-        </span>
-        {espacio === "cliente" && <LuChevronsUpDown className="icono-final" size={14} />}
-      </button>
+      {/* 2 nov: el bloque era de adorno. El equipo lo usa para saltar a la cuenta de un cliente; el cliente ve la
+          suya y solo puede cambiar si pertenece a más de una. */}
+      {espacio === "cliente" ? <CuentaCliente clientes={sesion?.clientes ?? []} /> : <CuentaEquipo alNavegar={alNavegar} />}
       <nav className="nav" onClick={alNavegar}>
         {nav.map((n, i) => {
           const activo = ruta === n.a || ruta.startsWith(`${n.a}/`) || (n.a === "/equipo/clientes" && ruta.startsWith("/equipo/clientes"));
@@ -347,6 +425,13 @@ function Lateral({ espacio, contadores, sesion, aviso, alNavegar }: { espacio: "
             </Fragment>
           );
         })}
+        {/* Clientes con CRM: su cuenta en Cosmiq, el CRM de Inoo (30 oct). */}
+        {espacio === "cliente" && cosmiq && (
+          <a href={cosmiq} target="_blank" rel="noreferrer" className="nav-item">
+            <LuExternalLink />
+            <span>Cosmiq</span>
+          </a>
+        )}
       </nav>
       {espacio === "cliente" ? (
         <div className="ayuda">
@@ -475,14 +560,14 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   return (
     <ContextoPortal.Provider value={{ sesion: me.datos, porAprobar, refrescar: () => void inicio.recargar() }}>
       <div className={`app${flotante ? " app--flotante" : ""}`}>
-        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} />
+        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} cosmiq={inicio.datos?.cuenta?.enlaceCosmiq} />
         <div className="principal">
           <div className="superior">
             <div className="fila">
               <button className="boton-menu" aria-label="Abrir menú" onClick={() => setMenu(true)}>
                 <LuMenu size={22} />
               </button>
-              <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/panel"} className="logo superior-logo" aria-label="Ir al inicio" style={{ textDecoration: "none" }}>
+              <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/mi-panel"} className="logo superior-logo" aria-label="Ir al inicio" style={{ textDecoration: "none" }}>
                 inoo
               </Enlace>
               <nav className="migas" aria-label="Ruta">
@@ -505,7 +590,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
       {menu && (
         <div className="cajon" onClick={() => setMenu(false)}>
           <div onClick={(e) => e.stopPropagation()}>
-            <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} alNavegar={() => setMenu(false)} />
+            <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} cosmiq={inicio.datos?.cuenta?.enlaceCosmiq} alNavegar={() => setMenu(false)} />
             <button className="modal-cerrar" style={{ position: "fixed", left: "min(280px, 78vw)", top: 24, zIndex: 51 }} aria-label="Cerrar menú" onClick={() => setMenu(false)}>
               <LuX size={18} />
             </button>

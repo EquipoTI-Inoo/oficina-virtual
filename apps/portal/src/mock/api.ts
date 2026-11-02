@@ -15,9 +15,6 @@ import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
-import { calcularConsumoIa, MINUTOS_POR_RESPUESTA, PLANTILLAS_AGENTE, plantillaAgente, validarAgente, validarBase, validarContenido } from "../dominio/ia-cliente";
-import { borradorAgente, generarContenido, iaSimulada, responderAgente } from "../servidor/ia-cliente";
-import { ErrorIa } from "../servidor/ia-modelos";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import {
@@ -26,12 +23,16 @@ import {
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
+import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
+import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
+import { esSesionChat, hablarConBot, hermesDelArea } from "../servidor/jarvis-chat";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
-import { calcularAvance, calcularMetricas, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
+import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
+import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -97,11 +98,13 @@ interface Estado {
   tareas: D.TareaDemo[];
   entregables: D.EntregableDemo[];
   comentariosTarea: D.ComentarioTareaDemo[];
-  agentesIa: D.AgenteIaDemo[];
-  basesConocimiento: D.BaseConocimientoDemo[];
-  conversacionesIa: D.ConversacionIaDemo[];
-  sinRespuesta: D.PreguntaSinRespuestaDemo[];
-  contenidoIa: D.ContenidoIaDemo[];
+  topesIa: Record<Area, TopesArea>;
+  llavesJarvis: { usuarioId: string; prefijo: string; hash: string; creadoEn: string; ultimoUso: string | null }[];
+  consumoJarvis: ConsumoJarvis[];
+  botsJarvis: D.BotJarvisDemo[];
+  eventosAgenda: D.EventoAgendaDemo[];
+  /** Conexión simulada con Google Calendar por persona (2 nov). */
+  googleCalendar: Record<string, { correo: string; conectadoEn: string }>;
   solicitudesResponsable: {
     id: string; clienteId: string; solicitadoPorId: string; nombre: string; email: string; telefono: string; cargo: string | null; motivo: string | null;
     quitarAccesoAnterior: boolean; estado: "PENDIENTE" | "APROBADA" | "RECHAZADA"; notaEquipo: string | null; decididoEn: string | null; creadoEn: string;
@@ -172,11 +175,12 @@ function estadoInicial(): Estado {
     tareas: structuredClone(D.TAREAS_INICIALES),
     entregables: structuredClone(D.ENTREGABLES_INICIALES),
     comentariosTarea: structuredClone(D.COMENTARIOS_TAREA_INICIALES),
-    agentesIa: structuredClone(D.AGENTES_IA_INICIALES),
-    basesConocimiento: structuredClone(D.BASES_CONOCIMIENTO_INICIALES),
-    conversacionesIa: structuredClone(D.CONVERSACIONES_IA_INICIALES),
-    sinRespuesta: structuredClone(D.SIN_RESPUESTA_INICIALES),
-    contenidoIa: structuredClone(D.CONTENIDO_IA_INICIAL),
+    topesIa: Object.fromEntries(AREAS.map((a) => [a, { ...TOPES_INICIALES }])) as Record<Area, TopesArea>,
+    llavesJarvis: llavesGuardadas(),
+    consumoJarvis: [],
+    botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
+    eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
+    googleCalendar: {},
     solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
     calendarios: {
@@ -239,7 +243,7 @@ const API_KEY_N8N = () => env("MOCK_API_KEY") ?? "demo-n8n";
 const SECRETO_INOOWORK = () => env("MOCK_INOOWORK_SECRETO") ?? "demo-secreto";
 
 const USUARIO_SERVICIO: D.UsuarioDemo = {
-  id: D.uid(1, 99), nombre: "n8n · Oficina virtual", email: "n8n@inoo.pe", cargo: null, iniciales: "N8", tipo: "SERVICIO", rolEquipo: null, claveDemo: "",
+  id: D.uid(1, 99), nombre: "n8n · Oficina virtual", email: "n8n@inoo.pe", cargo: null, iniciales: "N8", tipo: "SERVICIO", rolEquipo: null, area: null, claveDemo: "",
 };
 
 function autenticar(req: Request): Ctx {
@@ -847,6 +851,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
       contactoPrincipal: persona(c.contactoPrincipalId),
       responsable: persona(c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId),
       driveUrl: fichaDe(c.id).driveUrl ?? null,
+      enlaceCosmiq: enlaceCosmiqDe(serviciosDe(c.id)),
     },
     avisoPago: avisoPago(ctx, c),
     marca: serviciosDe(c.id).some((s) => SERVICIOS_DE_MARCA.includes(s.codigo))
@@ -861,7 +866,7 @@ ruta("GET", "/clientes/:id/inicio", (ctx, p) => {
     pendientes: pendientes.map((x) => resumenPieza(ctx, x)),
     servicios: ordenados(serviciosDe(c.id)).map((s) => {
       const cat = servicioDeCatalogo(s.codigo)!;
-      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s), responsable: persona(s.responsableId ?? null) };
+      return { codigo: s.codigo, nombre: cat.nombre, titulo: tituloDe(s), servicioContratadoId: s.id, cantidadMensual: cantidadDe(s), unidad: cat.unidad, estado: s.estado, avance: avanceDe(s), responsable: persona(s.responsableId ?? null), siguientePaso: s.siguientePaso || null };
     }),
     proximaPublicacion: proxima ? { id: proxima.id, titulo: proxima.titulo, fechaProgramada: iso(proxima.fecha) } : null,
     ticketsAbiertos: abiertos.map((t) => ({ id: t.id, codigo: `#${t.numero}`, asunto: t.asunto, estado: t.estado as S<"EstadoTicket"> })),
@@ -1727,7 +1732,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   let contacto = k ? E.usuarios.find((u) => u.email.toLowerCase() === k.email.trim().toLowerCase()) : undefined;
   if (k && !contacto) {
     const n = k.nombre.trim();
-    contacto = { id: nuevoId(1), nombre: n, email: k.email.trim().toLowerCase(), cargo: k.cargo?.trim() || null, iniciales: n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, claveDemo: "" };
+    contacto = { id: nuevoId(1), nombre: n, email: k.email.trim().toLowerCase(), cargo: k.cargo?.trim() || null, iniciales: n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "" };
     E.usuarios.push(contacto);
   }
   const c: D.ClienteDemo = {
@@ -1876,7 +1881,7 @@ ruta("POST", "/solicitudes-responsable/:id/decision", async (ctx, p, _q, req) =>
     if (u?.tipo === "EQUIPO") throw new ErrorApi(409, "USUARIO_DE_EQUIPO", "Ese correo pertenece al equipo de Inoo");
     if (!u) {
       // En producción se crea en el pool de clientes de Cognito, que envía la invitación.
-      u = { id: nuevoId(1), nombre: x.nombre, email: x.email, cargo: x.cargo, iniciales: x.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, claveDemo: "" };
+      u = { id: nuevoId(1), nombre: x.nombre, email: x.email, cargo: x.cargo, iniciales: x.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "" };
       E.usuarios.push(u);
     }
     const m = E.miembros.find((y) => y.clienteId === c.id && y.usuarioId === u!.id);
@@ -1918,7 +1923,7 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, req) => {
   if (!u) {
     // En producción se crea en el pool de clientes de Cognito, que envía la invitación.
     const nombre = b.nombre!.trim();
-    u = { id: nuevoId(1), nombre, email, cargo: null, iniciales: nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, claveDemo: "" };
+    u = { id: nuevoId(1), nombre, email, cargo: null, iniciales: nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "" };
     E.usuarios.push(u);
   }
   const m = { clienteId: p.id, usuarioId: u.id, rol: b.rol!, invitacionPendiente: true };
@@ -2326,7 +2331,7 @@ export function archivoPublicoMock(token: string, req: Request): Response {
 
 // ───────────────────────────────────────────── proyecto como eje: pipeline y tareas (reunión 15 oct)
 
-const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo });
+const equipoVista = (u: D.UsuarioDemo): S<"PersonaEquipo"> => ({ id: u.id, nombre: u.nombre, iniciales: u.iniciales, cargo: u.cargo, rolEquipo: u.rolEquipo, area: u.area });
 const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
 
 ruta("GET", "/panel/equipo", (ctx) => {
@@ -2507,7 +2512,7 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   if (b.responsableId !== undefined) exigirRol(ctx, s.clienteId, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
   if (b.estado !== undefined && !["ACTIVO", "PAUSADO", "STANDBY", "FINALIZADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Usa ACTIVO, PAUSADO, STANDBY o FINALIZADO" });
-  if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle));
+  if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle, s));
   if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
@@ -2620,314 +2625,324 @@ ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {
   return avanceServicio(s, ctx.esEquipo);
 });
 
-// ───────────────────────────────────────────── IA del cliente (fase 16a): agentes, conocimiento y Content AI
-// La IA que el cliente elige usar: aquí sí se nombra. Nunca se listan los agentes internos de Inoo.
+// ───────────────────────────────────────────── Jarvis del equipo: áreas, topes y la pasarela a DeepSeek (30 oct)
+// Solo equipo. El consumo se cobra al área de la persona, contra un tope diario y uno mensual por área.
 
-const ESCRIBEN_IA = ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"];
-const configPublicable = (a: D.AgenteIaDemo) =>
-  JSON.stringify({ nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimientoIds, acciones: a.acciones, derivarCuando: a.derivarCuando });
+/**
+ * En desarrollo, las llaves de Jarvis sobreviven a las recargas del servidor (cambiar .env.local o el código
+ * vuelve a cargar este módulo): el Hermes local ya tiene la suya guardada. En pruebas y producción, no.
+ */
+type ConLlaves = typeof globalThis & { __inooLlavesJarvis?: Estado["llavesJarvis"] };
+function llavesGuardadas(): Estado["llavesJarvis"] {
+  return process.env.NODE_ENV === "development" ? ((globalThis as ConLlaves).__inooLlavesJarvis ??= []) : [];
+}
+function guardarLlaves() {
+  if (process.env.NODE_ENV === "development") (globalThis as ConLlaves).__inooLlavesJarvis = E.llavesJarvis;
+}
 
-function agenteIaVista(a: D.AgenteIaDemo): S<"AgenteIa"> {
-  return {
-    id: a.id, clienteId: a.clienteId, nombre: a.nombre, rol: a.rol, tono: a.tono, saludo: a.saludo, instrucciones: a.instrucciones, conocimientoIds: a.conocimientoIds,
-    acciones: a.acciones, derivarCuando: a.derivarCuando, plantillaCodigo: a.plantillaCodigo, estado: a.estado, version: a.version,
-    cambiosSinPublicar: a.publicada !== configPublicable(a), razonamientoAvanzado: a.razonamientoAvanzado, canales: a.canales,
-    conversaciones: E.conversacionesIa.filter((c) => c.agenteId === a.id).length, publicadoEn: a.publicadoEn, creadoEn: a.creadoEn, actualizadoEn: a.actualizadoEn,
-  };
+async function sha256Hex(texto: string) {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-function buscarAgenteIa(ctx: Ctx, id: string) {
-  const a = E.agentesIa.find((x) => x.id === id);
-  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese agente");
-  accesoCliente(ctx, a.clienteId);
-  return a;
-}
-const baseVista = (b: D.BaseConocimientoDemo): S<"BaseConocimiento"> => ({
-  id: b.id, clienteId: b.clienteId, nombre: b.nombre, articulos: b.articulos, creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn,
-  preguntasSinRespuesta: E.sinRespuesta.filter((p) => !p.resuelta && E.agentesIa.find((a) => a.id === p.agenteId)?.conocimientoIds.includes(b.id)).length,
-});
-function conversacionVista(c: D.ConversacionIaDemo): S<"ConversacionIa"> {
-  const ultimo = c.mensajes[c.mensajes.length - 1];
-  return {
-    id: c.id, agenteId: c.agenteId, agenteNombre: E.agentesIa.find((a) => a.id === c.agenteId)?.nombre ?? "", canal: c.canal, contacto: c.contacto,
-    mensajes: c.mensajes.length, acciones: c.mensajes.filter((m) => m.accion).length, iniciadaEn: c.iniciadaEn, ultimaEn: ultimo?.creadoEn ?? c.iniciadaEn,
-    costo: Math.round(c.mensajes.reduce((t, m) => t + m.costoPen, 0) * 100) / 100,
-  };
-}
-const contenidoVista = (c: D.ContenidoIaDemo): S<"ContenidoIa"> => ({
-  id: c.id, destino: c.destino, indicacion: c.indicacion, tono: c.tono, variaciones: c.variaciones, palabras: c.palabras, costo: c.costoPen, simulado: c.simulado,
-  creadoPor: persona(c.creadoPorId), creadoEn: c.creadoEn,
-});
 
-/** Consumo del mes del cliente: respuestas de sus agentes + Content AI, contra su tope. */
-function consumoIa(clienteId: string, periodo = D.PERIODO) {
-  const enMes = (f: string) => periodoLima(f) === periodo;
-  const agentes = E.conversacionesIa.filter((c) => c.clienteId === clienteId).flatMap((c) => c.mensajes).filter((m) => enMes(m.creadoEn)).reduce((t, m) => t + m.costoPen, 0);
-  const contenido = E.contenidoIa.filter((c) => c.clienteId === clienteId && enMes(c.creadoEn)).reduce((t, c) => t + c.costoPen, 0);
-  return calcularConsumoIa(periodo, agentes, contenido, E.clientes.find((c) => c.id === clienteId)!.limiteGastoIaUsd);
+function gastoArea(area: Area, ahora: Date) {
+  const { dia, mes } = diaYMesLima(ahora);
+  let gastoDiaUsd = 0;
+  let gastoMesUsd = 0;
+  for (const c of E.consumoJarvis.filter((x) => x.area === area)) {
+    const f = diaYMesLima(new Date(c.creadoEn));
+    if (f.mes === mes) gastoMesUsd += c.costoUsd;
+    if (f.dia === dia) gastoDiaUsd += c.costoUsd;
+  }
+  return { gastoDiaUsd, gastoMesUsd };
 }
-function exigirSaldoIa(clienteId: string) {
-  if (consumoIa(clienteId).pausado) throw new ErrorApi(409, "TOPE_ALCANZADO", "Llegaste al tope de consumo de IA de este mes", "Pide a tu equipo Inoo que lo amplíe, o espera al próximo mes.");
-}
-const negocioDe = (clienteId: string) => E.clientes.find((c) => c.id === clienteId)!.nombre;
+const consumoAreaMock = (area: Area, ahora = new Date()) => {
+  const g = gastoArea(area, ahora);
+  return consumoArea(area, E.topesIa[area], g.gastoDiaUsd, g.gastoMesUsd);
+};
 
-ruta("GET", "/clientes/:id/ia/resumen", (ctx, p) => {
-  accesoCliente(ctx, p.id);
-  const convs = E.conversacionesIa.filter((c) => c.clienteId === p.id);
-  const respuestas = convs.flatMap((c) => c.mensajes).filter((m) => m.rol === "AGENTE");
-  const agentes = E.agentesIa.filter((a) => a.clienteId === p.id);
-  return {
-    consumo: consumoIa(p.id),
-    metricas: {
-      contactos: new Set(convs.map((c) => c.contacto)).size, conversaciones: convs.length, acciones: respuestas.filter((m) => m.accion).length,
-      citas: respuestas.filter((m) => m.accion === "AGENDAR_CITA").length, minutosAhorrados: Math.round(respuestas.length * MINUTOS_POR_RESPUESTA * 10) / 10,
-    },
-    agentes: { total: agentes.length, publicados: agentes.filter((a) => a.estado === "PUBLICADO").length },
-    modoSimulado: iaSimulada(),
-  } satisfies S<"ResumenIa">;
+const almacenMock: AlmacenPasarela = {
+  async buscarLlave(llave) {
+    const k = E.llavesJarvis.find((x) => x.prefijo === llave.slice(0, PREFIJO_LLAVE));
+    if (!k || k.hash !== (await sha256Hex(llave))) return null;
+    const u = E.usuarios.find((x) => x.id === k.usuarioId && x.tipo === "EQUIPO");
+    if (!u) return null;
+    k.ultimoUso = new Date().toISOString();
+    return { usuarioId: u.id, area: u.area };
+  },
+  async situacion(area, ahora) {
+    return { ...gastoArea(area, ahora), topes: E.topesIa[area] };
+  },
+  async registrar(c) {
+    E.consumoJarvis.push(c);
+  },
+};
+
+ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const u = E.usuarios.find((x) => x.id === p.id && x.tipo === "EQUIPO");
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const b = await cuerpo<{ area?: unknown }>(req);
+  if (b.area !== null && !esArea(b.area)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "area", mensaje: `Usa ${AREAS.join(", ")} o null` }]);
+  u.area = b.area;
+  return equipoVista(u);
 });
 
-ruta("GET", "/clientes/:id/ia/agentes", (ctx, p) => {
-  accesoCliente(ctx, p.id);
-  return { datos: E.agentesIa.filter((a) => a.clienteId === p.id).sort((a, b) => b.actualizadoEn.localeCompare(a.actualizadoEn)).map(agenteIaVista) };
+ruta("GET", "/panel/ia-equipo", (ctx) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  const ahora = new Date();
+  const { dia, mes } = diaYMesLima(ahora);
+  const equipo = E.usuarios.filter((u) => u.tipo === "EQUIPO");
+  const areas = AREAS.map((a) => ({
+    ...consumoAreaMock(a, ahora),
+    personas: equipo.filter((u) => u.area === a).map((u) => ({
+      persona: equipoVista(u),
+      gastoMesUsd: Math.round(E.consumoJarvis.filter((c) => c.usuarioId === u.id && diaYMesLima(new Date(c.creadoEn)).mes === mes).reduce((t, c) => t + c.costoUsd, 0) * 100) / 100,
+      llaveVigente: E.llavesJarvis.some((k) => k.usuarioId === u.id),
+    })),
+  }));
+  return { dia, mes, totalMesUsd: Math.round(areas.reduce((t, a) => t + a.gastoMesUsd, 0) * 100) / 100, areas, sinArea: equipo.filter((u) => !u.area).map(equipoVista) } satisfies S<"ReporteJarvis">;
 });
 
-ruta("POST", "/clientes/:id/ia/agentes", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ESCRIBEN_IA);
-  const b = await cuerpo<Partial<S<"AgenteIaEntrada">>>(req);
-  const errores = validarAgente(b, false);
-  if (b.razonamientoAvanzado && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
-  if (b.conocimientoIds?.some((id) => !E.basesConocimiento.some((x) => x.id === id && x.clienteId === c.id))) errores.push({ campo: "conocimientoIds", mensaje: "Esa base de conocimiento no es de esta cuenta" });
+ruta("PUT", "/panel/ia-equipo/areas/:area", async (ctx, p, _q, req) => {
+  exigirRol(ctx, null, ["ADMIN"]);
+  if (!esArea(p.area)) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa área no existe");
+  const b = await cuerpo<{ topeDiarioUsd?: unknown; topeMensualUsd?: unknown }>(req);
+  const errores = validarTopes(b);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  const pl = plantillaAgente(b.plantillaCodigo);
-  const ahora = new Date().toISOString();
-  const a: D.AgenteIaDemo = {
-    id: nuevoId(30), clienteId: c.id, nombre: b.nombre!.trim(), rol: b.rol?.trim() ?? pl?.rol ?? "Asistente virtual", tono: b.tono ?? pl?.tono ?? "CERCANO",
-    saludo: b.saludo ?? pl?.saludo ?? "", instrucciones: b.instrucciones ?? pl?.instrucciones ?? "", conocimientoIds: b.conocimientoIds ?? [], acciones: b.acciones ?? pl?.acciones ?? [],
-    derivarCuando: b.derivarCuando ?? null, plantillaCodigo: b.plantillaCodigo ?? null, razonamientoAvanzado: !!b.razonamientoAvanzado, estado: "BORRADOR", version: 0, publicada: null,
-    canales: [{ canal: "PRUEBA", estado: "ACTIVO" }], publicadoEn: null, creadoPorId: ctx.usuario.id, creadoEn: ahora, actualizadoEn: ahora,
-  };
-  E.agentesIa.push(a);
-  return { __status: 201, ...agenteIaVista(a) };
+  E.topesIa[p.area] = { diarioUsd: b.topeDiarioUsd as number, mensualUsd: b.topeMensualUsd as number };
+  return consumoAreaMock(p.area) satisfies S<"ConsumoArea">;
 });
 
-ruta("POST", "/clientes/:id/ia/borrador-agente", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ESCRIBEN_IA);
-  const b = await cuerpo<{ descripcion?: string }>(req);
-  if (!(typeof b.descripcion === "string" && b.descripcion.trim().length >= 20 && b.descripcion.length <= 1500)) {
-    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "descripcion", mensaje: "Cuéntanos de tu negocio (20 a 1500 caracteres)" }]);
-  }
-  try {
-    return await borradorAgente(b.descripcion.trim(), c.nombre);
-  } catch (e) {
-    if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", "No pudimos generar la propuesta", e.message);
-    throw e;
-  }
+ruta("GET", "/me/jarvis", (ctx) => {
+  soloEquipo(ctx);
+  const area = ctx.usuario.area;
+  const k = E.llavesJarvis.find((x) => x.usuarioId === ctx.usuario.id);
+  return {
+    area, consumo: area ? consumoAreaMock(area) : null,
+    llave: k ? { prefijo: k.prefijo, creadoEn: k.creadoEn, ultimoUso: k.ultimoUso } : null,
+    urlPasarela: "/api/v1/ia-equipo", modelos: [...MODELOS_JARVIS],
+  } satisfies S<"MiJarvis">;
 });
 
-ruta("GET", "/ia/agentes/:id", (ctx, p) => agenteIaVista(buscarAgenteIa(ctx, p.id)));
-
-ruta("PATCH", "/ia/agentes/:id", async (ctx, p, _q, req) => {
-  const a = buscarAgenteIa(ctx, p.id);
-  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
-  const b = await cuerpo<Partial<S<"AgenteIaEntrada">>>(req);
-  const errores = validarAgente(b, true);
-  if (b.razonamientoAvanzado !== undefined && !ctx.esEquipo) errores.push({ campo: "razonamientoAvanzado", mensaje: "Lo activa tu equipo Inoo" });
-  if (b.estado === "PUBLICADO" && a.version === 0) errores.push({ campo: "estado", mensaje: "Publica el agente al menos una vez" });
-  if (b.conocimientoIds?.some((id) => !E.basesConocimiento.some((x) => x.id === id && x.clienteId === a.clienteId))) errores.push({ campo: "conocimientoIds", mensaje: "Esa base de conocimiento no es de esta cuenta" });
-  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  for (const k of ["nombre", "rol", "tono", "saludo", "instrucciones", "conocimientoIds", "acciones", "derivarCuando", "razonamientoAvanzado", "estado"] as const) {
-    if (b[k] !== undefined) (a as unknown as Record<string, unknown>)[k] = typeof b[k] === "string" && k !== "tono" && k !== "estado" ? (b[k] as string).trim() : b[k];
-  }
-  a.actualizadoEn = new Date().toISOString();
-  return agenteIaVista(a);
+ruta("POST", "/me/jarvis/llave", async (ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las llaves de Jarvis son de personas del equipo");
+  if (!ctx.usuario.area) throw new ErrorApi(409, "SIN_AREA", "No tienes un área asignada", "Pídele al ADMIN que te asigne una en «Costos de IA».");
+  const azar = crypto.getRandomValues(new Uint8Array(20));
+  const llave = `jv_${[...azar].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+  const creadoEn = new Date().toISOString();
+  E.llavesJarvis = E.llavesJarvis.filter((k) => k.usuarioId !== ctx.usuario.id);
+  E.llavesJarvis.push({ usuarioId: ctx.usuario.id, prefijo: llave.slice(0, PREFIJO_LLAVE), hash: await sha256Hex(llave), creadoEn, ultimoUso: null });
+  guardarLlaves();
+  return { __status: 201, llave, prefijo: llave.slice(0, PREFIJO_LLAVE), creadoEn };
 });
 
-ruta("DELETE", "/ia/agentes/:id", (ctx, p) => {
-  const a = buscarAgenteIa(ctx, p.id);
-  exigirRol(ctx, a.clienteId, ["EQUIPO", "ADMIN_CLIENTE"]);
-  E.agentesIa = E.agentesIa.filter((x) => x.id !== a.id);
-  E.conversacionesIa = E.conversacionesIa.filter((c) => c.agenteId !== a.id);
-  E.sinRespuesta = E.sinRespuesta.filter((x) => x.agenteId !== a.id);
+ruta("DELETE", "/me/jarvis/llave", (ctx) => {
+  soloEquipo(ctx);
+  E.llavesJarvis = E.llavesJarvis.filter((k) => k.usuarioId !== ctx.usuario.id);
+  guardarLlaves();
   return null;
 });
 
-ruta("POST", "/ia/agentes/:id/publicar", (ctx, p) => {
-  const a = buscarAgenteIa(ctx, p.id);
-  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
-  if (!a.instrucciones.trim()) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "instrucciones", mensaje: "Escribe las instrucciones antes de publicar" }]);
-  a.version += 1;
-  a.publicada = configPublicable(a);
-  a.estado = "PUBLICADO";
-  a.publicadoEn = a.actualizadoEn = new Date().toISOString();
-  return agenteIaVista(a);
+const botVista = (ctx: Ctx, b: D.BotJarvisDemo): S<"BotJarvis"> => ({
+  id: b.id, nombre: b.nombre, color: b.color, forma: b.forma, instrucciones: b.instrucciones, creadoPor: persona(b.creadoPorId)!,
+  creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn, ultimoUso: b.ultimoUso, puedeEditar: b.creadoPorId === ctx.usuario.id || ctx.usuario.rolEquipo === "ADMIN",
+});
+/** Un bot de mi área (404 si es de otra: no se distingue de uno que no existe). */
+function botDeMiArea(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const b = E.botsJarvis.find((x) => x.id === id);
+  if (!b || !ctx.usuario.area || b.area !== ctx.usuario.area) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
+  return b;
+}
+function exigirEditarBot(ctx: Ctx, b: D.BotJarvisDemo) {
+  if (b.creadoPorId !== ctx.usuario.id && ctx.usuario.rolEquipo !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
+}
+
+ruta("GET", "/jarvis/bots", (ctx) => {
+  soloEquipo(ctx);
+  const area = ctx.usuario.area;
+  return {
+    area, consumo: area ? consumoAreaMock(area) : null, conectado: area ? !!hermesDelArea(area) : false,
+    bots: area ? E.botsJarvis.filter((b) => b.area === area).sort((a, b) => a.nombre.localeCompare(b.nombre)).map((b) => botVista(ctx, b)) : [],
+  } satisfies S<"BotsDelArea">;
 });
 
-ruta("POST", "/ia/agentes/:id/probar", async (ctx, p, _q, req) => {
-  const a = buscarAgenteIa(ctx, p.id);
-  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
-  const b = await cuerpo<{ mensaje?: string; conversacionId?: string | null }>(req);
+ruta("POST", "/jarvis/bots", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Los bots los crean personas del equipo");
+  if (!ctx.usuario.area) throw new ErrorApi(409, "SIN_AREA", "No tienes un área asignada", "Pídele al ADMIN que te asigne una en «Costos de IA».");
+  const b = await cuerpo<{ nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown }>(req);
+  const errores = validarBot(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const ahora = new Date().toISOString();
+  const bot: D.BotJarvisDemo = {
+    id: nuevoId(36), area: ctx.usuario.area, nombre: (b.nombre as string).trim(), color: b.color as string, forma: b.forma as D.BotJarvisDemo["forma"],
+    instrucciones: typeof b.instrucciones === "string" ? b.instrucciones.trim() : "", creadoPorId: ctx.usuario.id, creadoEn: ahora, actualizadoEn: ahora, ultimoUso: null,
+  };
+  E.botsJarvis.push(bot);
+  return { __status: 201, ...botVista(ctx, bot) };
+});
+
+ruta("PATCH", "/jarvis/bots/:id", async (ctx, p, _q, req) => {
+  const bot = botDeMiArea(ctx, p.id);
+  exigirEditarBot(ctx, bot);
+  const b = await cuerpo<{ nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown }>(req);
+  const errores = validarBot(b, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (typeof b.nombre === "string") bot.nombre = b.nombre.trim();
+  if (typeof b.color === "string") bot.color = b.color;
+  if (typeof b.forma === "string") bot.forma = b.forma as D.BotJarvisDemo["forma"];
+  if (typeof b.instrucciones === "string") bot.instrucciones = b.instrucciones.trim();
+  bot.actualizadoEn = new Date().toISOString();
+  return botVista(ctx, bot);
+});
+
+ruta("DELETE", "/jarvis/bots/:id", (ctx, p) => {
+  const bot = botDeMiArea(ctx, p.id);
+  exigirEditarBot(ctx, bot);
+  E.botsJarvis = E.botsJarvis.filter((x) => x.id !== bot.id);
+  return null;
+});
+
+ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
+  const bot = botDeMiArea(ctx, p.id);
+  const b = await cuerpo<{ mensaje?: unknown; sesionId?: unknown }>(req);
   const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
-  if (!mensaje || mensaje.length > 1000) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "mensaje", mensaje: "Escribe un mensaje (hasta 1000 caracteres)" }]);
-  if (a.estado === "PAUSADO") throw new ErrorApi(409, "AGENTE_PAUSADO", "Este agente está pausado", "Reactívalo para probarlo.");
-  exigirSaldoIa(a.clienteId);
-  let conv = b.conversacionId ? E.conversacionesIa.find((c) => c.id === b.conversacionId && c.agenteId === a.id) : undefined;
-  if (b.conversacionId && !conv) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
-  const ahora = new Date().toISOString();
-  if (!conv) {
-    conv = { id: nuevoId(32), clienteId: a.clienteId, agenteId: a.id, canal: "PRUEBA", contacto: "Prueba", mensajes: [], iniciadaEn: ahora };
-    E.conversacionesIa.push(conv);
+  if (!mensaje || mensaje.length > 8000 || !esSesionChat(b.sesionId)) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "mensaje", mensaje: "Escribe tu mensaje (hasta 8000 caracteres)" }]);
   }
-  const articulos = E.basesConocimiento.filter((x) => a.conocimientoIds.includes(x.id)).flatMap((x) => x.articulos);
-  let r: Awaited<ReturnType<typeof responderAgente>>;
-  try {
-    r = await responderAgente({
-      config: { ...a, negocio: negocioDe(a.clienteId) }, razonamientoAvanzado: a.razonamientoAvanzado, articulos,
-      historial: conv.mensajes.map((m) => ({ rol: m.rol, texto: m.texto })), mensaje,
-    });
-  } catch (e) {
-    if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", "El agente no pudo responder", e.message);
-    throw e;
-  }
-  conv.mensajes.push({ rol: "CONTACTO", texto: mensaje, accion: null, sinRespuesta: false, simulado: r.simulado, costoPen: 0, creadoEn: ahora });
-  const respuesta: D.MensajeIaDemo = { rol: "AGENTE", texto: r.texto, accion: r.accion, sinRespuesta: r.sinRespuesta, simulado: r.simulado, costoPen: r.costoPen, creadoEn: new Date().toISOString() };
-  conv.mensajes.push(respuesta);
-  if (r.sinRespuesta) E.sinRespuesta.push({ id: nuevoId(33), clienteId: a.clienteId, agenteId: a.id, pregunta: mensaje, resuelta: false, creadoEn: respuesta.creadoEn });
+  const consumo = consumoAreaMock(bot.area);
+  if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
+  const hermes = hermesDelArea(bot.area);
+  if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
+  bot.ultimoUso = new Date().toISOString();
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId }, req.signal);
+});
+
+// ───────────────────────────────────────────── calendario del colaborador (2 nov 2026)
+
+type EventoAgenda = S<"EventoAgenda">;
+const base = (x: Pick<EventoAgenda, "id" | "tipo" | "titulo" | "fecha">): EventoAgenda => ({
+  horaInicio: null, horaFin: null, detalle: null, enlace: null, hecho: false, vencido: false, origen: "PORTAL", eventoId: null, editable: false, notas: null, invitados: [], ...x,
+});
+
+function eventoPropioVista(ctx: Ctx, e: D.EventoAgendaDemo): EventoAgenda {
   return {
-    conversacionId: conv.id,
-    respuesta: { rol: "AGENTE", texto: respuesta.texto, accion: respuesta.accion as S<"AccionAgente"> | null, sinRespuesta: respuesta.sinRespuesta, simulado: respuesta.simulado, creadoEn: respuesta.creadoEn },
-    consumo: consumoIa(a.clienteId),
-  } satisfies S<"RespuestaPrueba">;
+    ...base({ id: `evento-${e.id}`, tipo: e.tipo, titulo: e.titulo, fecha: e.fecha }),
+    horaInicio: e.horaInicio, horaFin: e.horaFin, hecho: e.hecho, eventoId: e.id, editable: e.creadoPorId === ctx.usuario.id, notas: e.notas,
+    invitados: [e.creadoPorId, ...e.invitadosIds].filter((id) => id !== ctx.usuario.id).map((id) => persona(id)!).filter(Boolean),
+  };
+}
+
+function conexionGoogle(usuarioId: string): S<"ConexionGoogle"> {
+  const c = E.googleCalendar[usuarioId];
+  return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: c?.conectadoEn ?? null, simulada: true };
+}
+
+ruta("GET", "/me/agenda", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const desde = q.get("desde");
+  const hasta = q.get("hasta");
+  const errores = validarRango(desde, hasta);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const enRango = (f: string) => f >= desde! && f <= hasta!;
+  const yo = ctx.usuario.id;
+  const hoy = D.HOY.slice(0, 10);
+  // Mis proyectos: donde soy responsable o tengo tareas.
+  const mios = new Set([...E.servicios.filter((s) => s.responsableId === yo).map((s) => s.id), ...E.tareas.filter((t) => t.responsableId === yo).map((t) => t.servicioContratadoId)]);
+  const titulo = (scId: string) => tituloDe(E.servicios.find((s) => s.id === scId)!);
+  const eventos: EventoAgenda[] = [];
+  for (const t of E.tareas) {
+    if (t.responsableId !== yo || t.estado === "HECHA" || !t.fechaLimite || !enRango(t.fechaLimite)) continue;
+    eventos.push({ ...base({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fechaLimite }), detalle: titulo(t.servicioContratadoId), enlace: `/equipo/proyectos/${t.servicioContratadoId}`, vencido: t.fechaLimite < hoy });
+  }
+  for (const r of E.reuniones) {
+    const { fecha, hora } = enLima(r.fecha);
+    if (!mios.has(r.servicioContratadoId) || r.estado === "CANCELADA" || !enRango(fecha)) continue;
+    eventos.push({
+      ...base({ id: `reunion-${r.id}`, tipo: "REUNION", titulo: r.titulo, fecha }), horaInicio: hora, horaFin: sumarMinutos(hora, r.duracionMin ?? 60),
+      detalle: titulo(r.servicioContratadoId), enlace: `/equipo/proyectos/${r.servicioContratadoId}`, hecho: r.estado === "REALIZADA",
+    });
+  }
+  for (const r of E.requerimientos) {
+    if (!mios.has(r.servicioContratadoId) || (r.estado !== "PENDIENTE" && r.estado !== "OBSERVADO") || !enRango(r.fechaLimite)) continue;
+    eventos.push({ ...base({ id: `requerimiento-${r.id}`, tipo: "REQUERIMIENTO", titulo: `El cliente entrega: ${r.titulo}`, fecha: r.fechaLimite }), detalle: titulo(r.servicioContratadoId), enlace: `/equipo/proyectos/${r.servicioContratadoId}`, vencido: r.fechaLimite < hoy });
+  }
+  for (const a of E.avisos) {
+    if (a.clienteId || a.tipo === "GENERAL") continue;
+    for (const f of diasEntre(a.fechaInicio, a.fechaFin).filter(enRango)) eventos.push(base({ id: `feriado-${a.id}-${f}`, tipo: "FERIADO", titulo: a.titulo, fecha: f }));
+  }
+  for (const e of E.eventosAgenda) {
+    if ((e.creadoPorId === yo || e.invitadosIds.includes(yo)) && enRango(e.fecha)) eventos.push(eventoPropioVista(ctx, e));
+  }
+  return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: conexionGoogle(yo) } satisfies S<"Agenda">;
 });
 
-ruta("POST", "/ia/agentes/:id/conectar-canal", async (ctx, p, _q, req) => {
-  const a = buscarAgenteIa(ctx, p.id);
-  exigirRol(ctx, a.clienteId, ESCRIBEN_IA);
-  const b = await cuerpo<{ canal?: string }>(req);
-  if (b.canal !== "WHATSAPP" && b.canal !== "WEB") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "canal", mensaje: "Elige WhatsApp o tu web" }]);
-  if (a.version === 0) throw new ErrorApi(409, "AGENTE_SIN_PUBLICAR", "Publica el agente antes de conectarlo");
-  if (a.canales.some((c) => c.canal === b.canal)) throw new ErrorApi(409, "CANAL_YA_PEDIDO", "Ya pediste conectar ese canal");
-  a.canales.push({ canal: b.canal, estado: "SOLICITADO" });
-  // El equipo lo conecta: se abre un ticket (sirve aunque el cliente no tenga Soporte continuo).
-  const numero = Math.max(...E.tickets.map((t) => t.numero)) + 1;
-  const ahora = new Date().toISOString();
-  const canal = b.canal === "WHATSAPP" ? "WhatsApp" : "la web";
-  E.tickets.push({
-    id: D.uid(8, numero), numero, asunto: `Conectar «${a.nombre}» a ${canal}`, categoria: b.canal === "WHATSAPP" ? "CRM" : "WEB", estado: "ABIERTO",
-    resumenEstado: "Recibimos tu pedido. Te escribimos para coordinar la conexión.", creadoEn: ahora, actualizadoEn: ahora,
-    descripcion: `El cliente pidió conectar su agente de IA «${a.nombre}» a ${canal}.`, servicioContratadoId: null,
-  });
-  emitir("ticket.creado", a.clienteId, { ticketId: D.uid(8, numero), numero, categoria: "OTRO", asunto: `Conectar agente a ${canal}`, servicioContratadoId: null, usuarioId: ctx.usuario.id });
-  a.actualizadoEn = ahora;
-  return agenteIaVista(a);
+function miEvento(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const e = E.eventosAgenda.find((x) => x.id === id && (x.creadoPorId === ctx.usuario.id || x.invitadosIds.includes(ctx.usuario.id)));
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese evento");
+  if (e.creadoPorId !== ctx.usuario.id) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien lo creó lo puede cambiar");
+  return e;
+}
+const invitadosValidos = (ids: unknown, yo: string) => {
+  const xs = [...new Set((ids as string[] | undefined) ?? [])].filter((id) => id !== yo);
+  if (!xs.every(esDelEquipo)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "invitadosIds", mensaje: "Los invitados deben ser del equipo" }]);
+  return xs;
+};
+
+ruta("POST", "/me/agenda/eventos", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "El calendario es de las personas del equipo");
+  const b = await cuerpo<EventoEntrada>(req);
+  const errores = validarEvento(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const tipo = b.tipo as D.EventoAgendaDemo["tipo"];
+  const e: D.EventoAgendaDemo = {
+    id: nuevoId(37), tipo, titulo: (b.titulo as string).trim(), notas: typeof b.notas === "string" && b.notas.trim() ? b.notas.trim() : null, fecha: b.fecha as string,
+    ...horasAlGuardar(tipo, (b.horaInicio as string | null | undefined) ?? null, (b.horaFin as string | null | undefined) ?? null),
+    hecho: b.hecho === true, creadoPorId: ctx.usuario.id, invitadosIds: invitadosValidos(b.invitadosIds, ctx.usuario.id), creadoEn: new Date().toISOString(),
+  };
+  E.eventosAgenda.push(e);
+  return { __status: 201, ...eventoPropioVista(ctx, e) };
 });
 
-ruta("GET", "/clientes/:id/ia/conocimiento", (ctx, p) => {
-  accesoCliente(ctx, p.id);
-  return { datos: E.basesConocimiento.filter((b) => b.clienteId === p.id).map(baseVista) };
-});
-ruta("POST", "/clientes/:id/ia/conocimiento", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ESCRIBEN_IA);
-  const b = await cuerpo<Partial<S<"BaseConocimientoEntrada">>>(req);
-  const errores = validarBase(b, false);
+ruta("PATCH", "/me/agenda/eventos/:id", async (ctx, p, _q, req) => {
+  const e = miEvento(ctx, p.id);
+  const b = await cuerpo<EventoEntrada>(req);
+  const errores = validarEvento(b, e);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  const ahora = new Date().toISOString();
-  const base: D.BaseConocimientoDemo = { id: nuevoId(31), clienteId: c.id, nombre: b.nombre!.trim(), articulos: (b.articulos ?? []).map((x, i) => ({ id: x.id ?? `a${i + 1}`, titulo: x.titulo.trim(), contenido: x.contenido.trim() })), creadoEn: ahora, actualizadoEn: ahora };
-  E.basesConocimiento.push(base);
-  return { __status: 201, ...baseVista(base) };
+  const invitados = b.invitadosIds !== undefined ? invitadosValidos(b.invitadosIds, ctx.usuario.id) : e.invitadosIds;
+  if (typeof b.titulo === "string") e.titulo = b.titulo.trim();
+  if (b.notas !== undefined) e.notas = typeof b.notas === "string" && b.notas.trim() ? b.notas.trim() : null;
+  if (typeof b.fecha === "string") e.fecha = b.fecha;
+  if (b.horaInicio !== undefined) e.horaInicio = b.horaInicio as string | null;
+  if (b.horaFin !== undefined) e.horaFin = b.horaFin as string | null;
+  if (e.horaInicio === null) e.horaFin = null;
+  if (typeof b.hecho === "boolean") e.hecho = b.hecho;
+  e.invitadosIds = invitados;
+  return eventoPropioVista(ctx, e);
 });
-ruta("PATCH", "/ia/conocimiento/:id", async (ctx, p, _q, req) => {
-  const base = E.basesConocimiento.find((x) => x.id === p.id);
-  if (!base) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
-  accesoCliente(ctx, base.clienteId);
-  exigirRol(ctx, base.clienteId, ESCRIBEN_IA);
-  const b = await cuerpo<Partial<S<"BaseConocimientoEntrada">>>(req);
-  const errores = validarBase(b, true);
-  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  if (b.nombre !== undefined) base.nombre = b.nombre.trim();
-  if (b.articulos !== undefined) base.articulos = b.articulos.map((x, i) => ({ id: x.id ?? `a${i + 1}`, titulo: x.titulo.trim(), contenido: x.contenido.trim() }));
-  base.actualizadoEn = new Date().toISOString();
-  return baseVista(base);
-});
-ruta("DELETE", "/ia/conocimiento/:id", (ctx, p) => {
-  const base = E.basesConocimiento.find((x) => x.id === p.id);
-  if (!base) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa base de conocimiento");
-  accesoCliente(ctx, base.clienteId);
-  exigirRol(ctx, base.clienteId, ["EQUIPO", "ADMIN_CLIENTE"]);
-  E.basesConocimiento = E.basesConocimiento.filter((x) => x.id !== base.id);
-  for (const a of E.agentesIa) a.conocimientoIds = a.conocimientoIds.filter((id) => id !== base.id);
+
+ruta("DELETE", "/me/agenda/eventos/:id", (ctx, p) => {
+  const e = miEvento(ctx, p.id);
+  E.eventosAgenda = E.eventosAgenda.filter((x) => x.id !== e.id);
   return null;
 });
 
-ruta("GET", "/clientes/:id/ia/sin-respuesta", (ctx, p) => {
-  accesoCliente(ctx, p.id);
-  return {
-    datos: E.sinRespuesta.filter((x) => x.clienteId === p.id).sort((a, b) => Number(a.resuelta) - Number(b.resuelta) || b.creadoEn.localeCompare(a.creadoEn))
-      .map((x): S<"PreguntaSinRespuesta"> => ({ id: x.id, agenteId: x.agenteId, agenteNombre: E.agentesIa.find((a) => a.id === x.agenteId)?.nombre ?? "", pregunta: x.pregunta, resuelta: x.resuelta, creadoEn: x.creadoEn })),
-  };
-});
-ruta("PATCH", "/ia/sin-respuesta/:id", async (ctx, p, _q, req) => {
-  const x = E.sinRespuesta.find((y) => y.id === p.id);
-  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa pregunta");
-  accesoCliente(ctx, x.clienteId);
-  exigirRol(ctx, x.clienteId, ESCRIBEN_IA);
-  const b = await cuerpo<{ resuelta?: unknown }>(req);
-  if (typeof b.resuelta !== "boolean") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "resuelta", mensaje: "Sí o no" }]);
-  x.resuelta = b.resuelta;
-  return { id: x.id, agenteId: x.agenteId, agenteNombre: E.agentesIa.find((a) => a.id === x.agenteId)?.nombre ?? "", pregunta: x.pregunta, resuelta: x.resuelta, creadoEn: x.creadoEn };
+ruta("PUT", "/me/agenda/google", (ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "El calendario es de las personas del equipo");
+  E.googleCalendar[ctx.usuario.id] ??= { correo: ctx.usuario.email, conectadoEn: new Date().toISOString() };
+  return conexionGoogle(ctx.usuario.id);
 });
 
-ruta("GET", "/ia/plantillas", () => ({ datos: PLANTILLAS_AGENTE }));
-
-ruta("GET", "/clientes/:id/ia/contenido", (ctx, p, q) => {
-  accesoCliente(ctx, p.id);
-  const todos = E.contenidoIa.filter((c) => c.clienteId === p.id);
-  const delMes = todos.filter((c) => periodoLima(c.creadoEn) === D.PERIODO);
-  const palabras = delMes.reduce((t, c) => t + c.palabras, 0);
-  return {
-    datos: todos.filter((c) => !q.get("destino") || c.destino === q.get("destino")).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)).map(contenidoVista),
-    resumen: { palabras, costo: Math.round(delMes.reduce((t, c) => t + c.costoPen, 0) * 100) / 100, palabrasPorDia: Math.round((palabras / Number(D.HOY.slice(8, 10))) * 10) / 10 },
-  };
-});
-ruta("POST", "/clientes/:id/ia/contenido", async (ctx, p, _q, req) => {
-  const c = accesoCliente(ctx, p.id);
-  exigirRol(ctx, c.id, ESCRIBEN_IA);
-  const b = await cuerpo<Partial<S<"ContenidoIaEntrada">>>(req);
-  const errores = validarContenido(b);
-  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  exigirSaldoIa(c.id);
-  let r: Awaited<ReturnType<typeof generarContenido>>;
-  try {
-    r = await generarContenido({ negocio: c.nombre, destino: b.destino!, indicacion: b.indicacion!.trim(), tono: b.tono ?? null, variaciones: b.variaciones ?? 1 });
-  } catch (e) {
-    if (e instanceof ErrorIa) throw new ErrorApi(502, "IA_NO_DISPONIBLE", "No pudimos generar el contenido", e.message);
-    throw e;
-  }
-  const item: D.ContenidoIaDemo = {
-    id: nuevoId(34), clienteId: c.id, destino: b.destino!, indicacion: b.indicacion!.trim(), tono: b.tono ?? null, variaciones: r.variaciones, palabras: r.palabras,
-    costoPen: r.costoPen, simulado: r.simulado, creadoPorId: ctx.usuario.id, creadoEn: new Date().toISOString(),
-  };
-  E.contenidoIa.push(item);
-  return { __status: 201, ...contenidoVista(item) };
-});
-
-ruta("GET", "/clientes/:id/ia/conversaciones", (ctx, p, q) => {
-  accesoCliente(ctx, p.id);
-  return {
-    datos: E.conversacionesIa.filter((c) => c.clienteId === p.id && (!q.get("agenteId") || c.agenteId === q.get("agenteId"))).map(conversacionVista)
-      .sort((a, b) => b.ultimaEn.localeCompare(a.ultimaEn)),
-  };
-});
-ruta("GET", "/ia/conversaciones/:id", (ctx, p) => {
-  const c = E.conversacionesIa.find((x) => x.id === p.id);
-  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
-  accesoCliente(ctx, c.clienteId);
-  return {
-    ...conversacionVista(c),
-    historial: c.mensajes.map((m) => ({ rol: m.rol, texto: m.texto, accion: m.accion as S<"AccionAgente"> | null, sinRespuesta: m.sinRespuesta, simulado: m.simulado, creadoEn: m.creadoEn })),
-  } satisfies S<"ConversacionIaDetalle">;
+ruta("DELETE", "/me/agenda/google", (ctx) => {
+  soloEquipo(ctx);
+  delete E.googleCalendar[ctx.usuario.id];
+  return conexionGoogle(ctx.usuario.id);
 });
 
 // ───────────────────────────────────────────── KPIs, reporte y panel del colaborador (reunión 15 oct)
@@ -3552,6 +3567,8 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       return Response.json({ datos: E.outbox.filter((e) => e.id > desde) });
     }
     if (req.method === "POST" && camino === "/webhooks/inoowork") return await webhookInooWork(req);
+    // Pasarela de IA del equipo: entra con la llave de Jarvis, no con la sesión del portal.
+    if (camino.startsWith("/ia-equipo/")) return await pasarelaIa(req, camino.slice("/ia-equipo".length), almacenMock);
     const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;
     if (publico) return archivoPublicoMock(publico[1], req);
     const formulario = camino.match(/^\/publico\/formularios\/([0-9a-f]{64})(\/.*)?$/);

@@ -169,7 +169,7 @@ export function validarContratacion(b: { servicioCodigo?: unknown; variante?: un
   }
   if (cat && !cat.variantes.length && b.variante != null) errores.push({ campo: "variante", mensaje: `${cat.nombre} no tiene variantes` });
   if (b.detalle != null && (typeof b.detalle !== "object" || Array.isArray(b.detalle))) errores.push({ campo: "detalle", mensaje: "El detalle debe ser un objeto" });
-  else errores.push(...validarDetalle(b.detalle ?? {}));
+  else errores.push(...validarDetalle(b.detalle ?? {}, cat ? { codigo: cat.codigo, variante: typeof b.variante === "string" ? b.variante : null } : undefined));
   if (typeof b.fechaInicio !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaInicio)) errores.push({ campo: "fechaInicio", mensaje: "Indica la fecha de inicio (AAAA-MM-DD)" });
   if (typeof b.fechaFin === "string" && typeof b.fechaInicio === "string" && b.fechaFin < b.fechaInicio) errores.push({ campo: "fechaFin", mensaje: "La fecha de fin es anterior al inicio" });
   return { cat, errores };
@@ -253,11 +253,16 @@ export function validarEtapasPersonalizadas(xs: unknown): { etapas: FilaEtapa[];
 const CMS = ["WORDPRESS", "SHOPIFY", "CODIGO"];
 const ALCANCES_WEB = ["SOLO_WEB", "WEB_Y_CMS"];
 
+/** Proyectos de CRM: implementación, integración y el soporte continuo de CRM. */
+export const esServicioCrm = (codigo: string, variante: string | null) =>
+  codigo === "CRM_IMPLEMENTACION" || codigo === "CRM_INTEGRACION" || (codigo === "SOPORTE_CONTINUO" && variante === "CRM");
+
 /**
  * Datos propios del servicio (reunión 15 oct). Web: tamaño, páginas, productos, CMS y si incluye el panel
- * de administración. CRM: licencias, usuarios, agente de IA y WhatsApp API.
+ * de administración. CRM: licencias, usuarios, agente de IA, WhatsApp API y el enlace a la cuenta del
+ * cliente en Cosmiq (el CRM de Inoo; 30 oct), que solo llevan los proyectos de CRM.
  */
-export function validarDetalle(d: unknown): { campo: string; mensaje: string }[] {
+export function validarDetalle(d: unknown, servicio?: { codigo: string; variante: string | null }): { campo: string; mensaje: string }[] {
   if (typeof d !== "object" || d === null || Array.isArray(d)) return [{ campo: "detalle", mensaje: "El detalle debe ser un objeto" }];
   const x = d as Record<string, unknown>;
   const errores: { campo: string; mensaje: string }[] = [];
@@ -268,8 +273,30 @@ export function validarDetalle(d: unknown): { campo: string; mensaje: string }[]
   if (x.cms !== undefined && !CMS.includes(x.cms as string)) errores.push({ campo: "detalle.cms", mensaje: "Usa WORDPRESS, SHOPIFY o CODIGO" });
   if (x.alcanceWeb !== undefined && !ALCANCES_WEB.includes(x.alcanceWeb as string)) errores.push({ campo: "detalle.alcanceWeb", mensaje: "Usa SOLO_WEB o WEB_Y_CMS" });
   for (const k of ["agenteIa", "whatsappApi"]) if (x[k] !== undefined && typeof x[k] !== "boolean") errores.push({ campo: `detalle.${k}`, mensaje: "Sí o no" });
+  if (x.enlaceCosmiq != null) {
+    if (servicio && !esServicioCrm(servicio.codigo, servicio.variante)) errores.push({ campo: "detalle.enlaceCosmiq", mensaje: "Solo los proyectos de CRM llevan enlace a Cosmiq" });
+    else if (!esEnlaceHttps(x.enlaceCosmiq)) errores.push({ campo: "detalle.enlaceCosmiq", mensaje: "Pega el enlace completo (https://…)" });
+  }
   if (x.bolsa !== undefined) errores.push(...validarBolsa(x.bolsa));
   return errores;
+}
+
+/** El enlace a Cosmiq que ve el cliente en su menú: el de un proyecto de CRM vigente, si lo tiene. */
+export function enlaceCosmiqDe(servicios: { codigo: string; variante: string | null; estado: string; detalle: unknown }[]): string | null {
+  for (const s of servicios) {
+    const enlace = (s.detalle as { enlaceCosmiq?: unknown } | null)?.enlaceCosmiq;
+    if (s.estado !== "FINALIZADO" && esServicioCrm(s.codigo, s.variante) && typeof enlace === "string") return enlace;
+  }
+  return null;
+}
+
+function esEnlaceHttps(v: unknown) {
+  if (typeof v !== "string" || v.length > 500) return false;
+  try {
+    return new URL(v).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 /** El tamaño guardado en el detalle; MEDIANO si no se indicó. */

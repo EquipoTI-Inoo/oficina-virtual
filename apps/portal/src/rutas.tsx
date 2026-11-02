@@ -16,11 +16,12 @@ import { PantallaAvisosEquipo } from "./pantallas/avisos";
 import { PantallaProyectoEquipo } from "./pantallas/proyecto-equipo";
 import { PantallaPipeline } from "./pantallas/pipeline";
 import { PantallaMiPanel } from "./pantallas/mi-panel";
-import { PantallaIa } from "./pantallas/ia";
+import { PantallaJarvis } from "./pantallas/seccion-jarvis";
+import { PantallaCalendario } from "./pantallas/calendario";
 import { PantallaTallerWeb } from "./pantallas/taller-web";
 import { PantallaEntregableCliente, PantallaEntregableEquipo } from "./pantallas/entregables";
 import {
-  PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaPanel, PantallaSoporte,
+  PantallaClientesEquipo, PantallaCrearTicket, PantallaFichaCliente, PantallaMuestras, PantallaSoporte,
 } from "./pantallas/soporte-equipo";
 
 export interface Ruta {
@@ -42,30 +43,24 @@ export const RUTAS: Ruta[] = [
   { patron: "/entregables/:id", pantalla: PantallaDetallePieza, figma: "06-detalle-de-pieza", espacio: "cliente" },
   { patron: "/soporte", pantalla: PantallaSoporte, figma: "07-soporte", espacio: "cliente" },
   { patron: "/soporte/nuevo", pantalla: PantallaCrearTicket, figma: "09-crear-ticket", espacio: "cliente" },
-  { patron: "/equipo/panel", pantalla: PantallaPanel, figma: "14-panel-general", espacio: "equipo" },
   { patron: "/equipo/clientes", pantalla: PantallaClientesEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/clientes/:id", pantalla: PantallaFichaCliente, figma: "15-ficha-de-cliente", espacio: "equipo" },
   { patron: "/equipo/piezas/:id", pantalla: PantallaDetallePiezaEquipo, figma: null, espacio: "equipo" },
   { patron: "/muestras", pantalla: PantallaMuestras, figma: "10-muestras-de-estados", espacio: "publico" },
   { patron: "/cuenta", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
-  { patron: "/ia", pantalla: PantallaIa, figma: null, espacio: "cliente" },
-  { patron: "/ia/agentes", pantalla: PantallaIa, figma: null, espacio: "cliente" },
-  { patron: "/ia/agentes/:id", pantalla: PantallaIa, figma: null, espacio: "cliente" },
-  { patron: "/ia/conocimiento", pantalla: PantallaIa, figma: null, espacio: "cliente" },
-  { patron: "/ia/plantillas", pantalla: PantallaIa, figma: null, espacio: "cliente" },
-  { patron: "/ia/contenido", pantalla: PantallaIa, figma: null, espacio: "cliente" },
-  { patron: "/ia/conversaciones", pantalla: PantallaIa, figma: null, espacio: "cliente" },
   { patron: "/cuenta/pagos", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/usuarios", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/notificaciones", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/equipo/proyectos", pantalla: PantallaPipeline, figma: null, espacio: "equipo" },
   { patron: "/equipo/mi-panel", pantalla: PantallaMiPanel, figma: null, espacio: "equipo" },
+  { patron: "/equipo/jarvis", pantalla: PantallaJarvis, figma: null, espacio: "equipo" },
   { patron: "/entregables/documento/:id", pantalla: PantallaEntregableCliente, figma: null, espacio: "cliente" },
   { patron: "/equipo/entregables/:id", pantalla: PantallaEntregableEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/proyectos/:id", pantalla: PantallaProyectoEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/proyectos/:id/taller-web", pantalla: PantallaTallerWeb, figma: null, espacio: "equipo" },
   { patron: "/equipo/avisos", pantalla: PantallaAvisosEquipo, figma: null, espacio: "equipo" },
+  { patron: "/equipo/calendario", pantalla: PantallaCalendario, figma: null, espacio: "equipo" },
   { patron: "/equipo/calendarios", pantalla: PantallaCalendarioEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/costos", pantalla: PantallaCostosIa, figma: null, espacio: "equipo" },
 ];
