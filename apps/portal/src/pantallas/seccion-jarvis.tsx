@@ -213,8 +213,10 @@ const PASOS: [RegExp, string][] = [
   [/terminal|shell|execute/, "Ejecutando un comando"],
   [/skill/, "Usando una habilidad"],
   [/todo/, "Ordenando sus pendientes"],
+  [/tool_describe|tool_search|list_tools/, "Revisando sus herramientas"],
+  [/clarify/, "Preparando una pregunta"],
 ];
-const etiquetaPaso = (e: EventoPaso) => PASOS.find(([r]) => r.test(e.tool ?? ""))?.[1] ?? `Usando ${(e.label || e.tool || "una herramienta").slice(0, 60)}`;
+const etiquetaPaso = (e: EventoPaso) => PASOS.find(([r]) => r.test(e.tool ?? ""))?.[1] ?? "Usando una herramienta";
 
 const claveSesion = (botId: string) => `inoo.jarvis.sesion.${botId}`;
 function sesionDe(botId: string) {

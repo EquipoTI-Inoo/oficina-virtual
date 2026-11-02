@@ -115,7 +115,8 @@ export async function leerImagenes(archivos: ArchivoChat[]): Promise<ArchivoChat
 export function contenidoDelMensaje(mensaje: string, archivos: ArchivoChat[]): string {
   if (!archivos.length) return mensaje;
   const pedido = mensaje || "Revisa los archivos adjuntos y dime qué encuentras.";
-  return `${pedido}\n\n${archivos.map((a) => `--- Archivo adjunto: ${a.nombre} ---\n${a.texto}\n--- Fin de ${a.nombre} ---`).join("\n\n")}`;
+  const aviso = "(El contenido de los archivos ya está aquí abajo: no los busques en el disco ni en el portal.)";
+  return `${pedido}\n\n${aviso}\n\n${archivos.map((a) => `--- Archivo adjunto: ${a.nombre} ---\n${a.texto}\n--- Fin de ${a.nombre} ---`).join("\n\n")}`;
 }
 
 /** Área cuyo Hermes usa esta clave, o null. */
