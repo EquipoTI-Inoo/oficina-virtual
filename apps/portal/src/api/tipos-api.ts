@@ -1997,7 +1997,7 @@ export interface paths {
         put?: never;
         /**
          * Le escribe a un bot de mi área y devuelve su respuesta en streaming (SSE en formato OpenAI)
-         * @description El portal reenvía el mensaje, desde el servidor, al Hermes del área (JARVIS_HERMES), con el trabajo del bot como sistema, X-Hermes-Session-Id (la conversación) y X-Hermes-Session-Key (la memoria del bot). El navegador nunca ve la clave de Hermes. Antes revisa el tope del área; el gasto lo cobra la pasarela /ia-equipo.
+         * @description El portal reenvía el mensaje, desde el servidor, al Hermes del área (JARVIS_HERMES), con el trabajo del bot como sistema, X-Hermes-Session-Id (la conversación) y X-Hermes-Session-Key (la memoria del bot). El navegador nunca ve la clave de Hermes. Antes revisa el tope del área; el gasto lo cobra la pasarela /ia-equipo. Mientras trabaja, el stream trae eventos «event: hermes.tool.progress» (tool, label, toolCallId y status running o completed), que la pantalla muestra como pasos. Si quien llama corta la conexión («Detener»), el portal corta la de Hermes, que interrumpe al bot.
          */
         post: operations["chatConBot"];
         delete?: never;
@@ -9895,9 +9895,15 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    mensaje: string;
+                    /** @description Puede ir vacío si hay archivos */
+                    mensaje?: string;
                     /** @description La genera el navegador por conversación */
                     sesionId: string;
+                    /** @description Archivos adjuntos (2 nov): el navegador saca el texto (texto plano, CSV, PDF, Word) y el bot lo recibe debajo del mensaje. Hasta 100 000 caracteres por archivo y 200 000 en total. El archivo no se guarda. */
+                    archivos?: {
+                        nombre: string;
+                        texto: string;
+                    }[];
                 };
             };
         };

@@ -6,11 +6,12 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuChevronDown, LuMessageSquarePlus, LuSparkles, LuPencil, LuPlus, LuSend, LuTrash2 } from "react-icons/lu";
+import { LuCheck, LuChevronDown, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
 import { api, BASE, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
 import { COLORES_BOT, FORMAS_BOT, saludoInicial, sinBloqueTrabajo } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
+import { ACEPTA_ADJUNTOS, leerAdjunto, type Adjunto } from "./leer-archivos";
 
 type Bot = S<"BotJarvis">;
 
@@ -187,7 +188,33 @@ interface MensajeChat {
   error?: boolean;
   /** rol «aviso»: el bot reescribió su trabajo. */
   trabajo?: TrabajoNuevo & { deshecho?: boolean };
+  /** rol «yo»: los archivos que iban con el mensaje (las imágenes, con su miniatura). */
+  adjuntos?: { nombre: string; vista?: string }[];
+  /** rol «bot»: quien chatea detuvo la respuesta. */
+  detenido?: boolean;
 }
+
+/** Un paso del bot mientras trabaja (eventos hermes.tool.progress); se van al llegar la respuesta. */
+interface Paso { id: string; etiqueta: string; listo: boolean }
+type EventoPaso = { tool?: string; label?: string; toolCallId?: string; status?: string };
+
+/** Lo que hace cada herramienta, en palabras del equipo. */
+const PASOS: [RegExp, string][] = [
+  [/mi_panel/, "Revisando tu panel"],
+  [/mis_proyectos/, "Buscando tus proyectos"],
+  [/tareas_proyecto/, "Revisando las tareas del proyecto"],
+  [/requerimientos_cliente/, "Revisando lo que falta del cliente"],
+  [/proyecto/, "Leyendo el proyecto"],
+  [/web_search|search_web/, "Buscando en internet"],
+  [/web_extract|fetch|browse|browser/, "Leyendo una página web"],
+  [/memory|memoria/, "Consultando su memoria"],
+  [/read_file|file_read|search_files/, "Leyendo archivos"],
+  [/write_file|patch/, "Escribiendo un archivo"],
+  [/terminal|shell|execute/, "Ejecutando un comando"],
+  [/skill/, "Usando una habilidad"],
+  [/todo/, "Ordenando sus pendientes"],
+];
+const etiquetaPaso = (e: EventoPaso) => PASOS.find(([r]) => r.test(e.tool ?? ""))?.[1] ?? `Usando ${(e.label || e.tool || "una herramienta").slice(0, 60)}`;
 
 const claveSesion = (botId: string) => `inoo.jarvis.sesion.${botId}`;
 function sesionDe(botId: string) {
@@ -205,10 +232,11 @@ function sesionDe(botId: string) {
 /** Lee el SSE de Hermes (formato OpenAI) y entrega cada pedazo de texto. */
 type TrabajoNuevo = { anterior: string; nuevo: string };
 
-async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: string) => void, alTrabajo: (t: TrabajoNuevo) => void) {
+async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: string) => void, alTrabajo: (t: TrabajoNuevo) => void, alPaso: (p: EventoPaso) => void) {
   const lector = cuerpo.getReader();
   const dec = new TextDecoder();
   let resto = "";
+  let evento = "";
   for (;;) {
     const { done, value } = await lector.read();
     if (done) break;
@@ -216,9 +244,19 @@ async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: st
     const lineas = resto.split("\n");
     resto = lineas.pop() ?? "";
     for (const l of lineas) {
+      if (!l.trim()) evento = "";
+      if (l.startsWith("event:")) evento = l.slice(6).trim();
       if (!l.startsWith("data:")) continue;
       const dato = l.slice(5).trim();
       if (!dato || dato === "[DONE]") continue;
+      if (evento === "hermes.tool.progress") {
+        try {
+          alPaso(JSON.parse(dato) as EventoPaso);
+        } catch {
+          /* paso ilegible: no se muestra */
+        }
+        continue;
+      }
       let j: { choices?: { delta?: { content?: string } }[]; error?: { message?: string }; inoo?: { trabajo?: TrabajoNuevo } };
       try {
         j = JSON.parse(dato);
@@ -240,6 +278,11 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
   const [mensajes, setMensajes] = useState<MensajeChat[]>(inicio);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [pasos, setPasos] = useState<Paso[]>([]);
+  const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
+  const [leyendo, setLeyendo] = useState(0);
+  const corte = useRef<AbortController | null>(null);
+  const selector = useRef<HTMLInputElement>(null);
   const [viendo, setViendo] = useState<number | null>(null);
   const [menu, setMenu] = useState(false);
   const avisar = useAviso();
@@ -263,19 +306,45 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
       avisar({ titulo: "No pudimos deshacer el cambio", texto: e instanceof ProblemaApi ? e.titulo : undefined });
     }
   };
+  const adjuntar = async (lista: FileList | null) => {
+    const archivos = [...(lista ?? [])].slice(0, Math.max(0, 5 - adjuntos.length));
+    if (lista && lista.length > archivos.length) avisar({ titulo: "Hasta 5 archivos por mensaje" });
+    setLeyendo((n) => n + archivos.length);
+    for (const f of archivos) {
+      try {
+        const a = await leerAdjunto(f);
+        setAdjuntos((xs) => [...xs, a]);
+      } catch (err) {
+        avisar({ titulo: "No pudimos adjuntar el archivo", texto: (err as Error).message });
+      } finally {
+        setLeyendo((n) => n - 1);
+      }
+    }
+  };
+  const detener = () => corte.current?.abort();
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     const mensaje = texto.trim();
-    if (!mensaje || enviando) return;
+    if ((!mensaje && !adjuntos.length) || enviando || leyendo) return;
+    const van = adjuntos;
     setTexto("");
+    setAdjuntos([]);
     setEnviando(true);
-    setMensajes((ms) => [...ms, { rol: "yo", texto: mensaje }, { rol: "bot", texto: "" }]);
+    setPasos([]);
+    setMensajes((ms) => [
+      ...ms,
+      { rol: "yo", texto: mensaje, adjuntos: van.map((a) => ({ nombre: a.nombre, vista: "vista" in a ? a.vista : undefined })) },
+      { rol: "bot", texto: "" },
+    ]);
+    const control = new AbortController();
+    corte.current = control;
     try {
       const s = leerSesion();
       const r = await fetch(`${BASE}/jarvis/bots/${bot.id}/chat`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
-        body: JSON.stringify({ mensaje, sesionId: sesion }),
+        body: JSON.stringify({ mensaje, sesionId: sesion, archivos: van.map((a) => ("imagen" in a ? { nombre: a.nombre, imagen: a.imagen } : a)) }),
+        signal: control.signal,
       });
       if (!r.ok || !r.body) {
         const p = await r.json().catch(() => ({}));
@@ -285,11 +354,20 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
         r.body,
         (t) => ultimo((m) => ({ ...m, texto: m.texto + t })),
         (trabajo) => setMensajes((ms) => [...ms, { rol: "aviso", texto: trabajo.anterior ? "Actualicé mi trabajo." : "Listo, ya tengo mi trabajo configurado.", trabajo }]),
+        (p) => {
+          const id = p.toolCallId ?? `${p.tool}-${Date.now()}`;
+          setPasos((ps) => (p.status === "completed"
+            ? ps.map((x) => (x.id === id ? { ...x, listo: true } : x))
+            : ps.some((x) => x.id === id) ? ps : [...ps, { id, etiqueta: etiquetaPaso(p), listo: false }]));
+        },
       );
       alCambiar();
     } catch (err) {
-      ultimo((m) => ({ ...m, texto: (err as Error).message, error: true }));
+      if (control.signal.aborted) ultimo((m) => ({ ...m, detenido: true }));
+      else ultimo((m) => ({ ...m, texto: (err as Error).message, error: true }));
     } finally {
+      corte.current = null;
+      setPasos([]);
       setEnviando(false);
     }
   };
@@ -372,19 +450,64 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
             </div>
           ) : (
             <div key={i} className={`burbuja-jarvis burbuja-jarvis--${m.rol === "yo" ? "yo" : "jarvis"}${m.error ? " burbuja-jarvis--error" : ""}`}>
+              {!!m.adjuntos?.length && (
+                <span className="jarvis-adjuntos">
+                  {m.adjuntos.map((a, j) => (
+                    <span key={j} className="jarvis-adjunto">
+                      {a.vista ? <img src={a.vista} alt="" /> : <LuPaperclip size={12} />} {a.nombre}
+                    </span>
+                  ))}
+                </span>
+              )}
+              {enviando && i === mensajes.length - 1 && m.rol === "bot" && pasos.length > 0 && (
+                <ul className="jarvis-pasos" aria-label="Lo que está haciendo">
+                  {pasos.map((p) => (
+                    <li key={p.id} className={p.listo ? "listo" : ""}>
+                      {p.listo ? <LuCheck size={12} /> : <LuLoader size={12} className="girando" />} {p.etiqueta}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {(m.rol === "bot" ? sinBloqueTrabajo(m.texto) : m.texto) || (enviando && i === mensajes.length - 1 ? "Pensando…" : "")}
+              {m.detenido && <span className="jarvis-detenido">Detuviste la respuesta.</span>}
             </div>
           ),
         )}
         <div ref={fin} />
       </div>
+      {(adjuntos.length > 0 || leyendo > 0) && (
+        <div className="jarvis-adjuntos jarvis-adjuntos--por-enviar">
+          {adjuntos.map((a, j) => (
+            <span key={j} className="jarvis-adjunto">
+              {"vista" in a ? <img src={a.vista} alt="" /> : <LuPaperclip size={12} />} {a.nombre}
+              <button type="button" className="enlace" aria-label={`Quitar ${a.nombre}`} onClick={() => setAdjuntos((xs) => xs.filter((_, k) => k !== j))}>
+                <LuX size={12} />
+              </button>
+            </span>
+          ))}
+          {leyendo > 0 && <span className="jarvis-adjunto"><LuLoader size={12} className="girando" /> Leyendo…</span>}
+        </div>
+      )}
       <form className="jarvis-escribir" onSubmit={(e) => void enviar(e)}>
+        <input
+          ref={selector} type="file" multiple hidden accept={ACEPTA_ADJUNTOS}
+          onChange={(e) => { void adjuntar(e.target.files); e.target.value = ""; }}
+        />
+        <button className="boton" type="button" aria-label="Adjuntar archivos" title="Texto, CSV, PDF, Word o imágenes" disabled={enviando || adjuntos.length >= 5} onClick={() => selector.current?.click()}>
+          <LuPaperclip size={14} />
+        </button>
         <div className="entrada" style={{ flex: 1 }}>
           <input aria-label={`Mensaje para ${bot.nombre}`} placeholder={`Escríbele a ${bot.nombre}…`} value={texto} onChange={(e) => setTexto(e.target.value)} disabled={enviando} />
         </div>
-        <button className="boton boton--primario" type="submit" disabled={enviando || !texto.trim()} aria-label="Enviar">
-          <LuSend size={14} />
-        </button>
+        {enviando ? (
+          <button className="boton" type="button" onClick={detener} aria-label="Detener respuesta" title="Detener">
+            <LuSquare size={14} />
+          </button>
+        ) : (
+          <button className="boton boton--primario" type="submit" disabled={leyendo > 0 || (!texto.trim() && !adjuntos.length)} aria-label="Enviar">
+            <LuSend size={14} />
+          </button>
+        )}
       </form>
     </>
   );

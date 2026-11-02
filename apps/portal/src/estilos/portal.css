@@ -2238,6 +2238,22 @@ a.avatar:hover {
 .burbuja-jarvis--error {
   color: var(--c-alerta);
 }
+/* Pasos del bot mientras trabaja (se van al llegar la respuesta), adjuntos y «Detener» (2 nov). */
+.jarvis-pasos { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 3px; font-size: 12px; color: var(--c-muted); white-space: normal; }
+.jarvis-pasos li { display: flex; align-items: center; gap: 6px; }
+.jarvis-pasos li.listo { color: var(--c-exito, #12805c); }
+.girando { animation: jarvis-girar 0.9s linear infinite; }
+@keyframes jarvis-girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .girando { animation: none; } }
+.jarvis-adjuntos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; white-space: normal; }
+.jarvis-adjuntos--por-enviar { padding: 8px 16px 0; margin: 0; }
+.jarvis-adjunto {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 3px 8px;
+  border: 1px solid var(--c-borde); border-radius: 8px; background: var(--c-superficie, #fff); color: var(--c-texto);
+  font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jarvis-adjunto img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; flex: none; }
+.jarvis-detenido { display: block; margin-top: 4px; font-size: 11.5px; color: var(--c-muted); }
 
 /* ───────────────────────── Calendario del colaborador (2 nov) */
 .calendario { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 18px; align-items: start; }

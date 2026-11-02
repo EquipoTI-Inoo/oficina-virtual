@@ -17,6 +17,7 @@
  */
 import { timingSafeEqual } from "node:crypto";
 import { AREAS, extraerTrabajo, type Area } from "../dominio/ia-equipo";
+import { generar, type ImagenIa } from "./ia-modelos";
 
 export interface HermesDelArea {
   url: string;
@@ -34,6 +35,82 @@ export function hermesDelArea(area: Area): HermesDelArea | null {
 }
 
 export const esSesionChat = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(v);
+
+/**
+ * Archivos del chat (2 nov): el navegador saca el texto (texto plano, CSV, PDF, Word) y lo manda con el mensaje.
+ * Las imágenes las lee Gemini en el portal (texto visible y descripción), porque el modelo de los bots
+ * (DeepSeek) no ve imágenes: al bot le llega esa lectura como un adjunto más. Nada se guarda.
+ */
+export const LIMITES_CHAT = { mensaje: 8000, archivos: 5, nombre: 200, texto: 100_000, total: 200_000, imagenBase64: 7_000_000 };
+const MIMES_IMAGEN = ["image/jpeg", "image/png", "image/webp"] as const;
+export interface ArchivoChat { nombre: string; texto: string; imagen?: ImagenIa }
+
+/** Valida el cuerpo del chat. Sin mensaje vale si hay archivos («resume esto» va implícito). */
+export function validarChat(b: { mensaje?: unknown; sesionId?: unknown; archivos?: unknown }): { mensaje: string; sesionId: string; archivos: ArchivoChat[] } | { campo: string; mensaje: string } {
+  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
+  if (!esSesionChat(b.sesionId)) return { campo: "sesionId", mensaje: "Falta el código de la conversación" };
+  if (b.archivos !== undefined && !Array.isArray(b.archivos)) return { campo: "archivos", mensaje: "Los archivos van en una lista" };
+  const lista = (b.archivos as unknown[] | undefined) ?? [];
+  if (lista.length > LIMITES_CHAT.archivos) return { campo: "archivos", mensaje: `Hasta ${LIMITES_CHAT.archivos} archivos por mensaje` };
+  const archivos: ArchivoChat[] = [];
+  for (const a of lista) {
+    const x = a as { nombre?: unknown; texto?: unknown; imagen?: { mime?: unknown; base64?: unknown } } | null;
+    const nombre = typeof x?.nombre === "string" ? x.nombre.trim() : "";
+    const texto = typeof x?.texto === "string" ? x.texto : "";
+    if (!nombre || nombre.length > LIMITES_CHAT.nombre) return { campo: "archivos", mensaje: "Cada archivo necesita su nombre" };
+    if (x?.imagen !== undefined) {
+      const { mime, base64 } = x.imagen ?? {};
+      if (!MIMES_IMAGEN.includes(mime as ImagenIa["mime"]) || typeof base64 !== "string" || !/^[A-Za-z0-9+/]+=*$/.test(base64)) {
+        return { campo: "archivos", mensaje: `«${nombre}»: las imágenes van en JPG, PNG o WebP` };
+      }
+      if (base64.length > LIMITES_CHAT.imagenBase64) return { campo: "archivos", mensaje: `«${nombre}» pesa demasiado` };
+      archivos.push({ nombre, texto: "", imagen: { mime: mime as ImagenIa["mime"], base64 } });
+      continue;
+    }
+    if (!texto.trim()) return { campo: "archivos", mensaje: `No encontramos texto en «${nombre}»` };
+    if (texto.length > LIMITES_CHAT.texto) return { campo: "archivos", mensaje: `«${nombre}» es muy largo para el chat` };
+    archivos.push({ nombre, texto });
+  }
+  if (archivos.reduce((t, a) => t + a.texto.length, 0) > LIMITES_CHAT.total) return { campo: "archivos", mensaje: "Los archivos juntos son muy largos para el chat" };
+  if ((!mensaje && !archivos.length) || mensaje.length > LIMITES_CHAT.mensaje) return { campo: "mensaje", mensaje: `Escribe tu mensaje (hasta ${LIMITES_CHAT.mensaje} caracteres)` };
+  return { mensaje, sesionId: b.sesionId as string, archivos };
+}
+
+const SISTEMA_IMAGEN = `Lees imágenes para un asistente que no puede verlas. Responde en español, sin saludo:
+1. «Texto visible:» transcribe todo el texto tal cual (cifras, nombres, fechas, tablas fila por fila). Si no hay, escribe «ninguno».
+2. «Descripción:» qué es la imagen y lo importante para trabajar con ella (tipo de documento o pantalla, diseño, colores, gráficos y sus valores).
+No inventes lo que no se lee.`;
+
+/** Gemini no pudo leer una imagen; cada API lo responde como 502 IMAGEN_NO_LEIDA. */
+export class ErrorImagenChat extends Error {
+  constructor(public nombre: string) {
+    super(`No pudimos leer «${nombre}»`);
+  }
+}
+
+/** Cambia cada imagen por su lectura (Gemini). Sin IA real, una lectura de relleno que lo dice. */
+export async function leerImagenes(archivos: ArchivoChat[]): Promise<ArchivoChat[]> {
+  return Promise.all(archivos.map(async (a) => {
+    if (!a.imagen) return a;
+    try {
+      const r = await generar({
+        modelo: "GEMINI_FLASH", sistema: SISTEMA_IMAGEN, maxTokens: 4000,
+        mensajes: [{ rol: "user", texto: `Imagen: ${a.nombre}`, imagenes: [a.imagen] }],
+        simulado: () => "(No se pudo leer la imagen: la IA del portal está en modo simulado.)",
+      });
+      return { nombre: `${a.nombre} (imagen; lectura del portal)`, texto: r.texto.trim() || "(La imagen no tiene nada legible.)" };
+    } catch {
+      throw new ErrorImagenChat(a.nombre);
+    }
+  }));
+}
+
+/** Lo que recibe el bot: el mensaje y, debajo, el texto de cada archivo con su nombre. */
+export function contenidoDelMensaje(mensaje: string, archivos: ArchivoChat[]): string {
+  if (!archivos.length) return mensaje;
+  const pedido = mensaje || "Revisa los archivos adjuntos y dime qué encuentras.";
+  return `${pedido}\n\n${archivos.map((a) => `--- Archivo adjunto: ${a.nombre} ---\n${a.texto}\n--- Fin de ${a.nombre} ---`).join("\n\n")}`;
+}
 
 /** Área cuyo Hermes usa esta clave, o null. */
 export function areaDeClaveHermes(clave: string): Area | null {

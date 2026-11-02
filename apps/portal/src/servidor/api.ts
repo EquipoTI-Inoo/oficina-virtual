@@ -40,7 +40,7 @@ import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideCla
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, validarBot, validarTopes, type Area } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
-import { esSesionChat, hablarConBot, hermesDelArea } from "./jarvis-chat";
+import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
 import { areaDeDepartamento, cambiosDesdeEmpleado, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, type CambioPersona } from "../dominio/personas-equipo";
@@ -91,6 +91,8 @@ interface Ctx {
   enNombreDe?: string;
   /** Feriados y días no laborables, para los plazos en días hábiles (se cargan una vez por solicitud). */
   feriados: ReadonlySet<string>;
+  /** Se dispara si quien llama corta la solicitud (p. ej. «Detener» en el chat de Jarvis). */
+  senal?: AbortSignal;
 }
 
 // ───────────────────────────────────────────── utilidades
@@ -2499,13 +2501,16 @@ ruta("DELETE", "/jarvis/bots/:id", async (ctx, p) => {
   return null;
 });
 
+const imagenNoLeida = (e: unknown): never => {
+  if (e instanceof ErrorImagenChat) throw new ErrorApi(502, "IMAGEN_NO_LEIDA", e.message, "Inténtalo de nuevo o pega su texto en el mensaje.");
+  throw e;
+};
+
 ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
   const bot = await botDeMiAreaDb(ctx, p.id);
-  const b = (await cuerpo()) as { mensaje?: unknown; sesionId?: unknown };
-  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
-  if (!mensaje || mensaje.length > 8000 || !esSesionChat(b.sesionId)) {
-    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "mensaje", mensaje: "Escribe tu mensaje (hasta 8000 caracteres)" }]);
-  }
+  const cuerpoChat = (await cuerpo()) as { mensaje?: unknown; sesionId?: unknown; archivos?: unknown };
+  const b = validarChat(cuerpoChat);
+  if ("campo" in b) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [b]);
   const consumo = await vistaConsumoAreaDb(ctx.c, bot.area);
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
@@ -2528,7 +2533,8 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
         return { anterior };
       })
     : undefined;
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId, alActualizarTrabajo });
+  // Con la señal de la solicitud, «Detener» en el chat corta la conexión con Hermes, que interrumpe al bot.
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo }, ctx.senal);
 });
 
 // ───────────────────────────────────────────── accesos del equipo (2 nov)
@@ -5352,7 +5358,7 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
         const previa = await idempotencia(c, u.usuarioId, clave, hash);
         if (previa) return previa;
       }
-      let ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set() };
+      let ctx: Ctx = { u, c, esEquipo: u.tipo !== "CLIENTE", esServicio: u.tipo === "SERVICIO", feriados: new Set(), senal: req.signal };
       const enNombreDe = req.headers.get("x-en-nombre-de");
       if (enNombreDe && u.tipo === "EQUIPO") {
         // Solo las cuentas que la persona ve completas o donde tiene proyectos.

@@ -26,7 +26,7 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
-import { areaDeClaveHermes, esSesionChat, hablarConBot, hermesDelArea } from "../servidor/jarvis-chat";
+import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
 import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
@@ -3156,13 +3156,15 @@ ruta("DELETE", "/jarvis/bots/:id", (ctx, p) => {
   return null;
 });
 
+const imagenNoLeida = (e: unknown): never => {
+  if (e instanceof ErrorImagenChat) throw new ErrorApi(502, "IMAGEN_NO_LEIDA", e.message, "Inténtalo de nuevo o pega su texto en el mensaje.");
+  throw e;
+};
+
 ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
   const bot = botDeMiArea(ctx, p.id);
-  const b = await cuerpo<{ mensaje?: unknown; sesionId?: unknown }>(req);
-  const mensaje = typeof b.mensaje === "string" ? b.mensaje.trim() : "";
-  if (!mensaje || mensaje.length > 8000 || !esSesionChat(b.sesionId)) {
-    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "mensaje", mensaje: "Escribe tu mensaje (hasta 8000 caracteres)" }]);
-  }
+  const b = validarChat(await cuerpo<{ mensaje?: unknown; sesionId?: unknown; archivos?: unknown }>(req));
+  if ("campo" in b) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [b]);
   const consumo = consumoAreaMock(bot.area);
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
@@ -3181,7 +3183,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
         return { anterior };
       }
     : undefined;
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje, sesionId: b.sesionId, alActualizarTrabajo }, req.signal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo }, req.signal);
 });
 
 // ───────────────────────────────────────────── accesos del equipo (2 nov)

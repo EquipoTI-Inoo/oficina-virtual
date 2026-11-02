@@ -2906,7 +2906,7 @@ paths:
       tags: [Jarvis del equipo]
       operationId: chatConBot
       summary: Le escribe a un bot de mi área y devuelve su respuesta en streaming (SSE en formato OpenAI)
-      description: 'El portal reenvía el mensaje, desde el servidor, al Hermes del área (JARVIS_HERMES), con el trabajo del bot como sistema, X-Hermes-Session-Id (la conversación) y X-Hermes-Session-Key (la memoria del bot). El navegador nunca ve la clave de Hermes. Antes revisa el tope del área; el gasto lo cobra la pasarela /ia-equipo.'
+      description: 'El portal reenvía el mensaje, desde el servidor, al Hermes del área (JARVIS_HERMES), con el trabajo del bot como sistema, X-Hermes-Session-Id (la conversación) y X-Hermes-Session-Key (la memoria del bot). El navegador nunca ve la clave de Hermes. Antes revisa el tope del área; el gasto lo cobra la pasarela /ia-equipo. Mientras trabaja, el stream trae eventos «event: hermes.tool.progress» (tool, label, toolCallId y status running o completed), que la pantalla muestra como pasos. Si quien llama corta la conexión («Detener»), el portal corta la de Hermes, que interrumpe al bot.'
       x-roles: [EQUIPO]
       parameters: [ { name: botId, in: path, required: true, schema: { type: string, format: uuid } } ]
       requestBody:
@@ -2915,10 +2915,20 @@ paths:
           application/json:
             schema:
               type: object
-              required: [mensaje, sesionId]
+              required: [sesionId]
               properties:
-                mensaje: { type: string, minLength: 1, maxLength: 8000 }
+                mensaje: { type: string, maxLength: 8000, description: 'Puede ir vacío si hay archivos' }
                 sesionId: { type: string, pattern: '^[A-Za-z0-9_-]{8,64}$', description: 'La genera el navegador por conversación' }
+                archivos:
+                  type: array
+                  maxItems: 5
+                  description: 'Archivos adjuntos (2 nov): el navegador saca el texto (texto plano, CSV, PDF, Word) y el bot lo recibe debajo del mensaje. Hasta 100 000 caracteres por archivo y 200 000 en total. El archivo no se guarda.'
+                  items:
+                    type: object
+                    required: [nombre, texto]
+                    properties:
+                      nombre: { type: string, maxLength: 200 }
+                      texto: { type: string, maxLength: 100000 }
       responses:
         '200':
           description: 'Respuesta del bot en streaming'

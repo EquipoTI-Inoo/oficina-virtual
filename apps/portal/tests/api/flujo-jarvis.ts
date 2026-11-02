@@ -183,6 +183,41 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       }
     });
 
+    test("archivos e imágenes en el chat, y los pasos de Hermes llegan al navegador", async () => {
+      await reiniciar();
+      const antesHermes = process.env.JARVIS_HERMES;
+      const fetchPrevio = globalThis.fetch;
+      let usuario = "";
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (!String(url).startsWith("http://hermes.falso")) return fetchPrevio(url, init);
+        usuario = JSON.parse(String(init?.body)).messages[1].content;
+        const paso = (status: string) => `event: hermes.tool.progress\ndata: ${JSON.stringify({ tool: "mcp_portal_mis_proyectos", toolCallId: "t1", status })}\n\n`;
+        return new Response(`${paso("running")}${paso("completed")}data: ${JSON.stringify({ choices: [{ delta: { content: "Listo" } }] })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      process.env.JARVIS_HERMES = JSON.stringify({ CRM: { url: "http://hermes.falso", clave: "hk_crm" } });
+      try {
+        const bot = (await llamar("GET", "/jarvis/bots", DIEGO)).json.bots[0];
+        const chat = (cuerpo: unknown) => llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { sesionId: "conv-archivos-1", ...(cuerpo as object) });
+        const r = await chat({ mensaje: "Resume esto", archivos: [{ nombre: "acta.txt", texto: "Acuerdo: entregar el jueves" }] });
+        assert.equal(r.status, 200);
+        assert.ok(String(r.json).includes("event: hermes.tool.progress"), "los pasos pasan tal cual");
+        assert.ok(usuario.startsWith("Resume esto") && usuario.includes("Archivo adjunto: acta.txt") && usuario.includes("entregar el jueves"));
+        // Sin mensaje vale con archivos; la imagen la lee el portal (aquí, en modo simulado) y al bot le llega texto.
+        assert.equal((await chat({ archivos: [{ nombre: "pizarra.jpg", imagen: { mime: "image/jpeg", base64: "AAAA" } }] })).status, 200);
+        assert.ok(usuario.includes("pizarra.jpg (imagen; lectura del portal)") && !usuario.includes("AAAA"), "la imagen no viaja al bot");
+        const error = async (cuerpo: unknown) => (await chat(cuerpo)).json.errores?.[0]?.campo;
+        assert.equal(await error({ mensaje: "" }), "mensaje");
+        assert.equal(await error({ mensaje: "x", archivos: Array.from({ length: 6 }, (_, i) => ({ nombre: `a${i}.txt`, texto: "x" })) }), "archivos");
+        assert.equal(await error({ mensaje: "x", archivos: [{ nombre: "vacio.txt", texto: "  " }] }), "archivos");
+        assert.equal(await error({ mensaje: "x", archivos: [{ nombre: "a.gif", imagen: { mime: "image/gif", base64: "AAAA" } }] }), "archivos");
+        assert.equal(await error({ mensaje: "x", archivos: [{ nombre: "largo.txt", texto: "x".repeat(100_001) }] }), "archivos");
+      } finally {
+        globalThis.fetch = fetchPrevio;
+        if (antesHermes === undefined) delete process.env.JARVIS_HERMES;
+        else process.env.JARVIS_HERMES = antesHermes;
+      }
+    });
+
     test("como Grok: el bot nuevo se configura preguntando y después reescribe su propio trabajo", async () => {
       await reiniciar();
       const antesHermes = process.env.JARVIS_HERMES;

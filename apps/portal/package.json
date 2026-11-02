@@ -24,6 +24,7 @@
     "jose": "^6.2.12",
     "next": "^15.5.4",
     "nodemailer": "^7.0.13",
+    "pdfjs-dist": "4.10.38",
     "pg": "^8.23.1",
     "playwright-core": "^1.64.0",
     "react": "^19.2.0",
