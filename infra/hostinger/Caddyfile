@@ -10,11 +10,13 @@
 }
 
 {$DOMINIO_N8N} {
+	import /etc/caddy/extra/*.caddy
 	encode gzip
 	reverse_proxy n8n:5678
 }
 
 {$DOMINIO_NOCODB} {
+	import /etc/caddy/extra/*.caddy
 	encode gzip
 	reverse_proxy nocodb:8080
 }
