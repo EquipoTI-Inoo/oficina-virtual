@@ -12,7 +12,7 @@ import { fechaLimite, plantillaRequerimiento } from "../dominio/requerimientos";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../dominio/calendario";
 import type { Area } from "../dominio/ia-equipo";
 import { EMPLEADO_DEMO } from "./inoowork-demo";
-import type { Nivel } from "../dominio/accesos";
+import type { Nivel, PermisosPersonalizados } from "../dominio/accesos";
 
 export const HOY = "2026-10-06T15:00:00Z";
 export const PERIODO = "2026-10";
@@ -38,6 +38,10 @@ export interface UsuarioDemo {
   nivelAcceso?: Nivel | null;
   /** Lead de su área: asigna a su gente y ve su carga y calendario. */
   esLead?: boolean;
+  /** Por encima de ADMIN (5 nov): cambia niveles, permisos y quién es ADMIN. */
+  esSuperUsuario?: boolean;
+  /** Permisos concedidos (true) o quitados (false) sobre lo que da su nivel. */
+  permisosPersonalizados?: PermisosPersonalizados;
   /** false = desactivada (2 nov): no entra, pero se conservan sus registros. */
   activo?: boolean;
   /** Enlace con InooWork (solo equipo): id de empleado y cómo quedó la última sincronización. */
@@ -57,7 +61,7 @@ export const USUARIOS: UsuarioDemo[] = [
   { id: uid(1, 1), nombre: "Valeria Mendoza", email: "valeria@casaoliva.pe", cargo: "Administradora", iniciales: "VM", tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "demo1234" },
   { id: uid(1, 2), nombre: "Martín Salas", email: "martin@casaoliva.pe", cargo: "Marketing", iniciales: "MS", tipo: "CLIENTE", rolEquipo: null, area: null, claveDemo: "demo1234" },
   { id: uid(1, 3), inooworkEmpleadoId: EMPLEADO_DEMO.diego, reportaAId: uid(1, 4), nombre: "Diego Castro", email: "diego.castro@inoo.pe", cargo: "Equipo de agencia", iniciales: "DC", tipo: "EQUIPO", rolEquipo: "ACCOUNT_MANAGER", area: "CRM", esLead: true, claveDemo: "demo1234" },
-  { id: uid(1, 4), inooworkEmpleadoId: EMPLEADO_DEMO.admin, nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", area: "ADMINISTRACION", claveDemo: "demo1234" },
+  { id: uid(1, 4), inooworkEmpleadoId: EMPLEADO_DEMO.admin, nombre: "Admin Inoo", email: "admin@inoo.pe", cargo: "Administración", iniciales: "AI", tipo: "EQUIPO", rolEquipo: "ADMIN", area: "ADMINISTRACION", esSuperUsuario: true, claveDemo: "demo1234" },
   { id: uid(1, 5), inooworkEmpleadoId: EMPLEADO_DEMO.rosa, reportaAId: uid(1, 4), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", area: "ADMINISTRACION", claveDemo: "demo1234" },
   // Equipo operativo (16 oct): no ve el blog ni el detalle de pagos; es responsable del e-commerce de Casa Oliva.
   { id: uid(1, 6), inooworkEmpleadoId: EMPLEADO_DEMO.camila, reportaAId: uid(1, 4), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", area: "DISENO", claveDemo: "demo1234" },

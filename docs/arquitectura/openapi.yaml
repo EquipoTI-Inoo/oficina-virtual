@@ -2629,10 +2629,15 @@ paths:
     patch:
       tags: [Jarvis del equipo]
       operationId: cambiarAreaPersona
-      summary: 'Cambia los datos, el área, el nivel de acceso, el rol, si es lead o si está activa una persona del equipo (nivel ADMIN). Se refleja en InooWork'
+      summary: 'Cambia los datos, el área, el nivel de acceso, el rol, si es lead, si está activa, si es super usuario y los permisos de una persona del equipo (permiso GESTIONAR_EQUIPO). Se refleja en InooWork'
       description: |
         `activo: false` desactiva a la persona en el portal y en InooWork (pierde el acceso; se conservan sus
         registros). `activo: true` la reactiva.
+
+        Solo un super usuario puede cambiar lo que altera el acceso de alguien: `nivel`, `esSuperUsuario`, `permisos`
+        y cualquier cambio de `area` o `rolEquipo` que le cambie el nivel o los permisos efectivos. También es el único
+        que puede cambiar a otro super usuario. Debe quedar al menos un super usuario activo (422). Cada cambio de
+        acceso queda en el historial.
       x-roles: [ADMIN]
       parameters: [ { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } } ]
       requestBody:
@@ -2652,6 +2657,15 @@ paths:
                 rolEquipo: { $ref: '#/components/schemas/RolEquipo' }
                 activo: { type: boolean }
                 reportaAId: { type: [string, 'null'], format: uuid, description: 'Su jefe en el organigrama; null = nadie' }
+                esSuperUsuario: { type: boolean, description: 'Solo super usuario' }
+                permisos:
+                  type: object
+                  description: 'Solo super usuario. Permiso → true (concedido), false (quitado) o null (vuelve a lo que da su nivel). Los que no vienen no cambian'
+                  properties:
+                    GESTIONAR_EQUIPO: { type: [boolean, 'null'] }
+                    ASIGNAR_ACCESOS: { type: [boolean, 'null'] }
+                    COSTOS_IA: { type: [boolean, 'null'] }
+                    ESTADO_PAGO: { type: [boolean, 'null'] }
       responses:
         '200':
           description: OK
@@ -2733,6 +2747,26 @@ paths:
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/NodoOrganigrama' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/personas/{usuarioId}/cambios-acceso:
+    get:
+      tags: [Panel interno]
+      operationId: listarCambiosAcceso
+      summary: 'Historial de cambios de acceso de una persona: qué cambió, quién y cuándo (solo super usuario). Los últimos 50'
+      x-roles: [ADMIN]
+      parameters: [ { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/CambioAcceso' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /panel/personas/{usuarioId}/inoowork:
     post:
@@ -4414,6 +4448,8 @@ components:
         area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ] }
         nivelAcceso: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'Solo equipo: su nivel efectivo' }
         esLead: { type: boolean }
+        esSuperUsuario: { type: boolean, description: 'Solo equipo: por encima de ADMIN; cambia niveles, permisos y quién es ADMIN' }
+        permisos: { type: array, items: { $ref: '#/components/schemas/PermisoEquipo' }, description: 'Solo equipo: sus permisos efectivos' }
     PersonaMini:
       type: object
       required: [id, nombre]
@@ -4971,12 +5007,44 @@ components:
       allOf:
         - $ref: '#/components/schemas/PersonaEquipo'
         - type: object
-          required: [correo, activo, inoowork, reportaAId]
+          required: [correo, activo, inoowork, reportaAId, esSuperUsuario, permisos, permisosPersonalizados]
           properties:
             correo: { type: string, format: email }
             activo: { type: boolean }
             reportaAId: { type: [string, 'null'], format: uuid }
             inoowork: { $ref: '#/components/schemas/PersonaEnInooWork' }
+            esSuperUsuario: { type: boolean }
+            permisos: { type: array, items: { $ref: '#/components/schemas/PermisoEquipo' }, description: 'Los efectivos' }
+            permisosPersonalizados:
+              type: object
+              description: 'Los concedidos (true) o quitados (false) sobre lo que da su nivel'
+              properties:
+                GESTIONAR_EQUIPO: { type: boolean }
+                ASIGNAR_ACCESOS: { type: boolean }
+                COSTOS_IA: { type: boolean }
+                ESTADO_PAGO: { type: boolean }
+    PermisoEquipo:
+      type: string
+      enum: [GESTIONAR_EQUIPO, ASIGNAR_ACCESOS, COSTOS_IA, ESTADO_PAGO]
+      description: 'El nivel ADMIN los trae todos y el rol FINANZAS trae ESTADO_PAGO. El super usuario puede conceder o quitar cada uno a una persona'
+    CambioAcceso:
+      type: object
+      required: [id, campo, antes, despues, creadoEn, hechoPor]
+      properties:
+        id: { type: string, format: uuid }
+        campo: { type: string, examples: ['Nivel de acceso'] }
+        antes: { type: string }
+        despues: { type: string }
+        creadoEn: { type: string, format: date-time }
+        hechoPor:
+          description: 'null = lo hizo el sistema'
+          oneOf:
+            - type: object
+              required: [id, nombre]
+              properties:
+                id: { type: string, format: uuid }
+                nombre: { type: string }
+            - type: 'null'
     NodoOrganigrama:
       allOf:
         - $ref: '#/components/schemas/PersonaEquipo'

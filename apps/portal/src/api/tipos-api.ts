@@ -1817,9 +1817,14 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Cambia los datos, el área, el nivel de acceso, el rol, si es lead o si está activa una persona del equipo (nivel ADMIN). Se refleja en InooWork
+         * Cambia los datos, el área, el nivel de acceso, el rol, si es lead, si está activa, si es super usuario y los permisos de una persona del equipo (permiso GESTIONAR_EQUIPO). Se refleja en InooWork
          * @description `activo: false` desactiva a la persona en el portal y en InooWork (pierde el acceso; se conservan sus
          *     registros). `activo: true` la reactiva.
+         *
+         *     Solo un super usuario puede cambiar lo que altera el acceso de alguien: `nivel`, `esSuperUsuario`, `permisos`
+         *     y cualquier cambio de `area` o `rolEquipo` que le cambie el nivel o los permisos efectivos. También es el único
+         *     que puede cambiar a otro super usuario. Debe quedar al menos un super usuario activo (422). Cada cambio de
+         *     acceso queda en el historial.
          */
         patch: operations["cambiarAreaPersona"];
         trace?: never;
@@ -1856,6 +1861,23 @@ export interface paths {
         };
         /** Organigrama de Inoo: cada persona activa del equipo y a quién reporta. Lo ve todo el equipo */
         get: operations["verOrganigrama"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/personas/{usuarioId}/cambios-acceso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Historial de cambios de acceso de una persona: qué cambió, quién y cuándo (solo super usuario). Los últimos 50 */
+        get: operations["listarCambiosAcceso"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3089,6 +3111,10 @@ export interface components {
             /** @description Solo equipo: su nivel efectivo */
             nivelAcceso?: components["schemas"]["NivelAcceso"] | null;
             esLead?: boolean;
+            /** @description Solo equipo: por encima de ADMIN; cambia niveles, permisos y quién es ADMIN */
+            esSuperUsuario?: boolean;
+            /** @description Solo equipo: sus permisos efectivos */
+            permisos?: components["schemas"]["PermisoEquipo"][];
         };
         PersonaMini: {
             /** Format: uuid */
@@ -3695,6 +3721,37 @@ export interface components {
             /** Format: uuid */
             reportaAId: string | null;
             inoowork: components["schemas"]["PersonaEnInooWork"];
+            esSuperUsuario: boolean;
+            /** @description Los efectivos */
+            permisos: components["schemas"]["PermisoEquipo"][];
+            /** @description Los concedidos (true) o quitados (false) sobre lo que da su nivel */
+            permisosPersonalizados: {
+                GESTIONAR_EQUIPO?: boolean;
+                ASIGNAR_ACCESOS?: boolean;
+                COSTOS_IA?: boolean;
+                ESTADO_PAGO?: boolean;
+            };
+        };
+        /**
+         * @description El nivel ADMIN los trae todos y el rol FINANZAS trae ESTADO_PAGO. El super usuario puede conceder o quitar cada uno a una persona
+         * @enum {string}
+         */
+        PermisoEquipo: "GESTIONAR_EQUIPO" | "ASIGNAR_ACCESOS" | "COSTOS_IA" | "ESTADO_PAGO";
+        CambioAcceso: {
+            /** Format: uuid */
+            id: string;
+            /** @example Nivel de acceso */
+            campo: string;
+            antes: string;
+            despues: string;
+            /** Format: date-time */
+            creadoEn: string;
+            /** @description null = lo hizo el sistema */
+            hechoPor: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+            } | null;
         };
         NodoOrganigrama: components["schemas"]["PersonaEquipo"] & {
             /**
@@ -9519,6 +9576,15 @@ export interface operations {
                      * @description Su jefe en el organigrama; null = nadie
                      */
                     reportaAId?: string | null;
+                    /** @description Solo super usuario */
+                    esSuperUsuario?: boolean;
+                    /** @description Solo super usuario. Permiso → true (concedido), false (quitado) o null (vuelve a lo que da su nivel). Los que no vienen no cambian */
+                    permisos?: {
+                        GESTIONAR_EQUIPO?: boolean | null;
+                        ASIGNAR_ACCESOS?: boolean | null;
+                        COSTOS_IA?: boolean | null;
+                        ESTADO_PAGO?: boolean | null;
+                    };
                 };
             };
         };
@@ -9626,6 +9692,32 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarCambiosAcceso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["CambioAcceso"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     reintentarInooWork: {

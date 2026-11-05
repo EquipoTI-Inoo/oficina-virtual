@@ -542,6 +542,48 @@ test("equipo: el ADMIN invita a un colaborador con su jefe y aparece en el organ
   await expect(page.getByRole("row", { name: /Lucía Rojas/ })).toHaveCount(0, { timeout: 20_000 });
 });
 
+test("super usuario: concede un permiso a una persona, y un ADMIN no puede repartir accesos", async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "admin");
+  await page.goto("/equipo/personas");
+  const fila = page.getByRole("row", { name: /Camila Paredes/ });
+  await fila.getByRole("button", { name: "Editar a Camila Paredes" }).click({ timeout: 30_000 });
+  const d = page.getByRole("dialog", { name: "Editar a Camila Paredes" });
+  await expect(d.getByLabel(/^Super usuario/)).not.toBeChecked();
+  await d.getByLabel(/^Costos de IA/).selectOption("SI");
+  await d.getByRole("button", { name: "Guardar" }).click();
+  await expect(fila).toContainText("a medida", { timeout: 20_000 });
+
+  const camila = await browser.newPage();
+  await entrarComo(camila, "operativo");
+  await camila.goto("/equipo/costos");
+  await expect(camila.locator(".nav-item", { hasText: /^Costos de IA$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(camila.locator(".nav-item", { hasText: /^Equipo$/ })).toHaveCount(0);
+  await camila.close();
+
+  await fila.getByRole("button", { name: "Editar a Camila Paredes" }).click();
+  await d.getByText(/Historial de accesos/).click();
+  await expect(d.locator("li", { hasText: "Costos de IA:" })).toContainText("Según su nivel → Concedido", { timeout: 20_000 });
+  await d.getByRole("button", { name: "Cerrar" }).click();
+
+  // Una persona ADMIN sin ser super usuario: gestiona el equipo, pero no toca accesos ni a un super usuario.
+  const rosa = await browser.newPage();
+  await entrarComo(rosa, "finanzas");
+  await rosa.goto("/equipo/personas");
+  const deCamila = rosa.getByRole("row", { name: /Camila Paredes/ });
+  await deCamila.getByRole("button", { name: "Editar a Camila Paredes" }).click({ timeout: 30_000 });
+  const editor = rosa.getByRole("dialog", { name: "Editar a Camila Paredes" });
+  await expect(editor.getByLabel("Acceso")).toBeDisabled();
+  await expect(editor.getByText("Permisos", { exact: true })).toHaveCount(0);
+  await expect(editor.getByLabel(/^Super usuario/)).toHaveCount(0);
+  await editor.getByLabel("Área", { exact: true }).selectOption("ADMINISTRACION");
+  await editor.getByRole("button", { name: "Guardar" }).click();
+  await expect(rosa.getByText(/Solo un super usuario puede cambiar niveles/).first()).toBeVisible({ timeout: 20_000 });
+  await expect(rosa.getByRole("row", { name: /^Admin Inoo Administración/ })).toContainText("Super usuario");
+  await expect(rosa.getByRole("button", { name: "Editar a Admin Inoo" })).toHaveCount(0);
+  await rosa.close();
+});
+
 test("cierre de proyecto: muestra lo que falta y deja el mensaje al cliente", async ({ page, browser }) => {
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");

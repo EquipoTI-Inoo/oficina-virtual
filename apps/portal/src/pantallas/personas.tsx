@@ -1,15 +1,16 @@
 "use client";
 /**
  * Equipo de Inoo (2 nov 2026). Dos pantallas:
- *  · «Equipo» (nivel ADMIN): altas, cambios y bajas de colaboradores, con su área, acceso, lead y jefe.
+ *  · «Equipo» (permiso GESTIONAR_EQUIPO): altas, cambios y bajas de colaboradores, con su área, lead y jefe.
  *    Todo se refleja en InooWork, y lo que cambia allá llega aquí (src/dominio/personas-equipo.ts).
+ *    El nivel, los permisos y quién es super usuario solo los cambia un super usuario (5 nov).
  *  · «Organigrama» (todo el equipo): quién reporta a quién.
  */
 import { useState } from "react";
 import { LuNetwork, LuPencil, LuRefreshCw, LuUserPlus } from "react-icons/lu";
-import { api, ProblemaApi, useConsulta, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso } from "../componentes";
-import { NIVELES, NOMBRE_NIVEL, type Nivel } from "../dominio/accesos";
+import { api, fCorta, ProblemaApi, useConsulta, type S } from "../base";
+import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { NIVELES, NOMBRE_NIVEL, NOMBRE_PERMISO, permisosDe, PERMISOS, type Nivel, type Permiso } from "../dominio/accesos";
 import { AREAS, NOMBRE_AREA, type Area } from "../dominio/ia-equipo";
 
 type Ficha = S<"FichaPersona">;
@@ -34,6 +35,7 @@ function Personas() {
   const [editando, setEditando] = useState<Ficha | "nueva" | null>(null);
   const [verInactivas, setVerInactivas] = useState(false);
   const avisar = useAviso();
+  const soySuper = !!usePortal().sesion?.usuario.esSuperUsuario;
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const todas = r.datos.datos;
@@ -96,7 +98,10 @@ function Personas() {
                     <span className="texto-xs texto-muted">{p.cargo ? `${p.cargo} · ` : ""}{p.correo}</span>
                   </td>
                   <td className="texto-sm">{p.area ? NOMBRE_AREA[p.area] : <span style={{ color: "var(--c-alerta)" }}>Sin área</span>}{p.esLead && <span className="texto-xs texto-muted"> · lead</span>}</td>
-                  <td className="texto-sm">{NOMBRE_NIVEL[p.nivel]}{p.nivelPersonalizado && <span className="texto-xs texto-muted"> · a medida</span>}</td>
+                  <td className="texto-sm">
+                    {p.esSuperUsuario ? <Etiqueta tono="violeta">Super usuario</Etiqueta> : NOMBRE_NIVEL[p.nivel]}
+                    {!p.esSuperUsuario && (p.nivelPersonalizado || Object.keys(p.permisosPersonalizados).length > 0) && <span className="texto-xs texto-muted"> · a medida</span>}
+                  </td>
                   <td className="texto-sm">{nombreDe(p.reportaAId) ?? <span className="texto-muted">—</span>}</td>
                   <td>
                     <span title={p.inoowork.error ?? p.inoowork.empleadoId ?? undefined}><Etiqueta tono={tono}>{texto}</Etiqueta></span>
@@ -108,12 +113,16 @@ function Personas() {
                           <LuRefreshCw size={13} /> Reintentar
                         </button>
                       )}
-                      <button className="boton boton--chico" onClick={() => setEditando(p)} aria-label={`Editar a ${p.nombre}`}>
-                        <LuPencil size={13} /> Editar
-                      </button>
-                      <button className="boton boton--chico" onClick={() => void activar(p, !p.activo)}>
-                        {p.activo ? "Desactivar" : "Reactivar"}
-                      </button>
+                      {(soySuper || !p.esSuperUsuario) && (
+                        <>
+                          <button className="boton boton--chico" onClick={() => setEditando(p)} aria-label={`Editar a ${p.nombre}`}>
+                            <LuPencil size={13} /> Editar
+                          </button>
+                          <button className="boton boton--chico" onClick={() => void activar(p, !p.activo)}>
+                            {p.activo ? "Desactivar" : "Reactivar"}
+                          </button>
+                        </>
+                      )}
                     </span>
                   </td>
                 </tr>
@@ -131,6 +140,7 @@ function Personas() {
         <EditorPersona
           persona={editando === "nueva" ? null : editando}
           equipo={todas.filter((p) => p.activo)}
+          soySuper={soySuper}
           alCerrar={() => setEditando(null)}
           alGuardar={() => {
             setEditando(null);
@@ -142,7 +152,11 @@ function Personas() {
   );
 }
 
-function EditorPersona({ persona, equipo, alCerrar, alGuardar }: { persona: Ficha | null; equipo: Ficha[]; alCerrar: () => void; alGuardar: () => void }) {
+const VALOR_PERMISO = { NIVEL: null, SI: true, NO: false } as const;
+type ValorPermiso = keyof typeof VALOR_PERMISO;
+const valorDePermiso = (v: boolean | undefined): ValorPermiso => (v === undefined ? "NIVEL" : v ? "SI" : "NO");
+
+function EditorPersona({ persona, equipo, soySuper, alCerrar, alGuardar }: { persona: Ficha | null; equipo: Ficha[]; soySuper: boolean; alCerrar: () => void; alGuardar: () => void }) {
   const [nombre, setNombre] = useState(persona?.nombre ?? "");
   const [correo, setCorreo] = useState(persona?.correo ?? "");
   const [cargo, setCargo] = useState(persona?.cargo ?? "");
@@ -150,6 +164,8 @@ function EditorPersona({ persona, equipo, alCerrar, alGuardar }: { persona: Fich
   const [nivel, setNivel] = useState<Nivel | "">(persona?.nivelPersonalizado ?? "");
   const [esLead, setEsLead] = useState(persona?.esLead ?? false);
   const [jefe, setJefe] = useState(persona?.reportaAId ?? "");
+  const [esSuper, setEsSuper] = useState(persona?.esSuperUsuario ?? false);
+  const [permisos, setPermisos] = useState<Record<Permiso, ValorPermiso>>(() => Object.fromEntries(PERMISOS.map((x) => [x, valorDePermiso(persona?.permisosPersonalizados[x])])) as Record<Permiso, ValorPermiso>);
   const [err, setErr] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
   const avisar = useAviso();
@@ -157,7 +173,10 @@ function EditorPersona({ persona, equipo, alCerrar, alGuardar }: { persona: Fich
   const guardar = async () => {
     setErr({});
     setGuardando(true);
-    const cuerpo = { nombre, correo, cargo: cargo.trim() || null, area: area || null, nivel: nivel || null, esLead: !!area && esLead, reportaAId: jefe || null };
+    const cuerpo = {
+      nombre, correo, cargo: cargo.trim() || null, area: area || null, nivel: nivel || null, esLead: !!area && esLead, reportaAId: jefe || null,
+      ...(soySuper && persona ? { esSuperUsuario: esSuper, permisos: Object.fromEntries(PERMISOS.map((x) => [x, VALOR_PERMISO[permisos[x]]])) } : {}),
+    };
     try {
       const x = persona
         ? await api<Ficha>(`/panel/equipo/${persona.id}`, { metodo: "PATCH", cuerpo })
@@ -174,6 +193,8 @@ function EditorPersona({ persona, equipo, alCerrar, alGuardar }: { persona: Fich
       setGuardando(false);
     }
   };
+  // Lo que daría su nivel con lo elegido en este formulario, sin contar los permisos a medida.
+  const delNivel = permisosDe({ rolEquipo: persona?.rolEquipo ?? null, area: area || null, nivelAcceso: nivel || null });
   const nivelArea = area ? NOMBRE_NIVEL[area === "ADMINISTRACION" ? "ADMIN" : area === "CRM" || area === "COMERCIAL" ? "CUENTA" : "PROYECTO"].toLowerCase() : "por proyecto";
 
   return (
@@ -199,12 +220,13 @@ function EditorPersona({ persona, equipo, alCerrar, alGuardar }: { persona: Fich
           </select>
         </Campo>
         <Campo id="pe-nivel" etiqueta="Acceso" error={err.nivel} flex>
-          <select id="pe-nivel" value={nivel} onChange={(e) => setNivel(e.target.value as Nivel | "")}>
+          <select id="pe-nivel" value={nivel} disabled={!soySuper} onChange={(e) => setNivel(e.target.value as Nivel | "")}>
             <option value="">Según su área ({nivelArea})</option>
             {NIVELES.map((n) => <option key={n} value={n}>{NOMBRE_NIVEL[n]}</option>)}
           </select>
         </Campo>
       </div>
+      {!soySuper && <p className="texto-xs texto-muted">El acceso lo cambia un super usuario, también si el cambio de área le cambia el nivel a la persona.</p>}
       <label className="fila texto-sm" style={{ gap: 8 }}>
         <input type="checkbox" checked={!!area && esLead} disabled={!area} onChange={(e) => setEsLead(e.target.checked)} />
         Lead de su área: asigna a su gente y ve su carga y su calendario
@@ -215,10 +237,61 @@ function EditorPersona({ persona, equipo, alCerrar, alGuardar }: { persona: Fich
           {equipo.filter((p) => p.id !== persona?.id).map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.cargo ? ` · ${p.cargo}` : ""}</option>)}
         </select>
       </Campo>
+      {soySuper && persona && (
+        <section className="pila" style={{ gap: 8, borderTop: "1px solid var(--c-borde)", paddingTop: 12 }} aria-label="Permisos">
+          <label className="fila texto-sm" style={{ gap: 8 }}>
+            <input type="checkbox" checked={esSuper} onChange={(e) => setEsSuper(e.target.checked)} />
+            Super usuario: ve todo y cambia niveles, permisos y quién es ADMIN
+          </label>
+          {err.esSuperUsuario && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.esSuperUsuario}</p>}
+          {esSuper ? (
+            <p className="texto-xs texto-muted">Un super usuario tiene todos los permisos.</p>
+          ) : (
+            <>
+              <h3 className="negrita texto-sm">Permisos</h3>
+              {PERMISOS.map((x) => (
+                <div key={x} className="fila entre" style={{ gap: 12 }}>
+                  <label htmlFor={`pe-permiso-${x}`} className="texto-sm">
+                    <span style={{ display: "block" }}>{NOMBRE_PERMISO[x].titulo}</span>
+                    <span className="texto-xs texto-muted">{NOMBRE_PERMISO[x].ayuda}</span>
+                  </label>
+                  <select id={`pe-permiso-${x}`} className="input" style={{ width: 170, flexShrink: 0 }} value={permisos[x]} onChange={(e) => setPermisos((p) => ({ ...p, [x]: e.target.value as ValorPermiso }))}>
+                    <option value="NIVEL">Según su nivel ({delNivel.includes(x) ? "sí" : "no"})</option>
+                    <option value="SI">Concedido</option>
+                    <option value="NO">Quitado</option>
+                  </select>
+                </div>
+              ))}
+              {err.permisos && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.permisos}</p>}
+            </>
+          )}
+          <HistorialAcceso personaId={persona.id} />
+        </section>
+      )}
+      {err.activo && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.activo}</p>}
       <button className="boton boton--primario boton--bloque" disabled={guardando} onClick={() => void guardar()}>
         {persona ? "Guardar" : "Invitar"}
       </button>
     </Modal>
+  );
+}
+
+/** Qué cambió en el acceso de la persona, quién y cuándo. Solo lo ve un super usuario. */
+function HistorialAcceso({ personaId }: { personaId: string }) {
+  const r = useConsulta<{ datos: S<"CambioAcceso">[] }>(`/panel/personas/${personaId}/cambios-acceso`);
+  if (!r.datos?.datos.length) return null;
+  return (
+    <details>
+      <summary className="texto-xs enlace" style={{ cursor: "pointer" }}>Historial de accesos ({r.datos.datos.length})</summary>
+      <ul className="pila" style={{ gap: 4, marginTop: 6, listStyle: "none", padding: 0 }}>
+        {r.datos.datos.map((x) => (
+          <li key={x.id} className="texto-xs">
+            <span className="negrita">{x.campo}:</span> {x.antes} → {x.despues}
+            <span className="texto-muted"> · {x.hechoPor?.nombre ?? "Sistema"}, {fCorta(x.creadoEn)}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

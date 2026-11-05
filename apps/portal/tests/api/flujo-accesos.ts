@@ -37,12 +37,13 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.deepEqual((await llamar("GET", "/panel/clientes", CAMILA)).json.datos, [], "la tabla de clientes es de quien ve cuentas");
     });
 
-    test("ADMIN y toda Administración ven todo y cambian niveles; por cuenta solo ve lo asignado", async () => {
+    test("ADMIN y toda Administración ven todo; el super usuario cambia niveles; por cuenta solo ve lo asignado", async () => {
       await reiniciar();
       assert.equal((await llamar("GET", "/panel/clientes", ROSA)).json.datos.length, 5, "Finanzas tiene privilegios de admin");
       assert.equal((await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, DIEGO, { nivel: "CUENTA" })).status, 403, "un lead no cambia niveles");
-      assert.deepEqual((await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ROSA, { nivel: "SUPER" })).json.errores.map((e: any) => e.campo), ["nivel"]);
-      const cambio = (await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ROSA, { nivel: "CUENTA" })).json;
+      assert.deepEqual((await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ADMIN, { nivel: "SUPER" })).json.errores.map((e: any) => e.campo), ["nivel"]);
+      assert.equal((await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ROSA, { nivel: "CUENTA" })).status, 403, "un ADMIN sin ser super usuario tampoco");
+      const cambio = (await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ADMIN, { nivel: "CUENTA" })).json;
       assert.deepEqual([cambio.nivel, cambio.nivelPersonalizado, cambio.area], ["CUENTA", "CUENTA", "DISENO"]);
       assert.equal((await llamar("GET", `/clientes/${NATIVA}`, CAMILA)).status, 404);
       assert.equal((await llamar("POST", `/clientes/${NATIVA}/accesos`, DIEGO, { usuarioId: CAMILA_ID })).status, 403, "Camila no es del área de Diego");
@@ -52,8 +53,102 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.deepEqual(accesos.datos.map((a: any) => [a.persona.nombre, a.origen, a.puedeQuitar]), [["Diego Castro", "AM", false], ["Camila Paredes", "ASIGNADO", true]]);
       assert.equal((await llamar("DELETE", `/clientes/${NATIVA}/accesos/${CAMILA_ID}`, ADMIN)).status, 204);
       assert.equal((await llamar("GET", `/clientes/${NATIVA}`, CAMILA)).status, 404);
-      const vuelve = (await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ROSA, { nivel: null })).json;
+      const vuelve = (await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ADMIN, { nivel: null })).json;
       assert.deepEqual([vuelve.nivel, vuelve.nivelPersonalizado], ["PROYECTO", null], "null vuelve al de su área");
+    });
+
+    test("super usuario: un ADMIN hace su trabajo diario, pero no reparte accesos por ninguna vía", async () => {
+      await reiniciar();
+      const yo = (await llamar("GET", "/me", ROSA)).json.usuario;
+      assert.deepEqual([yo.nivelAcceso, yo.esSuperUsuario], ["ADMIN", false]);
+      assert.equal((await llamar("GET", "/me", ADMIN)).json.usuario.esSuperUsuario, true);
+
+      // Su trabajo diario sigue igual.
+      assert.equal((await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ROSA, { cargo: "Diseñadora senior", esLead: true })).status, 200);
+      assert.equal((await llamar("PUT", "/panel/ia-equipo/areas/CRM", ROSA, { topeDiarioUsd: 5, topeMensualUsd: 50 })).status, 200);
+
+      // Ninguna vía le da acceso a otro: ni el nivel, ni el área, ni el rol, ni los permisos, ni un alta.
+      const camila = `/panel/equipo/${CAMILA_ID}`;
+      for (const cambio of [{ nivel: "ADMIN" }, { area: "ADMINISTRACION" }, { area: "CRM" }, { rolEquipo: "ADMIN" }, { rolEquipo: "FINANZAS" }, { permisos: { COSTOS_IA: true } }, { esSuperUsuario: true }]) {
+        assert.equal((await llamar("PATCH", camila, ROSA, cambio)).status, 403, JSON.stringify(cambio));
+      }
+      const fichaCamila = (await llamar("GET", "/panel/personas", ADMIN)).json.datos.find((p: any) => p.id === CAMILA_ID);
+      assert.deepEqual([fichaCamila.nivel, fichaCamila.area, fichaCamila.rolEquipo, fichaCamila.esSuperUsuario], ["PROYECTO", "DISENO", "DESARROLLO_WEB", false], "nada de eso se aplicó");
+      assert.equal((await llamar("POST", "/panel/personas", ROSA, { nombre: "Nueva Admin", correo: "nueva.admin@inoo.pe", area: "ADMINISTRACION" })).status, 403);
+      assert.equal((await llamar("POST", "/panel/personas", ROSA, { nombre: "Nueva", correo: "nueva@inoo.pe", area: "DISENO", nivel: "CUENTA" })).status, 403);
+      assert.equal((await llamar("POST", "/panel/personas", ROSA, { nombre: "Nueva", correo: "nueva@inoo.pe", area: "DISENO" })).status, 201, "un alta común sí");
+
+      // Tampoco a sí misma, ni puede tocar a un super usuario.
+      assert.equal((await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ROSA, { esSuperUsuario: true })).status, 403);
+      assert.equal((await llamar("PATCH", `/panel/equipo/${uid(1, 4)}`, ROSA, { cargo: "Otro" })).status, 403);
+      assert.equal((await llamar("PATCH", `/panel/equipo/${uid(1, 4)}`, ROSA, { activo: false })).status, 403);
+
+      // Guardar el formulario sin cambiar el acceso no cuenta como cambio.
+      assert.equal((await llamar("PATCH", camila, ROSA, { nivel: null, area: "DISENO", rolEquipo: "DESARROLLO_WEB" })).status, 200);
+    });
+
+    test("permisos por persona: conceder, quitar y volver a lo que da el nivel", async () => {
+      await reiniciar();
+      const camila = `/panel/equipo/${CAMILA_ID}`;
+      assert.equal((await llamar("GET", "/panel/ia-equipo", CAMILA)).status, 403, "por proyecto no ve costos");
+      assert.deepEqual((await llamar("PATCH", camila, ADMIN, { permisos: { VOLAR: true } })).json.errores.map((e: any) => e.campo), ["permisos"]);
+      assert.deepEqual((await llamar("PATCH", camila, ADMIN, { permisos: { COSTOS_IA: "si" } })).json.errores.map((e: any) => e.campo), ["permisos"]);
+
+      const conPermiso = (await llamar("PATCH", camila, ADMIN, { permisos: { COSTOS_IA: true } })).json;
+      assert.deepEqual([conPermiso.permisos, conPermiso.permisosPersonalizados, conPermiso.nivel], [["COSTOS_IA"], { COSTOS_IA: true }, "PROYECTO"]);
+      assert.equal((await llamar("GET", "/panel/ia-equipo", CAMILA)).status, 200, "ya los ve");
+      assert.equal((await llamar("GET", "/panel/costos-ia?periodo=2026-10", CAMILA)).status, 200);
+      assert.deepEqual((await llamar("GET", "/me", CAMILA)).json.usuario.permisos, ["COSTOS_IA"]);
+      assert.equal((await llamar("GET", "/panel/personas", CAMILA)).status, 403, "un permiso no abre los demás");
+      assert.equal((await llamar("GET", `/clientes/${NATIVA}`, CAMILA)).status, 404, "ni le cambia lo que ve");
+
+      assert.equal((await llamar("GET", "/panel/ia-equipo", ROSA)).status, 200);
+      const sinCostos = (await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ADMIN, { permisos: { COSTOS_IA: false } })).json;
+      assert.equal(sinCostos.permisos.includes("COSTOS_IA"), false);
+      assert.equal(sinCostos.nivel, "ADMIN", "sigue siendo ADMIN");
+      assert.equal((await llamar("GET", "/panel/ia-equipo", ROSA)).status, 403, "a un ADMIN también se le puede quitar");
+      assert.equal((await llamar("GET", "/panel/clientes", ROSA)).json.datos.length, 5, "y sigue viendo todas las cuentas");
+
+      // Asignar accesos también se puede quitar o conceder.
+      await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ADMIN, { permisos: { ASIGNAR_ACCESOS: false } });
+      assert.equal((await llamar("POST", `/clientes/${NATIVA}/accesos`, ROSA, { usuarioId: uid(1, 3) })).status, 403);
+      assert.equal((await llamar("GET", `/clientes/${NATIVA}/accesos`, ROSA)).json.puedeAsignar, false);
+
+      const vuelve = (await llamar("PATCH", camila, ADMIN, { permisos: { COSTOS_IA: null } })).json;
+      assert.deepEqual([vuelve.permisos, vuelve.permisosPersonalizados], [[], {}]);
+      assert.equal((await llamar("GET", "/panel/ia-equipo", CAMILA)).status, 403);
+    });
+
+    test("siempre queda un super usuario y cada cambio queda en el historial", async () => {
+      await reiniciar();
+      const admin = `/panel/equipo/${uid(1, 4)}`;
+      assert.deepEqual((await llamar("PATCH", admin, ADMIN, { esSuperUsuario: false })).json.errores.map((e: any) => e.campo), ["esSuperUsuario"], "es el último");
+
+      const rosa = (await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ADMIN, { esSuperUsuario: true })).json;
+      assert.deepEqual([rosa.esSuperUsuario, rosa.permisos.length], [true, 4]);
+      assert.equal((await llamar("PATCH", admin, ROSA, { activo: false })).status, 200, "con otro super usuario, ya se puede");
+      assert.deepEqual((await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ROSA, { esSuperUsuario: false })).json.errores.map((e: any) => e.campo), ["esSuperUsuario"], "ahora la última es ella");
+      assert.equal((await llamar("PATCH", admin, ROSA, { activo: true, esSuperUsuario: false })).status, 200);
+
+      // Un super usuario sin área ni nivel elegido ve todo: Ernesto y Omar no dependen de su área en InooWork.
+      await llamar("PATCH", `/panel/equipo/${CAMILA_ID}`, ROSA, { esSuperUsuario: true, area: null });
+      assert.equal((await llamar("GET", "/me", CAMILA)).json.usuario.nivelAcceso, "ADMIN");
+      assert.equal((await llamar("GET", "/panel/clientes", CAMILA)).json.datos.length, 5);
+
+      assert.equal((await llamar("GET", `/panel/personas/${uid(1, 5)}/cambios-acceso`, DIEGO)).status, 403);
+      assert.equal((await llamar("GET", `/panel/personas/${uid(1, 5)}/cambios-acceso`, ADMIN)).status, 403, "ya no es super usuario");
+      const historial = (await llamar("GET", `/panel/personas/${uid(1, 5)}/cambios-acceso`, ROSA)).json.datos;
+      const fila = historial.find((x: any) => x.campo === "Super usuario");
+      assert.deepEqual([fila.antes, fila.despues, fila.hechoPor.nombre], ["No", "Sí", "Admin Inoo"]);
+      const deAdmin = (await llamar("GET", `/panel/personas/${uid(1, 4)}/cambios-acceso`, ROSA)).json.datos;
+      assert.deepEqual(deAdmin.map((x: any) => x.campo).sort(), ["Activo", "Activo", "Super usuario"], "la baja, la vuelta y el retiro; su nivel sigue siendo ADMIN por su rol");
+      const deCamila = (await llamar("GET", `/panel/personas/${CAMILA_ID}/cambios-acceso`, ROSA)).json.datos;
+      assert.ok(deCamila.some((x: any) => x.campo === "Nivel de acceso" && x.despues.startsWith("Administrador")), "a Camila sí le cambió el nivel");
+
+      // Sin cambios de acceso, no hay nada que anotar.
+      const antes = historial.length;
+      await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ROSA, { cargo: "Gerenta" });
+      assert.equal((await llamar("GET", `/panel/personas/${uid(1, 5)}/cambios-acceso`, ROSA)).json.datos.length, antes);
     });
 
     test("leads: asignan a la gente de su área, la supervisan y ven todo su nivel para repartir", async () => {

@@ -304,9 +304,9 @@ const NAV_EQUIPO = [
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
   { a: "/equipo/organigrama", texto: "Organigrama", icono: <LuNetwork />, grupo: "Agencia" },
-  { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, soloAdmin: true },
+  { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, permiso: "GESTIONAR_EQUIPO" },
   { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone /> },
-  { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, soloAdmin: true },
+  { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, permiso: "COSTOS_IA" },
 ];
 
 /** Equipo: elige un cliente para entrar a su ficha, o «Todas las cuentas» para ver la lista. */
@@ -422,7 +422,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
   // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN; por proyecto, «Clientes» son sus marcas.
   const nivel = sesion?.usuario.nivelAcceso;
   const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO)
-    .filter((n) => !("soloAdmin" in n) || nivel === "ADMIN")
+    .filter((n) => !("permiso" in n) || sesion?.usuario.permisos?.some((x) => x === n.permiso))
     .map((n) => (n.a === "/equipo/clientes" && nivel === "PROYECTO" ? { ...n, texto: "Mis marcas" } : n));
   const u = sesion?.usuario;
   const salir = () => {

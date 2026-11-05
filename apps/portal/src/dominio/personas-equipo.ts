@@ -5,7 +5,7 @@
  * Se enlazan por el id de empleado de InooWork (EMP-…) y, si falta, por el correo.
  * Borrar es desactivar en los dos: se pierde el acceso, pero se conservan asistencia, vacaciones y tareas.
  */
-import { esNivel } from "./accesos";
+import { esNivel, validarPermisos } from "./accesos";
 import type { Area } from "./ia-equipo";
 
 export const ROLES_EQUIPO = ["ACCOUNT_MANAGER", "DISENO", "AUDIOVISUAL", "PAID_MEDIA", "DESARROLLO_WEB", "ADMIN", "FINANZAS"] as const;
@@ -39,7 +39,7 @@ export const correoValido = (v: unknown): v is string => typeof v === "string" &
 export const inicialesDe = (nombre: string) => nombre.trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
 type Errores = { campo: string; mensaje: string }[];
-const CAMPOS_CAMBIO = ["area", "nivel", "esLead", "nombre", "correo", "cargo", "rolEquipo", "activo", "reportaAId"] as const;
+const CAMPOS_CAMBIO = ["area", "nivel", "esLead", "nombre", "correo", "cargo", "rolEquipo", "activo", "reportaAId", "esSuperUsuario", "permisos"] as const;
 export type CambioPersona = Partial<Record<(typeof CAMPOS_CAMBIO)[number], unknown>>;
 
 /** PATCH /panel/equipo/{id}: datos, área, nivel (null = el del área), lead, rol y activo. */
@@ -55,6 +55,9 @@ export function validarPersonaEquipo(b: CambioPersona, esArea: (v: unknown) => b
   if (b.cargo !== undefined && b.cargo !== null && typeof b.cargo !== "string") errores.push({ campo: "cargo", mensaje: "Escribe el cargo" });
   if (b.rolEquipo !== undefined && !esRolEquipo(b.rolEquipo)) errores.push({ campo: "rolEquipo", mensaje: "Elige un rol" });
   if (b.reportaAId !== undefined && b.reportaAId !== null && typeof b.reportaAId !== "string") errores.push({ campo: "reportaAId", mensaje: "Elige a una persona del equipo" });
+  if (b.esSuperUsuario !== undefined && typeof b.esSuperUsuario !== "boolean") errores.push({ campo: "esSuperUsuario", mensaje: "Debe ser verdadero o falso" });
+  const permisos = b.permisos !== undefined ? validarPermisos(b.permisos) : null;
+  if (permisos) errores.push({ campo: "permisos", mensaje: permisos });
   return errores;
 }
 

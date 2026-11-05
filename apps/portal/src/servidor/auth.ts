@@ -13,7 +13,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Consultor, SesionDb } from "./db";
 import { ErrorApi } from "./errores";
-import { nivelDe, type Nivel } from "../dominio/accesos";
+import { nivelDe, permisosDe, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import type { Area } from "../dominio/ia-equipo";
 import { areaDeClaveHermes } from "./jarvis-chat";
 import { esSesionInooWork, leerSesion } from "./sesion-inoowork";
@@ -27,6 +27,9 @@ export interface Usuario extends SesionDb {
   area?: Area | null;
   nivelAcceso?: Nivel | null;
   esLead?: boolean;
+  /** Solo equipo (5 nov): super usuario y permisos efectivos. */
+  esSuperUsuario?: boolean;
+  permisos?: Permiso[];
   roles: Record<string, "ADMIN_CLIENTE" | "APROBADOR" | "LECTOR">;
   /** Solo llaves de integración. */
   scopes?: string[];
@@ -135,8 +138,8 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   }
 
   // usuario y miembro_cliente no tienen RLS: se leen antes de activar la sesión restringida.
-  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean }>(
-    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
+  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados }>(
+    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
     [filtro.valor],
   );
   const u = rows[0];
@@ -151,7 +154,10 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     cargo: u.cargo,
     tipo: u.tipo,
     rolEquipo: u.rol_equipo,
-    ...(u.tipo === "EQUIPO" ? { area: u.area, nivelAcceso: nivelDe({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso }), esLead: u.es_lead } : {}),
+    ...(u.tipo === "EQUIPO" ? (() => {
+      const acceso = { rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso, esSuperUsuario: u.es_super_usuario, permisosPersonalizados: u.permisos_personalizados };
+      return { area: u.area, nivelAcceso: nivelDe(acceso), esLead: u.es_lead, esSuperUsuario: u.es_super_usuario, permisos: permisosDe(acceso) };
+    })() : {}),
     clienteIds: m.rows.map((r) => r.cliente_id),
     roles: Object.fromEntries(m.rows.map((r) => [r.cliente_id, r.rol])),
   };

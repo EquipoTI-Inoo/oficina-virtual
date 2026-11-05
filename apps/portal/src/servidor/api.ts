@@ -51,7 +51,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
-import { calcularAlcance, nivelDe, puedeAsignar, puedeSupervisar, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type Nivel } from "../dominio/accesos";
+import { altaProhibida, calcularAlcance, cambiosDeAcceso, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
@@ -117,10 +117,10 @@ async function accesoCliente(ctx: Ctx, clienteId: string, completo = false) {
   if (ctx.esEquipo && !(await veClienteDb(ctx, clienteId, completo))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
 }
 
-interface PersonaAcceso { id: string; rolEquipo: string | null; area: Area | null; nivelAcceso: Nivel | null; esLead: boolean; tipo: string }
+interface PersonaAcceso { id: string; rolEquipo: string | null; area: Area | null; nivelAcceso: Nivel | null; esLead: boolean; esSuperUsuario: boolean; tipo: string }
 async function personaAccesoDb(c: Consultor, id: string): Promise<PersonaAcceso | undefined> {
   return (await c.query<PersonaAcceso>(
-    `SELECT id, rol_equipo AS "rolEquipo", area::text AS area, nivel_acceso::text AS "nivelAcceso", es_lead AS "esLead", tipo::text AS tipo FROM usuario WHERE id = $1`,
+    `SELECT id, rol_equipo AS "rolEquipo", area::text AS area, nivel_acceso::text AS "nivelAcceso", es_lead AS "esLead", es_super_usuario AS "esSuperUsuario", tipo::text AS tipo FROM usuario WHERE id = $1`,
     [esUuid(id) ? id : null],
   )).rows[0];
 }
@@ -378,7 +378,7 @@ ruta("GET", "/me", async (ctx) => {
       cargo: ctx.u.cargo,
       iniciales: ctx.u.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
       tipo: ctx.u.tipo as S<"Sesion">["usuario"]["tipo"],
-      ...(ctx.esEquipo && !ctx.esServicio ? { area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead } : {}),
+      ...(ctx.esEquipo && !ctx.esServicio ? { area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead, esSuperUsuario: !!ctx.u.esSuperUsuario, permisos: ctx.u.permisos ?? [] } : {}),
       rolEquipo: ctx.u.rolEquipo as S<"Sesion">["usuario"]["rolEquipo"],
     },
     clientes: ctx.esEquipo ? [] : nombres.map((c) => ({ clienteId: c.id, nombre: c.nombre, rol: ctx.u.roles[c.id] })),
@@ -1015,6 +1015,14 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
 const soloEquipo = (ctx: Ctx) => {
   if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
 };
+/** Permiso suelto del equipo (5 nov). Las llaves de integración pasan: sus límites son los scopes. */
+function exigirPermiso(ctx: Ctx, permiso: Permiso) {
+  if (ctx.esServicio) return;
+  if (!ctx.esEquipo || !ctx.u.permisos?.includes(permiso)) throw new ErrorApi(403, "SIN_PERMISO", "No tienes permiso para esta acción");
+}
+function exigirSuperUsuario(ctx: Ctx) {
+  if (ctx.esServicio || !ctx.esEquipo || !ctx.u.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Solo un super usuario puede ver esto");
+}
 const PERIODO_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 function exigirPeriodo(periodo: string | null | undefined, campo = "periodo"): string {
   if (!periodo || !PERIODO_RE.test(periodo)) throw new ErrorApi(422, "VALIDACION", "Indica el mes", undefined, [{ campo, mensaje: "Formato AAAA-MM" }]);
@@ -2135,12 +2143,13 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
 // ───────────────────────────────────────────── Jarvis del equipo: áreas, topes y la pasarela a DeepSeek (30 oct)
 // Solo equipo. El consumo se cobra al área de la persona, contra un tope diario y uno mensual por área.
 
-interface FilaPersonaEquipo { id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean }
-const COLUMNAS_PERSONA_EQUIPO = "id, nombre, cargo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead";
+interface FilaPersonaEquipo { id: string; nombre: string; cargo: string | null; rol_equipo: S<"RolEquipo"> | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados }
+const COLUMNAS_PERSONA_EQUIPO = "id, nombre, cargo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados";
 const SELECT_PERSONA_EQUIPO = `SELECT ${COLUMNAS_PERSONA_EQUIPO} FROM usuario`;
+const accesoDeFila = (u: FilaPersonaEquipo) => ({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso, esSuperUsuario: u.es_super_usuario, permisosPersonalizados: u.permisos_personalizados });
 const personaEquipoVista = (u: FilaPersonaEquipo): S<"PersonaEquipo"> => ({
   id: u.id, nombre: u.nombre, iniciales: u.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), cargo: u.cargo, rolEquipo: u.rol_equipo, area: u.area,
-  nivel: nivelDe({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso }), nivelPersonalizado: u.nivel_acceso, esLead: u.es_lead,
+  nivel: nivelDe(accesoDeFila(u)), nivelPersonalizado: u.nivel_acceso, esLead: u.es_lead,
 });
 
 interface FilaFichaPersona extends FilaPersonaEquipo {
@@ -2150,8 +2159,16 @@ interface FilaFichaPersona extends FilaPersonaEquipo {
 const COLUMNAS_FICHA_PERSONA = `${COLUMNAS_PERSONA_EQUIPO}, email::text AS email, activo, reporta_a_id, inoowork_empleado_id, inoowork_usuario, inoowork_estado, inoowork_error`;
 const fichaPersonaVista = (u: FilaFichaPersona): S<"FichaPersona"> => ({
   ...personaEquipoVista(u), correo: u.email, activo: u.activo, reportaAId: u.reporta_a_id,
+  esSuperUsuario: u.es_super_usuario, permisos: permisosDe(accesoDeFila(u)), permisosPersonalizados: u.permisos_personalizados,
   inoowork: { empleadoId: u.inoowork_empleado_id, estado: u.inoowork_estado, error: u.inoowork_error },
 });
+
+/** Cada cambio de acceso queda en el historial, con quién lo hizo. */
+async function registrarCambiosAccesoDb(ctx: Ctx, usuarioId: string, antes: EstadoAcceso, despues: EstadoAcceso) {
+  for (const x of cambiosDeAcceso(antes, despues)) {
+    await ctx.c.query("INSERT INTO cambio_acceso (usuario_id, hecho_por, campo, antes, despues) VALUES ($1, $2, $3, $4, $5)", [usuarioId, ctx.esServicio ? null : ctx.u.usuarioId, x.campo, x.antes, x.despues]);
+  }
+}
 
 /** Manda la persona a InooWork y guarda cómo quedó. Nunca falla: si InooWork no responde, queda PENDIENTE. */
 async function enviarAInooWorkDb(ctx: Ctx, u: FilaFichaPersona, reintento = false): Promise<FilaFichaPersona> {
@@ -2192,15 +2209,28 @@ const correoEnUso = async (ctx: Ctx, correo: string, salvo: string | null = null
   (await ctx.c.query("SELECT 1 FROM usuario WHERE email = $1 AND id IS DISTINCT FROM $2", [correo, salvo])).rows.length > 0;
 
 ruta("GET", "/panel/personas", async (ctx) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   const { rows } = await ctx.c.query<FilaFichaPersona>(`SELECT ${COLUMNAS_FICHA_PERSONA} FROM usuario WHERE tipo = 'EQUIPO' ORDER BY activo DESC, nombre`);
   return { datos: rows.map(fichaPersonaVista), inooworkConectado: inooworkConectado() };
 });
 
+ruta("GET", "/panel/personas/:id/cambios-acceso", async (ctx, p) => {
+  exigirSuperUsuario(ctx);
+  if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const { rows } = await ctx.c.query<{ id: string; campo: string; antes: string; despues: string; creado_en: Date; quien_id: string | null; quien: string | null }>(
+    `SELECT x.id, x.campo, x.antes, x.despues, x.creado_en, u.id AS quien_id, u.nombre AS quien
+     FROM cambio_acceso x LEFT JOIN usuario u ON u.id = x.hecho_por WHERE x.usuario_id = $1 ORDER BY x.creado_en DESC, x.campo LIMIT 50`,
+    [p.id],
+  );
+  return { datos: rows.map((x) => ({ id: x.id, campo: x.campo, antes: x.antes, despues: x.despues, creadoEn: iso(x.creado_en)!, hechoPor: x.quien_id ? { id: x.quien_id, nombre: x.quien! } : null })) };
+});
+
 ruta("POST", "/panel/personas", async (ctx, _p, _q, cuerpo) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   const { errores, persona: n } = validarNuevaPersona(await cuerpo(), esArea);
   if (!n) validacion(errores);
+  const prohibido = altaProhibida(!!ctx.u.esSuperUsuario, n!);
+  if (prohibido) throw new ErrorApi(403, "SIN_PERMISO", prohibido);
   if (await correoEnUso(ctx, n!.correo)) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
   const jefe = n!.reportaAId ? await errorJefeDb(ctx, null, n!.reportaAId) : null;
   if (jefe) validacion([{ campo: "reportaAId", mensaje: jefe }]);
@@ -2209,12 +2239,14 @@ ruta("POST", "/panel/personas", async (ctx, _p, _q, cuerpo) => {
      VALUES ($1, $2, $3, 'EQUIPO', $4::rol_equipo, $5::area_equipo, $6::nivel_acceso, $7, $8) RETURNING ${COLUMNAS_FICHA_PERSONA}`,
     [n!.correo, n!.nombre, n!.cargo, n!.rolEquipo, n!.area, n!.nivel, n!.esLead, n!.reportaAId],
   )).rows[0];
+  const creada = { ...accesoDeFila(u), activo: true };
+  await registrarCambiosAccesoDb(ctx, u.id, { ...creada, nivelAcceso: null }, creada);
   await emitirOutbox(ctx, "equipo.persona_creada", null, { usuarioId: u.id, email: u.email, nombre: u.nombre, origen: "PORTAL", creadoPor: ctx.u.usuarioId });
   return { __status: 201, ...fichaPersonaVista(await enviarAInooWorkDb(ctx, u)) };
 });
 
 ruta("POST", "/panel/personas/:id/inoowork", async (ctx, p) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const u = (await ctx.c.query<FilaFichaPersona>(`SELECT ${COLUMNAS_FICHA_PERSONA} FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'`, [p.id])).rows[0];
   if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
@@ -2343,28 +2375,36 @@ const almacenDb: AlmacenPasarela = {
 };
 
 ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   if (!esUuid(p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const b = (await cuerpo()) as CambioPersona;
   const errores = validarPersonaEquipo(b, esArea);
+  const fila = (await ctx.c.query<FilaPersonaEquipo & { activo: boolean }>(`${SELECT_PERSONA_EQUIPO.replace(" FROM usuario", ", activo FROM usuario")} WHERE id = $1 AND tipo = 'EQUIPO'`, [p.id])).rows[0];
+  if (!fila) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const antes: EstadoAcceso = { ...accesoDeFila(fila), activo: fila.activo };
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const otrosSupers = (await ctx.c.query("SELECT 1 FROM usuario WHERE es_super_usuario AND activo AND id <> $1", [p.id])).rows.length;
+  const revision = revisarCambioAcceso(!!ctx.u.esSuperUsuario, antes, b, otrosSupers);
+  if (revision.prohibido) throw new ErrorApi(403, "SIN_PERMISO", revision.prohibido);
+  errores.push(...revision.errores);
   if (b.activo === false && p.id === ctx.u.usuarioId) errores.push({ campo: "activo", mensaje: "No puedes desactivarte a ti mismo" });
-  const jefe = typeof b.reportaAId === "string" && esUuid(p.id) ? await errorJefeDb(ctx, p.id, b.reportaAId) : null;
+  const jefe = typeof b.reportaAId === "string" ? await errorJefeDb(ctx, p.id, b.reportaAId) : null;
   if (jefe) errores.push({ campo: "reportaAId", mensaje: jefe });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const correo = typeof b.correo === "string" ? b.correo.trim().toLowerCase() : null;
   if (correo && (await correoEnUso(ctx, correo, p.id))) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
-  const antes = (await ctx.c.query<{ activo: boolean }>("SELECT activo FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [p.id])).rows[0];
-  if (!antes) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const cargo = typeof b.cargo === "string" && b.cargo.trim() ? b.cargo.trim() : null;
   let u = (await ctx.c.query<FilaFichaPersona>(
     `UPDATE usuario SET area = CASE WHEN $2 THEN $3::area_equipo ELSE area END, nivel_acceso = CASE WHEN $4 THEN $5::nivel_acceso ELSE nivel_acceso END,
        es_lead = coalesce($6, es_lead), nombre = coalesce($7, nombre), email = coalesce($8, email), cargo = CASE WHEN $9 THEN $10 ELSE cargo END,
-       rol_equipo = coalesce($11::rol_equipo, rol_equipo), activo = coalesce($12, activo), reporta_a_id = CASE WHEN $13 THEN $14::uuid ELSE reporta_a_id END
+       rol_equipo = coalesce($11::rol_equipo, rol_equipo), activo = coalesce($12, activo), reporta_a_id = CASE WHEN $13 THEN $14::uuid ELSE reporta_a_id END,
+       es_super_usuario = $15, permisos_personalizados = $16::jsonb
      WHERE id = $1 AND tipo = 'EQUIPO' RETURNING ${COLUMNAS_FICHA_PERSONA}`,
     [p.id, b.area !== undefined, b.area ?? null, b.nivel !== undefined, b.nivel ?? null, typeof b.esLead === "boolean" ? b.esLead : null,
       typeof b.nombre === "string" ? b.nombre.trim() : null, correo, b.cargo !== undefined, cargo, b.rolEquipo ?? null, typeof b.activo === "boolean" ? b.activo : null,
-      b.reportaAId !== undefined, (b.reportaAId as string | null | undefined) ?? null],
+      b.reportaAId !== undefined, (b.reportaAId as string | null | undefined) ?? null, revision.despues.esSuperUsuario, JSON.stringify(revision.despues.permisosPersonalizados)],
   )).rows[0];
+  await registrarCambiosAccesoDb(ctx, u.id, antes, revision.despues);
   if (antes.activo && !u.activo) await emitirOutbox(ctx, "equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "PORTAL" });
   // Lo que InooWork comparte (datos, área y activo) se le manda; nivel y lead son solo del portal.
   if ((["nombre", "correo", "cargo", "area", "rolEquipo", "activo", "reportaAId"] as const).some((k) => b[k] !== undefined)) u = await enviarAInooWorkDb(ctx, u);
@@ -2372,7 +2412,7 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
 });
 
 ruta("GET", "/panel/ia-equipo", async (ctx) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   const { dia, mes } = diaYMesLima(new Date());
   const equipo = (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre`)).rows;
   const porPersona = new Map((await ctx.c.query<{ usuario_id: string; gasto: string }>(
@@ -2391,7 +2431,7 @@ ruta("GET", "/panel/ia-equipo", async (ctx) => {
 });
 
 ruta("PUT", "/panel/ia-equipo/areas/:area", async (ctx, p, _q, cuerpo) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   if (!esArea(p.area)) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa área no existe");
   const b = (await cuerpo()) as { topeDiarioUsd?: unknown; topeMensualUsd?: unknown };
   const errores = validarTopes(b);
@@ -2540,7 +2580,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
 // ───────────────────────────────────────────── accesos del equipo (2 nov)
 
 /** Quien llama, para las reglas de accesos (área, nivel efectivo y lead vienen de la autenticación). */
-const yoDb = (ctx: Ctx) => ({ id: ctx.u.usuarioId, rolEquipo: ctx.u.rolEquipo, area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead });
+const yoDb = (ctx: Ctx) => ({ id: ctx.u.usuarioId, rolEquipo: ctx.u.rolEquipo, area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead, permisos: ctx.u.permisos ?? [] });
 
 function accesoPersonaVistaDb(ctx: Ctx, u: FilaPersonaEquipo, origen: "ASIGNADO" | "AM" | "RESPONSABLE"): S<"AccesoPersona"> {
   return { persona: personaEquipoVista(u), origen, puedeQuitar: origen === "ASIGNADO" && !ctx.esServicio && puedeAsignar(yoDb(ctx), u) };
@@ -2554,7 +2594,7 @@ async function personaAsignableDb(ctx: Ctx, cuerpo: () => Promise<unknown>, nive
     : undefined;
   if (!u) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "usuarioId", mensaje: "Elige a alguien del equipo" }]);
   if (ctx.esServicio || !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona la puede asignar");
-  if (nivel === "CUENTA" && nivelDe({ rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso }) !== "CUENTA") {
+  if (nivel === "CUENTA" && nivelDe(accesoDeFila(u)) !== "CUENTA") {
     throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "usuarioId", mensaje: "Las cuentas se asignan a gente de nivel por cuenta (CRM o Comercial); el resto va a los proyectos" }]);
   }
   return u;
@@ -2569,7 +2609,7 @@ ruta("GET", "/clientes/:id/accesos", async (ctx, p) => {
   )).rows.filter((u) => u.id !== am?.id);
   return {
     datos: [...(am ? [accesoPersonaVistaDb(ctx, am, "AM")] : []), ...asignados.map((u) => accesoPersonaVistaDb(ctx, u, "ASIGNADO"))],
-    puedeAsignar: !ctx.esServicio && (ctx.u.nivelAcceso === "ADMIN" || (!!ctx.u.esLead && ctx.u.nivelAcceso === "CUENTA")),
+    puedeAsignar: !ctx.esServicio && (!!ctx.u.permisos?.includes("ASIGNAR_ACCESOS") || (!!ctx.u.esLead && ctx.u.nivelAcceso === "CUENTA")),
   };
 });
 
@@ -2618,7 +2658,7 @@ ruta("GET", "/servicios-contratados/:id/miembros", async (ctx, p) => {
   )).rows.filter((u) => u.id !== responsable?.id);
   return {
     datos: [...(responsable ? [accesoPersonaVistaDb(ctx, responsable, "RESPONSABLE")] : []), ...asignados.map((u) => accesoPersonaVistaDb(ctx, u, "ASIGNADO"))],
-    puedeAsignar: !ctx.esServicio && (ctx.u.nivelAcceso === "ADMIN" || !!ctx.u.esLead),
+    puedeAsignar: !ctx.esServicio && (!!ctx.u.permisos?.includes("ASIGNAR_ACCESOS") || !!ctx.u.esLead),
   };
 });
 
@@ -3373,7 +3413,7 @@ ruta("GET", "/clientes/:id/estado-pago", async (ctx, p) => {
 
 ruta("PUT", "/clientes/:id/estado-pago", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id, true);
-  exigirRol(ctx, p.id, ["ADMIN", "FINANZAS"]);
+  exigirPermiso(ctx, "ESTADO_PAGO");
   const b = (await cuerpo()) as { situacion?: SituacionPago; atrasadoDesde?: string; nota?: string | null };
   validacion(validarEstadoPago(b, HOY_LIMA()));
   const atrasado = b.situacion === "ATRASADO";
@@ -4518,7 +4558,7 @@ ruta("PATCH", "/piezas/:id", async (ctx, p, _q, cuerpo) => {
 
 ruta("GET", "/panel/costos-ia", async (ctx, _p, q) => {
   if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo con rol ADMIN");
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   const periodo = exigirPeriodo(q.get("periodo"));
   const { rows } = await ctx.c.query<{ id: string; nombre: string; limite: string; modelo: string | null; entrada: string; salida: string; imagenes: string; costo: string }>(
     `SELECT c.id, c.nombre, c.limite_gasto_ia_usd AS limite, m.modelo,
@@ -4550,7 +4590,7 @@ const urlEjecucionN8n = (workflow: string | null, ejecucion: string | null) => {
 
 ruta("GET", "/panel/ejecuciones", async (ctx, _p, q) => {
   if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo con rol ADMIN");
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   const limite = Math.min(Math.max(Number(q.get("limite") ?? 50) || 50, 1), 200);
   const desde = Math.max(Number(q.get("cursor") ?? 0) || 0, 0);
   const cliente = q.get("clienteId");

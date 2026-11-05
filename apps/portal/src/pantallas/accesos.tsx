@@ -20,7 +20,7 @@ export function EquipoAsignado({ ruta, titulo, ayuda, soloNivelCuenta }: { ruta:
   const [eligiendo, setEligiendo] = useState(false);
   if (!lista.datos) return null;
   const ya = new Set(lista.datos.datos.map((a) => a.persona.id));
-  const actor = yo ? { id: yo.id, rolEquipo: yo.rolEquipo ?? null, area: yo.area ?? null, nivelAcceso: yo.nivelAcceso ?? null, esLead: !!yo.esLead } : null;
+  const actor = yo ? { id: yo.id, rolEquipo: yo.rolEquipo ?? null, area: yo.area ?? null, nivelAcceso: yo.nivelAcceso ?? null, esLead: !!yo.esLead, permisos: yo.permisos ?? [] } : null;
   const candidatos = (equipo.datos?.datos ?? []).filter((p) => !ya.has(p.id) && actor && puedeAsignar(actor, { area: p.area ?? null }) && (!soloNivelCuenta || p.nivel === "CUENTA"));
   const fallo = (x: unknown) => avisar({ titulo: "No pudimos guardar el cambio", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
   const asignar = async (p: S<"PersonaEquipo">) => {

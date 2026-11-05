@@ -274,8 +274,11 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 - Actualizar los snapshots de las pruebas visuales.
 - Reemplazar los datos de relleno (fechas de pago, preguntas de los briefs, números de WhatsApp).
 - Despliegue (el backend real ya cubre todo el contrato salvo InooWork).
-- Crear los user pools de Cognito y probar el ingreso real (implementado el 26 oct con la API simulada de Cognito).
+- Ingreso real sin AWS por ahora (decidido el 5 nov): el equipo entra con su usuario de InooWork (`AUTH_EQUIPO=inoowork`, ya implementado; falta conectarlo con el InooWork real y aplicar INO-00). Los clientes, que no están en InooWork, tendrán un ingreso propio del portal con correo y contraseña (por construir). Cognito (implementado el 26 oct y probado solo con su API simulada) queda para cuando se use AWS.
+- Archivos en Google Drive sin AWS (decidido el 5 nov): el portal ya guarda el enlace de la carpeta del cliente y descarga archivos de Drive, pero las subidas solo van a S3 y sin almacén responden 503. Falta que suban a Drive. S3 queda para cuando se use AWS.
+- Super usuario (pedido de Ernesto, 2 nov): Ernesto y Omar, ambos de Admin, con los usuarios que ya tienen en InooWork. Hecho el 5 nov (migración 0039): solo el super usuario cambia niveles, permisos individuales y quién es ADMIN o super usuario; el ADMIN sigue con su trabajo diario. Falta importar a las personas desde InooWork (el portal hoy recibe cambios de InooWork, pero no tiene importación inicial) y marcar a Ernesto y a Omar. Antes de conectar: la sincronización de InooWork todavía puede cambiarle el área a alguien y, con eso, su nivel, sin pasar por estas reglas.
 - Flujo web (fase 19): exportar a Elementor o Shopify (coordinar con Hugo) y comparar Claude, Stitch, Figma AI y Codex con el mismo prompt (quedaron fuera por ahora); permitir subir capturas a mano para los sitios que bloquean las capturas automáticas.
+- Grupo de WhatsApp al crear un proyecto (pedido de Ernesto, 5 nov): un modal opcional donde la persona elige los contactos, y el enlace del grupo queda guardado en el proyecto. Nada automático. Empieza sin API: alguien crea el grupo en WhatsApp, pega el enlace y lo envía a cada contacto. La API de grupos de Meta queda para después y depende de confirmar si el número de Inoo es Official Business Account y si se puede usar fuera de Cosmiq; admite hasta 8 participantes y cada uno entra por el enlace.
 
 ## Requisitos no funcionales
 

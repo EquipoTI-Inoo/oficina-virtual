@@ -32,7 +32,7 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, va
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
-import { calcularAlcance, nivelDe, puedeAsignar, puedeSupervisar, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL } from "../dominio/accesos";
+import { altaProhibida, calcularAlcance, cambiosDeAcceso, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
 import { cambiosDesdeEmpleado, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, type CambioPersona } from "../dominio/personas-equipo";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
@@ -112,6 +112,8 @@ interface Estado {
   sesionesJarvis: Record<string, { usuarioId: string; area: Area }>;
   /** Recordatorios ya enviados (fase 18): no se repiten. */
   recordatoriosEnviados: string[];
+  /** Historial de accesos (5 nov): lo más nuevo al final. */
+  cambiosAcceso: { id: string; usuarioId: string; hechoPorId: string | null; campo: string; antes: string; despues: string; creadoEn: string }[];
   consumoJarvis: ConsumoJarvis[];
   botsJarvis: D.BotJarvisDemo[];
   eventosAgenda: D.EventoAgendaDemo[];
@@ -194,6 +196,7 @@ function estadoInicial(): Estado {
     llavesJarvis: llavesGuardadas(),
     sesionesJarvis: {},
     recordatoriosEnviados: [],
+    cambiosAcceso: [],
     consumoJarvis: [],
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
@@ -310,6 +313,15 @@ function autenticar(req: Request): Ctx {
 function rolEn(ctx: Ctx, clienteId: string) {
   if (ctx.enNombreDe) return ctx.enNombreDe === clienteId ? ("ADMIN_CLIENTE" as const) : null;
   return E.miembros.find((m) => m.clienteId === clienteId && m.usuarioId === ctx.usuario.id && !m.invitacionPendiente)?.rol ?? null;
+}
+
+/** Permiso suelto del equipo (5 nov). Las llaves de integración pasan: sus límites son los scopes. */
+function exigirPermiso(ctx: Ctx, permiso: Permiso) {
+  if (ctx.esServicio) return;
+  if (!ctx.esEquipo || !permisosDe(ctx.usuario).includes(permiso)) throw new ErrorApi(403, "SIN_PERMISO", "No tienes permiso para esta acción");
+}
+function exigirSuperUsuario(ctx: Ctx) {
+  if (ctx.esServicio || !ctx.esEquipo || !ctx.usuario.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Solo un super usuario puede ver esto");
 }
 
 /**
@@ -678,7 +690,7 @@ ruta("GET", "/me", (ctx) => {
       iniciales: ctx.usuario.iniciales,
       tipo: ctx.usuario.tipo,
       rolEquipo: ctx.usuario.rolEquipo,
-      ...(ctx.esEquipo ? { area: ctx.usuario.area, nivelAcceso: nivelDe(ctx.usuario), esLead: !!ctx.usuario.esLead } : {}),
+      ...(ctx.esEquipo ? { area: ctx.usuario.area, nivelAcceso: nivelDe(ctx.usuario), esLead: !!ctx.usuario.esLead, esSuperUsuario: !!ctx.usuario.esSuperUsuario, permisos: permisosDe(ctx.usuario) } : {}),
     },
     clientes: ctx.esEquipo
       ? []
@@ -840,7 +852,7 @@ ruta("GET", "/clientes/:id/estado-pago", (ctx, p) => {
 
 ruta("PUT", "/clientes/:id/estado-pago", async (ctx, p, _q, req) => {
   const c = accesoCliente(ctx, p.id, true);
-  exigirRol(ctx, c.id, ["ADMIN", "FINANZAS"]);
+  exigirPermiso(ctx, "ESTADO_PAGO");
   const b = await cuerpo<{ situacion?: "AL_DIA" | "ATRASADO"; atrasadoDesde?: string; nota?: string | null }>(req);
   const errores = validarEstadoPago(b, D.HOY);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
@@ -2538,8 +2550,19 @@ const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tip
 
 const fichaVista = (u: D.UsuarioDemo): S<"FichaPersona"> => ({
   ...equipoVista(u), correo: u.email, activo: u.activo !== false, reportaAId: u.reportaAId ?? null,
+  esSuperUsuario: !!u.esSuperUsuario, permisos: permisosDe(u), permisosPersonalizados: u.permisosPersonalizados ?? {},
   inoowork: { empleadoId: u.inooworkEmpleadoId ?? null, estado: u.inooworkEstado ?? "SIMULADO", error: u.inooworkError ?? null },
 });
+
+const estadoAcceso = (u: D.UsuarioDemo): EstadoAcceso => ({
+  rolEquipo: u.rolEquipo, area: u.area, nivelAcceso: u.nivelAcceso ?? null, esSuperUsuario: !!u.esSuperUsuario, activo: u.activo !== false, permisosPersonalizados: u.permisosPersonalizados ?? {},
+});
+/** Cada cambio de acceso queda en el historial, con quién lo hizo. */
+function registrarCambiosAcceso(ctx: Ctx, usuarioId: string, antes: EstadoAcceso, despues: EstadoAcceso) {
+  for (const x of cambiosDeAcceso(antes, despues)) {
+    E.cambiosAcceso.push({ id: nuevoId(1), usuarioId, hechoPorId: ctx.esServicio ? null : ctx.usuario.id, ...x, creadoEn: new Date().toISOString() });
+  }
+}
 
 /** En el entorno de pruebas InooWork siempre está simulado: se asigna el id de empleado y listo. */
 function enviarAInooWork(u: D.UsuarioDemo) {
@@ -2568,16 +2591,27 @@ ruta("GET", "/panel/organigrama", (ctx) => {
   return { datos: activos.map((u) => ({ ...equipoVista(u), reportaAId: u.reportaAId && ids.has(u.reportaAId) ? u.reportaAId : null })) };
 });
 
+ruta("GET", "/panel/personas/:id/cambios-acceso", (ctx, p) => {
+  exigirSuperUsuario(ctx);
+  const datos = E.cambiosAcceso.filter((x) => x.usuarioId === p.id).reverse().slice(0, 50).map((x) => {
+    const quien = E.usuarios.find((u) => u.id === x.hechoPorId);
+    return { id: x.id, campo: x.campo, antes: x.antes, despues: x.despues, creadoEn: x.creadoEn, hechoPor: quien ? { id: quien.id, nombre: quien.nombre } : null };
+  });
+  return { datos };
+});
+
 ruta("GET", "/panel/personas", (ctx) => {
-  exigirRol(ctx, null, ["ADMIN"]);
-  const equipo = E.usuarios.filter((u) => u.tipo === "EQUIPO").sort((a, b) => Number(b.activo !== false) - Number(a.activo !== false) || a.nombre.localeCompare(b.nombre, "es"));
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
+  const equipo =E.usuarios.filter((u) => u.tipo === "EQUIPO").sort((a, b) => Number(b.activo !== false) - Number(a.activo !== false) || a.nombre.localeCompare(b.nombre, "es"));
   return { datos: equipo.map(fichaVista), inooworkConectado: false };
 });
 
 ruta("POST", "/panel/personas", async (ctx, _p, _q, req) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   const { errores, persona: n } = validarNuevaPersona(await cuerpo<Record<string, unknown>>(req), esArea);
   if (!n) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const prohibido = altaProhibida(!!ctx.usuario.esSuperUsuario, n);
+  if (prohibido) throw new ErrorApi(403, "SIN_PERMISO", prohibido);
   if (E.usuarios.some((u) => u.email.toLowerCase() === n.correo)) throw new ErrorApi(409, "CORREO_EN_USO", "Ya hay una cuenta con ese correo");
   const id = nuevoId(1);
   const jefe = n.reportaAId ? errorJefeMock(id, n.reportaAId) : null;
@@ -2588,12 +2622,14 @@ ruta("POST", "/panel/personas", async (ctx, _p, _q, req) => {
   };
   E.usuarios.push(u);
   enviarAInooWork(u);
+  const creada = estadoAcceso(u);
+  registrarCambiosAcceso(ctx, u.id, { ...creada, nivelAcceso: null }, creada);
   emitir("equipo.persona_creada", null, { usuarioId: u.id, email: u.email, nombre: u.nombre, origen: "PORTAL", creadoPor: ctx.usuario.id });
   return { __status: 201, ...fichaVista(u) };
 });
 
 ruta("POST", "/panel/personas/:id/inoowork", (ctx, p) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   const u = E.usuarios.find((x) => x.id === p.id && x.tipo === "EQUIPO");
   if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   enviarAInooWork(u);
@@ -3007,11 +3043,17 @@ const almacenMock: AlmacenPasarela = {
 };
 
 ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
   const u = E.usuarios.find((x) => x.id === p.id && x.tipo === "EQUIPO");
   if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const b = await cuerpo<CambioPersona>(req);
   const errores = validarPersonaEquipo(b, esArea);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const estadoAntes = estadoAcceso(u);
+  const otrosSupers = E.usuarios.filter((x) => x.esSuperUsuario && x.activo !== false && x.id !== u.id).length;
+  const revision = revisarCambioAcceso(!!ctx.usuario.esSuperUsuario, estadoAntes, b, otrosSupers);
+  if (revision.prohibido) throw new ErrorApi(403, "SIN_PERMISO", revision.prohibido);
+  errores.push(...revision.errores);
   if (b.activo === false && u.id === ctx.usuario.id) errores.push({ campo: "activo", mensaje: "No puedes desactivarte a ti mismo" });
   const jefe = typeof b.reportaAId === "string" ? errorJefeMock(u.id, b.reportaAId) : null;
   if (jefe) errores.push({ campo: "reportaAId", mensaje: jefe });
@@ -3031,6 +3073,9 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
   if (b.rolEquipo !== undefined) u.rolEquipo = b.rolEquipo as D.UsuarioDemo["rolEquipo"];
   if (typeof b.activo === "boolean") u.activo = b.activo;
   if (b.reportaAId !== undefined) u.reportaAId = (b.reportaAId as string | null) ?? null;
+  u.esSuperUsuario = revision.despues.esSuperUsuario;
+  u.permisosPersonalizados = revision.despues.permisosPersonalizados;
+  registrarCambiosAcceso(ctx, u.id, estadoAntes, revision.despues);
   // Lo que InooWork comparte (datos, área, jefe y activo) se le manda; nivel y lead son solo del portal.
   if (["nombre", "correo", "cargo", "area", "rolEquipo", "activo", "reportaAId"].some((k) => b[k as keyof CambioPersona] !== undefined)) enviarAInooWork(u);
   if (antes && u.activo === false) emitir("equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "PORTAL" });
@@ -3038,7 +3083,7 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
 });
 
 ruta("GET", "/panel/ia-equipo", (ctx) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   const ahora = new Date();
   const { dia, mes } = diaYMesLima(ahora);
   const equipo = E.usuarios.filter((u) => u.tipo === "EQUIPO");
@@ -3054,7 +3099,7 @@ ruta("GET", "/panel/ia-equipo", (ctx) => {
 });
 
 ruta("PUT", "/panel/ia-equipo/areas/:area", async (ctx, p, _q, req) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   if (!esArea(p.area)) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa área no existe");
   const b = await cuerpo<{ topeDiarioUsd?: unknown; topeMensualUsd?: unknown }>(req);
   const errores = validarTopes(b);
@@ -3210,7 +3255,7 @@ ruta("GET", "/clientes/:id/accesos", (ctx, p) => {
     ...(am ? [accesoPersonaVista(ctx, am, "AM")] : []),
     ...E.accesosCuenta.filter((a) => a.clienteId === c.id && a.usuarioId !== am?.id).map((a) => accesoPersonaVista(ctx, E.usuarios.find((u) => u.id === a.usuarioId)!, "ASIGNADO")),
   ];
-  return { datos, puedeAsignar: !ctx.esServicio && (esNivelAdmin(ctx) || (!!ctx.usuario.esLead && nivelDe(ctx.usuario) === "CUENTA")) };
+  return { datos, puedeAsignar: !ctx.esServicio && (permisosDe(ctx.usuario).includes("ASIGNAR_ACCESOS") || (!!ctx.usuario.esLead && nivelDe(ctx.usuario) === "CUENTA")) };
 });
 
 ruta("POST", "/clientes/:id/accesos", async (ctx, p, _q, req) => {
@@ -3251,7 +3296,7 @@ ruta("GET", "/servicios-contratados/:id/miembros", (ctx, p) => {
     ...(responsable ? [accesoPersonaVista(ctx, responsable, "RESPONSABLE")] : []),
     ...E.miembrosProyecto.filter((m) => m.servicioContratadoId === sc.id && m.usuarioId !== responsable?.id).map((m) => accesoPersonaVista(ctx, E.usuarios.find((u) => u.id === m.usuarioId)!, "ASIGNADO")),
   ];
-  return { datos, puedeAsignar: !ctx.esServicio && (esNivelAdmin(ctx) || !!ctx.usuario.esLead) };
+  return { datos, puedeAsignar: !ctx.esServicio && (permisosDe(ctx.usuario).includes("ASIGNAR_ACCESOS") || !!ctx.usuario.esLead) };
 });
 
 ruta("POST", "/servicios-contratados/:id/miembros", async (ctx, p, _q, req) => {
@@ -3736,7 +3781,7 @@ ruta("POST", "/integraciones/correos/:id/resultado", (ctx, p) => {
 // ───────────────────────────────────────────── costos de IA y ejecuciones (ADM-01)
 
 ruta("GET", "/panel/costos-ia", (ctx, _p, q) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   const periodo = q.get("periodo");
   if (!periodo || !/^\d{4}-\d{2}$/.test(periodo)) throw new ErrorApi(422, "VALIDACION", "Indica el periodo (AAAA-MM)", undefined, [{ campo: "periodo", mensaje: "Formato AAAA-MM" }]);
   const delPeriodo = E.ejecuciones.filter((x) => x.iniciadoEn.slice(0, 7) === periodo);
@@ -3763,7 +3808,7 @@ ruta("GET", "/panel/costos-ia", (ctx, _p, q) => {
 });
 
 ruta("GET", "/panel/ejecuciones", (ctx, _p, q) => {
-  exigirRol(ctx, null, ["ADMIN"]);
+  exigirPermiso(ctx, "COSTOS_IA");
   let xs = [...E.ejecuciones].sort((a, b) => b.iniciadoEn.localeCompare(a.iniciadoEn));
   if (q.get("clienteId")) xs = xs.filter((x) => x.clienteId === q.get("clienteId"));
   if (q.get("agente")) xs = xs.filter((x) => x.agente === q.get("agente"));

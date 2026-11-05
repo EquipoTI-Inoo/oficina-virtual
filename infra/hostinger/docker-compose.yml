@@ -65,6 +65,7 @@ services:
       - ../../database/migraciones/0036_personas_inoowork.sql:/docker-entrypoint-initdb.d/01zj_personas_inoowork.sql:ro
       - ../../database/migraciones/0037_jarvis_sin_llaves.sql:/docker-entrypoint-initdb.d/01zk_jarvis_sin_llaves.sql:ro
       - ../../database/migraciones/0038_recordatorios.sql:/docker-entrypoint-initdb.d/01zl_recordatorios.sql:ro
+      - ../../database/migraciones/0039_super_usuario.sql:/docker-entrypoint-initdb.d/01zm_super_usuario.sql:ro
       # Base de NocoDB y esquema de n8n, en el mismo Postgres.
       - ./iniciar-otros.sql:/docker-entrypoint-initdb.d/09_otros.sql:ro
       - postgres-datos:/var/lib/postgresql/data
