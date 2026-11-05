@@ -53,6 +53,18 @@ function Personas() {
       avisar({ titulo: "No pudimos guardar el cambio", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
     }
   };
+  const importar = async () => {
+    try {
+      const x = await api<{ empleadosLeidos: number; personasCreadas: number; personasActualizadas: number; empleadosSinCorreo: string[] }>("/panel/personas/importar-inoowork", { metodo: "POST", cuerpo: {} });
+      avisar({
+        titulo: `Equipo importado: ${x.personasCreadas} nuevas y ${x.personasActualizadas} actualizadas`,
+        texto: x.empleadosSinCorreo.length ? `${x.empleadosSinCorreo.length} no entraron porque no tienen correo en InooWork: ${x.empleadosSinCorreo.join(", ")}.` : undefined,
+      });
+      void r.recargar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos importar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
   const reintentar = async (p: Ficha) => {
     const x = await api<Ficha>(`/panel/personas/${p.id}/inoowork`, { metodo: "POST" }).catch(() => null);
     avisar({ titulo: x && x.inoowork.estado !== "PENDIENTE" ? `${p.nombre} ya está en InooWork` : "InooWork sigue sin responder", texto: x?.inoowork.error ?? undefined });
@@ -66,9 +78,16 @@ function Personas() {
         titulo="Equipo"
         bajada="Quién trabaja en Inoo, qué ve cada persona y a quién reporta. Los cambios se reflejan en InooWork."
         accion={
-          <button className="boton boton--primario" onClick={() => setEditando("nueva")}>
-            <LuUserPlus size={16} /> Invitar colaborador
-          </button>
+          <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+            {soySuper && r.datos.inooworkConectado && (
+              <button className="boton" onClick={() => void importar()}>
+                <LuRefreshCw size={15} /> Importar de InooWork
+              </button>
+            )}
+            <button className="boton boton--primario" onClick={() => setEditando("nueva")}>
+              <LuUserPlus size={16} /> Invitar colaborador
+            </button>
+          </span>
         }
       />
       {!r.datos.inooworkConectado && (

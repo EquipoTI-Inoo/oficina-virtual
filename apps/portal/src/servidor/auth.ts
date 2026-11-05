@@ -129,7 +129,7 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
       );
     }
   } else {
-    if (process.env.NODE_ENV === "production" && process.env.PERMITIR_AUTH_DEMO !== "true") {
+    if (modo() === "portal" || (process.env.NODE_ENV === "production" && process.env.PERMITIR_AUTH_DEMO !== "true")) {
       throw new ErrorApi(401, "NO_AUTENTICADO", "Los tokens de prueba están deshabilitados en producción");
     }
     const id = token.startsWith("demo.") ? token.slice(5) : "";

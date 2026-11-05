@@ -220,8 +220,9 @@ function FormularioClave({ modo, email, setEmail, desafio, alEntrar, alTerminar,
     try {
       if (modo === "NUEVA_CLAVE") alEntrar(await api<S<"SesionIniciada">>("/sesion/nueva-clave", { metodo: "POST", cuerpo: { email, sesion: desafio?.sesion, pool: desafio?.pool, clave } }));
       else if (modo === "OLVIDE") {
-        await api("/sesion/olvide-clave", { metodo: "POST", cuerpo: { email } });
-        alCambiarModo("RESTABLECER");
+        const r = await api<{ metodo?: string } | undefined>("/sesion/olvide-clave", { metodo: "POST", cuerpo: { email } });
+        if (r?.metodo === "ENLACE") alTerminar("Si ese correo tiene acceso al portal, te mandamos un enlace para crear tu contraseña. Si no te llega, pídeselo a tu equipo Inoo.");
+        else alCambiarModo("RESTABLECER");
       } else {
         await api("/sesion/restablecer", { metodo: "POST", cuerpo: { email, codigo, clave } });
         alTerminar("Listo: ya puedes ingresar con tu contraseña nueva.");

@@ -32,7 +32,8 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, va
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
-import { altaProhibida, calcularAlcance, cambiosDeAcceso, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
+import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
+import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
 import { cambiosDesdeEmpleado, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, type CambioPersona } from "../dominio/personas-equipo";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
@@ -114,6 +115,8 @@ interface Estado {
   recordatoriosEnviados: string[];
   /** Historial de accesos (5 nov): lo más nuevo al final. */
   cambiosAcceso: { id: string; usuarioId: string; hechoPorId: string | null; campo: string; antes: string; despues: string; creadoEn: string }[];
+  /** Enlaces para crear la contraseña: token → usuario. */
+  enlacesClave: Record<string, string>;
   consumoJarvis: ConsumoJarvis[];
   botsJarvis: D.BotJarvisDemo[];
   eventosAgenda: D.EventoAgendaDemo[];
@@ -197,6 +200,7 @@ function estadoInicial(): Estado {
     sesionesJarvis: {},
     recordatoriosEnviados: [],
     cambiosAcceso: [],
+    enlacesClave: {},
     consumoJarvis: [],
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
@@ -3971,7 +3975,8 @@ function sincronizarEmpleados(b: Partial<S<"SincronizacionInooWork">>) {
     const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.inooworkEmpleadoId === e.id) ?? (correo ? E.usuarios.find((x) => x.email.toLowerCase() === correo) : undefined);
     if (u && u.tipo !== "EQUIPO") continue; // ese correo es de un cliente: no se toca
     if (u) {
-      const c = cambiosDesdeEmpleado(e, { nombre: u.nombre, correo: u.email, cargo: u.cargo, area: u.area, activo: u.activo !== false });
+      const otrosSupers = E.usuarios.filter((x) => x.esSuperUsuario && x.activo !== false && x.id !== u.id).length;
+      const c = limitarCambiosDeInooWork(cambiosDesdeEmpleado(e, { nombre: u.nombre, correo: u.email, cargo: u.cargo, area: u.area, activo: u.activo !== false }), u, otrosSupers);
       if (c.correo && E.usuarios.some((x) => x.id !== u.id && x.email.toLowerCase() === c.correo)) delete c.correo;
       const enlazada = u.inooworkEmpleadoId !== e.id;
       if (c.nombre) {
@@ -4001,6 +4006,11 @@ function sincronizarEmpleados(b: Partial<S<"SincronizacionInooWork">>) {
       rolEquipo: e.department?.trim().toLowerCase() === "finanzas" ? "FINANZAS" : area ? ROL_DEL_AREA[area] : ROL_SIN_AREA, area, activo: true,
       inooworkEmpleadoId: e.id, inooworkUsuario: e.username ?? null, inooworkEstado: "SINCRONIZADO", inooworkError: null, claveDemo: "demo1234",
     };
+    // Lo que llega solo por la sincronización nunca entra con nivel ADMIN: lo decide un super usuario.
+    if (nivelDe(n) === "ADMIN") {
+      n.nivelAcceso = "PROYECTO";
+      n.rolEquipo = ROL_SIN_AREA;
+    }
     E.usuarios.push(n);
     emitir("equipo.persona_creada", null, { usuarioId: n.id, email: n.email, nombre: n.nombre, origen: "INOOWORK" });
     personasCreadas++;
@@ -4017,6 +4027,8 @@ function sincronizarEmpleados(b: Partial<S<"SincronizacionInooWork">>) {
   }
   for (const id of b.empleadosEliminados ?? []) {
     const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.inooworkEmpleadoId === id);
+    // Nunca se queda el portal sin super usuario por algo que pasó en InooWork.
+    if (u?.esSuperUsuario && !E.usuarios.some((x) => x.esSuperUsuario && x.activo !== false && x.id !== u.id)) continue;
     if (u && desactivar(u)) personasActualizadas++;
   }
   return { personasCreadas, personasActualizadas, empleadosSinCorreo };
@@ -4061,6 +4073,22 @@ function aplicarSincronizacion(b: Partial<S<"SincronizacionInooWork">>) {
   }
   return { hitosActualizados, ticketsActualizados, ...personas };
 }
+
+ruta("POST", "/panel/personas/importar-inoowork", (ctx) => {
+  exigirSuperUsuario(ctx);
+  throw new ErrorApi(409, "INOOWORK_NO_CONECTADO", "InooWork todavía no está conectado", "En el entorno de pruebas InooWork siempre está simulado.");
+});
+
+ruta("POST", "/clientes/:id/miembros/:usuario/enlace-acceso", (ctx, p) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo");
+  soloEquipo(ctx);
+  accesoCliente(ctx, p.id, true);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  if (!E.miembros.some((m) => m.clienteId === p.id && m.usuarioId === p.usuario)) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso a esta cuenta");
+  const token = `enlace-${nuevoId(1)}`;
+  E.enlacesClave[token] = p.usuario;
+  return { ruta: rutaCrearClave(token), expiraEn: new Date(Date.now() + DIAS_ENLACE_ACCESO * 86_400_000).toISOString() };
+});
 
 ruta("POST", "/integraciones/inoowork/sincronizacion", async (ctx, _p, _q, req) => {
   soloServicio(ctx);
@@ -4130,7 +4158,17 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
     if (req.method === "POST" && camino === "/__pruebas/ingresar") return Response.json(await ingresar(req));
     // Ingreso (contrato /sesion/*): el entorno de pruebas usa las credenciales de prueba; Cognito solo en el backend real.
     if (req.method === "POST" && camino === "/sesion/ingresar") return Response.json(await ingresar(req));
-    if (req.method === "POST" && camino === "/sesion/olvide-clave") return new Response(null, { status: 204 });
+    if (req.method === "POST" && camino === "/sesion/olvide-clave") return Response.json({ metodo: "ENLACE" });
+    if (req.method === "POST" && camino === "/sesion/crear-clave") {
+      const b = await cuerpo<{ token?: string; clave?: unknown }>(req);
+      const error = errorClaveNueva(b.clave);
+      if (error) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "clave", mensaje: error }]);
+      const u = E.usuarios.find((x) => x.id === E.enlacesClave[b.token ?? ""]);
+      if (!u) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "token", mensaje: "Este enlace ya se usó o venció. Pídele uno nuevo a tu equipo Inoo." }]);
+      for (const k of Object.keys(E.enlacesClave)) if (E.enlacesClave[k] === u.id) delete E.enlacesClave[k];
+      u.claveDemo = b.clave as string;
+      return Response.json({ token: `demo.${u.id}`, refreshToken: null, tipo: u.tipo, clienteId: E.miembros.find((m) => m.usuarioId === u.id)?.clienteId ?? null });
+    }
     if (req.method === "POST" && ["/sesion/nueva-clave", "/sesion/restablecer", "/sesion/renovar"].includes(camino)) {
       throw new ErrorApi(409, "SOLO_COGNITO", "Disponible solo con el ingreso de producción (Cognito)");
     }

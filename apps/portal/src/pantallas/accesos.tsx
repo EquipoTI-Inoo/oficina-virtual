@@ -3,14 +3,91 @@
  * Accesos del equipo (2 nov 2026): quién trabaja en una cuenta o un proyecto, y asignar o quitar gente.
  * Asigna el nivel ADMIN a cualquiera o un lead a la gente de su área (las mismas reglas de la API).
  */
-import { useState } from "react";
-import { LuPlus, LuUsers, LuX } from "react-icons/lu";
-import { api, ProblemaApi, useConsulta, type S } from "../base";
+import { useState, type FormEvent } from "react";
+import { LuKeyRound, LuLink, LuPlus, LuUsers, LuX } from "react-icons/lu";
+import { api, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Etiqueta, useAviso, usePortal } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
 
 const ORIGEN: Record<S<"AccesoPersona">["origen"], string> = { AM: "AM de la cuenta", RESPONSABLE: "Responsable", ASIGNADO: "Asignado" };
+
+const ROL_CLIENTE: Record<S<"Miembro">["rol"], string> = { ADMIN_CLIENTE: "Administra la cuenta", APROBADOR: "Aprueba entregables", LECTOR: "Solo lectura" };
+
+/**
+ * Quién del cliente entra al portal (5 nov 2026). El enlace de acceso es de un solo uso: sirve para el primer
+ * ingreso y para quien olvidó su contraseña, y se puede mandar por WhatsApp si el correo no llega.
+ */
+export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
+  const avisar = useAviso();
+  const lista = useConsulta<{ datos: S<"Miembro">[] }>(`/clientes/${clienteId}/miembros`);
+  const [agregando, setAgregando] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [email, setEmail] = useState("");
+  const [rol, setRol] = useState<S<"Miembro">["rol"]>("ADMIN_CLIENTE");
+  const [errores, setErrores] = useState<Record<string, string>>({});
+  if (!lista.datos) return null;
+
+  const copiarEnlace = async (m: S<"Miembro">) => {
+    try {
+      const r = await api<{ ruta: string; expiraEn: string }>(`/clientes/${clienteId}/miembros/${m.usuarioId}/enlace-acceso`, { metodo: "POST", cuerpo: {} });
+      await navigator.clipboard.writeText(`${window.location.origin}${r.ruta}`);
+      avisar({ titulo: `Enlace de ${m.nombre} copiado`, texto: `Sirve una sola vez y vence el ${fCorta(r.expiraEn)}. Pásaselo solo a esa persona.` });
+    } catch (x) {
+      avisar({ titulo: "No pudimos crear el enlace", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const agregar = async (e: FormEvent) => {
+    e.preventDefault();
+    setErrores({});
+    try {
+      await api(`/clientes/${clienteId}/miembros`, { metodo: "POST", idempotente: true, cuerpo: { nombre, email, rol } });
+      avisar({ titulo: `${nombre} ya tiene acceso`, texto: "Copia su enlace para que cree su contraseña." });
+      setAgregando(false);
+      setNombre("");
+      setEmail("");
+      void lista.recargar();
+    } catch (x) {
+      if (x instanceof ProblemaApi && x.errores.length) setErrores(Object.fromEntries(x.errores.map((y) => [y.campo, y.mensaje])));
+      else avisar({ titulo: "No pudimos agregarla", texto: x instanceof ProblemaApi ? x.titulo : undefined });
+    }
+  };
+
+  return (
+    <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
+      <div className="fila entre">
+        <h3 className="tarjeta-titulo fila" style={{ fontSize: 14.5, gap: 8 }}><LuKeyRound size={15} /> Acceso del cliente al portal</h3>
+        <button className="boton boton--chico" onClick={() => setAgregando((x) => !x)} aria-expanded={agregando}><LuPlus size={14} /> Agregar</button>
+      </div>
+      {!lista.datos.datos.length && <p className="texto-xs texto-muted">Todavía nadie del cliente tiene acceso.</p>}
+      {lista.datos.datos.map((m) => (
+        <div key={m.usuarioId} className="fila entre texto-sm" style={{ gap: 8, flexWrap: "wrap" }}>
+          <span>
+            <span className="negrita" style={{ display: "block" }}>{m.nombre}</span>
+            <span className="texto-xs texto-muted">{m.email} · {ROL_CLIENTE[m.rol]}</span>
+            {m.invitacionPendiente && <span style={{ display: "block", marginTop: 4 }}><Etiqueta tono="ambar">Todavía no entra</Etiqueta></span>}
+          </span>
+          <button className="boton boton--chico" onClick={() => void copiarEnlace(m)} aria-label={`Copiar enlace de acceso de ${m.nombre}`}><LuLink size={13} /> Copiar enlace</button>
+        </div>
+      ))}
+      {agregando && (
+        <form className="pila" style={{ gap: 8, borderTop: "1px solid var(--c-borde)", paddingTop: 10 }} onSubmit={agregar}>
+          <label className="texto-xs" htmlFor="ac-nombre">Nombre</label>
+          <input id="ac-nombre" className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} autoComplete="off" />
+          {errores.nombre && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{errores.nombre}</p>}
+          <label className="texto-xs" htmlFor="ac-email">Correo</label>
+          <input id="ac-email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          {errores.email && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{errores.email}</p>}
+          <label className="texto-xs" htmlFor="ac-rol">Permiso</label>
+          <select id="ac-rol" className="input" value={rol} onChange={(e) => setRol(e.target.value as S<"Miembro">["rol"])}>
+            {(Object.keys(ROL_CLIENTE) as S<"Miembro">["rol"][]).map((x) => <option key={x} value={x}>{ROL_CLIENTE[x]}</option>)}
+          </select>
+          <button className="boton boton--primario boton--chico">Dar acceso</button>
+        </form>
+      )}
+    </section>
+  );
+}
 
 export function EquipoAsignado({ ruta, titulo, ayuda, soloNivelCuenta }: { ruta: string; titulo: string; ayuda: string; soloNivelCuenta?: boolean }) {
   const avisar = useAviso();

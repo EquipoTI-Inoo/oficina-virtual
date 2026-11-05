@@ -44,14 +44,17 @@ import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leer
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
 import { areaDeDepartamento, cambiosDesdeEmpleado, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, type CambioPersona } from "../dominio/personas-equipo";
-import { inooworkConectado, sincronizarPersona } from "./inoowork";
+import { enviadorSmtp } from "./correo-smtp";
+import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
+import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
+import { inooworkConectado, leerEmpleados, sincronizarPersona } from "./inoowork";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
-import { altaProhibida, calcularAlcance, cambiosDeAcceso, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
+import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
@@ -2267,7 +2270,8 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
     )).rows[0];
     if (u && u.tipo !== "EQUIPO") continue; // ese correo es de un cliente: no se toca
     if (u) {
-      const c = cambiosDesdeEmpleado(e, { nombre: u.nombre, correo: u.email, cargo: u.cargo, area: u.area, activo: u.activo });
+      const otrosSupers = u.es_super_usuario ? (await ctx.c.query("SELECT 1 FROM usuario WHERE es_super_usuario AND activo AND id <> $1", [u.id])).rows.length : 1;
+      const c = limitarCambiosDeInooWork(cambiosDesdeEmpleado(e, { nombre: u.nombre, correo: u.email, cargo: u.cargo, area: u.area, activo: u.activo }), accesoDeFila(u), otrosSupers);
       if (c.correo && (await correoEnUso(ctx, c.correo, u.id))) delete c.correo;
       await ctx.c.query(
         `UPDATE usuario SET nombre = coalesce($2, nombre), email = coalesce($3, email), cargo = CASE WHEN $4 THEN $5 ELSE cargo END,
@@ -2286,11 +2290,16 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
       continue;
     }
     const area = areaDeDepartamento(e.department);
-    const rol = e.department?.trim().toLowerCase() === "finanzas" ? "FINANZAS" : area ? ROL_DEL_AREA[area] : ROL_SIN_AREA;
+    const rolPedido = e.department?.trim().toLowerCase() === "finanzas" ? "FINANZAS" : area ? ROL_DEL_AREA[area] : ROL_SIN_AREA;
+    // Solo un super usuario, al importar, trae gente con nivel ADMIN. Lo que llega solo entra con lo mínimo.
+    const confiable = !ctx.esServicio && !!ctx.u.esSuperUsuario;
+    const privilegiada = !confiable && nivelDe({ rolEquipo: rolPedido, area }) === "ADMIN";
+    const rol = privilegiada ? ROL_SIN_AREA : rolPedido;
+    const nivel = privilegiada ? "PROYECTO" : null;
     const n = (await ctx.c.query<{ id: string }>(
-      `INSERT INTO usuario (email, nombre, cargo, tipo, rol_equipo, area, inoowork_empleado_id, inoowork_usuario, inoowork_estado)
-       VALUES ($1, $2, $3, 'EQUIPO', $4::rol_equipo, $5::area_equipo, $6, $7, 'SINCRONIZADO') RETURNING id`,
-      [correo, e.name.trim(), e.role?.trim() || null, rol, area, e.id, e.username ?? null],
+      `INSERT INTO usuario (email, nombre, cargo, tipo, rol_equipo, area, nivel_acceso, inoowork_empleado_id, inoowork_usuario, inoowork_estado)
+       VALUES ($1, $2, $3, 'EQUIPO', $4::rol_equipo, $5::area_equipo, $6::nivel_acceso, $7, $8, 'SINCRONIZADO') RETURNING id`,
+      [correo, e.name.trim(), e.role?.trim() || null, rol, area, nivel, e.id, e.username ?? null],
     )).rows[0];
     await emitirOutbox(ctx, "equipo.persona_creada", null, { usuarioId: n.id, email: correo, nombre: e.name.trim(), origen: "INOOWORK" });
     personasCreadas++;
@@ -2308,8 +2317,10 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
     if (nuevo !== u.reporta_a_id) await ctx.c.query("UPDATE usuario SET reporta_a_id = $2 WHERE id = $1", [u.id, nuevo]);
   }
   for (const id of b.empleadosEliminados ?? []) {
+    // Nunca se queda el portal sin super usuario por algo que pasó en InooWork.
     const u = (await ctx.c.query<{ id: string; email: string }>(
-      "UPDATE usuario SET activo = false WHERE tipo = 'EQUIPO' AND inoowork_empleado_id = $1 AND activo RETURNING id, email::text", [id],
+      `UPDATE usuario u SET activo = false WHERE tipo = 'EQUIPO' AND inoowork_empleado_id = $1 AND activo
+         AND (NOT es_super_usuario OR EXISTS (SELECT 1 FROM usuario o WHERE o.es_super_usuario AND o.activo AND o.id <> u.id)) RETURNING id, email::text`, [id],
     )).rows[0];
     if (u) {
       await desactivada(u);
@@ -2318,6 +2329,19 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
   }
   return { personasCreadas, personasActualizadas, empleadosSinCorreo };
 }
+
+// Importación inicial: un super usuario trae al equipo desde InooWork.
+ruta("POST", "/panel/personas/importar-inoowork", async (ctx) => {
+  exigirSuperUsuario(ctx);
+  if (!inooworkConectado()) throw new ErrorApi(409, "INOOWORK_NO_CONECTADO", "InooWork todavía no está conectado", "Falta INOOWORK_URL en el servidor.");
+  let empleados;
+  try {
+    empleados = await leerEmpleados();
+  } catch (e) {
+    throw new ErrorApi(502, "INOOWORK_NO_RESPONDE", "No pudimos leer el equipo de InooWork", (e as Error).message);
+  }
+  return { empleadosLeidos: empleados.length, ...(await sincronizarEmpleadosDb(ctx, { empleados })) };
+});
 
 ruta("POST", "/integraciones/inoowork/sincronizacion", async (ctx, _p, _q, cuerpo) => {
   soloServicio(ctx, "inoowork:sync");
@@ -4159,6 +4183,20 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, cuerpo) => {
   return { __status: 201, ...(await buscarMiembro(ctx, p.id, usuarioId)) };
 });
 
+// El equipo le pasa a un cliente su enlace para crear la contraseña: por correo, o por WhatsApp si hace falta.
+ruta("POST", "/clientes/:id/miembros/:usuario/enlace-acceso", async (ctx, p) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo");
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const m = esUuid(p.usuario) ? (await ctx.c.query("SELECT 1 FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id WHERE m.cliente_id = $1 AND m.usuario_id = $2 AND u.activo AND u.tipo = 'CLIENTE'", [p.id, p.usuario])).rows[0] : undefined;
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso a esta cuenta");
+  const token = nuevoTokenEnlace();
+  const expira = new Date(Date.now() + DIAS_ENLACE_ACCESO * 86_400_000);
+  await ctx.c.query("INSERT INTO enlace_clave (usuario_id, token_hash, creado_por, expira_en) VALUES ($1, $2, $3, $4)", [p.usuario, hashToken(token), ctx.u.usuarioId, expira]);
+  return { ruta: rutaCrearClave(token), expiraEn: expira.toISOString() };
+});
+
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
@@ -5009,6 +5047,7 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<(S<"Correo
   if (regla === "miembro.invitado") {
     enlaceCliente = "/ingresar";
     c.conClaveTemporal = process.env.AUTH_MODO === "cognito";
+    c.creaSuClave = process.env.AUTH_MODO === "portal";
   }
   const servicios = servicioIds.size ? (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.id = ANY($1::uuid[]) ORDER BY s.orden, sc.fecha_inicio`, [[...servicioIds]])).rows : [];
   if (regla.startsWith("servicio.standby")) {
@@ -5201,7 +5240,7 @@ export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}
  */
 // ───────────────────────────────────────────── sesión: ingreso con Cognito (INO-01)
 
-const RUTAS_SESION = ["/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar"];
+const RUTAS_SESION = ["/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar", "/sesion/crear-clave"];
 
 /** Con los tokens de Cognito, quién es en la base: tipo y primer cliente (para la sesión del portal). */
 async function sesionDeTokens(t: Tokens): Promise<Response> {
@@ -5263,12 +5302,91 @@ async function ingresarConInooWork(req: Request): Promise<Response | null> {
   return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
 }
 
+/** La sesión de un cliente que acaba de probar quién es. */
+async function iniciarSesionCliente(c: Consultor, usuarioId: string) {
+  await c.query("UPDATE miembro_cliente SET invitacion_pendiente = false WHERE usuario_id = $1 AND invitacion_pendiente", [usuarioId]);
+  await c.query("SELECT registrar_actividad_cliente(array(SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1))", [usuarioId]);
+  const m = (await c.query<{ cliente_id: string }>("SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1 ORDER BY creado_en LIMIT 1", [usuarioId])).rows[0];
+  const s = firmarSesion(usuarioId);
+  return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "CLIENTE", clienteId: m?.cliente_id ?? null });
+}
+
+/** Manda el enlace de restablecer. Directo y sin guardar el cuerpo: el token no queda en el historial de correos. */
+function enviarEnlaceRestablecer(para: string, nombre: string, token: string) {
+  const enviar = enviadorSmtp();
+  if (!enviar) {
+    console.warn(JSON.stringify({ sesion: "restablecer_sin_smtp" }));
+    return;
+  }
+  const enlace = `${URL_PORTAL()}${rutaCrearClave(token)}`;
+  void enviar({
+    para, nombre, asunto: "Crea tu contraseña del portal de Inoo",
+    texto: `Hola:\n\nUsa este enlace para crear tu contraseña del portal. Vence en ${HORAS_ENLACE_RESTABLECER} horas y sirve una sola vez:\n${enlace}\n\nSi no lo pediste, ignora este correo.`,
+    html: `<p>Hola:</p><p>Usa este enlace para crear tu contraseña del portal. Vence en ${HORAS_ENLACE_RESTABLECER} horas y sirve una sola vez.</p><p><a href="${enlace}">Crear mi contraseña</a></p><p>Si no lo pediste, ignora este correo.</p>`,
+  }).catch((e) => console.error(JSON.stringify({ sesion: "restablecer_no_enviado", error: (e as Error).message.slice(0, 200) })));
+}
+
+/** Ingreso propio de los clientes (AUTH_MODO=portal). Nunca dice si un correo existe. */
+async function sesionPortal(camino: string, req: Request): Promise<Response> {
+  const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const t = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : "");
+  const email = t("email").toLowerCase();
+  const db = await baseDatos();
+  // usuario y enlace_clave se leen antes de activar una sesión restringida, igual que en autenticar.
+  const cliente = (c: Consultor) => c.query<{ id: string; nombre: string; clave_hash: string | null }>("SELECT id, nombre, clave_hash FROM usuario WHERE lower(email::text) = $1 AND activo AND tipo = 'CLIENTE'", [email]);
+  switch (camino) {
+    case "/sesion/ingresar": {
+      const clave = typeof b.clave === "string" ? b.clave : "";
+      if (!email || !clave) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+      revisarIntentos(email);
+      const u = (await db.transaccion(cliente)).rows[0];
+      if (!(await verificarClave(clave, u?.clave_hash))) {
+        anotarFallido(email);
+        throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
+      }
+      olvidarFallidos(email);
+      return db.transaccion((c) => iniciarSesionCliente(c, u.id));
+    }
+    case "/sesion/olvide-clave": {
+      if (email) {
+        const token = nuevoTokenEnlace();
+        const u = await db.transaccion(async (c) => {
+          const x = (await cliente(c)).rows[0];
+          if (x) await c.query("INSERT INTO enlace_clave (usuario_id, token_hash, expira_en) VALUES ($1, $2, $3)", [x.id, hashToken(token), new Date(Date.now() + HORAS_ENLACE_RESTABLECER * 3_600_000)]);
+          return x;
+        });
+        if (u) enviarEnlaceRestablecer(email, u.nombre, token);
+      }
+      return Response.json({ metodo: "ENLACE" });
+    }
+    case "/sesion/crear-clave": {
+      const error = errorClaveNueva(b.clave);
+      if (error) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "clave", mensaje: error }]);
+      const hash = await hashClave(b.clave as string);
+      return db.transaccion(async (c) => {
+        const e = (await c.query<{ id: string; usuario_id: string }>(
+          `SELECT e.id, e.usuario_id FROM enlace_clave e JOIN usuario u ON u.id = e.usuario_id AND u.activo AND u.tipo = 'CLIENTE'
+           WHERE e.token_hash = $1 AND e.usado_en IS NULL AND e.expira_en > now() FOR UPDATE OF e`, [hashToken(t("token"))],
+        )).rows[0];
+        if (!e) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "token", mensaje: "Este enlace ya se usó o venció. Pídele uno nuevo a tu equipo Inoo." }]);
+        await c.query("UPDATE usuario SET clave_hash = $2 WHERE id = $1", [e.usuario_id, hash]);
+        // Un enlace que se usa invalida los demás de esa persona.
+        await c.query("UPDATE enlace_clave SET usado_en = now() WHERE usuario_id = $1 AND usado_en IS NULL", [e.usuario_id]);
+        return iniciarSesionCliente(c, e.usuario_id);
+      });
+    }
+    default:
+      throw new ErrorApi(409, "SOLO_COGNITO", "Disponible solo con Cognito");
+  }
+}
+
 async function sesion(camino: string, req: Request): Promise<Response> {
   try {
     if (camino === "/sesion/ingresar" && ingresoConInooWork()) {
       const r = await ingresarConInooWork(req);
       if (r) return r;
     }
+    if (process.env.AUTH_MODO === "portal") return await sesionPortal(camino, req);
     if ((process.env.AUTH_MODO ?? "demo") !== "cognito") {
       if (camino === "/sesion/ingresar") return await ingresarDemo(req);
       if (camino === "/sesion/olvide-clave") return new Response(null, { status: 204 });

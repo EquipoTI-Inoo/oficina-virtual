@@ -58,6 +58,7 @@ services:
       - ../../database/migraciones/0037_jarvis_sin_llaves.sql:/docker-entrypoint-initdb.d/01zk_jarvis_sin_llaves.sql:ro
       - ../../database/migraciones/0038_recordatorios.sql:/docker-entrypoint-initdb.d/01zl_recordatorios.sql:ro
       - ../../database/migraciones/0039_super_usuario.sql:/docker-entrypoint-initdb.d/01zm_super_usuario.sql:ro
+      - ../../database/migraciones/0040_ingreso_portal.sql:/docker-entrypoint-initdb.d/01zn_ingreso_portal.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

@@ -38,6 +38,7 @@ import { pruebasTranscripciones } from "./flujo-transcripciones";
 import { pruebasTableros } from "./flujo-tableros";
 import { reiniciarTablerosSimulados } from "../../src/servidor/tableros";
 import { usarFetchIngreso } from "../../src/servidor/sesion-inoowork";
+import { usarFetchInooWork } from "../../src/servidor/inoowork";
 import { PLANTILLAS_REQUERIMIENTO } from "../../src/dominio/requerimientos";
 import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
@@ -99,6 +100,7 @@ before(async () => {
   await db.exec(sql("migraciones/0037_jarvis_sin_llaves.sql"));
   await db.exec(sql("migraciones/0038_recordatorios.sql"));
   await db.exec(sql("migraciones/0039_super_usuario.sql"));
+  await db.exec(sql("migraciones/0040_ingreso_portal.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -1024,5 +1026,126 @@ describe("Ingreso del equipo con su usuario de InooWork · Postgres", () => {
     assert.equal((await llamar("GET", "/me", alterado)).status, 401);
     for (let i = 0; i < 5; i++) await ingresar("bloqueado", "mala");
     assert.equal((await ingresar("bloqueado", "mala")).json.codigo, "DEMASIADOS_INTENTOS");
+  });
+});
+
+describe("Ingreso propio de los clientes e importación de InooWork · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const ADMIN = `demo.${uid(1, 4)}`;
+  const VALERIA_ID = uid(1, 1);
+  const antes = { modo: process.env.AUTH_MODO, secreto: process.env.SESION_SECRETO, url: process.env.INOOWORK_URL };
+  const restaurar = () => {
+    for (const [k, v] of [["AUTH_MODO", antes.modo], ["SESION_SECRETO", antes.secreto], ["INOOWORK_URL", antes.url]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  const token = (ruta: string) => ruta.split("/").pop()!;
+  /** El enlace lo pide el equipo con su propia sesión; en estas pruebas, con el token de prueba. */
+  const enlace = async (usuarioId = VALERIA_ID, quien = ADMIN) => {
+    process.env.AUTH_MODO = "demo";
+    const r = await llamar("POST", `/clientes/${CASA_OLIVA}/miembros/${usuarioId}/enlace-acceso`, quien, {});
+    process.env.AUTH_MODO = "portal";
+    return r;
+  };
+  before(() => {
+    process.env.SESION_SECRETO = "s".repeat(40);
+  });
+  after(restaurar);
+
+  test("el cliente crea su contraseña con su enlace de un solo uso y después entra con ella", async () => {
+    await reiniciar();
+    process.env.AUTH_MODO = "portal";
+    const ingresar = (clave: string, email = "valeria@casaoliva.pe") => llamar("POST", "/sesion/ingresar", undefined, { email, clave });
+    assert.equal((await ingresar("Clave2026x")).status, 401, "todavía no tiene contraseña");
+    assert.equal((await llamar("GET", "/me", ADMIN)).status, 401, "con este ingreso, los tokens de prueba no sirven");
+
+    const e = await enlace();
+    assert.equal(e.status, 200);
+    assert.match(e.json.ruta, /^\/crear-clave\/[\w-]{40,}$/);
+    const guardado = (await db.query<{ token_hash: string }>("SELECT token_hash FROM enlace_clave")).rows[0].token_hash;
+    assert.notEqual(guardado, token(e.json.ruta), "en la base solo queda el hash");
+
+    const crear = (t: string, clave: string) => llamar("POST", "/sesion/crear-clave", undefined, { token: t, clave });
+    assert.deepEqual((await crear(token(e.json.ruta), "corta")).json.errores.map((x: any) => x.campo), ["clave"]);
+    assert.deepEqual((await crear("token-falso", "Clave2026x")).json.errores.map((x: any) => x.campo), ["token"]);
+    const creada = await crear(token(e.json.ruta), "Clave2026x");
+    assert.equal(creada.status, 200);
+    assert.deepEqual([creada.json.tipo, creada.json.clienteId], ["CLIENTE", CASA_OLIVA]);
+    assert.equal((await llamar("GET", "/me", creada.json.token)).json.usuario.email, "valeria@casaoliva.pe", "la sesión sirve");
+    const fila = (await db.query<{ clave_hash: string }>("SELECT clave_hash FROM usuario WHERE id = $1", [VALERIA_ID])).rows[0];
+    assert.match(fila.clave_hash, /^scrypt\$/);
+    assert.equal((await crear(token(e.json.ruta), "OtraClave2026")).status, 422, "el enlace no sirve dos veces");
+
+    assert.equal((await ingresar("Mala2026x")).status, 401);
+    const ok = await ingresar("Clave2026x", "VALERIA@casaoliva.pe");
+    assert.deepEqual([ok.status, ok.json.tipo], [200, "CLIENTE"]);
+  });
+
+  test("los enlaces: un solo uso entre todos, vencen, y solo para clientes de esa cuenta", async () => {
+    await reiniciar();
+    const a = await enlace();
+    const b = await enlace();
+    const crear = (t: string) => llamar("POST", "/sesion/crear-clave", undefined, { token: t, clave: "Clave2026x" });
+    assert.equal((await crear(token(a.json.ruta))).status, 200);
+    assert.equal((await crear(token(b.json.ruta))).status, 422, "usar uno invalida los demás");
+
+    const c = await enlace();
+    await db.query("UPDATE enlace_clave SET expira_en = now() - interval '1 minute' WHERE usado_en IS NULL");
+    assert.equal((await crear(token(c.json.ruta))).status, 422, "vencido");
+
+    assert.equal((await enlace(uid(1, 3))).status, 404, "Diego es del equipo: entra con InooWork");
+    assert.equal((await enlace(VALERIA_ID, `demo.${uid(1, 6)}`)).status, 404, "quien no ve la cuenta completa no pide enlaces");
+    assert.equal((await enlace(VALERIA_ID, `demo.${VALERIA_ID}`)).status, 403, "el cliente no se los genera");
+  });
+
+  test("olvidé mi contraseña responde igual exista o no el correo, y bloquea tras muchos intentos", async () => {
+    await reiniciar();
+    process.env.AUTH_MODO = "portal";
+    for (const email of ["martin@casaoliva.pe", "nadie@x.pe"]) {
+      const r = await llamar("POST", "/sesion/olvide-clave", undefined, { email });
+      assert.deepEqual([r.status, r.json.metodo], [200, "ENLACE"]);
+    }
+    assert.equal((await db.query("SELECT 1 FROM enlace_clave")).rows.length, 1, "solo el que existe");
+    let ultimo = 0;
+    for (let i = 0; i < 6; i++) ultimo = (await llamar("POST", "/sesion/ingresar", undefined, { email: "martin@casaoliva.pe", clave: "Mala2026x" })).status;
+    assert.equal(ultimo, 429);
+  });
+
+  test("un super usuario importa al equipo de InooWork; lo que llega solo no da nivel ADMIN", async () => {
+    await reiniciar();
+    process.env.AUTH_MODO = "demo";
+    delete process.env.INOOWORK_URL;
+    assert.equal((await llamar("POST", "/panel/personas/importar-inoowork", ADMIN, {})).status, 409, "sin conectar");
+    process.env.INOOWORK_URL = "http://inoowork.falso";
+    usarFetchInooWork(async () => Response.json([
+      { id: "EMP-ERN", name: "Ernesto Prueba", email: "ernesto@inoo.pe", department: "Administración", status: "active", username: "ernesto" },
+      { id: "EMP-MKT", name: "Mara Prueba", email: "mara@inoo.pe", department: "Marketing", status: "active", username: "mara" },
+      { id: "EMP-SIN", name: "Sin Correo", department: "Marketing" },
+      { id: "EMP-CAMILA", name: "Camila Paredes", email: "camila.paredes@inoo.pe", department: "Administración" },
+    ]));
+    try {
+      assert.equal((await llamar("POST", "/panel/personas/importar-inoowork", `demo.${uid(1, 5)}`, {})).status, 403, "un ADMIN común no");
+      const r = (await llamar("POST", "/panel/personas/importar-inoowork", ADMIN, {})).json;
+      assert.deepEqual([r.empleadosLeidos, r.personasCreadas, r.empleadosSinCorreo], [4, 2, ["EMP-SIN"]]);
+      const personas = (await llamar("GET", "/panel/personas", ADMIN)).json.datos;
+      const de = (c: string) => personas.find((p: any) => p.correo === c);
+      assert.equal(de("ernesto@inoo.pe").nivel, "ADMIN", "lo importó un super usuario");
+      assert.equal(de("mara@inoo.pe").nivel, "PROYECTO");
+      assert.deepEqual([de("camila.paredes@inoo.pe").area, de("camila.paredes@inoo.pe").nivel], ["DISENO", "PROYECTO"], "InooWork no le sube el nivel a nadie");
+
+      const sinc = (b: unknown) => llamar("POST", "/integraciones/inoowork/sincronizacion", undefined, b, { "x-api-key": "demo-n8n" });
+      await sinc({ empleados: [{ id: "EMP-FIN", name: "Fina Prueba", email: "fina@inoo.pe", department: "Finanzas" }] });
+      const fina = (await llamar("GET", "/panel/personas", ADMIN)).json.datos.find((p: any) => p.correo === "fina@inoo.pe");
+      assert.deepEqual([fina.nivel, fina.permisos], ["PROYECTO", []], "por la sincronización entra con lo mínimo");
+
+      const superId = personas.find((p: any) => p.esSuperUsuario).inoowork.empleadoId;
+      await sinc({ empleadosEliminados: [superId] });
+      assert.equal((await llamar("GET", "/panel/personas", ADMIN)).json.datos.find((p: any) => p.esSuperUsuario).activo, true, "no se desactiva al último super usuario");
+    } finally {
+      usarFetchInooWork(null);
+      restaurar();
+      process.env.SESION_SECRETO = "s".repeat(40);
+    }
   });
 });

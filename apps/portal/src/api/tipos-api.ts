@@ -59,8 +59,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Manda un código al correo para restablecer la contraseña. Responde 204 aunque el correo no exista */
+        /** Manda al correo cómo restablecer la contraseña: un enlace (AUTH_MODO=portal) o un código (Cognito). Responde igual aunque el correo no exista */
         post: operations["olvideClave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sesion/crear-clave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** El cliente crea su contraseña con su enlace de un solo uso y queda con la sesión iniciada (AUTH_MODO=portal) */
+        post: operations["crearClave"];
         delete?: never;
         options?: never;
         head?: never;
@@ -373,6 +390,26 @@ export interface paths {
          * @description Al aprobar se emite `responsable.cambiado` (n8n envía la invitación al sucesor y avisa al AM para contactarlo).
          */
         post: operations["decidirCambioResponsable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/miembros/{usuarioId}/enlace-acceso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enlace de un solo uso para que un usuario del cliente cree su contraseña. Vence en 7 días. Solo el token completo vuelve aquí; en la base queda su hash */
+        post: operations["crearEnlaceAcceso"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1863,6 +1900,23 @@ export interface paths {
         get: operations["verOrganigrama"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/personas/importar-inoowork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trae al equipo desde InooWork (solo super usuario). Crea a quien falta y enlaza por id de empleado o correo */
+        post: operations["importarDeInooWork"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5969,7 +6023,19 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Si el correo existe, le llega el código */
+            /** @description Ingreso propio: si el correo existe, le llega un enlace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        metodo: "ENLACE";
+                    };
+                };
+            };
+            /** @description Cognito: si el correo existe, le llega el código */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -5985,6 +6051,43 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+        };
+    };
+    crearClave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                    clave: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Contraseña creada; sesión iniciada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"];
+                };
+            };
+            /** @description SOLO_COGNITO: este despliegue no usa el ingreso propio */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
         };
     };
     restablecerClave: {
@@ -6759,6 +6862,36 @@ export interface operations {
             404: components["responses"]["NoEncontrado"];
             409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    crearEnlaceAcceso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Ruta de la página pública: /crear-clave/{token} */
+                        ruta: string;
+                        /** Format: date-time */
+                        expiraEn: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     quitarMiembro: {
@@ -9692,6 +9825,34 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    importarDeInooWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        empleadosLeidos: number;
+                        personasCreadas: number;
+                        personasActualizadas: number;
+                        /** @description No se pudieron crear: el correo es su identidad en el portal */
+                        empleadosSinCorreo: string[];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            409: components["responses"]["Conflicto"];
         };
     };
     listarCambiosAcceso: {

@@ -12,7 +12,7 @@
  * acceso con «Restablecer contraseña» de InooWork, hasta que las dos apps compartan el login (INO-01).
  */
 import { randomBytes } from "node:crypto";
-import { empleadoDesdePersona, nuevoIdEmpleado } from "../dominio/personas-equipo";
+import { empleadoDesdePersona, nuevoIdEmpleado, type EmpleadoInooWork } from "../dominio/personas-equipo";
 import type { Area } from "../dominio/ia-equipo";
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
@@ -60,6 +60,18 @@ const fallo = async (r: Response, que: string) => {
   }
   return `${que}: InooWork respondió ${r.status}${detalle ? ` (${detalle})` : ""}`;
 };
+
+/** Todas las fichas de InooWork, para la importación inicial. Lanza si InooWork no responde. */
+export async function leerEmpleados(): Promise<EmpleadoInooWork[]> {
+  const r = await enviar(`${env("INOOWORK_URL")!.replace(/\/+$/, "")}/api/employees`, {
+    headers: env("INOOWORK_API_KEY") ? { "x-api-key": env("INOOWORK_API_KEY")! } : {},
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!r.ok) throw new Error(await fallo(r, "No se pudo leer el equipo"));
+  const lista = (await r.json()) as unknown;
+  if (!Array.isArray(lista)) throw new Error("InooWork no devolvió una lista de empleados");
+  return lista.filter((e): e is EmpleadoInooWork => typeof e?.id === "string" && typeof e?.name === "string");
+}
 
 /** Usuario de InooWork con contraseña aleatoria. 409: ya existía y queda enlazado igual. Devuelve el error, si hubo. */
 async function registrar(correo: string, empleadoId: string) {

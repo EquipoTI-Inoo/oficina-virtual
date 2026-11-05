@@ -144,7 +144,7 @@ paths:
     post:
       tags: [Sesión]
       operationId: olvideClave
-      summary: 'Manda un código al correo para restablecer la contraseña. Responde 204 aunque el correo no exista'
+      summary: 'Manda al correo cómo restablecer la contraseña: un enlace (AUTH_MODO=portal) o un código (Cognito). Responde igual aunque el correo no exista'
       security: []
       requestBody:
         required: true
@@ -156,8 +156,42 @@ paths:
               properties:
                 email: { type: string, format: email }
       responses:
-        '204': { description: 'Si el correo existe, le llega el código' }
+        '200':
+          description: 'Ingreso propio: si el correo existe, le llega un enlace'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [metodo]
+                properties:
+                  metodo: { type: string, enum: [ENLACE] }
+        '204': { description: 'Cognito: si el correo existe, le llega el código' }
         '429': { description: 'DEMASIADOS_INTENTOS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /sesion/crear-clave:
+    post:
+      tags: [Sesión]
+      operationId: crearClave
+      summary: 'El cliente crea su contraseña con su enlace de un solo uso y queda con la sesión iniciada (AUTH_MODO=portal)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, clave]
+              properties:
+                token: { type: string }
+                clave: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: 'Contraseña creada; sesión iniciada'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SesionIniciada' }
+        '409': { description: 'SOLO_COGNITO: este despliegue no usa el ingreso propio', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /sesion/restablecer:
     post:
@@ -645,6 +679,29 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
+
+  /clientes/{clienteId}/miembros/{usuarioId}/enlace-acceso:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Clientes]
+      operationId: crearEnlaceAcceso
+      summary: 'Enlace de un solo uso para que un usuario del cliente cree su contraseña. Vence en 7 días. Solo el token completo vuelve aquí; en la base queda su hash'
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ruta, expiraEn]
+                properties:
+                  ruta: { type: string, description: 'Ruta de la página pública: /crear-clave/{token}' }
+                  expiraEn: { type: string, format: date-time }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /clientes/{clienteId}/miembros/{usuarioId}:
     parameters:
@@ -2747,6 +2804,28 @@ paths:
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/NodoOrganigrama' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/personas/importar-inoowork:
+    post:
+      tags: [Panel interno]
+      operationId: importarDeInooWork
+      summary: 'Trae al equipo desde InooWork (solo super usuario). Crea a quien falta y enlaza por id de empleado o correo'
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [empleadosLeidos, personasCreadas, personasActualizadas, empleadosSinCorreo]
+                properties:
+                  empleadosLeidos: { type: integer }
+                  personasCreadas: { type: integer }
+                  personasActualizadas: { type: integer }
+                  empleadosSinCorreo: { type: array, items: { type: string }, description: 'No se pudieron crear: el correo es su identidad en el portal' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
 
   /panel/personas/{usuarioId}/cambios-acceso:
     get:

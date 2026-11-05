@@ -15,6 +15,8 @@ export interface ContextoCorreo {
   pieza?: string | null;
   /** Con Cognito, el invitado recibe aparte su contraseña temporal. */
   conClaveTemporal?: boolean;
+  /** Con el ingreso propio del portal, crea su contraseña desde «¿Olvidaste tu contraseña?». */
+  creaSuClave?: boolean;
   /** Título del entregable del proyecto (flujograma, demo, manual…; fase 11). */
   entregable?: string | null;
   numero?: number | null;
@@ -129,7 +131,9 @@ export const PLANTILLAS_CORREO: Record<string, Plantilla> = {
       "Ahí revisas y apruebas los contenidos, sigues el avance de tus servicios y hablas con tu equipo.",
       c.conClaveTemporal
         ? "Te llega otro correo con una contraseña temporal: úsala en tu primer ingreso y ahí eliges la tuya."
-        : "Ingresa con este mismo correo.",
+        : c.creaSuClave
+          ? "Para crear tu contraseña, entra al portal, pulsa «¿Olvidaste tu contraseña?» y escribe este mismo correo."
+          : "Ingresa con este mismo correo.",
     ],
     boton: "Entrar al portal",
   },

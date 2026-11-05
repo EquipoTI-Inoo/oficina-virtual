@@ -584,6 +584,29 @@ test("super usuario: concede un permiso a una persona, y un ADMIN no puede repar
   await rosa.close();
 });
 
+test("acceso del cliente: el equipo copia su enlace y el cliente crea su contraseña", async ({ page, context, browser }) => {
+  test.setTimeout(120_000);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await entrarComo(page, "admin");
+  await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
+  await page.getByRole("button", { name: "Copiar enlace de acceso de Valeria Mendoza" }).click({ timeout: 40_000 });
+  await expect(page.getByText("Enlace de Valeria Mendoza copiado")).toBeVisible({ timeout: 20_000 });
+  const enlace = await page.evaluate(() => navigator.clipboard.readText());
+  expect(enlace).toMatch(/\/crear-clave\//);
+
+  const cliente = await (await browser.newContext()).newPage();
+  await cliente.goto(enlace);
+  await cliente.getByLabel("Contraseña nueva").fill("corta", { timeout: 40_000 });
+  await cliente.getByLabel("Repite la contraseña").fill("corta");
+  await cliente.getByRole("button", { name: "Crear contraseña y entrar" }).click();
+  await expect(cliente.getByRole("alert").filter({ hasText: "Usa al menos 8 caracteres" })).toBeVisible({ timeout: 20_000 });
+  await cliente.getByLabel("Contraseña nueva").fill("ClaveNueva2026");
+  await cliente.getByLabel("Repite la contraseña").fill("ClaveNueva2026");
+  await cliente.getByRole("button", { name: "Crear contraseña y entrar" }).click();
+  await expect(cliente.getByRole("heading", { name: /Hola, Valeria/ })).toBeVisible({ timeout: 40_000 });
+  await cliente.close();
+});
+
 test("cierre de proyecto: muestra lo que falta y deja el mensaje al cliente", async ({ page, browser }) => {
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");

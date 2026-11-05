@@ -14,7 +14,7 @@ import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimien
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
-import { EquipoAsignado } from "./accesos";
+import { AccesoDelCliente, EquipoAsignado } from "./accesos";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -679,6 +679,7 @@ function Ficha() {
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}
+          {gestion && <AccesoDelCliente clienteId={id} />}
           <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5, paddingLeft: 4 }}>Referencias de marca</h3>

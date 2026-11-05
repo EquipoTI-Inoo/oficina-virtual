@@ -189,6 +189,17 @@ export function revisarCambioAcceso(actorEsSuper: boolean, antes: EstadoAcceso, 
   return { prohibido, errores, despues };
 }
 
+/**
+ * Lo que llega de InooWork no reparte accesos: si el cambio de área le cambiaría el nivel a la persona, el área
+ * se queda como está hasta que lo decida un super usuario. Tampoco se desactiva al último super usuario.
+ */
+export function limitarCambiosDeInooWork<C extends { area?: Area; activo?: boolean }>(c: C, p: { rolEquipo: string | null; area: Area | null; nivelAcceso?: Nivel | null; esSuperUsuario?: boolean }, otrosSupersActivos: number): C {
+  const r = { ...c };
+  if (r.area && nivelDe({ ...p, area: r.area }) !== nivelDe(p)) delete r.area;
+  if (r.activo === false && p.esSuperUsuario && !otrosSupersActivos) delete r.activo;
+  return r;
+}
+
 /** Un alta sin ser super usuario no puede nacer con nivel elegido ni con privilegios. */
 export function altaProhibida(actorEsSuper: boolean, n: { rolEquipo: string | null; area: Area | null; nivel: Nivel | null }) {
   if (actorEsSuper) return null;
