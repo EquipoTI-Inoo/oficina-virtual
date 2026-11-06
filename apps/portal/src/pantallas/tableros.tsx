@@ -5,7 +5,7 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { LuChevronDown, LuChevronLeft, LuChevronRight, LuPlus, LuSearch, LuTrash2 } from "react-icons/lu";
+import { LuChevronDown, LuChevronLeft, LuChevronRight, LuPlus, LuTrash2 } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso } from "../componentes";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
@@ -16,69 +16,6 @@ type Vista = S<"TableroInooWork">["vistas"][number]["tipo"];
 
 const NOMBRE_VISTA: Record<Vista, string> = { TABLA: "Tabla", KANBAN: "Kanban", CALENDARIO: "Calendario", LINEA_TIEMPO: "Línea de tiempo", GRAFICO: "Gráfico" };
 const fecha = (f: string | null | undefined) => (f ? new Date(`${f}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
-
-/** «Clientes» (pipeline de servicios) y «Tableros de InooWork»: cómo se juntan lo decide Ernesto después de la demo. */
-export function PestanasProyectos({ actual }: { actual: "clientes" | "tableros" }) {
-  return (
-    <div className="segmentado" role="tablist" aria-label="Qué proyectos ver">
-      <Enlace a="/equipo/proyectos" className={actual === "clientes" ? "activo" : undefined} role="tab" aria-selected={actual === "clientes"}>
-        Clientes
-      </Enlace>
-      <Enlace a="/equipo/proyectos/tableros" className={actual === "tableros" ? "activo" : undefined} role="tab" aria-selected={actual === "tableros"}>
-        Tableros de InooWork
-      </Enlace>
-    </div>
-  );
-}
-
-// ═════════════════════════════════════════════ lista
-
-export function PantallaTableros() {
-  return (
-    <Estructura espacio="equipo" migas="Proyectos">
-      <ListaTableros />
-    </Estructura>
-  );
-}
-
-function ListaTableros() {
-  const r = useConsulta<{ datos: S<"TableroResumen">[]; conectado: boolean }>("/tableros");
-  const [texto, setTexto] = useState("");
-  const lista = (r.datos?.datos ?? []).filter((t) => `${t.nombre} ${t.area ?? ""} ${t.lider?.nombre ?? ""}`.toLowerCase().includes(texto.trim().toLowerCase()));
-  return (
-    <>
-      <Cabecera titulo="Proyectos" bajada="Los tableros de InooWork donde eres líder o miembro. Lo que cambies aquí se ve en InooWork." accion={<PestanasProyectos actual="tableros" />} />
-      <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
-        <div className="entrada" style={{ flex: "1 1 220px", maxWidth: 320 }}>
-          <input aria-label="Buscar tablero" placeholder="Buscar proyecto, área o líder" value={texto} onChange={(e) => setTexto(e.target.value)} />
-          <span className="icono-campo" aria-hidden><LuSearch size={16} /></span>
-        </div>
-        {r.datos && !r.datos.conectado && <span className="texto-xs texto-muted">Proyectos de demo: se conectan a InooWork al configurar INOOWORK_URL.</span>}
-      </div>
-      {r.error ? <ErrorCarga error={r.error} reintentar={r.recargar} /> : !r.datos ? <Cargando /> : !lista.length ? (
-        <p className="texto-sm texto-muted">No tienes tableros{texto ? " con esa búsqueda" : ""}.</p>
-      ) : (
-        <div className="tableros-grilla">
-          {lista.map((t) => {
-            const pct = t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0;
-            return (
-              <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="tarjeta tablero-tarjeta" style={{ borderTopColor: t.color }}>
-                <span className="texto-xs texto-muted">{t.area ?? "Sin área"}{t.estado ? ` · ${t.estado}` : ""}</span>
-                <span className="negrita" style={{ fontSize: 15.5 }}>{t.nombre}</span>
-                {t.descripcion && <span className="texto-xs texto-muted">{t.descripcion}</span>}
-                <span className="barra" aria-label={`${pct} % completado`}><span style={{ width: `${pct}%`, background: t.color }} /></span>
-                <span className="fila entre texto-xs">
-                  <span>{t.items.completados} de {t.items.total} completados{t.items.vencidos ? <span style={{ color: "var(--c-alerta)" }}> · {t.items.vencidos} vencidos</span> : null}</span>
-                  <span className="texto-muted">{t.lider?.nombre ?? "Sin líder"} · {t.miembros} {t.miembros === 1 ? "persona" : "personas"}</span>
-                </span>
-              </Enlace>
-            );
-          })}
-        </div>
-      )}
-    </>
-  );
-}
 
 // ═════════════════════════════════════════════ tablero
 
@@ -124,9 +61,9 @@ function TableroProyecto() {
 
   return (
     <>
-      <Enlace a="/equipo/proyectos/tableros" className="volver">← Tableros</Enlace>
+      <Enlace a="/equipo/proyectos" className="volver">← Proyectos</Enlace>
       <Cabecera
-        antetitulo={[t.area, t.lider ? `Líder: ${t.lider.nombre}` : null].filter(Boolean).join(" · ") || undefined}
+        antetitulo={[t.cliente ?? "Sin cliente", t.area, t.lider ? `Líder: ${t.lider.nombre}` : null].filter(Boolean).join(" · ")}
         titulo={t.nombre}
         bajada={t.descripcion ?? undefined}
         accion={!t.puedeEditar ? <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span> : undefined}

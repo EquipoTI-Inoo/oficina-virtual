@@ -26,6 +26,12 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("GET", "/tableros/PROJ-DIS01", DIEGO)).status, 404, "no es miembro");
       const lista = (await llamar("GET", "/tableros", DIEGO)).json;
       assert.equal(lista.conectado, false, "proyectos de demo");
+      const deId = (id: string) => lista.datos.find((x: any) => x.id === id);
+      assert.deepEqual([deId("PROJ-MKT01").cliente, deId("PROJ-MKT01").esMio], ["Inoo", true]);
+      assert.equal(deId("PROJ-OPS01").cliente, null, "sin cliente asignado todavía");
+      assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json.cliente, "Inoo");
+      const deAdmin = (await llamar("GET", "/tableros", ADMIN)).json.datos.find((x: any) => x.id === "PROJ-DIS01");
+      assert.deepEqual([deAdmin.cliente, deAdmin.esMio], ["Casa Oliva", false], "el ADMIN lo ve sin ser miembro");
       assert.deepEqual(lista.datos.find((x: any) => x.id === "PROJ-MKT01").items, { total: 5, completados: 1, vencidos: 3 });
 
       const t = (await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json;

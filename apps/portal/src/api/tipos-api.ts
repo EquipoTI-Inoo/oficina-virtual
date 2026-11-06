@@ -4094,6 +4094,10 @@ export interface components {
             /** @example PROJ-MKT01 */
             id: string;
             nombre: string;
+            /** @description El cliente que el proyecto tiene en InooWork; null = sin asignar */
+            cliente: string | null;
+            /** @description La persona es líder o miembro activo */
+            esMio: boolean;
             descripcion?: string | null;
             color: string;
             estado?: string | null;
@@ -4146,6 +4150,8 @@ export interface components {
         TableroInooWork: {
             id: string;
             nombre: string;
+            /** @description null = sin asignar en InooWork */
+            cliente?: string | null;
             descripcion?: string | null;
             color: string;
             estado?: string | null;

@@ -21,7 +21,7 @@ export interface GrupoIW { id: string; name: string; color: string; collapsed?: 
 export interface ColumnaIW { id: string; label: string; type: string; width?: number; fixed?: boolean }
 export interface VistaIW { id: string; name: string; type: string; isDefault?: boolean; columns?: ColumnaIW[]; filters?: unknown[] }
 export interface ProyectoIW {
-  id: string; name: string; description?: string; status?: string; department?: string;
+  id: string; name: string; clientName?: string; description?: string; status?: string; department?: string;
   leaderId?: string; leaderName?: string; leaderAvatar?: string; color?: string; createdAt?: string; archived?: boolean;
   members?: { employeeId: string; name?: string; avatar?: string; status?: string }[];
   groups?: GrupoIW[]; items?: ItemIW[]; views?: VistaIW[];
@@ -68,6 +68,18 @@ export function personasDelProyecto(p: ProyectoIW): PersonaIW[] {
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 export const itemVencido = (i: { status: string; dueDate?: string }, dia = hoy()) => i.status !== "Completado" && !!i.dueDate && i.dueDate < dia;
+
+/** En qué columna de «Proyectos» va un tablero. Los cancelados no se muestran (null). */
+export function columnaDeTablero(estado: string | null | undefined, vencidos: number) {
+  switch (estado) {
+    case "Cancelado": return null;
+    case "Sin Iniciar": return "POR_INICIAR" as const;
+    case "En Pausa": return "EN_PAUSA" as const;
+    case "En Revisión":
+    case "Completado": return "POR_CERRAR" as const;
+    default: return vencidos > 0 ? ("CON_RETRASO" as const) : ("EN_CURSO" as const);
+  }
+}
 
 export function resumenProyecto(p: ProyectoIW, dia = hoy()) {
   const items = p.items ?? [];

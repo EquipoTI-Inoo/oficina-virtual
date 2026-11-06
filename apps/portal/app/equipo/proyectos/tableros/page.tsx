@@ -1,5 +1,6 @@
-import { PantallaTableros } from "@/src/pantallas/tableros";
+import { redirect } from "next/navigation";
 
+// Los tableros de InooWork ahora están en «Proyectos», junto a los de clientes.
 export default function Pagina() {
-  return <PantallaTableros />;
+  redirect("/equipo/proyectos");
 }

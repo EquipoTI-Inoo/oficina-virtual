@@ -31,7 +31,7 @@ const A = "Admin Inoo";
 
 export const PROYECTOS_DEMO: ProyectoIW[] = [
   {
-    id: "PROJ-MKT01", name: "Marketing interno de Inoo", description: "Contenido y campañas de la propia agencia.", status: "En Progreso", department: "Marketing",
+    id: "PROJ-MKT01", name: "Marketing interno de Inoo", clientName: "Inoo", description: "Contenido y campañas de la propia agencia.", status: "En Progreso", department: "Marketing",
     leaderId: EMPLEADO_DEMO.diego, leaderName: D, leaderAvatar: "", color: "#6366f1", createdAt: "2026-09-15",
     members: [{ employeeId: EMPLEADO_DEMO.camila, name: C, avatar: "", status: "active" }],
     groups: [
@@ -73,7 +73,7 @@ export const PROYECTOS_DEMO: ProyectoIW[] = [
     ],
   },
   {
-    id: "PROJ-DIS01", name: "Biblioteca de diseño", description: "Plantillas y recursos gráficos del equipo.", status: "Sin Iniciar", department: "Diseño Grafico",
+    id: "PROJ-DIS01", name: "Biblioteca de diseño", clientName: "Casa Oliva", description: "Plantillas y recursos gráficos del equipo.", status: "Sin Iniciar", department: "Diseño Grafico",
     leaderId: EMPLEADO_DEMO.camila, leaderName: C, leaderAvatar: "", color: "#ec4899", createdAt: "2026-10-01",
     members: [],
     groups: [{ id: "g-dis-1", name: "To-Do", color: "#ec4899", collapsed: false }],

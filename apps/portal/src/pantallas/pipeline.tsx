@@ -3,11 +3,12 @@
  * Pipeline de proyectos (reunión 15 oct): cada tarjeta es un proyecto (servicio contratado), no una
  * tarea ni un requerimiento. Las columnas muestran en qué situación está cada uno; al entrar se ven
  * sus etapas y sus tareas. Monday sirve solo de referencia visual: el tablero vive aquí.
+ * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
 import { useState } from "react";
-import { LuClipboardList, LuListTodo, LuSearch } from "react-icons/lu";
+import { LuClipboardList, LuListTodo, LuSearch, LuSquareKanban } from "react-icons/lu";
 import { Enlace, useConsulta, type S } from "../base";
-import { PestanasProyectos } from "./tableros";
+import { columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, usePortal } from "../componentes";
 
 type Pipeline = { columnas: { clave: S<"ColumnaProyecto">; titulo: string }[]; datos: S<"ProyectoPipeline">[] };
@@ -39,9 +40,13 @@ function PipelineProyectos() {
   if (mios && sesion) params.set("responsableId", sesion.usuario.id);
   if (texto.trim()) params.set("q", texto.trim());
   const { datos: d, error, recargar } = useConsulta<Pipeline>(`/panel/proyectos${params.toString() ? `?${params}` : ""}`);
+  // Si InooWork no responde, los proyectos de clientes se siguen viendo y solo faltan los tableros.
+  const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
+  const q = texto.trim().toLowerCase();
+  const tableros = (r.datos?.datos ?? []).filter((t) => (!mios || t.esMio) && (!q || `${t.cliente ?? ""} ${t.nombre} ${t.area ?? ""} ${t.lider?.nombre ?? ""}`.toLowerCase().includes(q)));
   return (
     <>
-      <Cabecera titulo="Proyectos" bajada="Cada tarjeta es un proyecto. Entra para ver sus etapas, sus tareas y lo que le pedimos al cliente." accion={<PestanasProyectos actual="clientes" />} />
+      <Cabecera titulo="Proyectos" bajada="Cada tarjeta es un proyecto. Los que tienen el ícono de tablero vienen de InooWork, y lo que cambies en ellos también se ve allá." />
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <div className="chips" role="group" aria-label="Qué proyectos ver">
           <button type="button" className="chip" aria-pressed={!mios} onClick={() => setMios(false)}>
@@ -58,6 +63,7 @@ function PipelineProyectos() {
           </span>
         </div>
       </div>
+      {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
       {error ? (
         <ErrorCarga error={error} reintentar={recargar} />
       ) : !d ? (
@@ -66,18 +72,22 @@ function PipelineProyectos() {
         <div className="pipeline" role="list" aria-label="Pipeline de proyectos">
           {d.columnas.map((c) => {
             const xs = d.datos.filter((p) => p.columna === c.clave);
+            const ts = tableros.filter((t) => columnaDeTablero(t.estado, t.items.vencidos) === c.clave);
             return (
-              <section key={c.clave} className="pipeline-columna" data-columna={c.clave} role="listitem" aria-label={`${c.titulo}: ${xs.length}`}>
+              <section key={c.clave} className="pipeline-columna" data-columna={c.clave} role="listitem" aria-label={`${c.titulo}: ${xs.length + ts.length}`}>
                 <header className="pipeline-cab">
                   <span className="negrita">{c.titulo}</span>
-                  <span className="pipeline-contador">{xs.length}</span>
+                  <span className="pipeline-contador">{xs.length + ts.length}</span>
                 </header>
                 <p className="texto-xs texto-muted" style={{ margin: "0 2px 10px" }}>{AYUDA_COLUMNA[c.clave]}</p>
                 <div style={{ display: "grid", gap: 10 }}>
                   {xs.map((p) => (
                     <TarjetaProyecto key={p.servicioContratadoId} p={p} />
                   ))}
-                  {!xs.length && <p className="texto-xs texto-muted pipeline-vacio">Sin proyectos</p>}
+                  {ts.map((t) => (
+                    <TarjetaTablero key={t.id} t={t} />
+                  ))}
+                  {!xs.length && !ts.length && <p className="texto-xs texto-muted pipeline-vacio">Sin proyectos</p>}
                 </div>
               </section>
             );
@@ -85,6 +95,38 @@ function PipelineProyectos() {
         </div>
       )}
     </>
+  );
+}
+
+function TarjetaTablero({ t }: { t: S<"TableroResumen"> }) {
+  const pct = t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0;
+  return (
+    <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="pipeline-tarjeta">
+      <span className="fila entre" style={{ gap: 8 }}>
+        <span className="texto-xs texto-muted" style={t.cliente ? undefined : { color: "var(--c-alerta)" }}>{t.cliente ?? "Sin cliente"}</span>
+        <span style={{ color: "var(--c-primario)", display: "inline-flex" }} title="Tablero de InooWork" aria-label="Tablero de InooWork" role="img">
+          <LuSquareKanban size={16} />
+        </span>
+      </span>
+      <span className="negrita" style={{ fontSize: 13, lineHeight: 1.35 }}>{t.nombre}</span>
+      <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total} completados{t.area ? ` · ${t.area}` : ""}</span>
+      <span className="fila" style={{ gap: 8 }}>
+        <span style={{ flex: 1 }}>
+          <Barra pct={pct} tono={t.items.vencidos ? "ambar" : undefined} />
+        </span>
+        <span className="texto-xs negrita">{pct} %</span>
+      </span>
+      <span className="fila entre" style={{ gap: 8, flexWrap: "wrap" }}>
+        <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+          {t.items.vencidos > 0 && <span className="pipeline-dato pipeline-dato--rojo"><LuListTodo size={12} /> {t.items.vencidos} vencido{t.items.vencidos === 1 ? "" : "s"}</span>}
+        </span>
+        {t.lider && (
+          <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }} title={`Líder: ${t.lider.nombre}`}>
+            {iniciales(t.lider.nombre)}
+          </span>
+        )}
+      </span>
+    </Enlace>
   );
 }
 

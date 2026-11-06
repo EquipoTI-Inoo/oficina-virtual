@@ -630,9 +630,10 @@ test("tableros de InooWork: Diego cambia el estado de un ítem y agrega uno; el 
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos");
-  await page.getByRole("tab", { name: "Tableros de InooWork" }).click({ timeout: 30_000 });
-  await expect(page.getByText("Biblioteca de diseño")).toHaveCount(0, { timeout: 30_000 });
-  await page.getByText("Marketing interno de Inoo").click();
+  const tablero = page.getByRole("link", { name: /Marketing interno de Inoo/ });
+  await expect(tablero).toContainText("Inoo", { timeout: 30_000 });
+  await expect(page.getByText("Biblioteca de diseño")).toHaveCount(0);
+  await tablero.click();
   await page.getByLabel("Estado de Caso de éxito: Casa Oliva").selectOption("En Progreso", { timeout: 30_000 });
   await page.getByLabel("Nuevo ítem en Noviembre").fill("Brief de la campaña");
   await page.getByLabel("Nuevo ítem en Noviembre").press("Enter");

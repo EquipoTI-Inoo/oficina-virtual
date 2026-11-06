@@ -91,7 +91,7 @@ function tableroVista(p: ProyectoIW, yo: Yo) {
   const cols = columnasPersonalizadas(p);
   const tipos = [...new Set((p.views ?? []).map((v) => TIPO_VISTA[v.type]).filter(Boolean))];
   return {
-    id: p.id, nombre: p.name, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
+    id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
     lider: persona(p.leaderId, p.leaderName), personas: personasDelProyecto(p),
     grupos: (p.groups ?? []).map((g) => ({ id: g.id, nombre: g.name, color: g.color })),
     columnas: cols.map((c) => ({ id: c.id, nombre: c.label, tipo: c.type })),
@@ -139,8 +139,9 @@ export function crearTableros(fallar: Fallar) {
       datos: (await listarIW())
         .filter((p) => !p.archived && veProyecto(p, yo.empleadoId, yo.esAdmin))
         .map((p) => ({
-          id: p.id, nombre: p.name, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
+          id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
           lider: persona(p.leaderId, p.leaderName), miembros: personasDelProyecto(p).length, items: resumenProyecto(p), puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),
+          esMio: !!yo.empleadoId && personasDelProyecto(p).some((x) => x.id === yo.empleadoId),
         })),
     })),
     ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),

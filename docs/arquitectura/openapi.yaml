@@ -5358,10 +5358,12 @@ components:
         creadoEn: { type: string, format: date-time }
     TableroResumen:
       type: object
-      required: [id, nombre, color, lider, miembros, items, puedeEditar]
+      required: [id, nombre, cliente, color, lider, miembros, items, puedeEditar, esMio]
       properties:
         id: { type: string, examples: [PROJ-MKT01] }
         nombre: { type: string }
+        cliente: { type: [string, 'null'], description: 'El cliente que el proyecto tiene en InooWork; null = sin asignar' }
+        esMio: { type: boolean, description: 'La persona es líder o miembro activo' }
         descripcion: { type: [string, 'null'] }
         color: { type: string }
         estado: { type: [string, 'null'] }
@@ -5415,6 +5417,7 @@ components:
       properties:
         id: { type: string }
         nombre: { type: string }
+        cliente: { type: [string, 'null'], description: 'null = sin asignar en InooWork' }
         descripcion: { type: [string, 'null'] }
         color: { type: string }
         estado: { type: [string, 'null'] }
