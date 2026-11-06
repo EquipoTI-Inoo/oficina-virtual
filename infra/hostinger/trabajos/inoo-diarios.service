@@ -1,0 +1,7 @@
+[Unit]
+Description=Procesos diarios del portal de Inoo
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/inoo/trabajos/diarios.sh

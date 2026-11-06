@@ -1,0 +1,9 @@
+[Unit]
+Description=Procesos diarios del portal de Inoo (6:00 de Lima)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 America/Lima
+Persistent=true
+
+[Install]
+WantedBy=timers.target
