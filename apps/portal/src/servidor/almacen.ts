@@ -10,6 +10,7 @@
  *   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (opcional)
  */
 import { createHash, createHmac } from "node:crypto";
+import { almacenDrive, type ClienteDrive } from "./almacen-drive";
 import { ErrorApi } from "./errores";
 
 export interface Almacen {
@@ -112,12 +113,25 @@ export function almacenOpcional(): Almacen | null {
 
 let global: Almacen | null = null;
 
+/** Google Drive según las variables de entorno, o null si no está conectado. */
+export function almacenDriveDelEntorno(): ClienteDrive | null {
+  const { DRIVE_CLIENT_ID, DRIVE_CLIENT_SECRET, DRIVE_REFRESH_TOKEN, DRIVE_CARPETA_ID, SESION_SECRETO, PORTAL_URL } = process.env;
+  if (!DRIVE_CLIENT_ID || !DRIVE_CLIENT_SECRET || !DRIVE_REFRESH_TOKEN || !SESION_SECRETO) return null;
+  return almacenDrive({
+    clientId: DRIVE_CLIENT_ID, clientSecret: DRIVE_CLIENT_SECRET, refreshToken: DRIVE_REFRESH_TOKEN, carpetaId: DRIVE_CARPETA_ID || undefined,
+    secreto: SESION_SECRETO, urlPortal: PORTAL_URL ?? "http://localhost:3000",
+  });
+}
+
 /** Almacén del proceso según las variables de entorno; 503 si no está configurado. */
 export function almacen(): Almacen {
   if (global) return global;
   const { S3_BUCKET, S3_REGION, S3_ENDPOINT, S3_ENDPOINT_PUBLICO, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN } = process.env;
   if (!S3_BUCKET || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
-    throw new ErrorApi(503, "ALMACEN_NO_CONFIGURADO", "La subida de archivos todavía no está configurada", "Faltan S3_BUCKET y las credenciales de AWS en el servidor.");
+    // Sin AWS (6 nov): Google Drive, si está conectado.
+    const drive = almacenDriveDelEntorno();
+    if (drive) return (global = drive);
+    throw new ErrorApi(503, "ALMACEN_NO_CONFIGURADO", "La subida de archivos todavía no está configurada", "Faltan las credenciales de Google Drive (o S3) en el servidor.");
   }
   global = almacenS3({
     bucket: S3_BUCKET, region: S3_REGION ?? "us-east-1", endpoint: S3_ENDPOINT || undefined, endpointPublico: S3_ENDPOINT_PUBLICO || undefined,

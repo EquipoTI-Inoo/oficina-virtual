@@ -335,7 +335,9 @@ function exigirSuperUsuario(ctx: Ctx) {
 function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
   if (ctx.esServicio) return;
   if (ctx.esEquipo) {
-    if (roles.includes("EQUIPO") || (ctx.usuario.rolEquipo && roles.includes(ctx.usuario.rolEquipo))) return;
+    // Los roles ADMIN y FINANZAS solo valen con nivel ADMIN: si un super usuario le baja el nivel a alguien, el rol no lo reabre.
+    const rolVale = !!ctx.usuario.rolEquipo && (!["ADMIN", "FINANZAS"].includes(ctx.usuario.rolEquipo) || nivelDe(ctx.usuario) === "ADMIN");
+    if (roles.includes("EQUIPO") || (rolVale && roles.includes(ctx.usuario.rolEquipo!))) return;
     // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN.
     if (roles.includes("ADMIN") && nivelDe(ctx.usuario) === "ADMIN") return;
     // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.

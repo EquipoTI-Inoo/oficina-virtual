@@ -57,6 +57,7 @@ import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revis
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
+import { atenderArchivoDrive, type ClienteDrive } from "./almacen-drive";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
@@ -1003,7 +1004,9 @@ ruta("POST", "/integraciones/ejecuciones", async (ctx, _p, _q, cuerpo) => {
 function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
   if (ctx.esServicio) return;
   if (ctx.esEquipo) {
-    if (roles.includes("EQUIPO") || (ctx.u.rolEquipo && roles.includes(ctx.u.rolEquipo))) return;
+    // Los roles ADMIN y FINANZAS solo valen con nivel ADMIN: si un super usuario le baja el nivel a alguien, el rol no lo reabre.
+    const rolVale = !!ctx.u.rolEquipo && (!["ADMIN", "FINANZAS"].includes(ctx.u.rolEquipo) || ctx.u.nivelAcceso === "ADMIN");
+    if (roles.includes("EQUIPO") || (rolVale && roles.includes(ctx.u.rolEquipo!))) return;
     // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN.
     if (roles.includes("ADMIN") && ctx.u.nivelAcceso === "ADMIN") return;
     // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.
@@ -5480,6 +5483,19 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     try {
       return await archivoPublicoDb(publico[1], req);
     } catch (e) {
+      console.error(e);
+      return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+    }
+  }
+  // Archivos en Google Drive: la URL firmada es el permiso, igual que una prefirmada de S3 (sin sesión).
+  const enDrive = camino.match(/^\/archivos-drive\/([\w.-]+)$/);
+  if (enDrive) {
+    try {
+      const drive = almacen();
+      if (!("recibir" in drive)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+      return await atenderArchivoDrive(req, enDrive[1], drive as ClienteDrive, process.env.SESION_SECRETO ?? "");
+    } catch (e) {
+      if (e instanceof ErrorApi) return problema(e);
       console.error(e);
       return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
     }

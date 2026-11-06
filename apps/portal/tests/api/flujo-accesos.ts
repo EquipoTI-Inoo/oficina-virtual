@@ -87,6 +87,17 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.equal((await llamar("PATCH", camila, ROSA, { nivel: null, area: "DISENO", rolEquipo: "DESARROLLO_WEB" })).status, 200);
     });
 
+    test("a quien es de Administración se le puede bajar el nivel: el rol ya no le reabre nada", async () => {
+      await reiniciar();
+      const cliente = { nombre: "Cliente Nuevo", contacto: { nombre: "Ana Quispe", email: "ana@clientenuevo.pe" } };
+      const cambio = (await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ADMIN, { nivel: "PROYECTO" })).json;
+      assert.deepEqual([cambio.nivel, cambio.area, cambio.rolEquipo, cambio.permisos], ["PROYECTO", "ADMINISTRACION", "FINANZAS", ["ESTADO_PAGO"]]);
+      assert.equal((await llamar("POST", "/clientes", ROSA, cliente)).status, 403, "ya no crea clientes");
+      assert.equal((await llamar("GET", "/panel/personas", ROSA)).status, 403);
+      assert.equal((await llamar("GET", "/panel/ia-equipo", ROSA)).status, 403);
+      assert.deepEqual((await llamar("GET", "/panel/clientes", ROSA)).json.datos, [], "ni ve las cuentas");
+    });
+
     test("permisos por persona: conceder, quitar y volver a lo que da el nivel", async () => {
       await reiniciar();
       const camila = `/panel/equipo/${CAMILA_ID}`;

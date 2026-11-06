@@ -132,6 +132,7 @@ InooWork (`POST /integraciones/inoowork/sincronizacion` y `POST /webhooks/inoowo
 | `COGNITO_REGION`, `COGNITO_POOL_EQUIPO`, `COGNITO_POOL_CLIENTES`, `COGNITO_CLIENT_IDS` | | Pools y apps de Cognito; el `sub` se busca en `usuario.cognito_sub` |
 | `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_SECRETO` | | Destino y secreto del despachador del outbox (`npm run outbox`) |
 | `S3_BUCKET`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | | Bucket de archivos de clientes. El navegador sube y descarga con URLs prefirmadas (15 min); sin estas variables las subidas responden `503 ALMACEN_NO_CONFIGURADO` |
+| `DRIVE_CLIENT_ID`, `DRIVE_CLIENT_SECRET`, `DRIVE_REFRESH_TOKEN`, `DRIVE_CARPETA_ID` | | Archivos en Google Drive, si no hay `S3_BUCKET`. Se conectan con `node integrations/google/conectar.mjs drive`; el correo, con `... smtp`. Sin `DRIVE_CARPETA_ID`, crea la carpeta «Portal Inoo». El navegador sube y descarga por el portal con URLs firmadas de 15 min, hasta 250 MB por archivo |
 | `S3_ENDPOINT`, `S3_ENDPOINT_PUBLICO` | URL | Solo MinIO: `http://minio:9000` y la URL que ve el navegador (`http://localhost:9000`). En AWS se dejan vacías |
 | `PORTAL_URL` | URL | Base de los enlaces de los correos automáticos (p. ej. `https://portal.inoo.pe`) |
 
