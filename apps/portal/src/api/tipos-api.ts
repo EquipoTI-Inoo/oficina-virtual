@@ -2316,6 +2316,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buscar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Búsqueda global del equipo: clientes, proyectos, tableros, entregables, pedidos y tickets
+         * @description Solo devuelve lo que la persona puede ver, con los mismos filtros de cada pantalla (nivel, cuentas y proyectos).
+         *     Sin tildes ni mayúsculas; cada palabra tiene que aparecer. Hasta 5 por tipo. Con menos de 2 letras, nada.
+         */
+        get: operations["buscarGlobal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros": {
         parameters: {
             query?: never;
@@ -4129,6 +4150,16 @@ export interface components {
             menciones: components["schemas"]["PersonaMini"][];
             /** Format: date-time */
             creadoEn: string;
+        };
+        ResultadoBusqueda: {
+            /** @enum {string} */
+            tipo: "CLIENTE" | "PROYECTO" | "TABLERO" | "ENTREGABLE" | "REQUERIMIENTO" | "TICKET";
+            id: string;
+            titulo: string;
+            /** @description Casi siempre el cliente */
+            detalle: string | null;
+            /** @description Ruta del portal */
+            enlace: string;
         };
         TableroResumen: {
             /** @example PROJ-MKT01 */
@@ -10786,6 +10817,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConexionGoogle"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    buscarGlobal: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ResultadoBusqueda"][];
+                    };
                 };
             };
             403: components["responses"]["SinPermiso"];

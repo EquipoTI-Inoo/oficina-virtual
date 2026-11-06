@@ -3,7 +3,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
+  LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck,
 } from "react-icons/lu";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
@@ -281,6 +281,74 @@ export function Modal({ abierto, alCerrar, children, etiqueta, ancho }: { abiert
         {children}
       </div>
     </div>
+  );
+}
+
+// ───────────────────────────── búsqueda global del equipo (6 nov)
+
+const GRUPO_BUSQUEDA: Record<S<"ResultadoBusqueda">["tipo"], { titulo: string; icono: ReactNode }> = {
+  CLIENTE: { titulo: "Clientes", icono: <LuIdCard size={15} /> },
+  PROYECTO: { titulo: "Proyectos", icono: <LuLayers size={15} /> },
+  TABLERO: { titulo: "Tableros de InooWork", icono: <LuSquareKanban size={15} /> },
+  ENTREGABLE: { titulo: "Entregables", icono: <LuFileCheck size={15} /> },
+  REQUERIMIENTO: { titulo: "Pedidos al cliente", icono: <LuClipboardList size={15} /> },
+  TICKET: { titulo: "Tickets", icono: <LuLifeBuoy size={15} /> },
+};
+
+function BuscadorGlobal({ alCerrar }: { alCerrar: () => void }) {
+  const { ir } = useNavegacion();
+  const [q, setQ] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [activo, setActivo] = useState(0);
+  // Espera a que la persona deje de escribir para no pedir en cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => setBusqueda(q.trim()), 220);
+    return () => clearTimeout(t);
+  }, [q]);
+  const r = useConsulta<{ datos: S<"ResultadoBusqueda">[] }>(busqueda.length >= 2 ? `/buscar?q=${encodeURIComponent(busqueda)}` : null);
+  const datos = busqueda.length >= 2 ? r.datos?.datos ?? [] : [];
+  useEffect(() => setActivo(0), [r.datos]);
+  const abrir = (x: S<"ResultadoBusqueda">) => {
+    alCerrar();
+    ir(x.enlace);
+  };
+  const tecla = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setActivo((i) => Math.min(i + 1, datos.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActivo((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter" && datos[activo]) { e.preventDefault(); abrir(datos[activo]); }
+  };
+  const tipos = [...new Set(datos.map((x) => x.tipo))];
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta="Buscar en el portal" ancho={560}>
+      <div className="pila" style={{ gap: 12 }}>
+        <div className="entrada">
+          <input aria-label="Buscar en el portal" role="combobox" aria-expanded={datos.length > 0} aria-controls="busqueda-resultados"
+            aria-activedescendant={datos[activo] ? `busqueda-${activo}` : undefined}
+            placeholder="Busca un cliente, proyecto, entregable, pedido o ticket" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={tecla} autoFocus />
+          <span className="icono-campo" aria-hidden><LuSearch size={16} /></span>
+        </div>
+        <div id="busqueda-resultados" role="listbox" aria-label="Resultados" className="busqueda-resultados">
+          {busqueda.length < 2 && <p className="texto-sm texto-muted">Escribe al menos 2 letras. Solo verás lo que te toca.</p>}
+          {busqueda.length >= 2 && !r.datos && !r.error && <p className="texto-sm texto-muted">Buscando…</p>}
+          {r.error && busqueda.length >= 2 && <p className="texto-sm texto-muted">No pudimos buscar. Intenta de nuevo.</p>}
+          {r.datos && busqueda.length >= 2 && !datos.length && <p className="texto-sm texto-muted">No encontramos nada con «{busqueda}».</p>}
+          {tipos.map((tipo) => (
+            <div key={tipo} role="group" aria-label={GRUPO_BUSQUEDA[tipo].titulo}>
+              <p className="texto-xs texto-muted negrita" style={{ margin: "8px 4px 4px", textTransform: "uppercase", letterSpacing: ".04em" }}>{GRUPO_BUSQUEDA[tipo].titulo}</p>
+              {datos.map((x, i) => x.tipo === tipo && (
+                <button key={`${x.tipo}-${x.id}`} id={`busqueda-${i}`} type="button" role="option" aria-selected={i === activo} className="busqueda-item" onMouseEnter={() => setActivo(i)} onClick={() => abrir(x)}>
+                  <span style={{ color: "var(--c-primario)", display: "inline-flex" }} aria-hidden>{GRUPO_BUSQUEDA[tipo].icono}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span className="negrita" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.titulo}</span>
+                    {x.detalle && <span className="texto-xs texto-muted">{x.detalle}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -612,6 +680,18 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? me.datos?.clientes[0]?.nombre ?? "" : "Equipo Inoo";
   const comoCliente = espacio === "cliente" && me.datos?.usuario.tipo === "EQUIPO";
   const [campanaAbierta, setCampanaAbierta] = useState(false);
+  const [buscando, setBuscando] = useState(false);
+  useEffect(() => {
+    if (espacio !== "equipo") return;
+    const atajo = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setBuscando(true);
+      }
+    };
+    window.addEventListener("keydown", atajo);
+    return () => window.removeEventListener("keydown", atajo);
+  }, [espacio]);
   const marcarLeidas = async () => {
     setCampanaAbierta((x) => !x);
     setLeidas(true);
@@ -639,6 +719,11 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
             </div>
             <div className="superior-der">
               <span className="periodo">{fMesAnio(PERIODO_PORTAL)}</span>
+              {espacio === "equipo" && (
+                <button className="campana" aria-label="Buscar (Ctrl+K)" title="Buscar (Ctrl+K)" onClick={() => setBuscando(true)}>
+                  <LuSearch size={18} />
+                </button>
+              )}
               <span style={{ position: "relative", display: "inline-flex" }}>
               <button className="campana" data-sin-leer={sinLeer} aria-label={sinLeer ? "Notificaciones sin leer" : "Notificaciones"} onClick={marcarLeidas}>
                 <LuBell size={18} />
@@ -648,6 +733,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
               {espacio === "cliente" ? <MenuCuenta sesion={me.datos} /> : <span className="avatar">{me.datos?.usuario.iniciales ?? ""}</span>}
             </div>
           </div>
+          {buscando && <BuscadorGlobal alCerrar={() => setBuscando(false)} />}
           <main className="contenido">
             {comoCliente && <BarraVistaCliente cliente={nombreCuenta} persona={me.datos!.usuario.nombre} />}
             {children}

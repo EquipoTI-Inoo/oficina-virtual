@@ -2468,3 +2468,8 @@ button.cuenta { cursor: pointer; }
   .contenido section.tarjeta, .contenido .pila { min-width: 0; max-width: 100%; }
   .hitos { overflow-x: auto; max-width: 100%; }
 }
+
+/* Búsqueda global del equipo (6 nov). */
+.busqueda-resultados { max-height: min(60vh, 460px); overflow-y: auto; }
+.busqueda-item { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.busqueda-item[aria-selected="true"] { background: var(--c-primario-suave); }

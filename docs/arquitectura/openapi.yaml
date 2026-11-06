@@ -3421,6 +3421,29 @@ paths:
               schema: { $ref: '#/components/schemas/ConexionGoogle' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /buscar:
+    get:
+      tags: [Panel interno]
+      operationId: buscarGlobal
+      summary: 'Búsqueda global del equipo: clientes, proyectos, tableros, entregables, pedidos y tickets'
+      description: |
+        Solo devuelve lo que la persona puede ver, con los mismos filtros de cada pantalla (nivel, cuentas y proyectos).
+        Sin tildes ni mayúsculas; cada palabra tiene que aparecer. Hasta 5 por tipo. Con menos de 2 letras, nada.
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, maxLength: 100 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/ResultadoBusqueda' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /tableros:
     get:
       tags: [Tableros]
@@ -5480,6 +5503,15 @@ components:
         texto: { type: string }
         menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
         creadoEn: { type: string, format: date-time }
+    ResultadoBusqueda:
+      type: object
+      required: [tipo, id, titulo, detalle, enlace]
+      properties:
+        tipo: { type: string, enum: [CLIENTE, PROYECTO, TABLERO, ENTREGABLE, REQUERIMIENTO, TICKET] }
+        id: { type: string }
+        titulo: { type: string }
+        detalle: { type: [string, 'null'], description: Casi siempre el cliente }
+        enlace: { type: string, description: Ruta del portal }
     TableroResumen:
       type: object
       required: [id, nombre, cliente, color, lider, miembros, items, puedeEditar, esMio]

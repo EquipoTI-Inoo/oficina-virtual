@@ -662,6 +662,22 @@ test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su t
   await expect(page.getByLabel("Nombre de Mapa del sitio")).toBeVisible({ timeout: 20_000 });
 });
 
+test("búsqueda global: Diego abre con Ctrl+K, busca sin tildes y entra con Enter", async ({ page }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/mi-panel");
+  await expect(page.getByRole("button", { name: "Buscar (Ctrl+K)" })).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press("Control+k");
+  const caja = page.getByRole("combobox", { name: "Buscar en el portal" });
+  await caja.fill("casa olíva");
+  const clientes = page.getByRole("group", { name: "Clientes" });
+  await expect(clientes.getByRole("option", { name: /Casa Oliva/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("group", { name: "Proyectos" })).toBeVisible();
+  await caja.press("Enter");
+  await expect(page).toHaveURL(/\/equipo\/clientes\//, { timeout: 20_000 });
+  await expect(page.getByRole("dialog", { name: "Buscar en el portal" })).toHaveCount(0);
+});
+
 test("ingreso: el equipo también entra con su usuario", async ({ page }) => {
   await page.goto("/ingresar");
   await page.fill("#email", "diego.castro");

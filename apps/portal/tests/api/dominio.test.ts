@@ -68,3 +68,17 @@ describe("formularios con caminos (briefs y ingreso de Monday)", () => {
     assert.deepEqual(malos.map((e) => [e.campo, e.mensaje]), [["cantidadProductos", "Escribe un número"], ["fechaReunionBrief", "Elige una fecha"]]);
   });
 });
+
+describe("búsqueda global (src/dominio/busqueda.ts)", () => {
+  test("sin tildes ni mayúsculas, cada palabra cuenta y primero lo que empieza igual", async () => {
+    const { buscar, textoBusqueda } = await import("../../src/dominio/busqueda");
+    assert.equal(textoBusqueda(" a "), null);
+    assert.equal(textoBusqueda("  Diseño  Web "), "diseno web");
+    const c = (tipo: any, titulo: string, extra?: string) => ({ tipo, id: titulo, titulo, detalle: null, enlace: "/x", extra });
+    const r = buscar([c("PROYECTO", "Rediseño web"), c("PROYECTO", "Web institucional"), c("PROYECTO", "Branding", "Casa Oliva"), c("CLIENTE", "Webcorp")], "web");
+    assert.deepEqual(r.map((x) => x.titulo), ["Webcorp", "Web institucional", "Rediseño web"], "clientes primero; luego el que empieza igual");
+    assert.deepEqual(buscar([c("PROYECTO", "Branding", "Casa Oliva")], "oliva branding").map((x) => x.titulo), ["Branding"], "también en el extra");
+    assert.ok(!("extra" in buscar([c("PROYECTO", "Branding", "Casa Oliva")], "branding")[0]), "el extra no sale");
+    assert.equal(buscar(Array.from({ length: 9 }, (_, i) => c("TICKET", `Ticket ${i}`)), "ticket").length, 5);
+  });
+});

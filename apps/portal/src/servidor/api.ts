@@ -53,6 +53,7 @@ import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
+import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
@@ -3828,6 +3829,39 @@ ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, cuerpo) => {
 ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarGrupo(p.id, p.grupo, await yoTablero(ctx));
+});
+
+// Búsqueda global del equipo (6 nov): solo lo que cada persona puede ver, con los mismos filtros de cada pantalla.
+ruta("GET", "/buscar", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const texto = textoBusqueda(q.get("q"));
+  if (!texto) return { datos: [] };
+  const a = await alcanceDb(ctx);
+  const mio = await deMisProyectos(ctx);
+  const clientes = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente")).rows;
+  const nombre = new Map(clientes.map((x) => [x.id, x.nombre]));
+  const c: Candidato[] = [];
+  for (const cl of clientes) if (veCuenta(a, cl.id)) c.push({ tipo: "CLIENTE", id: cl.id, titulo: cl.nombre, detalle: null, enlace: `/equipo/clientes/${cl.id}` });
+  for (const s of (await ctx.c.query<FilaServicio>(SELECT_SERVICIO)).rows) {
+    if (mio(s.id, s.cliente_id)) c.push({ tipo: "PROYECTO", id: s.id, titulo: tituloServicio(s.nombre, s.marca ?? s.cliente_nombre), detalle: s.cliente_nombre, enlace: `/equipo/proyectos/${s.id}` });
+  }
+  type Fila = { id: string; titulo: string; cliente_id: string; servicio_contratado_id: string | null };
+  for (const e of (await ctx.c.query<Fila>("SELECT id, titulo, cliente_id, servicio_contratado_id FROM entregable")).rows) {
+    if (mio(e.servicio_contratado_id, e.cliente_id)) c.push({ tipo: "ENTREGABLE", id: e.id, titulo: e.titulo, detalle: nombre.get(e.cliente_id) ?? null, enlace: `/equipo/entregables/${e.id}` });
+  }
+  for (const r of (await ctx.c.query<Fila>("SELECT id, titulo, cliente_id, servicio_contratado_id FROM requerimiento")).rows) {
+    if (r.servicio_contratado_id && mio(r.servicio_contratado_id, r.cliente_id)) c.push({ tipo: "REQUERIMIENTO", id: r.id, titulo: r.titulo, detalle: nombre.get(r.cliente_id) ?? null, enlace: `/equipo/proyectos/${r.servicio_contratado_id}` });
+  }
+  // Soporte es de la cuenta completa (como la ficha del cliente).
+  for (const t of (await ctx.c.query<{ id: string; numero: string; asunto: string; cliente_id: string }>("SELECT id, numero::text, asunto, cliente_id FROM ticket")).rows) {
+    if (veCuenta(a, t.cliente_id)) c.push({ tipo: "TICKET", id: t.id, titulo: `#${t.numero} ${t.asunto}`, detalle: nombre.get(t.cliente_id) ?? null, enlace: `/equipo/clientes/${t.cliente_id}` });
+  }
+  try {
+    for (const t of (await TABLEROS.listar(await yoTablero(ctx))).datos) c.push({ tipo: "TABLERO", id: t.id, titulo: t.nombre, detalle: t.cliente, enlace: `/equipo/proyectos/tableros/${t.id}` });
+  } catch {
+    /* si InooWork no responde, se busca en lo demás */
+  }
+  return { datos: buscar(c, texto) };
 });
 
 // Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.

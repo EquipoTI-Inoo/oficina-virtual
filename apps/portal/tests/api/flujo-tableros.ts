@@ -115,6 +115,25 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", `/tableros/${t.id}/items`, CAMILA, { nombre: "Mapa del sitio", grupoId: "default" })).status, 200);
     });
 
+    test("búsqueda global: sin tildes, por tipo y solo lo que cada persona ve", async () => {
+      await reiniciar();
+      const b = async (token: string, q: string) => (await llamar("GET", `/buscar?q=${encodeURIComponent(q)}`, token)).json.datos as any[];
+      assert.deepEqual(await b(DIEGO, "c"), [], "muy corto");
+      assert.equal((await llamar("GET", "/buscar?q=casa", VALERIA)).status, 403, "un cliente no busca");
+      const diego = await b(DIEGO, "CASA olíva");
+      assert.ok(diego.some((r) => r.tipo === "CLIENTE" && r.titulo === "Casa Oliva"), "el AM ve la ficha");
+      assert.ok(diego.every((r) => r.enlace.startsWith("/equipo/")));
+      assert.ok((await b(DIEGO, "marketing interno")).some((r) => r.tipo === "TABLERO" && r.id === "PROJ-MKT01"));
+      assert.ok(!(await b(DIEGO, "biblioteca")).some((r) => r.tipo === "TABLERO"), "un tablero donde no está");
+      const camila = await b(CAMILA, "casa oliva");
+      assert.ok(!camila.some((r) => r.tipo === "CLIENTE" || r.tipo === "TICKET"), "nivel PROYECTO: ni ficha ni soporte de la cuenta");
+      const suyos = new Set((await llamar("GET", "/panel/proyectos", CAMILA)).json.datos.map((x: any) => x.servicioContratadoId));
+      assert.ok(camila.filter((r) => r.tipo === "PROYECTO").every((r) => suyos.has(r.id)), "solo sus proyectos");
+      const porTipo = new Map<string, number>();
+      for (const r of await b(ADMIN, "a e")) porTipo.set(r.tipo, (porTipo.get(r.tipo) ?? 0) + 1);
+      assert.ok([...porTipo.values()].every((n) => n <= 5), "hasta 5 por tipo");
+    });
+
     test("conectado a InooWork: lee de su API y guarda el proyecto completo con la llave", async () => {
       await reiniciar();
       const guardados: { metodo: string; url: string; llave: string | null; cuerpo: any }[] = [];

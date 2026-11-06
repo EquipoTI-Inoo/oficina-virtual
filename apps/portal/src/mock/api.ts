@@ -40,6 +40,7 @@ import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/re
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
+import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
 import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
@@ -1592,6 +1593,34 @@ ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, req) => {
 ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarGrupo(p.id, p.grupo, yoTablero(ctx));
+});
+
+// Búsqueda global del equipo (6 nov): solo lo que cada persona puede ver.
+ruta("GET", "/buscar", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const texto = textoBusqueda(q.get("q"));
+  if (!texto) return { datos: [] };
+  const a = alcance(ctx);
+  const mio = deMisProyectos(ctx);
+  const nombre = new Map(E.clientes.map((c) => [c.id, c.nombre]));
+  const c: Candidato[] = [];
+  for (const cl of E.clientes) if (veCuenta(a, cl.id)) c.push({ tipo: "CLIENTE", id: cl.id, titulo: cl.nombre, detalle: null, enlace: `/equipo/clientes/${cl.id}` });
+  for (const s of E.servicios) {
+    if (!mio(s.id, s.clienteId)) continue;
+    const p = proyectoPipeline(s);
+    c.push({ tipo: "PROYECTO", id: s.id, titulo: p.titulo, detalle: p.clienteNombre, enlace: `/equipo/proyectos/${s.id}` });
+  }
+  for (const e of E.entregables) if (mio(e.servicioContratadoId, e.clienteId)) c.push({ tipo: "ENTREGABLE", id: e.id, titulo: e.titulo, detalle: nombre.get(e.clienteId) ?? null, enlace: `/equipo/entregables/${e.id}` });
+  for (const r of E.requerimientos) if (mio(r.servicioContratadoId, r.clienteId)) c.push({ tipo: "REQUERIMIENTO", id: r.id, titulo: r.titulo, detalle: nombre.get(r.clienteId) ?? null, enlace: `/equipo/proyectos/${r.servicioContratadoId}` });
+  // En la demo los tickets son de la primera cuenta.
+  const duenoTickets = E.clientes[0]?.id;
+  if (duenoTickets && veCuenta(a, duenoTickets)) for (const t of E.tickets) c.push({ tipo: "TICKET", id: t.id, titulo: `#${t.numero} ${t.asunto}`, detalle: nombre.get(duenoTickets) ?? null, enlace: `/equipo/clientes/${duenoTickets}` });
+  try {
+    for (const t of (await TABLEROS.listar(yoTablero(ctx))).datos) c.push({ tipo: "TABLERO", id: t.id, titulo: t.nombre, detalle: t.cliente, enlace: `/equipo/proyectos/tableros/${t.id}` });
+  } catch {
+    /* si InooWork no responde, se busca en lo demás */
+  }
+  return { datos: buscar(c, texto) };
 });
 
 // Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.
