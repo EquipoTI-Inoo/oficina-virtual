@@ -10,9 +10,10 @@
  * La usan la API simulada y el backend real: cada una pasa quién pide y cómo arma sus errores.
  */
 import {
-  aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
+  aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
+import { culminadoArchivado } from "../dominio/proyectos";
 import { PROYECTOS_DEMO } from "../mock/inoowork-demo";
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
@@ -106,6 +107,7 @@ function tableroVista(p: ProyectoIW, yo: Yo) {
   const tipos = [...new Set((p.views ?? []).map((v) => TIPO_VISTA[v.type]).filter(Boolean))];
   return {
     id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
+    completadoEn: p.completadoEn ?? null,
     lider: persona(p.leaderId, p.leaderName), personas: personasDelProyecto(p),
     grupos: (p.groups ?? []).map((g) => ({ id: g.id, nombre: g.name, color: g.color })),
     columnas: cols.map((c) => ({ id: c.id, nombre: c.label, tipo: c.type })),
@@ -126,7 +128,7 @@ export function crearTableros(fallar: Fallar) {
   };
   const visible = async (id: string, yo: Yo) => {
     const p = await obtenerIW(id);
-    if (!p || p.archived || !veProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese proyecto");
+    if (!p || p.archived || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese proyecto");
     return p;
   };
   /** Vuelve a leer, revisa permisos, aplica el cambio y guarda. */
@@ -151,7 +153,7 @@ export function crearTableros(fallar: Fallar) {
     listar: (yo: Yo) => protegido(async () => ({
       conectado: tablerosConectados(),
       datos: (await listarIW())
-        .filter((p) => !p.archived && veProyecto(p, yo.empleadoId, yo.esAdmin))
+        .filter((p) => !p.archived && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
         .map((p) => ({
           id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
           lider: persona(p.leaderId, p.leaderName), miembros: personasDelProyecto(p).length, items: resumenProyecto(p), puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),
@@ -169,10 +171,37 @@ export function crearTableros(fallar: Fallar) {
       return tableroVista(p, yo);
     }),
     ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),
-    cambiarCliente: (id: string, yo: Yo, b: { cliente?: unknown }) => cambiar(id, yo, (p) => {
+    /** Cliente y estado del proyecto (6 nov: «Completado» lo culmina y a los 14 días se archiva). */
+    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown }) => cambiar(id, yo, (p) => {
+      const errores: { campo: string; mensaje: string }[] = [];
+      if (b.cliente === undefined && b.estado === undefined) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: cliente o estado" });
       const cliente = typeof b.cliente === "string" ? b.cliente.trim() : "";
-      validar(cliente && cliente.length <= 120 ? [] : [{ campo: "cliente", mensaje: "Escribe el nombre del cliente" }]);
-      p.clientName = cliente;
+      if (b.cliente !== undefined && !(cliente && cliente.length <= 120)) errores.push({ campo: "cliente", mensaje: "Escribe el nombre del cliente" });
+      if (b.estado !== undefined && !ESTADOS_PROYECTO_IW.includes(b.estado as (typeof ESTADOS_PROYECTO_IW)[number])) errores.push({ campo: "estado", mensaje: `Usa uno de: ${ESTADOS_PROYECTO_IW.join(", ")}` });
+      validar(errores);
+      if (b.cliente !== undefined) p.clientName = cliente;
+      if (b.estado !== undefined) aplicarEstadoProyecto(p, b.estado as string);
+    }),
+    /**
+     * Proceso diario (6 nov): los proyectos «Completado» reciben su fecha de culminado si no la tienen (los que se
+     * culminaron en InooWork) y, a los 14 días, se archivan como en InooWork (archived + archivedAt).
+     */
+    archivarCulminados: (hoy: string) => protegido(async () => {
+      let fechados = 0;
+      let archivados = 0;
+      for (const p of await listarIW()) {
+        if (p.archived || p.deleted || p.status !== "Completado") continue;
+        if (!p.completadoEn) {
+          p.completadoEn = hoy;
+          fechados++;
+        } else if (culminadoArchivado(p.completadoEn, hoy)) {
+          p.archived = true;
+          p.archivedAt = new Date(`${hoy}T12:00:00Z`).toISOString();
+          archivados++;
+        } else continue;
+        await guardarIW(p);
+      }
+      return { fechados, archivados };
     }),
     crearItem: (id: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p) => {
       validar(validarItem(b, p, true));

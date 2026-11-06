@@ -92,6 +92,8 @@ export function pruebasTranscripciones(nombre: string, manejar: Manejador, reini
       const visto = (await llamar("GET", `/servicios-contratados/${WEB}`, VALERIA)).json;
       assert.ok(visto.siguientePaso?.texto.includes("Gracias por confiar en Inoo"), "el cliente ve el mensaje de cierre en su proyecto");
       assert.equal((await llamar("POST", `/servicios-contratados/${WEB}/cierre`, DIEGO, { mensaje: "Otra vez cerrado.", forzar: true })).json.codigo, "YA_CERRADO");
+      const enPipeline = (await llamar("GET", "/panel/proyectos", DIEGO)).json.datos.find((x: any) => x.servicioContratadoId === WEB);
+      assert.equal(enPipeline?.columna, "CULMINADO", "recién cerrado: se ve 14 días en Culminado");
     });
   });
 }

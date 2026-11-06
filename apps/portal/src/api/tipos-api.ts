@@ -816,6 +816,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integraciones/tableros/archivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Proceso diario: fecha a los proyectos «Completado» de InooWork y archiva los culminados hace 14 días */
+        post: operations["archivarTablerosCulminados"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/integraciones/recordatorios": {
         parameters: {
             query?: never;
@@ -2441,7 +2458,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Cambia el cliente del proyecto en InooWork (líder, miembros activos y nivel ADMIN) */
+        /**
+         * Cambia el cliente o el estado del proyecto en InooWork (líder, miembros activos y nivel ADMIN)
+         * @description Con estado «Completado» queda culminado (completadoEn) y el proceso diario lo archiva a los 14 días.
+         */
         patch: operations["cambiarClienteTablero"];
         trace?: never;
     };
@@ -3878,8 +3898,11 @@ export interface components {
         };
         /** @enum {string} */
         EstadoTarea: "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
-        /** @enum {string} */
-        ColumnaProyecto: "POR_INICIAR" | "EN_CURSO" | "ESPERA_CLIENTE" | "CON_RETRASO" | "POR_CERRAR" | "EN_PAUSA";
+        /**
+         * @description CULMINADO: cerrado hace menos de 14 días (después se archiva). SOPORTE_CONTINUO: por consumo, o «Soporte Continuo» en InooWork
+         * @enum {string}
+         */
+        ColumnaProyecto: "POR_INICIAR" | "EN_CURSO" | "ESPERA_CLIENTE" | "CON_RETRASO" | "POR_CERRAR" | "CULMINADO" | "SOPORTE_CONTINUO" | "EN_PAUSA";
         PersonaEquipo: {
             /** Format: uuid */
             id: string;
@@ -4311,6 +4334,11 @@ export interface components {
             descripcion?: string | null;
             color: string;
             estado?: string | null;
+            /**
+             * Format: date
+             * @description Cuándo se culminó (estado Completado); a los 14 días se archiva
+             */
+            completadoEn?: string | null;
             area?: string | null;
             lider: components["schemas"]["PersonaInooWork"] | null;
             /** @description A quiénes se puede asignar: el líder y los miembros activos */
@@ -7763,6 +7791,47 @@ export interface operations {
             };
         };
     };
+    archivarTablerosCulminados: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: date
+                     * @description Simula otro día
+                     */
+                    fecha?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        fechados: number;
+                        archivados: number;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     enviarRecordatorios: {
         parameters: {
             query?: never;
@@ -11163,7 +11232,9 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    cliente: string;
+                    cliente?: string;
+                    /** @enum {string} */
+                    estado?: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "En Pausa" | "Cancelado";
                 };
             };
         };

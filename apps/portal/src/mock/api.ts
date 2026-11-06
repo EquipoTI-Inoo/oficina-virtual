@@ -27,7 +27,7 @@ import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
 import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
-import { columnaProyecto, COLUMNAS_PROYECTO, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
+import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
@@ -1563,7 +1563,7 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
 });
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return TABLEROS.cambiarCliente(p.id, yoTablero(ctx), await cuerpo<{ cliente?: unknown }>(req));
+  return TABLEROS.cambiarProyecto(p.id, yoTablero(ctx), await cuerpo<{ cliente?: unknown; estado?: unknown }>(req));
 });
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
@@ -1628,6 +1628,13 @@ ruta("GET", "/buscar", async (ctx, _p, q) => {
     /* si InooWork no responde, se busca en lo demás */
   }
   return { datos: buscar(c, texto) };
+});
+
+// Tableros culminados (6 nov): el proceso diario les pone fecha y a los 14 días los archiva en InooWork.
+ruta("POST", "/integraciones/tableros/archivar", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpoOpcional(req);
+  return TABLEROS.archivarCulminados(typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? b.fecha : D.HOY.slice(0, 10));
 });
 
 // Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.
@@ -2727,7 +2734,8 @@ ruta("GET", "/panel/proyectos", (ctx, _p, q) => {
   const texto = q.get("q")?.toLowerCase();
   const mio = deMisProyectos(ctx);
   const datos = E.servicios
-    .filter((s) => s.estado !== "FINALIZADO" && mio(s.id, s.clienteId))
+    // Los culminados se ven 14 días en «Culminado»; después quedan archivados (solo en su ficha).
+    .filter((s) => (s.estado !== "FINALIZADO" || !culminadoArchivado(s.culminadoEn ?? s.fechaFin ?? D.HOY, D.HOY)) && mio(s.id, s.clienteId))
     .map(proyectoPipeline)
     .filter((x) => !quien || x.responsable?.id === quien || E.tareas.some((t) => t.servicioContratadoId === x.servicioContratadoId && t.responsableId === quien && t.estado !== "HECHA"))
     .filter((x) => !texto || x.titulo.toLowerCase().includes(texto) || x.clienteNombre.toLowerCase().includes(texto));
@@ -2927,6 +2935,7 @@ ruta("POST", "/servicios-contratados/:id/cierre", async (ctx, p, _q, req) => {
   if (!listoParaCerrar(pendientesCierre(s)) && b.forzar !== true) throw new ErrorApi(409, "CIERRE_CON_PENDIENTES", "Quedan pendientes en el proyecto", "Revísalos o confirma que quieres cerrarlo igual.");
   const mensaje = (b.mensaje as string).trim();
   s.estado = "FINALIZADO";
+  s.culminadoEn = D.HOY;
   s.standbyDesde = null;
   s.siguientePaso = mensaje;
   s.fechaFin ??= D.HOY.slice(0, 10);

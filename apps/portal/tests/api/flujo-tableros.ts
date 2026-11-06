@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
 import { usarFetchTableros } from "../../src/servidor/tableros";
+import { columnaDeTablero } from "../../src/dominio/tableros";
 import { crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
 
 const ADMIN = `demo.${uid(1, 4)}`;
@@ -113,6 +114,41 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.ok(!(await ids(CAMILA)).includes(solo.id), "quien no es miembro, no lo ve");
       assert.ok((await ids(ROSA)).includes(solo.id), "el nivel ADMIN, sí");
       assert.equal((await llamar("POST", `/tableros/${t.id}/items`, CAMILA, { nombre: "Mapa del sitio", grupoId: "default" })).status, 200);
+    });
+
+    test("culminar: el estado se cambia desde el portal, va a Culminado y a los 14 días se archiva solo", async () => {
+      await reiniciar();
+      const col = async (id: string) => {
+        const t = (await llamar("GET", "/tableros", ADMIN)).json.datos.find((x: any) => x.id === id);
+        return t ? columnaDeTablero(t.estado, t.items) : "ARCHIVADO";
+      };
+      assert.deepEqual((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { estado: "Terminado" })).json.errores.map((e: any) => e.campo), ["estado"]);
+      const c = (await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { estado: "Completado" })).json;
+      assert.equal(c.estado, "Completado");
+      assert.match(c.completadoEn, /^\d{4}-\d{2}-\d{2}$/);
+      assert.equal(await col("PROJ-MKT01"), "CULMINADO");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { estado: "Soporte Continuo" })).json.estado, "Soporte Continuo");
+      assert.equal(await col("PROJ-OPS01"), "SOPORTE_CONTINUO");
+      // Reabrirlo borra la fecha: si se vuelve a culminar, cuenta desde cero.
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { estado: "En Progreso" })).json.completadoEn, null);
+
+      const N8N = { "x-api-key": "demo-n8n" };
+      const archivar = (fecha: string) => llamar("POST", "/integraciones/tableros/archivar", undefined, { fecha }, N8N);
+      assert.equal((await llamar("POST", "/integraciones/tableros/archivar", DIEGO, {})).status, 403, "solo el proceso diario");
+      const dia = c.completadoEn as string;
+      const mas = (n: number) => new Date(Date.parse(`${dia}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+      assert.deepEqual((await archivar(mas(13))).json, { fechados: 0, archivados: 0 }, "13 días: todavía se ve");
+      assert.equal(await col("PROJ-MKT01"), "CULMINADO");
+      assert.deepEqual((await archivar(mas(14))).json, { fechados: 0, archivados: 1 });
+      assert.equal(await col("PROJ-MKT01"), "ARCHIVADO");
+      assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).status, 404, "archivado: ya no está en el portal");
+    });
+
+    test("todo completado pero abierto: va a «Por cerrar»", () => {
+      assert.equal(columnaDeTablero("En Progreso", { total: 7, completados: 7, vencidos: 0 }), "POR_CERRAR");
+      assert.equal(columnaDeTablero("En Progreso", { total: 7, completados: 5, vencidos: 0 }), "EN_CURSO");
+      assert.equal(columnaDeTablero("Sin Iniciar", { total: 0, completados: 0, vencidos: 0 }), "POR_INICIAR");
+      assert.equal(columnaDeTablero("Cancelado", { total: 1, completados: 1, vencidos: 0 }), null);
     });
 
     test("búsqueda global: sin tildes, por tipo y solo lo que cada persona ve", async () => {

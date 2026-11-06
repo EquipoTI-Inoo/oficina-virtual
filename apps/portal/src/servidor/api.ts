@@ -74,7 +74,7 @@ import {
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
-import { columnaProyecto, COLUMNAS_PROYECTO, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
+import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import {
   correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
@@ -1473,6 +1473,7 @@ const fechaIso = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 1
 
 interface FilaServicio {
   id: string;
+  culminado_en?: Date | null;
   cliente_id: string;
   cliente_nombre: string;
   codigo: S<"CodigoServicio">;
@@ -3104,7 +3105,9 @@ ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
   const periodo = PERIODO_ACTUAL();
   const hoy = HOY_LIMA();
   const mio = await deMisProyectos(ctx);
-  const servicios = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.estado <> 'FINALIZADO' ORDER BY c.nombre, s.orden, sc.fecha_inicio`)).rows.filter((x) => mio(x.id, x.cliente_id));
+  // Los culminados se ven 14 días en «Culminado»; después quedan archivados (solo en su ficha).
+  const servicios = (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.estado <> 'FINALIZADO' OR sc.culminado_en > now() - interval '14 days' ORDER BY c.nombre, s.orden, sc.fecha_inicio`)).rows
+    .filter((x) => mio(x.id, x.cliente_id) && (x.estado !== 'FINALIZADO' || !culminadoArchivado(iso(x.culminado_en), hoy)));
   const am = new Map((await ctx.c.query<{ id: string; am_id: string | null; am_nombre: string | null }>(
     "SELECT c.id, u.id AS am_id, u.nombre AS am_nombre FROM cliente c LEFT JOIN usuario u ON u.id = c.account_manager_id",
   )).rows.map((r) => [r.id, r.am_id ? { id: r.am_id, nombre: r.am_nombre ?? "" } : null]));
@@ -3401,7 +3404,7 @@ ruta("POST", "/servicios-contratados/:id/cierre", async (ctx, p, _q, cuerpo) => 
   if (!(await vistaCierreDb(ctx, s.id, s.estado)).listo && b.forzar !== true) throw new ErrorApi(409, "CIERRE_CON_PENDIENTES", "Quedan pendientes en el proyecto", "Revísalos o confirma que quieres cerrarlo igual.");
   const mensaje = (b.mensaje as string).trim();
   await ctx.c.query(
-    "UPDATE servicio_contratado SET estado = 'FINALIZADO', standby_desde = NULL, siguiente_paso = $2, fecha_fin = coalesce(fecha_fin, $3::date) WHERE id = $1",
+    "UPDATE servicio_contratado SET estado = 'FINALIZADO', culminado_en = now(), standby_desde = NULL, siguiente_paso = $2, fecha_fin = coalesce(fecha_fin, $3::date) WHERE id = $1",
     [s.id, mensaje, HOY_LIMA()],
   );
   await emitirOutbox(ctx, "servicio.cerrado", s.cliente_id, { servicioContratadoId: s.id, mensaje, cerradoPor: ctx.u.usuarioId, conPendientes: b.forzar === true });
@@ -3864,7 +3867,7 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
 });
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  return TABLEROS.cambiarCliente(p.id, await yoTablero(ctx), (await cuerpo()) as { cliente?: unknown });
+  return TABLEROS.cambiarProyecto(p.id, await yoTablero(ctx), (await cuerpo()) as { cliente?: unknown; estado?: unknown });
 });
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
@@ -3934,6 +3937,13 @@ ruta("GET", "/buscar", async (ctx, _p, q) => {
     /* si InooWork no responde, se busca en lo demás */
   }
   return { datos: buscar(c, texto) };
+});
+
+// Tableros culminados (6 nov): el proceso diario les pone fecha y a los 14 días los archiva en InooWork.
+ruta("POST", "/integraciones/tableros/archivar", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "tableros:write");
+  const b = (await cuerpo()) as { fecha?: unknown };
+  return TABLEROS.archivarCulminados(typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? b.fecha : HOY_LIMA());
 });
 
 // Recordatorios (fase 18): n8n, una vez al día. Lo que vence o pasa el próximo día hábil, una sola vez.

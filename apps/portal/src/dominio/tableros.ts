@@ -22,7 +22,9 @@ export interface ColumnaIW { id: string; label: string; type: string; width?: nu
 export interface VistaIW { id: string; name: string; type: string; isDefault?: boolean; columns?: ColumnaIW[]; filters?: unknown[] }
 export interface ProyectoIW {
   id: string; name: string; clientName?: string; description?: string; status?: string; department?: string;
-  leaderId?: string; leaderName?: string; leaderAvatar?: string; color?: string; createdAt?: string; archived?: boolean;
+  leaderId?: string; leaderName?: string; leaderAvatar?: string; color?: string; createdAt?: string; archived?: boolean; archivedAt?: string; deleted?: boolean;
+  /** Puesto por el portal al culminarlo (6 nov): a los 14 días se archiva solo. */
+  completadoEn?: string;
   members?: { employeeId: string; name?: string; avatar?: string; addedAt?: string; status?: string }[];
   groups?: GrupoIW[]; items?: ItemIW[]; views?: VistaIW[];
   [otro: string]: unknown;
@@ -73,16 +75,31 @@ const normalizarCliente = (n: string) => n.normalize("NFD").replace(/[\u0300-\u0
 /** En InooWork el cliente es texto: «Casa Oliva» y «casa  oliva» son el mismo. */
 export const mismoCliente = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && normalizarCliente(a) === normalizarCliente(b);
 
-/** En qué columna de «Proyectos» va un tablero. Los cancelados no se muestran (null). */
-export function columnaDeTablero(estado: string | null | undefined, vencidos: number) {
+/** Estados de un proyecto en InooWork (pages/Projects.tsx, PROJECT_STATUS_COLORS). */
+export const ESTADOS_PROYECTO_IW = ["Sin Iniciar", "En Progreso", "En Revisión", "Completado", "Soporte Continuo", "En Pausa", "Cancelado"] as const;
+
+/**
+ * En qué columna de «Proyectos» va un tablero. Los cancelados no se muestran (null). Con todos sus ítems
+ * completados pero el estado todavía abierto, va a «Por cerrar» (6 nov): falta que alguien lo marque culminado.
+ */
+export function columnaDeTablero(estado: string | null | undefined, items: { total: number; completados: number; vencidos: number }) {
   switch (estado) {
     case "Cancelado": return null;
-    case "Sin Iniciar": return "POR_INICIAR" as const;
+    case "Completado": return "CULMINADO" as const;
+    case "Soporte Continuo": return "SOPORTE_CONTINUO" as const;
     case "En Pausa": return "EN_PAUSA" as const;
-    case "En Revisión":
-    case "Completado": return "POR_CERRAR" as const;
-    default: return vencidos > 0 ? ("CON_RETRASO" as const) : ("EN_CURSO" as const);
+    case "En Revisión": return "POR_CERRAR" as const;
   }
+  if (items.total > 0 && items.completados === items.total) return "POR_CERRAR" as const;
+  if (estado === "Sin Iniciar") return "POR_INICIAR" as const;
+  return items.vencidos > 0 ? ("CON_RETRASO" as const) : ("EN_CURSO" as const);
+}
+
+/** Cambia el estado del proyecto. Al culminarlo guarda la fecha (completadoEn) para archivarlo a los 14 días. */
+export function aplicarEstadoProyecto(p: ProyectoIW, estado: string, hoyIso = hoy()) {
+  p.status = estado;
+  if (estado === "Completado") p.completadoEn ??= hoyIso;
+  else delete p.completadoEn;
 }
 
 export function resumenProyecto(p: ProyectoIW, dia = hoy()) {

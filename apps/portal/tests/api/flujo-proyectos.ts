@@ -22,7 +22,7 @@ export function pruebasProyectos(nombre: string, manejar: Manejador, reiniciar: 
       await reiniciar();
       assert.equal((await llamar("GET", "/panel/proyectos", VALERIA)).status, 403);
       const r = (await llamar("GET", "/panel/proyectos", DIEGO)).json;
-      assert.deepEqual(r.columnas.map((c: any) => c.clave), ["POR_INICIAR", "EN_CURSO", "ESPERA_CLIENTE", "CON_RETRASO", "POR_CERRAR", "EN_PAUSA"]);
+      assert.deepEqual(r.columnas.map((c: any) => c.clave), ["POR_INICIAR", "EN_CURSO", "ESPERA_CLIENTE", "CON_RETRASO", "POR_CERRAR", "CULMINADO", "SOPORTE_CONTINUO", "EN_PAUSA"]);
       const deCasaOliva = r.datos.filter((x: any) => x.clienteId === CASA_OLIVA);
       assert.equal(deCasaOliva.length, 4);
       const crm = r.datos.find((x: any) => x.servicioContratadoId === CRM);

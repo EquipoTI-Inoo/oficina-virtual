@@ -6,9 +6,9 @@
  */
 import { useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { LuChevronDown, LuChevronLeft, LuChevronRight, LuPlus, LuTrash2 } from "react-icons/lu";
-import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso } from "../componentes";
-import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
+import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
 type Item = S<"ItemTablero">;
@@ -40,6 +40,21 @@ function ClienteDelTablero({ actual, cambiar }: { actual: string | null; cambiar
       <datalist id="tablero-clientes">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
       {cambio && <button className="boton boton--chico boton--primario">Guardar</button>}
     </form>
+  );
+}
+
+/** Estado del proyecto en InooWork (6 nov). «Completado» lo pasa a Culminado; a las 2 semanas se archiva solo. */
+function EstadoDelTablero({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+  const completo = t.items.length > 0 && t.items.every((i) => i.estado === "Completado");
+  return (
+    <div className="fila" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+      <label htmlFor="tablero-estado" className="texto-sm negrita">Estado del proyecto</label>
+      <select id="tablero-estado" className="input" style={{ width: 200, height: 36 }} value={t.estado ?? "En Progreso"} onChange={(e) => void cambiar("", "PATCH", { estado: e.target.value })}>
+        {ESTADOS_PROYECTO_IW.map((x) => <option key={x} value={x}>{x === "Completado" ? "Completado (culminado)" : x}</option>)}
+      </select>
+      {t.estado === "Completado" && t.completadoEn && <span className="texto-xs texto-muted">Culminado el {fCorta(t.completadoEn)}: a las 2 semanas se archiva solo.</span>}
+      {t.estado !== "Completado" && completo && <span className="texto-xs" style={{ color: "var(--c-primario)" }}>Todo está completado: márcalo como Completado para culminarlo.</span>}
+    </div>
   );
 }
 
@@ -85,6 +100,7 @@ function TableroProyecto() {
         accion={!t.puedeEditar ? <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span> : undefined}
       />
       {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
+      {t.puedeEditar && <EstadoDelTablero t={t} cambiar={cambiar} />}
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div className="segmentado" role="tablist" aria-label="Vista del tablero">
           {vistas.map((v) => (

@@ -19,6 +19,8 @@ const AYUDA_COLUMNA: Record<S<"ColumnaProyecto">, string> = {
   ESPERA_CLIENTE: "El cliente nos debe algo para seguir.",
   CON_RETRASO: "La etapa actual pasó su fecha.",
   POR_CERRAR: "Entrega, capacitación y cierre.",
+  CULMINADO: "Terminado: a las 2 semanas se archiva solo.",
+  SOPORTE_CONTINUO: "Entregado; seguimos con soporte y mejoras.",
   EN_PAUSA: "Pausado: no corre el cronograma.",
 };
 
@@ -80,7 +82,7 @@ function PipelineProyectos() {
         <div className="pipeline" role="list" aria-label="Pipeline de proyectos">
           {d.columnas.map((c) => {
             const xs = d.datos.filter((p) => p.columna === c.clave);
-            const ts = tableros.filter((t) => columnaDeTablero(t.estado, t.items.vencidos) === c.clave);
+            const ts = tableros.filter((t) => columnaDeTablero(t.estado, t.items) === c.clave);
             return (
               <section key={c.clave} className="pipeline-columna" data-columna={c.clave} role="listitem" aria-label={`${c.titulo}: ${xs.length + ts.length}`}>
                 <header className="pipeline-cab">

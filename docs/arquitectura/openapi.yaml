@@ -1185,6 +1185,34 @@ paths:
                   revisados: { type: integer, description: Requerimientos vencidos revisados }
                   corridos: { type: integer, description: Requerimientos cuyo atraso corrió el cronograma hoy }
 
+  /integraciones/tableros/archivar:
+    post:
+      tags: [Integraciones]
+      operationId: archivarTablerosCulminados
+      summary: 'Proceso diario: fecha a los proyectos «Completado» de InooWork y archiva los culminados hace 14 días'
+      x-roles: [SERVICIO]
+      x-scopes: [tableros:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fecha: { type: string, format: date, description: Simula otro día }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [fechados, archivados]
+                properties:
+                  fechados: { type: integer }
+                  archivados: { type: integer }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: InooWork no respondió }
+
   /integraciones/recordatorios:
     post:
       tags: [Integraciones]
@@ -3619,7 +3647,8 @@ paths:
     patch:
       tags: [Tableros]
       operationId: cambiarClienteTablero
-      summary: 'Cambia el cliente del proyecto en InooWork (líder, miembros activos y nivel ADMIN)'
+      summary: 'Cambia el cliente o el estado del proyecto en InooWork (líder, miembros activos y nivel ADMIN)'
+      description: 'Con estado «Completado» queda culminado (completadoEn) y el proceso diario lo archiva a los 14 días.'
       x-roles: [EQUIPO]
       requestBody:
         required: true
@@ -3627,9 +3656,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [cliente]
               properties:
                 cliente: { type: string, maxLength: 120 }
+                estado: { type: string, enum: ['Sin Iniciar', 'En Progreso', 'En Revisión', 'Completado', 'Soporte Continuo', 'En Pausa', 'Cancelado'] }
       responses:
         '200':
           description: OK
@@ -5306,7 +5335,7 @@ components:
         nombreArchivo: { type: [string, 'null'] }
         nota: { type: [string, 'null'], description: 'Qué cambió respecto de la anterior' }
     EstadoTarea: { type: string, enum: [PENDIENTE, EN_CURSO, BLOQUEADA, HECHA] }
-    ColumnaProyecto: { type: string, enum: [POR_INICIAR, EN_CURSO, ESPERA_CLIENTE, CON_RETRASO, POR_CERRAR, EN_PAUSA] }
+    ColumnaProyecto: { type: string, enum: [POR_INICIAR, EN_CURSO, ESPERA_CLIENTE, CON_RETRASO, POR_CERRAR, CULMINADO, SOPORTE_CONTINUO, EN_PAUSA], description: 'CULMINADO: cerrado hace menos de 14 días (después se archiva). SOPORTE_CONTINUO: por consumo, o «Soporte Continuo» en InooWork' }
     PersonaEquipo:
       type: object
       required: [id, nombre, iniciales, nivel, nivelPersonalizado, esLead]
@@ -5682,6 +5711,7 @@ components:
         descripcion: { type: [string, 'null'] }
         color: { type: string }
         estado: { type: [string, 'null'] }
+        completadoEn: { type: [string, 'null'], format: date, description: 'Cuándo se culminó (estado Completado); a los 14 días se archiva' }
         area: { type: [string, 'null'] }
         lider: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
         personas: { type: array, items: { $ref: '#/components/schemas/PersonaInooWork' }, description: 'A quiénes se puede asignar: el líder y los miembros activos' }

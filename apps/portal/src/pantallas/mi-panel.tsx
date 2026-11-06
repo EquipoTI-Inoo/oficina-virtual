@@ -12,7 +12,7 @@ import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta } from "../
 
 const TONO: Record<S<"KpiProyecto">["nivel"], "verde" | "ambar" | "rojo"> = { OK: "verde", ALERTA: "ambar", CRITICO: "rojo" };
 const COLUMNA: Record<S<"ColumnaProyecto">, string> = {
-  POR_INICIAR: "Por iniciar", EN_CURSO: "En curso", ESPERA_CLIENTE: "Espera al cliente", CON_RETRASO: "Con retraso", POR_CERRAR: "Por cerrar", EN_PAUSA: "En pausa",
+  POR_INICIAR: "Por iniciar", EN_CURSO: "En curso", ESPERA_CLIENTE: "Espera al cliente", CON_RETRASO: "Con retraso", POR_CERRAR: "Por cerrar", CULMINADO: "Culminado", SOPORTE_CONTINUO: "Soporte continuo", EN_PAUSA: "En pausa",
 };
 
 export function PantallaMiPanel() {

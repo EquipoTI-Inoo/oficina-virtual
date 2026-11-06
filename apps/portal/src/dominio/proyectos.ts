@@ -3,7 +3,7 @@
  * proyecto (servicio contratado) y adentro tiene sus etapas y sus tareas internas.
  */
 
-export type ColumnaProyecto = "POR_INICIAR" | "EN_CURSO" | "ESPERA_CLIENTE" | "CON_RETRASO" | "POR_CERRAR" | "EN_PAUSA";
+export type ColumnaProyecto = "POR_INICIAR" | "EN_CURSO" | "ESPERA_CLIENTE" | "CON_RETRASO" | "POR_CERRAR" | "CULMINADO" | "SOPORTE_CONTINUO" | "EN_PAUSA";
 export type EstadoTarea = "PENDIENTE" | "EN_CURSO" | "BLOQUEADA" | "HECHA";
 
 export const COLUMNAS_PROYECTO: { clave: ColumnaProyecto; titulo: string }[] = [
@@ -12,8 +12,16 @@ export const COLUMNAS_PROYECTO: { clave: ColumnaProyecto; titulo: string }[] = [
   { clave: "ESPERA_CLIENTE", titulo: "Esperando al cliente" },
   { clave: "CON_RETRASO", titulo: "Con retraso" },
   { clave: "POR_CERRAR", titulo: "Por cerrar" },
+  { clave: "CULMINADO", titulo: "Culminado" },
+  { clave: "SOPORTE_CONTINUO", titulo: "Soporte continuo" },
   { clave: "EN_PAUSA", titulo: "En pausa" },
 ];
+
+/** Un proyecto culminado se ve en el pipeline estos días y después se archiva solo (6 nov). */
+export const DIAS_CULMINADO_VISIBLE = 14;
+const diasEntre = (desde: string, hasta: string) => Math.floor((Date.parse(`${hasta.slice(0, 10)}T12:00:00Z`) - Date.parse(`${desde.slice(0, 10)}T12:00:00Z`)) / 86_400_000);
+/** ¿Ya pasaron los días de «Culminado»? Sin fecha, no (se cuenta desde que se registra). */
+export const culminadoArchivado = (culminadoEn: string | null | undefined, hoy: string) => !!culminadoEn && diasEntre(culminadoEn, hoy) >= DIAS_CULMINADO_VISIBLE;
 
 /** Desde este avance el proyecto está «por cerrar» (entrega, capacitación, cierre). */
 export const AVANCE_POR_CERRAR = 90;
@@ -28,8 +36,10 @@ interface DatosColumna {
 
 /** En qué columna del pipeline va un proyecto; ver el orden de prioridad en /panel/proyectos. */
 export function columnaProyecto(p: DatosColumna): ColumnaProyecto {
+  if (p.estado === "FINALIZADO") return "CULMINADO";
   if (p.estado === "PAUSADO") return "EN_PAUSA";
-  if (p.avance.totalEtapas === 0) return p.requerimientosAtrasados > 0 ? "ESPERA_CLIENTE" : "EN_CURSO"; // por consumo (soporte): no tiene etapas
+  // Por consumo (bolsa de horas): no tiene etapas, es soporte continuo.
+  if (p.avance.totalEtapas === 0) return p.requerimientosAtrasados > 0 ? "ESPERA_CLIENTE" : "SOPORTE_CONTINUO";
   const actual = p.avance.etapaActual;
   if (p.requerimientosAtrasados > 0 || (p.esperaCliente && actual?.atrasada)) return "ESPERA_CLIENTE";
   if (actual?.atrasada) return "CON_RETRASO";

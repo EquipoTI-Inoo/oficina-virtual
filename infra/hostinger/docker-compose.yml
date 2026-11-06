@@ -70,6 +70,7 @@ services:
       - ../../database/migraciones/0041_clientes_de_prueba.sql:/docker-entrypoint-initdb.d/01zo_clientes_de_prueba.sql:ro
       - ../../database/migraciones/0042_notificaciones_y_sesiones.sql:/docker-entrypoint-initdb.d/01zp_notificaciones_y_sesiones.sql:ro
       - ../../database/migraciones/0043_acciones_jarvis.sql:/docker-entrypoint-initdb.d/01zq_acciones_jarvis.sql:ro
+      - ../../database/migraciones/0044_proyectos_culminados.sql:/docker-entrypoint-initdb.d/01zr_proyectos_culminados.sql:ro
       # Base de NocoDB y esquema de n8n, en el mismo Postgres.
       - ./iniciar-otros.sql:/docker-entrypoint-initdb.d/09_otros.sql:ro
       - postgres-datos:/var/lib/postgresql/data

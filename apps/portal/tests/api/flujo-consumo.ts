@@ -29,7 +29,7 @@ export function pruebasConsumo(nombre: string, manejar: Manejador, reiniciar: ()
       assert.equal(servicios.find((s: any) => s.servicioContratadoId === WEB).consumo, undefined);
       assert.equal((await llamar("GET", `/servicios-contratados/${WEB}/consumo`, DIEGO)).json.codigo, "SERVICIO_SIN_BOLSA");
       const pipeline = (await llamar("GET", "/panel/proyectos", DIEGO)).json.datos.find((x: any) => x.servicioContratadoId === SOPORTE);
-      assert.equal(pipeline.columna, "EN_CURSO");
+      assert.equal(pipeline.columna, "SOPORTE_CONTINUO", "por consumo: soporte continuo");
     });
 
     test("el equipo clasifica la complejidad de los tickets; el cliente no", async () => {

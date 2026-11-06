@@ -1,7 +1,7 @@
 #!/bin/bash
 # Instala los procesos diarios del portal en el VPS (como root). Se puede correr de nuevo sin problema.
 #   bash /opt/inoo/oficina-virtual/infra/hostinger/trabajos/instalar.sh
-# Crea la llave «trabajos-diarios» (scopes requerimientos, recordatorios y servicios) sin mostrarla: queda en
+# Crea la llave «trabajos-diarios» (scopes requerimientos, recordatorios, servicios y tableros) sin mostrarla: queda en
 # /opt/inoo/trabajos/llave, solo para root. Luego activa inoo-diarios.timer (todos los días a las 6:00 de Lima)
 # y corre los procesos una vez para probar.
 set -euo pipefail
@@ -19,7 +19,7 @@ WITH u AS (
   ON CONFLICT (email) DO UPDATE SET activo = true RETURNING id
 )
 INSERT INTO api_key (nombre, prefijo, hash, scopes, usuario_id)
-SELECT 'trabajos-diarios', :'pre', :'hash', ARRAY['requerimientos:write','recordatorios:write','servicios:write'], id FROM u;
+SELECT 'trabajos-diarios', :'pre', :'hash', ARRAY['requerimientos:write','recordatorios:write','servicios:write','tableros:write'], id FROM u;
 SQL
   printf %s "$LLAVE" > /opt/inoo/trabajos/llave
   echo "Llave creada y guardada en /opt/inoo/trabajos/llave"
