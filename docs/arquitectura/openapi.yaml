@@ -193,6 +193,30 @@ paths:
         '409': { description: 'SOLO_COGNITO: este despliegue no usa el ingreso propio', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /sesion/desde-inoowork:
+    post:
+      tags: [Sesión]
+      operationId: ingresarDesdeInooWork
+      summary: 'Desde InooWork con la sesión iniciada: canjea el pase de un solo uso (60 s) que firma InooWork con la llave compartida'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pase]
+              properties:
+                pase: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: 'Sesión iniciada como esa persona del equipo'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SesionIniciada' }
+        '401': { description: 'PASE_NO_VALIDO: vencido, ya usado o mal firmado', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '403': { description: 'CUENTA_DESACTIVADA o CUENTA_NO_ENLAZADA', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
   /sesion/restablecer:
     post:
       tags: [Sesión]

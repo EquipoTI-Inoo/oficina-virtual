@@ -49,6 +49,32 @@ export function leerSesion(token: string, ahora = Date.now()): string | null {
   }
 }
 
+/**
+ * Pase de InooWork (6 nov): «Portal de Inoo» en InooWork abre el portal ya con la sesión iniciada. InooWork lo
+ * firma con la llave que ya compartimos (INOOWORK_API_KEY), dura 60 segundos y sirve una sola vez. Devuelve el
+ * id de empleado, o null si no vale.
+ */
+const pasesUsados = new Map<string, number>();
+export function leerPaseInooWork(pase: string, ahora = Date.now()): string | null {
+  const llave = env("INOOWORK_API_KEY");
+  const [datos, f] = pase.split(".");
+  if (!llave || !datos || !f) return null;
+  const esperada = Buffer.from(b64(createHmac("sha256", llave).update(datos).digest()));
+  const recibida = Buffer.from(f);
+  if (esperada.length !== recibida.length || !timingSafeEqual(esperada, recibida)) return null;
+  let p: { e?: unknown; exp?: unknown; n?: unknown };
+  try {
+    p = JSON.parse(Buffer.from(datos, "base64url").toString()) as typeof p;
+  } catch {
+    return null;
+  }
+  if (typeof p.e !== "string" || typeof p.n !== "string" || typeof p.exp !== "number" || p.exp <= ahora || p.exp - ahora > 120_000) return null;
+  for (const [n, exp] of pasesUsados) if (exp <= ahora) pasesUsados.delete(n);
+  if (pasesUsados.has(p.n)) return null;
+  pasesUsados.set(p.n, p.exp);
+  return p.e;
+}
+
 /** Cuándo se emitió la sesión (0 si es anterior a este dato). */
 export function emitidaEn(token: string) {
   try {

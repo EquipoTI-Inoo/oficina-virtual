@@ -26,6 +26,7 @@ import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
+import { leerPaseInooWork } from "../servidor/sesion-inoowork";
 import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
 import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
@@ -4311,6 +4312,14 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
     // Ingreso (contrato /sesion/*): el entorno de pruebas usa las credenciales de prueba; Cognito solo en el backend real.
     if (req.method === "POST" && camino === "/sesion/ingresar") return Response.json(await ingresar(req));
     if (req.method === "POST" && camino === "/sesion/olvide-clave") return Response.json({ metodo: "ENLACE" });
+    if (req.method === "POST" && camino === "/sesion/desde-inoowork") {
+      const b = await cuerpo<{ pase?: unknown }>(req);
+      const empleado = typeof b.pase === "string" ? leerPaseInooWork(b.pase) : null;
+      if (!empleado) throw new ErrorApi(401, "PASE_NO_VALIDO", "El acceso desde InooWork venció", "Vuelve a abrir el portal desde InooWork, o ingresa con tu usuario.");
+      const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.activo !== false && x.inooworkEmpleadoId === empleado);
+      if (!u) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal");
+      return Response.json({ token: `demo.${u.id}`, tipo: "EQUIPO", clienteId: null });
+    }
     if (req.method === "POST" && camino === "/sesion/crear-clave") {
       const b = await cuerpo<{ token?: string; clave?: unknown }>(req);
       const error = errorClaveNueva(b.clave);

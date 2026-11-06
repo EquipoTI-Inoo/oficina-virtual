@@ -36,6 +36,20 @@ export function PantallaIngreso() {
   const [aviso, setAviso] = useState<string | null>(null);
 
   useEffect(() => {
+    // Desde «Portal de Inoo» en InooWork (6 nov): llega un pase de un solo uso y se entra sin escribir nada.
+    const pase = new URLSearchParams(window.location.search).get("inoowork");
+    if (pase) {
+      window.history.replaceState(null, "", window.location.pathname);
+      setEnviando(true);
+      api<S<"SesionIniciada">>("/sesion/desde-inoowork", { metodo: "POST", cuerpo: { pase } })
+        .then((r) => {
+          guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: null, pool: r.pool }, false);
+          ir("/equipo/mi-panel");
+        })
+        .catch((err: ProblemaApi) => setError(`${err.titulo}.${err.detalle ? ` ${err.detalle}` : ""}`))
+        .finally(() => setEnviando(false));
+      return;
+    }
     const s = leerSesion();
     if (s) ir(s.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
   }, [ir]);

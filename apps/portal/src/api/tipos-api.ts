@@ -84,6 +84,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sesion/desde-inoowork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Desde InooWork con la sesión iniciada: canjea el pase de un solo uso (60 s) que firma InooWork con la llave compartida */
+        post: operations["ingresarDesdeInooWork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sesion/restablecer": {
         parameters: {
             query?: never;
@@ -6280,6 +6297,50 @@ export interface operations {
                 };
             };
             422: components["responses"]["Validacion"];
+        };
+    };
+    ingresarDesdeInooWork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    pase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sesión iniciada como esa persona del equipo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"];
+                };
+            };
+            /** @description PASE_NO_VALIDO: vencido, ya usado o mal firmado */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description CUENTA_DESACTIVADA o CUENTA_NO_ENLAZADA */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
         };
     };
     restablecerClave: {

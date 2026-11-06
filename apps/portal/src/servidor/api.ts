@@ -55,7 +55,7 @@ import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
-import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
+import { anotarFallido, firmarSesion, ingresoConInooWork, leerPaseInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
@@ -5422,7 +5422,7 @@ export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}
  */
 // ───────────────────────────────────────────── sesión: ingreso con Cognito (INO-01)
 
-const RUTAS_SESION = ["/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar", "/sesion/crear-clave"];
+const RUTAS_SESION = ["/sesion/desde-inoowork", "/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar", "/sesion/crear-clave"];
 
 /** Con los tokens de Cognito, quién es en la base: tipo y primer cliente (para la sesión del portal). */
 async function sesionDeTokens(t: Tokens): Promise<Response> {
@@ -5484,6 +5484,19 @@ async function ingresarConInooWork(req: Request): Promise<Response | null> {
   });
   if (!id) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal", "Pídele al ADMIN que te agregue en «Equipo».");
   const s = firmarSesion(id);
+  return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
+}
+
+/** Desde InooWork con la sesión iniciada (6 nov): el pase dice qué empleado es; la ficha tiene que estar activa. */
+async function ingresarConPase(req: Request): Promise<Response> {
+  const b = (await req.json().catch(() => ({}))) as { pase?: unknown };
+  const empleado = typeof b.pase === "string" && b.pase.length < 2000 ? leerPaseInooWork(b.pase) : null;
+  if (!empleado) throw new ErrorApi(401, "PASE_NO_VALIDO", "El acceso desde InooWork venció", "Vuelve a abrir el portal desde InooWork, o ingresa con tu usuario.");
+  if (await fichaDesactivadaEnInooWork(empleado, "")) throw new ErrorApi(403, "CUENTA_DESACTIVADA", "Tu cuenta está desactivada", "Si es un error, escríbele a RRHH.");
+  const db = await baseDatos();
+  const u = await db.transaccion(async (c) => (await c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id = $1 LIMIT 1", [empleado])).rows[0]);
+  if (!u) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal", "Pídele al ADMIN que te agregue en «Equipo».");
+  const s = firmarSesion(u.id);
   return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
 }
 
@@ -5609,6 +5622,7 @@ async function sesion(camino: string, req: Request): Promise<Response> {
       const r = await ingresarConInooWork(req);
       if (r) return r;
     }
+    if (camino === "/sesion/desde-inoowork") return await ingresarConPase(req);
     if (process.env.AUTH_MODO === "portal") return await sesionPortal(camino, req);
     if ((process.env.AUTH_MODO ?? "demo") !== "cognito") {
       if (camino === "/sesion/ingresar") return await ingresarDemo(req);

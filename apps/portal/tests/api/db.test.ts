@@ -4,6 +4,7 @@
  * Ejecutar: npm run test:api
  */
 import assert from "node:assert/strict";
+import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
@@ -1032,6 +1033,33 @@ describe("Ingreso del equipo con su usuario de InooWork · Postgres", () => {
     assert.equal(pedidos.at(-1)!.username, "diegocastro");
     // Una clienta sigue entrando como siempre (aquí, el ingreso de prueba).
     assert.equal((await ingresar("valeria@casaoliva.pe", "demo1234")).json.tipo, "CLIENTE");
+  });
+
+  test("desde InooWork con la sesión iniciada: el pase sirve una vez, 60 segundos, y solo si está bien firmado", async () => {
+    await reiniciar();
+    const antesLlave = process.env.INOOWORK_API_KEY;
+    process.env.INOOWORK_API_KEY = "llave-compartida-de-prueba";
+    // Igual que backend/seguridad.js de InooWork (pasePortal).
+    const pase = (e: string, exp = Date.now() + 60_000, llave = "llave-compartida-de-prueba") => {
+      const datos = Buffer.from(JSON.stringify({ e, exp, n: randomBytes(12).toString("base64url") })).toString("base64url");
+      return `${datos}.${createHmac("sha256", llave).update(datos).digest("base64url")}`;
+    };
+    const canjear = (p: string) => llamar("POST", "/sesion/desde-inoowork", undefined, { pase: p });
+    try {
+      const bueno = pase("EMP-002");
+      const r = await canjear(bueno);
+      assert.deepEqual([r.status, r.json.tipo], [200, "EQUIPO"]);
+      assert.equal((await llamar("GET", "/me", r.json.token)).json.usuario.nombre, "Diego Castro");
+      assert.equal((await canjear(bueno)).json.codigo, "PASE_NO_VALIDO", "una sola vez");
+      assert.equal((await canjear(pase("EMP-002", Date.now() - 1))).json.codigo, "PASE_NO_VALIDO", "vencido");
+      assert.equal((await canjear(pase("EMP-002", Date.now() + 10 * 60_000))).json.codigo, "PASE_NO_VALIDO", "más de 2 minutos: no");
+      assert.equal((await canjear(pase("EMP-002", undefined, "otra-llave"))).json.codigo, "PASE_NO_VALIDO", "mal firmado");
+      assert.equal((await canjear(`${pase("EMP-002").slice(0, -3)}abc`)).json.codigo, "PASE_NO_VALIDO");
+      assert.equal((await canjear(pase("EMP-999"))).json.codigo, "CUENTA_NO_ENLAZADA");
+    } finally {
+      if (antesLlave === undefined) delete process.env.INOOWORK_API_KEY;
+      else process.env.INOOWORK_API_KEY = antesLlave;
+    }
   });
 
   test("contraseña incorrecta, cuenta sin enlazar, sesión alterada y demasiados intentos", async () => {

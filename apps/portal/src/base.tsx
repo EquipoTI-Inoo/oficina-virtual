@@ -52,13 +52,43 @@ export interface SesionLocal {
   pool?: "CLIENTES" | "EQUIPO";
   /** «Ver como cliente» (2 nov): el cliente cuyo portal está usando alguien del equipo. */
   vistaCliente?: string | null;
+  /** Sin «Recordarme» (6 nov): dura mientras el navegador siga abierto, en todas sus pestañas. */
+  soloEstaVisita?: boolean;
 }
+
+/**
+ * La sesión vive en localStorage para que la vean todas las pestañas (6 nov: antes, sin «Recordarme», iba a
+ * sessionStorage, que es de una sola pestaña). Sin «Recordarme» se marca con una cookie de sesión: el navegador
+ * la borra al cerrarse y entonces la sesión deja de valer.
+ */
+const COOKIE_VISITA = "inoo_visita";
+const hayVisita = () => document.cookie.split("; ").includes(`${COOKIE_VISITA}=1`);
+const marcarVisita = () => {
+  document.cookie = `${COOKIE_VISITA}=1; path=/; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
+};
+const borrarVisita = () => {
+  document.cookie = `${COOKIE_VISITA}=; path=/; Max-Age=0`;
+};
 
 export function leerSesion(): SesionLocal | null {
   if (typeof window === "undefined") return null;
   try {
-    const crudo = window.sessionStorage.getItem(CLAVE_SESION) ?? window.localStorage.getItem(CLAVE_SESION);
-    return crudo ? (JSON.parse(crudo) as SesionLocal) : null;
+    // Sesiones guardadas antes del 6 nov en la pestaña: pasan a localStorage como «solo esta visita».
+    const vieja = window.sessionStorage.getItem(CLAVE_SESION);
+    if (vieja) {
+      window.sessionStorage.removeItem(CLAVE_SESION);
+      window.localStorage.setItem(CLAVE_SESION, JSON.stringify({ ...(JSON.parse(vieja) as SesionLocal), soloEstaVisita: true }));
+      marcarVisita();
+    }
+    const crudo = window.localStorage.getItem(CLAVE_SESION);
+    if (!crudo) return null;
+    const s = JSON.parse(crudo) as SesionLocal;
+    // El navegador se cerró desde que entró sin «Recordarme»: hay que volver a ingresar.
+    if (s.soloEstaVisita && !hayVisita()) {
+      window.localStorage.removeItem(CLAVE_SESION);
+      return null;
+    }
+    return s;
   } catch {
     return null;
   }
@@ -66,8 +96,8 @@ export function leerSesion(): SesionLocal | null {
 
 export function guardarSesion(s: SesionLocal, recordar: boolean) {
   cerrarSesion();
-  const almacen = recordar ? window.localStorage : window.sessionStorage;
-  almacen.setItem(CLAVE_SESION, JSON.stringify(s));
+  if (!recordar) marcarVisita();
+  window.localStorage.setItem(CLAVE_SESION, JSON.stringify({ ...s, soloEstaVisita: !recordar }));
 }
 
 /** Cambia la cuenta de cliente activa (personas que pertenecen a más de una), en el mismo almacén de la sesión. */
@@ -78,8 +108,7 @@ export function cambiarClienteActivo(clienteId: string) {
 export function actualizarSesion(cambios: Partial<SesionLocal>) {
   const s = leerSesion();
   if (!s) return;
-  const almacen = window.sessionStorage.getItem(CLAVE_SESION) ? window.sessionStorage : window.localStorage;
-  almacen.setItem(CLAVE_SESION, JSON.stringify({ ...s, ...cambios }));
+  window.localStorage.setItem(CLAVE_SESION, JSON.stringify({ ...s, ...cambios }));
 }
 
 /**
@@ -102,6 +131,7 @@ export function vistaClienteActiva(): string | null {
 export function cerrarSesion() {
   window.localStorage.removeItem(CLAVE_SESION);
   window.sessionStorage.removeItem(CLAVE_SESION);
+  borrarVisita();
 }
 
 /** Cliente activo: el de la sesión (cliente) o Casa Oliva por defecto (equipo, en el entorno de pruebas). */
@@ -134,7 +164,7 @@ async function renovarSesion(s: SesionLocal): Promise<boolean> {
   }).catch(() => null);
   if (!r?.ok) return false;
   const j = (await r.json()) as { token: string; refreshToken?: string | null };
-  guardarSesion({ ...s, token: j.token, refreshToken: j.refreshToken ?? s.refreshToken }, window.localStorage.getItem(CLAVE_SESION) !== null);
+  guardarSesion({ ...s, token: j.token, refreshToken: j.refreshToken ?? s.refreshToken }, !s.soloEstaVisita);
   return true;
 }
 
