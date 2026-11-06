@@ -415,3 +415,34 @@ export function calcularMetricas(claves: Metrica[], x: InsumosMetricas): S<"Metr
     }
   });
 }
+
+// ───────────────────────────── proyectos desde el ingreso del cliente (6 nov)
+
+/** Los servicios que se marcan en el alta (SERVICIOS_INGRESO) y el servicio del catálogo que se contrata. */
+const WEB_DEL_INGRESO: Record<string, string> = {
+  "Aplicativo web / app móvil / app de escritorio": "APLICATIVO", "Landing page": "LANDING", "Web catálogo": "CATALOGO",
+  "Web e-commerce": "ECOMMERCE", "Web informativa (básica, empresarial o corporativa)": "INFORMATIVA",
+};
+export interface ContratacionDelIngreso { servicioCodigo: string; variante: string | null; detalle: Record<string, unknown>; desde: string }
+
+/**
+ * Lo marcado en «Servicios contratados» del alta pasa a ser proyectos (6 nov: antes era solo una respuesta y había
+ * que contratarlos aparte en la ficha). SEO todavía no tiene servicio en el catálogo: se avisa, no se crea.
+ */
+export function contratacionesDesdeIngreso(r: Record<string, unknown>): { contrataciones: ContratacionDelIngreso[]; sinProyecto: string[] } {
+  const marcados = Array.isArray(r.servicios) ? (r.servicios as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  const contrataciones: ContratacionDelIngreso[] = [];
+  const sinProyecto: string[] = [];
+  for (const s of marcados) {
+    if (s === "Branding") contrataciones.push({ servicioCodigo: "BRANDFORMANCE", variante: String(r.paqueteBranding ?? "").includes("Rebranding") ? "REBRANDING" : "MARCA_NUEVA", detalle: { tamano: "MEDIANO" }, desde: s });
+    else if (s === "Social Media") contrataciones.push({ servicioCodigo: "SOCIAL_MEDIA_PRO", variante: null, detalle: {}, desde: s });
+    else if (s === "Desarrollo web") {
+      const detalle: Record<string, unknown> = { tamano: "MEDIANO" };
+      if (r.estructuraWeb === "Código") detalle.cms = "CODIGO";
+      if (Number.isInteger(r.cantidadProductos)) detalle.productos = r.cantidadProductos;
+      contrataciones.push({ servicioCodigo: "WEB", variante: WEB_DEL_INGRESO[String(r.tipoWeb ?? "")] ?? "INFORMATIVA", detalle, desde: s });
+    } else if (s === "CRM") contrataciones.push({ servicioCodigo: "CRM_IMPLEMENTACION", variante: null, detalle: { tamano: "MEDIANO" }, desde: s });
+    else sinProyecto.push(s);
+  }
+  return { contrataciones, sinProyecto };
+}

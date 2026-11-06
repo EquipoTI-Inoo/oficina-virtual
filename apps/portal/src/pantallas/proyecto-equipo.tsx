@@ -909,7 +909,7 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
       <div className="campo">
         <label htmlFor="ns-responsable">Responsable en Inoo</label>
         <select id="ns-responsable" className="input" value={f.responsableId} onChange={(e) => setF({ ...f, responsableId: e.target.value })}>
-          <option value="">El responsable de la cuenta</option>
+          <option value="">El responsable de la cuenta (si tiene uno)</option>
           {equipo.datos?.datos.map((u) => (
             <option key={u.id} value={u.id}>
               {u.nombre}

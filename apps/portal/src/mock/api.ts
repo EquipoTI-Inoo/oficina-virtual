@@ -44,7 +44,7 @@ import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { esPropuestaJarvis, MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type EstadoAccionJarvis, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
-import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -350,6 +350,8 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
     if (roles.includes("ADMIN") && nivelDe(ctx.usuario) === "ADMIN") return;
     // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.
     if (roles.includes("ACCOUNT_MANAGER") && nivelDe(ctx.usuario) === "CUENTA") return;
+    // 6 nov: los leads de área también crean clientes y contratan proyectos (solo donde se pide LEAD).
+    if (roles.includes("LEAD") && ctx.usuario.esLead) return;
     throw new ErrorApi(403, "SIN_PERMISO", "Tu rol en el equipo no permite esta acción");
   }
   const rol = clienteId ? rolEn(ctx, clienteId) : null;
@@ -2000,11 +2002,17 @@ ruta("POST", "/clientes/propuesta-desde-transcripcion", async (ctx, _p, _q, req)
 });
 
 ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
-  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN", "LEAD"]);
   const b = await cuerpo<S<"ClienteEntrada">>(req);
   validarClienteEntrada(b, true);
   const ingreso = b.ingreso === undefined ? null : prepararIngreso(b.ingreso);
   if (ingreso?.errores.length) throw new ErrorApi(422, "VALIDACION", "Completa el ingreso del cliente", undefined, ingreso.errores);
+  // 6 nov: los servicios marcados en el ingreso se contratan aquí mismo, con una persona de Inoo a cargo.
+  const desdeIngreso = ingreso ? contratacionesDesdeIngreso(ingreso.respuestas) : { contrataciones: [], sinProyecto: [] };
+  const responsableProyectos = typeof b.responsableProyectosId === "string" ? b.responsableProyectosId : null;
+  if (desdeIngreso.contrataciones.length && !(responsableProyectos && esDelEquipo(responsableProyectos))) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "responsableProyectosId", mensaje: "Elige quién de Inoo lleva sus proyectos" }]);
+  }
   const slug = slugDe(b.nombre!);
   if (E.clientes.some((c) => c.slug === slug)) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
   // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
@@ -2053,7 +2061,15 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   }
   if (contacto) emitir("miembro.invitado", c.id, { usuarioId: contacto.id, email: contacto.email, nombre: contacto.nombre, rol: "ADMIN_CLIENTE", invitadoPor: ctx.usuario.id });
   emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId, contactoId: contacto?.id ?? null });
-  return { __status: 201, ...clienteVista(ctx, c) };
+  // Quien lo crea (un lead, por ejemplo) sigue viendo la cuenta aunque no sea su AM.
+  if (!ctx.esServicio && nivelDe(ctx.usuario) !== "ADMIN" && c.accountManagerId !== ctx.usuario.id) E.accesosCuenta.push({ usuarioId: ctx.usuario.id, clienteId: c.id, asignadoPorId: ctx.usuario.id });
+  // Cada servicio por la misma ruta que «Nuevo servicio»: mismas validaciones, etapas y requerimientos.
+  const contratar = RUTAS.find(([m, patron]) => m === "POST" && patron === "/clientes/:id/servicios")![2];
+  for (const x of desdeIngreso.contrataciones) {
+    const cuerpoServicio = { servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: D.HOY.slice(0, 10), responsableId: responsableProyectos };
+    await contratar(ctx, { id: c.id }, new URLSearchParams(), new Request("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cuerpoServicio) }));
+  }
+  return { __status: 201, ...clienteVista(ctx, c), proyectosCreados: desdeIngreso.contrataciones.length, sinProyecto: desdeIngreso.sinProyecto };
 });
 
 ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
@@ -2261,12 +2277,14 @@ ruta("POST", "/clientes/:id/briefs/:periodo/confirmar", (ctx, p) => {
 
 ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   const c = accesoCliente(ctx, p.id, true);
-  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN", "LEAD"]);
   const b = await cuerpo<S<"ServicioContratadoEntrada">>(req);
   const { cat, errores } = validarContratacion(b);
   const personalizadas = b.etapas !== undefined ? validarEtapasPersonalizadas(b.etapas) : null;
   if (personalizadas) errores.push(...personalizadas.errores);
   if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
+  // 6 nov: ningún proyecto sin una persona de Inoo a cargo.
+  if (!(b.responsableId ?? amDe(c))) errores.push({ campo: "responsableId", mensaje: "Elige quién de Inoo lleva este proyecto" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const variante = b.variante ?? null;
   if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && (s.estado === "ACTIVO" || s.estado === "STANDBY"))) {

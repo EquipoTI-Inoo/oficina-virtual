@@ -376,7 +376,11 @@ paths:
       tags: [Clientes]
       operationId: crearCliente
       summary: Alta de cliente (CU-01). Dispara la creación de carpetas en Drive vía n8n.
-      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      description: |
+        6 nov: los servicios marcados en el ingreso (Branding, Social Media, Desarrollo web, CRM) se contratan aquí mismo
+        como proyectos, a cargo de `responsableProyectosId` (obligatorio si hay alguno). SEO no tiene servicio en el
+        catálogo: vuelve en `sinProyecto`. Los leads de área también pueden crear clientes y quedan con acceso a la cuenta.
+      x-roles: [ACCOUNT_MANAGER, ADMIN, LEAD]
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
@@ -388,7 +392,13 @@ paths:
           description: Creado. `driveCarpetaId` llega en null y se completa cuando n8n termina (evento `cliente.creado`).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Cliente' }
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/Cliente' }
+                  - type: object
+                    properties:
+                      proyectosCreados: { type: integer, description: Proyectos creados desde el ingreso }
+                      sinProyecto: { type: array, items: { type: string }, description: Servicios marcados que todavía no tienen proyecto en el catálogo }
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
@@ -4892,6 +4902,7 @@ components:
       type: object
       properties:
         nombre: { type: string, minLength: 2 }
+        responsableProyectosId: { type: string, format: uuid, description: 'Solo en el alta: quién de Inoo lleva los proyectos que se crean desde el ingreso' }
         marca: { $ref: '#/components/schemas/Marca' }
         tono: { $ref: '#/components/schemas/Tono' }
         publico: { $ref: '#/components/schemas/Publico' }

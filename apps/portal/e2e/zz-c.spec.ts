@@ -1,0 +1,25 @@
+import { expect, test } from "@playwright/test";
+import { entrarComo, reiniciar } from "./utilidades";
+test("contratar-servicio", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  await reiniciar(request);
+  await entrarComo(page, "admin");
+  page.on("response", async (r) => { if (r.request().method() !== "GET" && r.url().includes("/api/v1/clientes")) console.log("RESP", r.request().method(), r.url().split("/api/v1")[1], r.status(), (await r.text()).slice(0, 250)); });
+  await page.goto("/equipo/clientes");
+  await page.getByRole("button", { name: /Nuevo cliente/ }).first().click({ timeout: 30_000 });
+  await page.fill("#nc-nombre", "SAP Prueba");
+  await page.getByRole("button", { name: /Crear cliente/ }).click();
+  await page.waitForTimeout(3000);
+  console.log("URL", page.url());
+  const btn = page.getByRole("button", { name: /servicio/i }).first();
+  console.log("BOTONES", (await page.getByRole("button").allInnerTexts()).filter((t) => /servicio|contratar/i.test(t)).join(" | "));
+  await btn.click();
+  await page.selectOption("#ns-servicio", "SOCIAL_MEDIA_PRO");
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Contratar" }).click();
+  await page.waitForTimeout(2500);
+  console.log("TOAST/ERR", (await page.locator("[role=alert], .toast, .aviso-flotante").allInnerTexts()).join(" | ").slice(0, 300));
+  await page.goto("/equipo/proyectos");
+  await page.waitForTimeout(4000);
+  console.log("EN_PIPELINE", await page.getByText("SAP Prueba").count());
+});

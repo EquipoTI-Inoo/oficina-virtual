@@ -79,7 +79,7 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_
 import {
   correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
 } from "../dominio/requerimientos";
-import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
+import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
 type S<K extends keyof components["schemas"]> = components["schemas"][K];
@@ -1036,6 +1036,8 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
     if (roles.includes("ADMIN") && ctx.u.nivelAcceso === "ADMIN") return;
     // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.
     if (roles.includes("ACCOUNT_MANAGER") && ctx.u.nivelAcceso === "CUENTA") return;
+    // 6 nov: los leads de área también crean clientes y contratan proyectos (solo donde se pide LEAD).
+    if (roles.includes("LEAD") && ctx.u.esLead) return;
     throw new ErrorApi(403, "SIN_PERMISO", "Tu rol en el equipo no permite esta acción");
   }
   const rol = clienteId ? ctx.u.roles[clienteId] : null;
@@ -1662,13 +1664,15 @@ ruta("GET", "/servicios-contratados/:id/avance", async (ctx, p) => avanceServici
 
 ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id, true);
-  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN", "LEAD"]);
   const b = (await cuerpo()) as Partial<S<"ServicioContratadoEntrada">>;
   const { cat, errores } = validarContratacion(b);
   const personalizadas = b.etapas !== undefined ? validarEtapasPersonalizadas(b.etapas) : null;
   if (personalizadas) errores.push(...personalizadas.errores);
   if (b.responsableId != null && !(await esDelEquipoDb(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   const responsable = b.responsableId ?? (await ctx.c.query<{ am: string | null }>("SELECT account_manager_id AS am FROM cliente WHERE id = $1", [p.id])).rows[0].am;
+  // 6 nov: ningún proyecto sin una persona de Inoo a cargo.
+  if (!responsable) errores.push({ campo: "responsableId", mensaje: "Elige quién de Inoo lleva este proyecto" });
   if (errores.length) validacion(errores);
   const variante = b.variante ?? null;
   const ya = await ctx.c.query(
@@ -4252,11 +4256,18 @@ ruta("POST", "/clientes/propuesta-desde-transcripcion", async (ctx, _p, _q, cuer
 });
 
 ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
-  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
+  exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN", "LEAD"]);
   const b = (await cuerpo()) as S<"ClienteEntrada">;
   await validarClienteEntrada(ctx, b, true);
   const ingreso = b.ingreso === undefined ? null : prepararIngreso(b.ingreso);
   if (ingreso) validacion(ingreso.errores);
+  // 6 nov: los servicios marcados en el ingreso se contratan aquí mismo, con una persona de Inoo a cargo.
+  const desdeIngreso = ingreso ? contratacionesDesdeIngreso(ingreso.respuestas) : { contrataciones: [], sinProyecto: [] };
+  const responsableProyectos = typeof b.responsableProyectosId === "string" ? b.responsableProyectosId : null;
+  if (desdeIngreso.contrataciones.length) {
+    if (!responsableProyectos) validacion([{ campo: "responsableProyectosId", mensaje: "Elige quién de Inoo lleva sus proyectos" }]);
+    else if (!(await esDelEquipoDb(ctx, responsableProyectos))) validacion([{ campo: "responsableProyectosId", mensaje: "Elige a alguien del equipo" }]);
+  }
   const nombre = b.nombre!.trim();
   const slug = slugDe(nombre);
   if ((await ctx.c.query("SELECT 1 FROM cliente WHERE slug = $1", [slug])).rows.length) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
@@ -4280,7 +4291,17 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
   // n8n crea las carpetas de Drive al recibir cliente.creado y completa driveUrl con PATCH /clientes/{id}.
   await emitirOutbox(ctx, "cliente.creado", id, { clienteId: id, nombre, slug, canales: b.canales ?? [], accountManagerId: am, contactoId });
-  return { __status: 201, ...(await clienteVista(ctx, id)) };
+  // Quien lo crea (un lead, por ejemplo) sigue viendo la cuenta aunque no sea su AM.
+  if (!ctx.esServicio && ctx.u.nivelAcceso !== "ADMIN" && am !== ctx.u.usuarioId) {
+    await ctx.c.query("INSERT INTO acceso_cuenta (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $1) ON CONFLICT DO NOTHING", [ctx.u.usuarioId, id]);
+  }
+  alcances.delete(ctx);
+  // Cada servicio por la misma ruta que «Nuevo servicio»: mismas validaciones, etapas y requerimientos.
+  const contratar = RUTAS.find(([m, patron]) => m === "POST" && patron === "/clientes/:id/servicios")![2];
+  for (const x of desdeIngreso.contrataciones) {
+    await contratar(ctx, { id }, new URLSearchParams(), async () => ({ servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: HOY_LIMA(), responsableId: responsableProyectos }));
+  }
+  return { __status: 201, ...(await clienteVista(ctx, id)), proyectosCreados: desdeIngreso.contrataciones.length, sinProyecto: desdeIngreso.sinProyecto };
 });
 
 /** Lo que se guarda en cliente.ingreso: las respuestas, cuándo y quién lo registró. */

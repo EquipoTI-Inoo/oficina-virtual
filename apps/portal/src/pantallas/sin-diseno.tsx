@@ -467,6 +467,12 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>(abierto ? "/formularios/ingreso-cliente" : null);
   const [ingreso, setIngreso] = useState<Record<string, unknown>>({});
   const [err, setErr] = useState<Record<string, string>>({});
+  // 6 nov: lo marcado en «Servicios contratados» se crea como proyecto; alguien de Inoo tiene que llevarlo.
+  const [responsableProyectos, setResponsableProyectos] = useState("");
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(abierto ? "/panel/equipo" : null);
+  const marcados = Array.isArray(ingreso.servicios) ? (ingreso.servicios as string[]) : [];
+  const conProyecto = marcados.filter((x) => x !== "SEO");
+  const avisarAlta = useAviso();
   // Fase 17: desde la transcripción de la venta se completa el formulario; Comercial lo revisa antes de crear.
   const [transcripcion, setTranscripcion] = useState("");
   const [leyendo, setLeyendo] = useState(false);
@@ -507,13 +513,23 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
         cuerpo: {
           nombre, limiteGastoIaUsd: Number(limite), canales, fechaAniversario: aniversario || undefined,
           ingreso: formulario ? Object.fromEntries(Object.entries(ingreso).filter(([, v]) => !respuestaVacia(v))) : undefined,
+          responsableProyectosId: conProyecto.length && responsableProyectos ? responsableProyectos : undefined,
           contacto: contacto.nombre || contacto.email ? { nombre: contacto.nombre, email: contacto.email, cargo: contacto.cargo || undefined } : undefined,
         },
         idempotente: true,
       });
+      const creados = (c as { proyectosCreados?: number }).proyectosCreados ?? 0;
+      const sin = (c as { sinProyecto?: string[] }).sinProyecto ?? [];
+      if (creados || sin.length) {
+        avisarAlta({
+          titulo: creados ? `Cliente creado con ${creados} ${creados === 1 ? "proyecto" : "proyectos"}` : "Cliente creado",
+          texto: sin.length ? `${sin.join(", ")} todavía no tiene proyecto en el catálogo: anótalo en la ficha.` : "Ya aparecen en Proyectos.",
+        });
+      }
       setNombre("");
       setContacto({ nombre: "", email: "", cargo: "" });
       setIngreso({});
+      setResponsableProyectos("");
       alCrear(c.id);
     } catch (x) {
       const p = x as ProblemaApi;
@@ -596,6 +612,16 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
           )}
           {Object.keys(erroresIngreso).length > 0 && <Ayuda error="Completa el ingreso: revisa los campos marcados." />}
         </div>
+        {conProyecto.length > 0 && (
+          <div className="campo">
+            <label htmlFor="nc-responsable-proyectos">Quién de Inoo lleva sus proyectos</label>
+            <select id="nc-responsable-proyectos" className="input" value={responsableProyectos} onChange={(e) => setResponsableProyectos(e.target.value)} aria-invalid={!!err.responsableProyectosId} style={{ height: 38 }}>
+              <option value="">Elige a una persona</option>
+              {equipo.datos?.datos.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+            <Ayuda error={err.responsableProyectosId} texto={`Se crean ${conProyecto.length === 1 ? "el proyecto" : `${conProyecto.length} proyectos`} de ${conProyecto.join(", ")} a su cargo.`} />
+          </div>
+        )}
         <button className="boton boton--primario">
           <LuPlus size={16} /> Crear cliente
         </button>

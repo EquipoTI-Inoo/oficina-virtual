@@ -213,7 +213,12 @@ export interface paths {
         /** Clientes visibles para el usuario (equipo ve todos; cliente ve los suyos) */
         get: operations["listarClientes"];
         put?: never;
-        /** Alta de cliente (CU-01). Dispara la creación de carpetas en Drive vía n8n. */
+        /**
+         * Alta de cliente (CU-01). Dispara la creación de carpetas en Drive vía n8n.
+         * @description 6 nov: los servicios marcados en el ingreso (Branding, Social Media, Desarrollo web, CRM) se contratan aquí mismo
+         *     como proyectos, a cargo de `responsableProyectosId` (obligatorio si hay alguno). SEO no tiene servicio en el
+         *     catálogo: vuelve en `sinProyecto`. Los leads de área también pueden crear clientes y quedan con acceso a la cuenta.
+         */
         post: operations["crearCliente"];
         delete?: never;
         options?: never;
@@ -3413,6 +3418,11 @@ export interface components {
         };
         ClienteEntrada: {
             nombre?: string;
+            /**
+             * Format: uuid
+             * @description Solo en el alta: quién de Inoo lleva los proyectos que se crean desde el ingreso
+             */
+            responsableProyectosId?: string;
             marca?: components["schemas"]["Marca"];
             tono?: components["schemas"]["Tono"];
             publico?: components["schemas"]["Publico"];
@@ -6610,7 +6620,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Cliente"];
+                    "application/json": components["schemas"]["Cliente"] & {
+                        /** @description Proyectos creados desde el ingreso */
+                        proyectosCreados?: number;
+                        /** @description Servicios marcados que todavía no tienen proyecto en el catálogo */
+                        sinProyecto?: string[];
+                    };
                 };
             };
             409: components["responses"]["Conflicto"];

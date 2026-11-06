@@ -166,6 +166,8 @@ export function crearTableros(fallar: Fallar) {
       const ids = [...new Set((b.miembros as string[] | undefined) ?? [])];
       const miembros = ids.length ? await datos.miembros(ids) : [];
       if (miembros.length !== ids.length) validar([{ campo: "miembros", mensaje: "Alguna de esas personas no tiene ficha en InooWork" }]);
+      // 6 nov: ningún proyecto sin una persona de Inoo (quien lo crea sin ficha tiene que sumar a alguien).
+      if (!yo.empleadoId && !miembros.length) validar([{ campo: "miembros", mensaje: "Agrega al menos a una persona de Inoo" }]);
       const p = nuevoProyecto(b, yo.empleadoId ? datos.lider : null, miembros, datos.departamento);
       await crearIW(p);
       return tableroVista(p, yo);

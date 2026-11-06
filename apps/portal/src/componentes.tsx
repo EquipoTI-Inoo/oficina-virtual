@@ -321,6 +321,8 @@ function BuscadorGlobal({ alCerrar }: { alCerrar: () => void }) {
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Buscar en el portal" ancho={560}>
       <div className="pila" style={{ gap: 12 }}>
+        {/* El título ocupa la fila de la X de cerrar, para que no quede encima de la caja (6 nov). */}
+        <h2 className="fila" style={{ fontSize: 16, fontWeight: 600, gap: 8, margin: 0, paddingRight: 36, minHeight: 28 }}><LuSearch size={17} /> Buscar en el portal</h2>
         <div className="entrada">
           <input aria-label="Buscar en el portal" role="combobox" aria-expanded={datos.length > 0} aria-controls="busqueda-resultados"
             aria-activedescendant={datos[activo] ? `busqueda-${activo}` : undefined}

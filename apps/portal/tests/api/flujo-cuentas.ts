@@ -37,13 +37,32 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
       const incompleto = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", ingreso });
       assert.deepEqual(incompleto.json.errores.map((e: any) => e.campo), ["ingreso.tipoWeb", "ingreso.estructuraWeb"]);
       const completo = { ...ingreso, tipoWeb: "Web e-commerce", estructuraWeb: "CMS (Elementor, Shopify, WordPress)", cantidadProductos: 40, paqueteSocial: "Pro óptimo" };
-      const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", ingreso: completo });
+      const sinResponsable = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", ingreso: completo });
+      assert.deepEqual(sinResponsable.json.errores.map((e: any) => e.campo), ["responsableProyectosId"], "sin una persona de Inoo no se crea el proyecto");
+      const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", ingreso: completo, responsableProyectosId: uid(1, 6) });
       assert.equal(ok.status, 201);
+      assert.equal(ok.json.proyectosCreados, 1);
       assert.deepEqual(ok.json.ingreso.respuestas, { servicios: ["Desarrollo web"], objetivos: "Vender en línea", fechaReunionBrief: "2026-10-20", tipoWeb: "Web e-commerce", estructuraWeb: "CMS (Elementor, Shopify, WordPress)", cantidadProductos: 40 }, "el paquete de Social Media no aplica: no se guarda");
       assert.equal(ok.json.ingreso.registradoPor.nombre, "Diego Castro");
       const corregido = await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { ingreso: { ...completo, servicios: ["SEO"], webSeo: "https://hidraulicasur.pe" } });
       assert.deepEqual(Object.keys(corregido.json.ingreso.respuestas).sort(), ["fechaReunionBrief", "objetivos", "servicios", "webSeo"]);
       assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}`, VALERIA)).json.ingreso, undefined, "el cliente no ve su ingreso");
+    });
+
+    test("alta con servicios marcados: se crean sus proyectos, a cargo de alguien de Inoo, y aparecen en Proyectos", async () => {
+      await reiniciar();
+      const ingreso = { servicios: ["Branding", "Social Media", "SEO"], objetivos: "Lanzar la marca", fechaReunionBrief: "2026-10-20", paqueteBranding: "Paquete 03 (Rebranding)", paqueteSocial: "Pro óptimo", redes: "https://instagram.com/sap", webSeo: "https://sap.pe" };
+      const r = await llamar("POST", "/clientes", DIEGO, { nombre: "SAP Salud", ingreso, responsableProyectosId: uid(1, 6) });
+      assert.equal(r.status, 201);
+      assert.deepEqual([r.json.proyectosCreados, r.json.sinProyecto], [2, ["SEO"]], "SEO todavía no tiene servicio en el catálogo");
+      const servicios = (await llamar("GET", `/clientes/${r.json.id}/servicios`, DIEGO)).json.servicios;
+      assert.deepEqual(servicios.map((x: any) => [x.codigo, x.variante?.codigo ?? null, x.responsable?.nombre]).sort(), [["BRANDFORMANCE", "REBRANDING", "Camila Paredes"], ["SOCIAL_MEDIA_PRO", null, "Camila Paredes"]]);
+      const pipeline = (await llamar("GET", "/panel/proyectos", DIEGO)).json.datos.filter((x: any) => x.clienteId === r.json.id);
+      assert.equal(pipeline.length, 2, "aparecen en Proyectos");
+      // Un proyecto sin nadie de Inoo: no.
+      await llamar("PATCH", `/clientes/${r.json.id}`, DIEGO, { accountManagerId: null });
+      const sinNadie = await llamar("POST", `/clientes/${r.json.id}/servicios`, DIEGO, { servicioCodigo: "PAID_MEDIA", fechaInicio: "2026-10-20" });
+      assert.ok(sinNadie.json.errores?.some((e: any) => e.campo === "responsableId") || sinNadie.status === 404, "sin responsable no se contrata");
     });
 
     test("alta: solo AM/ADMIN, valida, no duplica y no usa correos del equipo", async () => {
