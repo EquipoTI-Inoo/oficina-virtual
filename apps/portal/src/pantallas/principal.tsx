@@ -365,6 +365,7 @@ function Inicio() {
           <h2 className="seccion-titulo">Tus proyectos</h2>
           <Enlace a="/servicios" className="enlace">Ver todos →</Enlace>
         </div>
+        {!d.servicios.length && <p className="texto-sm texto-muted">Tu equipo Inoo está preparando tus proyectos. Aquí vas a ver cómo avanza cada uno.</p>}
         <div className="proyectos-cliente">
           {d.servicios.map((x) => {
             const etapa = x.avance.etapaActual;
@@ -578,16 +579,16 @@ function Servicios() {
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 600 }}>{d.plan?.nombre}</h2>
             <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
-              Contrato hasta el {d.plan?.fechaFin ? fCorta(d.plan.fechaFin) : "—"}{cuenta ? ` · ${cuenta}` : ""}
+              {d.plan?.fechaFin ? `Contrato hasta el ${fCorta(d.plan.fechaFin)}${cuenta ? ` · ${cuenta}` : ""}` : cuenta}
             </p>
           </div>
           <div className="fila" style={{ gap: 8 }}>
-            <Etiqueta tono="verde">{contratados.length} servicios activos</Etiqueta>
+            {contratados.length > 0 && <Etiqueta tono="verde">{contratados.length} {contratados.length === 1 ? "servicio activo" : "servicios activos"}</Etiqueta>}
             {r.totales > 0 && <Etiqueta tono="violeta">{r.totales} piezas / mes</Etiqueta>}
           </div>
         </div>
         <p className="texto-xs texto-muted" style={{ marginTop: 22 }}>
-          El avance de cada servicio se mide por etapas: el porcentaje sube al cerrar cada una.
+          {contratados.length ? "El avance de cada servicio se mide por etapas: el porcentaje sube al cerrar cada una." : "Todavía no tienes servicios activos. Cuando tu equipo Inoo los active, vas a verlos aquí con su avance."}
           {r.totales > 0 && ` Piezas de este mes: ${r.entregadas} entregadas, ${r.aprobadas} aprobadas y ${r.enProduccion} en producción.`}
         </p>
       </div>

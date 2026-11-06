@@ -70,7 +70,8 @@ services:
       retries: 20
 
   portal:
-    build: ../../apps/portal
+    # Entorno local con datos de demo: su fecha.
+    build: { context: ../../apps/portal, args: { NEXT_PUBLIC_FECHA_FIJA: "2026-10-06" } }
     environment:
       API_MODO: ${API_MODO:-mock}
       DATABASE_URL: postgres://${POSTGRES_USER:-inoo}:${POSTGRES_PASSWORD:-inoo}@postgres:5432/${POSTGRES_DB:-oficina_virtual}

@@ -275,7 +275,7 @@ function CambioResponsable() {
   );
   return (
     <Tarjeta titulo="Responsable de la cuenta">
-      <Dato etiqueta="Hoy sigue la cuenta">{d.responsable?.nombre ?? "—"}</Dato>
+      <Dato etiqueta="Hoy sigue la cuenta">{d.responsable?.nombre ?? "Tu equipo Inoo la está asignando"}</Dato>
       {pendiente ? (
         <p className="texto-sm">
           <Etiqueta tono="azul">En revisión</Etiqueta> Pediste que <strong>{pendiente.nombre}</strong> ({pendiente.email}) sea el nuevo responsable. Te avisaremos cuando tenga acceso.

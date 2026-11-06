@@ -724,9 +724,6 @@ function Ficha() {
             ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
             <p className="texto-xs texto-muted" style={{ fontSize: 9 }}>Acceso del equipo de agencia.</p>
           </div>
-          <Aviso icono={<LuShieldCheck size={16} />} titulo="Contexto de aprobación">
-            La versión 1 fue aprobada por Valeria. La versión 2 aún está por revisar: la aprobación anterior no se hereda.
-          </Aviso>
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Responsable de cuenta</h3>
             <p className="negrita" style={{ fontSize: 11 }}>{d.accountManager?.nombre} · Inoo</p>

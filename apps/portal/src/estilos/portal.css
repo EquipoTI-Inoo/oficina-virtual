@@ -2460,3 +2460,9 @@ button.cuenta { cursor: pointer; }
   .linea-nombre { width: 110px; }
   .calendario-tablero-celda { min-height: 56px; }
 }
+
+/* Móvil (6 nov): las etapas del proyecto no ensanchan la página. */
+@media (max-width: 720px) {
+  .contenido section.tarjeta, .contenido .pila { min-width: 0; max-width: 100%; }
+  .hitos { overflow-x: auto; max-width: 100%; }
+}
