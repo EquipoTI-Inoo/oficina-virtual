@@ -6435,6 +6435,7 @@ components:
             responsable: { type: [object, 'null'], description: Solo equipo, properties: { id: { type: string }, nombre: { type: string } } }
             publicadoUrl: { type: [string, 'null'], format: uri }
             publicadoEn: { type: [string, 'null'], format: date-time }
+            servicioCodigo: { type: [string, 'null'], description: 'Código del servicio del proyecto (p. ej. SOCIAL_MEDIA_PRO, PAID_MEDIA). El historial de la pieza se muestra solo en Paid Media y Social Media Pro.' }
             acciones:
               type: array
               description: Lo que ESTE usuario puede hacer ahora. El frontend pinta botones según esta lista, no según el estado.

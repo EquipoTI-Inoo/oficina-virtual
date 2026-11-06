@@ -5198,6 +5198,8 @@ export interface components {
             publicadoUrl?: string | null;
             /** Format: date-time */
             publicadoEn?: string | null;
+            /** @description Código del servicio del proyecto (p. ej. SOCIAL_MEDIA_PRO, PAID_MEDIA). El historial de la pieza se muestra solo en Paid Media y Social Media Pro. */
+            servicioCodigo?: string | null;
             /** @description Lo que ESTE usuario puede hacer ahora. El frontend pinta botones según esta lista, no según el estado. */
             acciones: components["schemas"]["AccionPieza"][];
         };

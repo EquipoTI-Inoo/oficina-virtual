@@ -210,6 +210,7 @@ function accionesPara(ctx: Ctx, p: FilaPieza): S<"AccionPieza">[] {
 
 interface FilaPieza {
   id: string;
+  servicio_codigo?: string | null;
   cliente_id: string;
   servicio_contratado_id: string | null;
   calendario_id: string | null;
@@ -239,6 +240,7 @@ interface FilaPieza {
 // La última versión se lee con RLS: el cliente solo «ve» las que se le enviaron.
 const SELECT_PIEZA = `
   SELECT p.*, r.nombre AS responsable_nombre,
+         (SELECT s.codigo FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.id = p.servicio_contratado_id) AS servicio_codigo,
          lv.autor_tipo AS ultima_autor_tipo, lv.agente AS ultima_agente, au.nombre AS ultima_autor_nombre,
          vc.enviada_cliente_en AS revision_enviada_en
   FROM pieza p
@@ -355,6 +357,7 @@ async function piezaCompleta(ctx: Ctx, p: FilaPieza): Promise<S<"Pieza">> {
     aptaPaidMedia: p.apta_paid_media ?? (p.tipo !== "BLOG" && p.tipo !== "GUION"),
     publicadoUrl: p.publicado_url,
     publicadoEn: iso(p.publicado_en),
+    servicioCodigo: p.servicio_codigo ?? null,
     acciones: accionesPara(ctx, p),
   } as S<"Pieza"> & Record<string, unknown>;
   if (vigente) r.version = versionVista(ctx, p, vigente);

@@ -563,6 +563,7 @@ function piezaCompleta(ctx: Ctx, p: D.PiezaDemo): S<"Pieza"> {
     aptaPaidMedia: aptaParaPaid(p),
     publicadoUrl: null,
     publicadoEn: p.estado === "PUBLICADO" ? iso(p.fecha) : null,
+    servicioCodigo: E.servicios.find((s) => s.id === p.servicioId)?.codigo ?? null,
     acciones: accionesPara(ctx, p),
   } as S<"Pieza"> & Record<string, unknown>;
   if (vigente) r.version = versionVista(ctx, p, vigente);

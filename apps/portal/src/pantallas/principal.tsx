@@ -9,7 +9,7 @@ import {
   api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
   useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL } from "../base";
 import {
-  Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
+  Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_PIEZA, ESTADO_PIEZA_CLIENTE, Estructura, Etiqueta, EtiquetaEstado, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
@@ -733,6 +733,45 @@ const ACCIONES_EQUIPO: Record<string, [string, string]> = {
 
 type PiezaDet = S<"Pieza"> & { formato?: string; diseno?: PiezaUI["diseno"] };
 
+/** Solo en estos servicios se ve el historial de la pieza (6 nov): son los que producen piezas mes a mes. */
+const SERVICIOS_CON_HISTORIAL = ["PAID_MEDIA", "SOCIAL_MEDIA_PRO"];
+const CANAL_DECISION: Record<string, string> = { PORTAL: "desde el portal", PANEL: "desde el panel", TELEGRAM: "por Telegram", SLACK: "por Slack", SISTEMA: "automático" };
+
+/** Quién movió la pieza, a qué estado y cuándo. El cliente solo ve desde que se la enviamos a revisar. */
+function HistorialPieza({ piezaId }: { piezaId: string }) {
+  const h = useConsulta<{ datos: S<"EventoPieza">[] }>(`/piezas/${piezaId}/historial`);
+  const mapa = leerSesion()?.tipo === "CLIENTE" ? ESTADO_PIEZA_CLIENTE : ESTADO_PIEZA;
+  const eventos = [...(h.datos?.datos ?? [])].reverse();
+  return (
+    <div className="tarjeta seccion" style={{ padding: "26px 18px 18px" }}>
+      <h2 className="tarjeta-titulo">Historial</h2>
+      <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px" }}>Quién la movió y cuándo, de lo más reciente a lo más antiguo.</p>
+      {h.error ? (
+        <ErrorCarga error={h.error} reintentar={h.recargar} />
+      ) : !h.datos ? (
+        <Cargando />
+      ) : !eventos.length ? (
+        <p className="texto-sm texto-muted">Todavía no hay movimientos.</p>
+      ) : (
+        <ol className="lista-suave" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {eventos.map((e, i) => (
+            <li key={i} className="fila-suave rejilla" style={{ ["--columnas" as string]: "150px 1fr" }}>
+              <span><EtiquetaEstado estado={e.aEstado} mapa={mapa} /></span>
+              <div>
+                <p style={{ fontSize: 12.5 }}>
+                  {e.usuario?.nombre ?? "Inoo"}{e.version ? ` · versión ${e.version}` : ""} · {CANAL_DECISION[e.canal] ?? ""}
+                </p>
+                <p className="texto-xs texto-muted" style={{ marginTop: 3 }}>{fCorta(e.creadoEn)}, {fDiaHora(e.creadoEn).split(" · ")[1]}</p>
+                {e.comentario && <p className="texto-xs" style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>«{e.comentario}»</p>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
   const { params } = useNavegacion();
   const avisar = useAviso();
@@ -1035,6 +1074,8 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           ))}
         </div>
       </div>
+
+      {SERVICIOS_CON_HISTORIAL.includes(p.servicioCodigo ?? "") && <HistorialPieza piezaId={p.id} />}
 
       <Modal abierto={confirmar} alCerrar={() => setConfirmar(false)} etiqueta="Aprobar esta versión">
         <span className="icono-caja">

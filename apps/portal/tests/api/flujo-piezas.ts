@@ -164,6 +164,7 @@ export function pruebasFlujoPiezas(nombre: string, manejar: Manejador, reiniciar
       const c = (await llamar("GET", `/piezas/${BORRADOR}`, VALERIA)).json;
       assert.equal(c.estado, "LISTO_REVISION");
       assert.equal(c.version.numero, 1);
+      assert.equal(c.servicioCodigo, "SOCIAL_MEDIA_PRO", "el historial se muestra en Social Media Pro y Paid Media");
       await llamar("POST", `/piezas/${BORRADOR}/aprobar`, VALERIA, { version: 1, comentario: "Perfecto" });
       const eq = (await llamar("GET", `/piezas/${BORRADOR}/historial`, DIEGO)).json.datos;
       assert.deepEqual(eq.map((e: any) => [e.aEstado, e.canal]), [["EN_REVISION_INTERNA", "PANEL"], ["LISTO_REVISION", "PANEL"], ["APROBADO_CLIENTE", "PORTAL"]]);
