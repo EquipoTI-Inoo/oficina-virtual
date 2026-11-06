@@ -9,7 +9,7 @@
 import {
   analisisSimulado, capturaSimulada, conNoindex, demoSimulada, DIMENSIONES, dimensionesPara, ESQUEMA_FLUJOGRAMA, ESQUEMA_SINTESIS, esquemaAnalisis, flujogramaSimulado,
   informeHtml, interpretarJson, LIMITES_TALLER, limpiarHtml, mencionaIa, mensajeAnalisis, mensajeDemo, mensajeFlujograma, mensajeSintesis, paginaParaPrompt, pantallaSimulada, promptStitch, promptStitchSitio, puntajeGlobal,
-  SISTEMA_ANALISIS, SISTEMA_BOCETO, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
+  SISTEMA_ANALISIS, SISTEMA_BOCETO, SISTEMA_PROTOTIPO, GENERADORES_PROTOTIPO, type GeneradorPrototipo, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
   designMdStitch, huella, mensajeBoceto,
   type Boceto, type Captura, type Dimension, type Plantilla, type Dispositivo, type Insumos, type PaginaFlujo, type PantallaPrototipo, type Puntaje, type Punto, type Referencia,
 } from "../dominio/taller-web";
@@ -250,7 +250,7 @@ export async function generarPantalla(p: {
   const ahora = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const disp = p.dispositivo === "MOVIL" ? "móvil" : "escritorio";
   const base = (pagina: PaginaFlujo | undefined, titulo?: string | null) => ({
-    id: crypto.randomUUID(), nombre: `${titulo ?? pagina?.titulo ?? "Inicio"} · ${disp}`, dispositivo: p.dispositivo, paginaId: pagina?.id ?? null, prompt: p.prompt, creadaEn: ahora,
+    id: crypto.randomUUID(), nombre: `${titulo ?? pagina?.titulo ?? "Inicio"} · ${disp}`, dispositivo: p.dispositivo, paginaId: pagina?.id ?? null, prompt: p.prompt, creadaEn: ahora, generador: "STITCH" as const,
   });
   if (!stitchDisponible()) {
     const pantallas = (p.paginas.length ? p.paginas : [undefined]).slice(0, p.maximo).map((pg) => ({
@@ -274,6 +274,38 @@ export async function generarPantalla(p: {
     pantallas.push({ ...b, imagenUrl: imagen?.url ?? html!.url, conHtml: !!html, simulada: false });
   }
   return { pantallas, proyectoStitch: s.proyectoId, htmlId, sistemaStitch: s.sistema ?? p.sistemaStitch, aviso: s.aviso };
+}
+
+/**
+ * El prototipo con Claude (6 nov): una página por llamada, con el prompt de esa página (o el editado a mano), y el
+ * navegador la fotografía. Sin navegador real queda el HTML (se abre en otra pestaña); sin IA, de relleno.
+ */
+export async function generarPantallaClaude(p: {
+  insumos: Insumos; flujograma: PaginaFlujo[]; recomendaciones: Punto[]; prompt: string | null; dispositivo: Dispositivo; paginas: PaginaFlujo[]; maximo: number; plantilla: Plantilla | null;
+}, almacen: AlmacenArchivos): Promise<{ pantallas: PantallaPrototipo[]; htmlId: string | null; costoUsd: number }> {
+  const ahora = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const disp = p.dispositivo === "MOVIL" ? "móvil" : "escritorio";
+  const pantallas: PantallaPrototipo[] = [];
+  let htmlId: string | null = null;
+  let costoUsd = 0;
+  for (const pagina of p.paginas.slice(0, p.maximo)) {
+    const prompt = p.prompt ?? promptStitch(p.insumos, p.flujograma, p.recomendaciones, { paginaId: pagina.id, dispositivo: p.dispositivo, plantilla: p.plantilla });
+    const base = { id: crypto.randomUUID(), nombre: `${pagina.titulo} · ${disp}`, dispositivo: p.dispositivo, paginaId: pagina.id, prompt, creadaEn: ahora, generador: "CLAUDE" as const };
+    if (motivoSimulado("CLAUDE_SONNET")) {
+      pantallas.push({ ...base, imagenUrl: dataUri("image/svg+xml", utf8(pantallaSimulada(pagina, p.insumos.marca, p.dispositivo))), conHtml: false, simulada: true });
+      continue;
+    }
+    const r = await generar({ modelo: "CLAUDE_SONNET", sistema: SISTEMA_PROTOTIPO, mensajes: [{ rol: "user", texto: prompt }], maxTokens: LIMITES_TALLER.tokensBoceto, simulado: () => "" });
+    costoUsd += r.costoUsd;
+    const html = r.texto.replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
+    if (!/<html|<body/i.test(html)) throw new ErrorTaller(502, "IA_NO_DISPONIBLE", "No pudimos generar esta pantalla", "La respuesta no trajo una página HTML. Inténtalo de nuevo.");
+    const limpio = conNoindex(limpiarHtml(html));
+    const pagHtml = await almacen.guardar({ tipo: "PANTALLA", mime: "text/html; charset=utf-8", nombre: `${base.nombre}.html`, bytes: utf8(limpio) });
+    const imagen = navegadorReal() ? await almacen.guardar({ tipo: "PANTALLA", mime: "image/jpeg", nombre: `${base.nombre}.jpg`, bytes: await fotografiarHtml(limpio, p.dispositivo) }) : null;
+    htmlId ??= pagHtml.url;
+    pantallas.push({ ...base, imagenUrl: imagen?.url ?? pagHtml.url, conHtml: true, simulada: false });
+  }
+  return { pantallas, htmlId, costoUsd };
 }
 
 // ───────────────────────────── 6. demo
@@ -607,6 +639,18 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const prompt = (typeof b.prompt === "string" && b.prompt.trim()) ||
           (sitio ? promptStitchSitio(ins, e.flujograma, e.recomendaciones, { dispositivo, plantilla }) : promptStitch(ins, e.flujograma, e.recomendaciones, { paginaId: pagina.id, dispositivo, plantilla }));
         if (prompt.length > LIMITES_TALLER.promptPrototipo) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "prompt", mensaje: `Hasta ${LIMITES_TALLER.promptPrototipo} caracteres` }]);
+        if (b.generador !== undefined && !GENERADORES_PROTOTIPO.includes(b.generador as GeneradorPrototipo)) {
+          throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "generador", mensaje: "Elige Stitch o Claude" }]);
+        }
+        if (b.generador === "CLAUDE") {
+          const editado = typeof b.prompt === "string" && b.prompt.trim() ? b.prompt.trim() : null;
+          const c = await generarPantallaClaude({
+            insumos: ins, flujograma: e.flujograma, recomendaciones: e.recomendaciones, prompt: editado, dispositivo, plantilla,
+            paginas: sitio ? e.flujograma : [pagina], maximo: MAX_PANTALLAS - e.prototipo.pantallas.length,
+          }, repo.almacen);
+          e = await guardar(repo, e, { prototipo: { ...e.prototipo, pantallas: [...e.prototipo.pantallas, ...c.pantallas], htmlGuia: c.htmlId ?? e.prototipo.htmlGuia } });
+          return { __status: 201, ...(await resultado(e, { simulado: c.pantallas.some((x) => x.simulada) })) };
+        }
         const r = await generarPantalla({
           insumos: ins, prompt, dispositivo, proyectoStitch: e.prototipo.proyectoStitch, paginas: sitio ? e.flujograma : [pagina], sitio, maximo: MAX_PANTALLAS - e.prototipo.pantallas.length,
           designMd: designMdStitch(ins, e.flujograma, e.recomendaciones, plantilla), sistemaStitch: e.prototipo.sistemaStitch,

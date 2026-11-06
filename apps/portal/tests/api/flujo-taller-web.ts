@@ -160,6 +160,23 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal(largo.status, 422);
     });
 
+    test("prototipo con Claude: una pantalla por página, cada una con su prompt; el generador se valida", async () => {
+      await reiniciar();
+      await llamar("POST", `${RUTA}/flujograma`, DIEGO);
+      const flujo = (await llamar("GET", RUTA, DIEGO)).json.flujograma as { id: string; titulo: string }[];
+      assert.deepEqual((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { generador: "FIGMA" })).json.errores.map((e: any) => e.campo), ["generador"]);
+      const una = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { generador: "CLAUDE", paginaId: "contacto", dispositivo: "MOVIL" });
+      assert.equal(una.status, 201);
+      const p = una.json.taller.prototipo.pantallas[0];
+      assert.deepEqual([p.generador, p.paginaId, p.dispositivo, p.simulada], ["CLAUDE", "contacto", "MOVIL", true]);
+      assert.match(p.prompt, /Página: Contacto/);
+      const sitio = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { generador: "CLAUDE", alcance: "SITIO" });
+      const ps = (sitio.json.taller.prototipo.pantallas as any[]).slice(1);
+      assert.deepEqual(ps.map((x) => x.paginaId), flujo.map((x) => x.id).slice(0, ps.length));
+      assert.equal(new Set(ps.map((x) => x.prompt)).size, ps.length, "cada página con su propio prompt");
+      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { paginaId: "contacto" })).json.taller.prototipo.pantallas.at(-1).generador, "STITCH", "por defecto, Stitch");
+    });
+
     test("prototipo de todo el sitio: un solo prompt con todas las páginas y una pantalla por página, hasta el tope", async () => {
       await reiniciar();
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);

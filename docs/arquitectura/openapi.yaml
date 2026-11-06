@@ -4083,6 +4083,7 @@ paths:
               properties:
                 prompt: { type: string, maxLength: 30000, description: 'Sin prompt (o vacío), el estándar armado desde el flujograma y la plantilla de 21st.dev. Con Stitch real, antes se crea el sistema de diseño del proyecto con el DESIGN.md (designMd)' }
                 alcance: { type: string, enum: [PAGINA, SITIO], default: PAGINA, description: 'SITIO: todas las páginas del flujograma en un solo prompt; Stitch puede devolver varias pantallas y se guardan hasta el tope' }
+                generador: { type: string, enum: [STITCH, CLAUDE], default: STITCH, description: 'CLAUDE (6 nov): Claude escribe el HTML de cada página con su prompt (con SITIO, una llamada por página) y el navegador lo fotografía' }
                 paginaId: { type: string, description: 'Página del flujograma a diseñar (con alcance PAGINA); por defecto, la de entrada' }
                 dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
       responses:
@@ -5005,7 +5006,8 @@ components:
         imagenUrl: { type: string }
         conHtml: { type: boolean, description: Stitch devolvió también el HTML (se usa como guía de la demo) }
         paginaId: { type: [string, 'null'], description: Página del flujograma que se diseñó }
-        prompt: { type: string, description: El prompt exacto que recibió Stitch }
+        prompt: { type: string, description: El prompt exacto que recibió el generador }
+        generador: { type: string, enum: [STITCH, CLAUDE], description: Quién la dibujó (las anteriores al 6 nov no lo dicen y son de Stitch) }
         simulada: { type: boolean }
         creadaEn: { type: string, format: date-time }
     DemoWeb:

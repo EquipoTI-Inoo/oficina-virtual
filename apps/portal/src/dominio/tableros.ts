@@ -221,7 +221,8 @@ const COLUMNAS_INICIALES = (): ColumnaIW[] => [
 export function nuevoProyecto(b: TableroNuevo, lider: PersonaIW | null, miembros: PersonaIW[], departamento: string | null, ahora = Date.now()): ProyectoIW {
   const color = typeof b.color === "string" ? b.color : COLORES_GRUPO[0];
   return {
-    id: `PROJ-${ahora.toString(36).toUpperCase()}`,
+    // Como InooWork (PROJ-<fecha en base 36>), más un sufijo: dos creados en el mismo milisegundo no chocan.
+    id: `PROJ-${ahora.toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`,
     name: String(b.nombre).trim(),
     clientName: String(b.cliente).trim(),
     description: typeof b.descripcion === "string" ? b.descripcion.trim() : "",

@@ -93,7 +93,10 @@ export interface Referencia {
 export interface Punto { titulo: string; texto: string }
 export interface PaginaFlujo { id: string; titulo: string; descripcion: string; nivel: number; padreId: string | null; secciones: string[] }
 /** `paginaId` y `prompt`: la página del flujograma que se diseñó y el prompt exacto que recibió Stitch. */
-export interface PantallaPrototipo { id: string; nombre: string; dispositivo: Dispositivo; imagenUrl: string; conHtml: boolean; simulada: boolean; creadaEn: string; paginaId?: string | null; prompt?: string }
+/** Quién dibuja el prototipo (6 nov, pedido de Ernesto): Stitch o Claude escribiendo el HTML. */
+export const GENERADORES_PROTOTIPO = ["STITCH", "CLAUDE"] as const;
+export type GeneradorPrototipo = (typeof GENERADORES_PROTOTIPO)[number];
+export interface PantallaPrototipo { id: string; nombre: string; dispositivo: Dispositivo; imagenUrl: string; conHtml: boolean; simulada: boolean; creadaEn: string; paginaId?: string | null; prompt?: string; generador?: GeneradorPrototipo }
 export interface Prototipo { prompt: string | null; proyectoStitch: string | null; pantallas: PantallaPrototipo[] }
 
 /** La plantilla de 21st.dev que el equipo elige y pega (su prompt o su código, y el enlace). */
@@ -536,6 +539,12 @@ Reglas:
 - Textos reales en español sobre la marca (nada de lorem ipsum). Imágenes: degradados o bloques de color con forma, no enlaces a bancos de imágenes.
 - Sin comentarios, sin meta generator y sin mencionar IA, 21st.dev ni ninguna herramienta.
 - Responde SOLO con el HTML, empezando por <!doctype html>.`;
+
+/** Para el prototipo con Claude: el mismo prompt armado por script (o el que editó el equipo), sin plantilla aparte. */
+export const SISTEMA_PROTOTIPO = SISTEMA_BOCETO.replace(
+  "- Toma como base visual la plantilla de 21st.dev que te pasan (su estilo, su composición y sus componentes), adaptada a la marca: sus colores, tipografías y tono.",
+  "- Sigue el brief de diseño que te pasan (marca, colores, tipografías, tono, secciones y recomendaciones). Si trae una plantilla de referencia, tómala como base visual.",
+);
 
 export function mensajeBoceto(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], paginaId: string, dispositivo: Dispositivo, plantilla: Plantilla | null): string {
   const base = promptStitch(insumos, flujograma, recomendaciones, { paginaId, dispositivo });

@@ -3607,8 +3607,13 @@ export interface components {
             conHtml: boolean;
             /** @description Página del flujograma que se diseñó */
             paginaId?: string | null;
-            /** @description El prompt exacto que recibió Stitch */
+            /** @description El prompt exacto que recibió el generador */
             prompt?: string;
+            /**
+             * @description Quién la dibujó (las anteriores al 6 nov no lo dicen y son de Stitch)
+             * @enum {string}
+             */
+            generador?: "STITCH" | "CLAUDE";
             simulada: boolean;
             /** Format: date-time */
             creadaEn: string;
@@ -11853,6 +11858,12 @@ export interface operations {
                      * @enum {string}
                      */
                     alcance?: "PAGINA" | "SITIO";
+                    /**
+                     * @description CLAUDE (6 nov): Claude escribe el HTML de cada página con su prompt (con SITIO, una llamada por página) y el navegador lo fotografía
+                     * @default STITCH
+                     * @enum {string}
+                     */
+                    generador?: "STITCH" | "CLAUDE";
                     /** @description Página del flujograma a diseñar (con alcance PAGINA); por defecto, la de entrada */
                     paginaId?: string;
                     dispositivo?: components["schemas"]["DispositivoWeb"];

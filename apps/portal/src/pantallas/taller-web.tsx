@@ -23,7 +23,7 @@ type Punto = S<"PuntoTaller">;
 type Boceto = S<"BocetoWeb">;
 type Pestana = "BRIEF" | "FLUJOGRAMA" | "CAPTURAS" | "PROTOTIPO" | "DEMO";
 
-const PESTANAS: [Pestana, string][] = [["BRIEF", "Brief y benchmark"], ["FLUJOGRAMA", "Flujograma"], ["CAPTURAS", "Capturas y PDF"], ["PROTOTIPO", "Stitch → Figma"], ["DEMO", "Demo"]];
+const PESTANAS: [Pestana, string][] = [["BRIEF", "Brief y benchmark"], ["FLUJOGRAMA", "Flujograma"], ["CAPTURAS", "Capturas y PDF"], ["PROTOTIPO", "Prototipo → Figma"], ["DEMO", "Demo"]];
 const NIVELES = ["Entrada", "Secciones", "Subsecciones", "Detalle"];
 const ESTADO_ENTREGABLE: Record<string, string> = { EN_PREPARACION: "En preparación", LISTO_REVISION: "Enviado al cliente", CAMBIOS_SOLICITADOS: "Pidió cambios", APROBADO: "Aprobado" };
 const errorDe = (e: unknown) => (e as ProblemaApi).errores?.[0]?.mensaje ?? (e as ProblemaApi).detalle ?? (e as ProblemaApi).titulo;
@@ -630,6 +630,8 @@ const insumosDe = (t: Taller): Insumos => ({ ...t.insumos, variante: t.variante 
 function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
   const [dispositivo, setDispositivo] = useState<"ESCRITORIO" | "MOVIL">("ESCRITORIO");
   const [paginaId, setPaginaId] = useState<string>("");
+  const [generador, setGenerador] = useState<"STITCH" | "CLAUDE">("STITCH");
+  const conClaude = generador === "CLAUDE";
   const sinFlujo = b.flujograma.length === 0;
   // «Todo el sitio»: todas las páginas en un solo prompt largo, que Stitch recibe de una vez (26 oct).
   const sitio = paginaId === SITIO;
@@ -640,7 +642,9 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
     : promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: pagina?.id, dispositivo, plantilla: b.plantilla });
   const prompt = b.promptPrototipo ?? estandar;
   const libres = Math.max(0, LIMITES_TALLER.pantallas - t.prototipo.pantallas.length);
-  const generar = () => paso("prototipo", "/prototipo", sitio ? { prompt, alcance: "SITIO", dispositivo } : { prompt, paginaId: pagina?.id, dispositivo }, (x) => {
+  // Con Claude, el estándar se arma por página en el servidor: solo viaja el prompt editado a mano.
+  const promptEnviado = conClaude ? b.promptPrototipo ?? undefined : prompt;
+  const generar = () => paso("prototipo", "/prototipo", sitio ? { prompt: promptEnviado, alcance: "SITIO", dispositivo, generador } : { prompt: promptEnviado, paginaId: pagina?.id, dispositivo, generador }, (x) => {
     const nuevas = x.taller.prototipo.pantallas.length - t.prototipo.pantallas.length;
     return nuevas === 1 ? "Pantalla generada" : `${nuevas} pantallas generadas`;
   });
@@ -648,10 +652,16 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
         <div>
-          <h2 className="tarjeta-titulo">Pantallas en Stitch</h2>
+          <h2 className="tarjeta-titulo">Pantallas del prototipo</h2>
           <p className="texto-sm texto-muted" style={{ margin: 0 }}>
-            A Stitch le llegan tres cosas: el contenido del PDF como DESIGN.md (el sistema de diseño del proyecto), el prompt estándar (proyecto, marca, navegación, pantallas, recomendaciones, reglas) y la plantilla de 21st.dev de las capturas.
+            {conClaude
+              ? "Claude escribe el HTML de cada página con el prompt estándar (proyecto, marca, navegación, secciones, recomendaciones y la plantilla de 21st.dev) y se fotografía. El HTML queda como guía de la demo."
+              : "A Stitch le llegan tres cosas: el contenido del PDF como DESIGN.md (el sistema de diseño del proyecto), el prompt estándar (proyecto, marca, navegación, pantallas, recomendaciones, reglas) y la plantilla de 21st.dev de las capturas."}
           </p>
+        </div>
+        <div className="segmentado" role="tablist" aria-label="Generador">
+          <button type="button" role="tab" aria-selected={!conClaude} className={!conClaude ? "activo" : undefined} onClick={() => setGenerador("STITCH")}>Stitch{t.modos.stitch === "SIMULADO" ? " (sin conectar)" : ""}</button>
+          <button type="button" role="tab" aria-selected={conClaude} className={conClaude ? "activo" : undefined} onClick={() => setGenerador("CLAUDE")}>Claude{t.modos.ia === "SIMULADO" ? " (sin conectar)" : ""}</button>
         </div>
         {sinFlujo && <Aviso icono={<LuLayoutTemplate size={18} />} titulo="Primero el flujograma">El prototipo se arma con las páginas y secciones aprobadas.</Aviso>}
         <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -688,22 +698,25 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
         </div>
         <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
           <button className="boton boton--chico boton--primario" disabled={!!ocupado || sinFlujo || libres === 0} onClick={() => void generar()}>
-            <LuSparkles size={14} /> {ocupado === "prototipo" ? "Stitch está diseñando… (puede tardar)" : sitio ? "Generar el sitio completo" : "Generar pantalla"}
+            <LuSparkles size={14} /> {ocupado === "prototipo" ? `${conClaude ? "Claude" : "Stitch"} está diseñando… (puede tardar)` : sitio ? "Generar el sitio completo" : "Generar pantalla"}
           </button>
-          {t.prototipo.proyectoStitch && (
+          {!conClaude && t.prototipo.proyectoStitch && (
             <a className="enlace" href={`https://stitch.withgoogle.com/projects/${t.prototipo.proyectoStitch}`} target="_blank" rel="noreferrer">
               Abrir el proyecto en Stitch <LuExternalLink size={12} />
             </a>
           )}
         </div>
-        <details className="texto-sm">
+        {!conClaude && <details className="texto-sm">
           <summary style={{ cursor: "pointer" }}>DESIGN.md que recibe Stitch (el contenido del PDF)</summary>
           <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: 11, maxHeight: 320, overflow: "auto" }}>{t.prototipo.designMd}</pre>
           <span className="ayuda-campo">Se arma con lo guardado. Stitch no recibe archivos por su API: las capturas del PDF van como la plantilla que las generó. Si quieres que vea las imágenes, sube el PDF a mano en Stitch.</span>
-        </details>
+        </details>}
         {sitio && (
           <span className="ayuda-campo" style={{ marginTop: -6 }}>
-            Stitch recibe todas las páginas en este único prompt y diseña el sitio con un solo estilo; puede tardar varios minutos. Se guardan hasta {libres} pantallas (el tope es {LIMITES_TALLER.pantallas} por proyecto).
+            {conClaude
+              ? `Claude diseña página por página, cada una con su propio prompt estándar (el de arriba es el del sitio, como referencia); si lo editas a mano, ese texto va a todas.`
+              : "Stitch recibe todas las páginas en este único prompt y diseña el sitio con un solo estilo; puede tardar varios minutos."}{" "}
+            Se guardan hasta {libres} pantallas (el tope es {LIMITES_TALLER.pantallas} por proyecto).
           </span>
         )}
       </section>
@@ -713,11 +726,9 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
           <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 } as React.CSSProperties}>
             {[...t.prototipo.pantallas].reverse().map((p) => (
               <div key={p.id} className="tarjeta tarjeta--compacta" style={{ boxShadow: "none", padding: 10, display: "grid", gap: 6 }}>
-                <a href={p.imagenUrl} target="_blank" rel="noreferrer">
-                  <img src={p.imagenUrl} alt={p.nombre} style={{ width: "100%", height: 220, objectFit: "cover", objectPosition: "top", borderRadius: 8, border: "1px solid var(--c-borde)" }} />
-                </a>
+                <VistaPantalla url={p.imagenUrl} nombre={p.nombre} />
                 <span className="texto-sm negrita">{p.nombre}</span>
-                <span className="texto-xs texto-muted">{fDiaHora(p.creadaEn)}{p.simulada ? " · de relleno" : p.conHtml ? " · con HTML" : ""}</span>
+                <span className="texto-xs texto-muted">{fDiaHora(p.creadaEn)} · {p.generador === "CLAUDE" ? "Claude" : "Stitch"}{p.simulada ? " · de relleno" : p.conHtml ? " · con HTML" : ""}</span>
                 {p.prompt && (
                   <details className="texto-xs">
                     <summary style={{ cursor: "pointer" }}>Prompt que recibió</summary>
@@ -730,9 +741,22 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
         </section>
       )}
       <Aviso icono={<LuExternalLink size={18} />} titulo="Último paso: Figma">
-        Con las pantallas listas, ábrelas en Stitch y usa «Copy to Figma»; el diseño final se termina ahí. Stitch no exporta a Figma por su API: ese paso lo hace una persona.
+        Con las pantallas listas, pásalas a Figma: desde Stitch con «Copy to Figma»; las de Claude, abriendo su HTML con un importador de HTML a Figma. El diseño final se termina ahí y ese paso lo hace una persona.
       </Aviso>
     </>
+  );
+}
+
+/** La foto de la pantalla; si no hubo navegador para fotografiarla (Claude), su HTML en un marco. */
+function VistaPantalla({ url, nombre }: { url: string; nombre: string }) {
+  const [esHtml, setEsHtml] = useState(false);
+  const estilo = { width: "100%", height: 220, borderRadius: 8, border: "1px solid var(--c-borde)" } as const;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" aria-label={`Abrir ${nombre}`}>
+      {esHtml
+        ? <iframe src={url} title={nombre} sandbox="" loading="lazy" style={{ ...estilo, pointerEvents: "none", background: "#fff" }} />
+        : <img src={url} alt={nombre} onError={() => setEsHtml(true)} style={{ ...estilo, objectFit: "cover", objectPosition: "top" }} />}
+    </a>
   );
 }
 
