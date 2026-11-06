@@ -643,6 +643,25 @@ test("tableros de InooWork: Diego cambia el estado de un ítem y agrega uno; el 
   await expect(page.getByRole("region", { name: "Sin Iniciar" }).getByText("Brief de la campaña")).toBeVisible();
 });
 
+test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su tablero", async ({ page }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos");
+  await page.getByRole("button", { name: "Nuevo proyecto" }).click({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Crear proyecto" }).click();
+  await expect(page.getByText("Escribe el nombre del cliente")).toBeVisible();
+  await page.getByLabel("Nombre del proyecto").fill("Web institucional 2027");
+  await page.getByLabel("Cliente", { exact: true }).fill("Casa Oliva");
+  await page.getByRole("group", { name: "Miembros" }).getByText("Camila Paredes").click();
+  await expect(page.getByLabel("Camila Paredes")).toBeChecked();
+  await page.getByRole("button", { name: "Crear proyecto" }).click();
+  await expect(page).toHaveURL(/\/equipo\/proyectos\/tableros\/PROJ-/, { timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: "Web institucional 2027" })).toBeVisible({ timeout: 20_000 });
+  await page.getByLabel("Nuevo ítem en To-Do").fill("Mapa del sitio");
+  await page.getByLabel("Nuevo ítem en To-Do").press("Enter");
+  await expect(page.getByLabel("Nombre de Mapa del sitio")).toBeVisible({ timeout: 20_000 });
+});
+
 test("ingreso: el equipo también entra con su usuario", async ({ page }) => {
   await page.goto("/ingresar");
   await page.fill("#email", "diego.castro");

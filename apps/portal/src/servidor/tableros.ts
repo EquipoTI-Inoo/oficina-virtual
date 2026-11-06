@@ -10,8 +10,8 @@
  * La usan la API simulada y el backend real: cada una pasa quién pide y cómo arma sus errores.
  */
 import {
-  aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, columnasPersonalizadas, editaProyecto, itemVencido, personasDelProyecto, resumenProyecto,
-  validarGrupo, validarItem, validarSubitem, veProyecto, type CambioItem, type ItemIW, type ProyectoIW,
+  aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
+  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { PROYECTOS_DEMO } from "../mock/inoowork-demo";
 
@@ -69,10 +69,24 @@ async function guardarIW(p: ProyectoIW) {
   }
   await llamar("PUT", `/api/projects/${encodeURIComponent(p.id)}`, p);
 }
+async function crearIW(p: ProyectoIW) {
+  if (!tablerosConectados()) {
+    simulados().push(structuredClone(p));
+    return;
+  }
+  await llamar("POST", "/api/projects", p);
+}
 
 // ───────────────────────────── vistas para el portal
 
 export interface Yo { empleadoId: string | null; esAdmin: boolean }
+/** Para crear (6 nov): quién lo crea, su departamento en InooWork y cómo pasar ids del portal a fichas de InooWork. */
+export interface DatosCreacion {
+  lider: PersonaIW | null;
+  departamento: string | null;
+  /** Ids de usuario del portal → personas de InooWork; los que no tienen ficha no vuelven. */
+  miembros: (usuarioIds: string[]) => Promise<PersonaIW[]>;
+}
 type Fallar = (status: number, codigo: string, titulo: string, errores?: { campo: string; mensaje: string }[]) => Error;
 
 const persona = (id?: string, nombre?: string) => (id ? { id, nombre: nombre || id } : null);
@@ -144,6 +158,16 @@ export function crearTableros(fallar: Fallar) {
           esMio: !!yo.empleadoId && personasDelProyecto(p).some((x) => x.id === yo.empleadoId),
         })),
     })),
+    crear: (yo: Yo, b: TableroNuevo, datos: DatosCreacion) => protegido(async () => {
+      if (!yo.empleadoId && !yo.esAdmin) throw fallar(403, "SIN_FICHA_INOOWORK", "Necesitas tu ficha de InooWork para crear proyectos");
+      validar(validarTableroNuevo(b));
+      const ids = [...new Set((b.miembros as string[] | undefined) ?? [])];
+      const miembros = ids.length ? await datos.miembros(ids) : [];
+      if (miembros.length !== ids.length) validar([{ campo: "miembros", mensaje: "Alguna de esas personas no tiene ficha en InooWork" }]);
+      const p = nuevoProyecto(b, yo.empleadoId ? datos.lider : null, miembros, datos.departamento);
+      await crearIW(p);
+      return tableroVista(p, yo);
+    }),
     ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),
     cambiarCliente: (id: string, yo: Yo, b: { cliente?: unknown }) => cambiar(id, yo, (p) => {
       const cliente = typeof b.cliente === "string" ? b.cliente.trim() : "";

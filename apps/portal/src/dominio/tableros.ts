@@ -23,7 +23,7 @@ export interface VistaIW { id: string; name: string; type: string; isDefault?: b
 export interface ProyectoIW {
   id: string; name: string; clientName?: string; description?: string; status?: string; department?: string;
   leaderId?: string; leaderName?: string; leaderAvatar?: string; color?: string; createdAt?: string; archived?: boolean;
-  members?: { employeeId: string; name?: string; avatar?: string; status?: string }[];
+  members?: { employeeId: string; name?: string; avatar?: string; addedAt?: string; status?: string }[];
   groups?: GrupoIW[]; items?: ItemIW[]; views?: VistaIW[];
   [otro: string]: unknown;
 }
@@ -191,4 +191,54 @@ export function borrarGrupo(p: ProyectoIW, grupoId: string): string | null {
   p.groups = otros;
   for (const it of p.items ?? []) if (it.groupId === grupoId) it.groupId = otros[0].id;
   return null;
+}
+
+// ───────────────────────────── proyecto nuevo (6 nov): la misma plantilla de InooWork (pages/Projects.tsx)
+
+export interface TableroNuevo { nombre?: unknown; cliente?: unknown; descripcion?: unknown; color?: unknown; miembros?: unknown }
+
+export function validarTableroNuevo(b: TableroNuevo): Errores {
+  const e: Errores = [];
+  const texto = (v: unknown, max: number) => typeof v === "string" && v.trim().length >= 1 && v.trim().length <= max;
+  if (!texto(b.nombre, 120)) e.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 120 caracteres)" });
+  if (!texto(b.cliente, 120)) e.push({ campo: "cliente", mensaje: "Escribe el nombre del cliente" });
+  if (b.descripcion !== undefined && !(typeof b.descripcion === "string" && b.descripcion.length <= 2000)) e.push({ campo: "descripcion", mensaje: "La descripción es muy larga" });
+  if (b.color !== undefined && !(typeof b.color === "string" && /^#[0-9a-f]{6}$/i.test(b.color))) e.push({ campo: "color", mensaje: "Color no válido" });
+  if (b.miembros !== undefined && !(Array.isArray(b.miembros) && b.miembros.length <= 50 && b.miembros.every((x) => typeof x === "string"))) e.push({ campo: "miembros", mensaje: "Elige a las personas de la lista" });
+  return e;
+}
+
+const COLUMNAS_INICIALES = (): ColumnaIW[] => [
+  { id: "name", label: "Item", type: "text", width: 280, fixed: true },
+  { id: "assignee", label: "Responsable", type: "person", width: 160 },
+  { id: "priority", label: "Prioridad", type: "priority", width: 120 },
+  { id: "status", label: "Estado", type: "status", width: 140 },
+  { id: "dueDate", label: "Fecha Límite", type: "date", width: 130 },
+  { id: "notes", label: "Descripción", type: "text", width: 200 },
+];
+
+/** El líder es quien lo crea (si no tiene ficha en InooWork, queda sin líder, como cuando lo crea un admin allá). */
+export function nuevoProyecto(b: TableroNuevo, lider: PersonaIW | null, miembros: PersonaIW[], departamento: string | null, ahora = Date.now()): ProyectoIW {
+  const color = typeof b.color === "string" ? b.color : COLORES_GRUPO[0];
+  return {
+    id: `PROJ-${ahora.toString(36).toUpperCase()}`,
+    name: String(b.nombre).trim(),
+    clientName: String(b.cliente).trim(),
+    description: typeof b.descripcion === "string" ? b.descripcion.trim() : "",
+    status: "Sin Iniciar",
+    department: departamento ?? "General",
+    leaderId: lider?.id ?? "",
+    leaderName: lider?.nombre ?? "",
+    leaderAvatar: "",
+    color,
+    members: miembros.filter((m) => m.id !== lider?.id).map((m) => ({ employeeId: m.id, name: m.nombre, avatar: "", addedAt: new Date(ahora).toISOString().slice(0, 10), status: "active" })),
+    createdAt: new Date(ahora).toISOString().slice(0, 10),
+    views: [
+      { id: `view-${ahora}`, name: "Tabla Principal", type: "table", isDefault: true, columns: COLUMNAS_INICIALES(), filters: [] },
+      { id: `view-${ahora + 1}`, name: "Línea de Tiempo", type: "timeline", isDefault: false, columns: COLUMNAS_INICIALES(), filters: [] },
+      { id: `view-${ahora + 2}`, name: "Kanban", type: "kanban", isDefault: false, columns: COLUMNAS_INICIALES(), filters: [] },
+    ],
+    items: [],
+    groups: [{ id: "default", name: "To-Do", color, collapsed: false }],
+  };
 }

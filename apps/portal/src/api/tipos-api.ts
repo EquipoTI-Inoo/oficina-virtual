@@ -2331,7 +2331,12 @@ export interface paths {
          */
         get: operations["listarTableros"];
         put?: never;
-        post?: never;
+        /**
+         * Crea un proyecto en InooWork con su plantilla (tabla, línea de tiempo y kanban; grupo To-Do). El líder es quien lo crea
+         * @description Necesita ficha de InooWork (o nivel ADMIN, y entonces queda sin líder, como en InooWork). El departamento sale del
+         *     área de quien lo crea. `miembros` son ids de usuario del portal; todos deben tener ficha en InooWork.
+         */
+        post: operations["crearTablero"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10804,10 +10809,56 @@ export interface operations {
                     "application/json": {
                         datos: components["schemas"]["TableroResumen"][];
                         conectado: boolean;
+                        /** @description El equipo activo con ficha en InooWork (los que pueden ser miembros de un proyecto nuevo). */
+                        equipo: {
+                            /** Format: uuid */
+                            id: string;
+                            nombre: string;
+                            area: string | null;
+                        }[];
                     };
                 };
             };
             403: components["responses"]["SinPermiso"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crearTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    cliente: string;
+                    descripcion?: string;
+                    color?: string;
+                    miembros?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
             /** @description InooWork no respondió */
             502: {
                 headers: {

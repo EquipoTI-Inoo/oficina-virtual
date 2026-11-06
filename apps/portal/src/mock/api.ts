@@ -34,7 +34,7 @@ import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaClie
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
-import { aliasDeCorreo, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, type CambioPersona } from "../dominio/personas-equipo";
+import { aliasDeCorreo, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
@@ -1533,9 +1533,21 @@ const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoI
 
 // ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
 
+/** Quién puede ser miembro de un proyecto nuevo: el equipo activo con ficha en InooWork. */
+const equipoInooWork = () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false && !!u.inooworkEmpleadoId);
+
 ruta("GET", "/tableros", async (ctx) => {
   soloEquipo(ctx);
-  return TABLEROS.listar(yoTablero(ctx));
+  return { ...(await TABLEROS.listar(yoTablero(ctx))), equipo: equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) };
+});
+ruta("POST", "/tableros", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  const u = ctx.usuario;
+  return TABLEROS.crear(yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), {
+    lider: u.inooworkEmpleadoId ? { id: u.inooworkEmpleadoId, nombre: u.nombre } : null,
+    departamento: departamentoDe({ area: u.area ?? null, rolEquipo: u.rolEquipo ?? null }),
+    miembros: async (ids) => equipoInooWork().filter((x) => ids.includes(x.id)).map((x) => ({ id: x.inooworkEmpleadoId!, nombre: x.nombre })),
+  });
 });
 ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);

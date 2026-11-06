@@ -5,11 +5,11 @@
  * sus etapas y sus tareas. Monday sirve solo de referencia visual: el tablero vive aquí.
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
-import { useState } from "react";
-import { LuClipboardList, LuListTodo, LuSearch, LuSquareKanban } from "react-icons/lu";
-import { Enlace, useConsulta, type S } from "../base";
-import { columnaDeTablero } from "../dominio/tableros";
-import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, usePortal } from "../componentes";
+import { useState, type FormEvent } from "react";
+import { LuClipboardList, LuListTodo, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
+import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
+import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
 
 type Pipeline = { columnas: { clave: S<"ColumnaProyecto">; titulo: string }[]; datos: S<"ProyectoPipeline">[] };
 
@@ -41,7 +41,9 @@ function PipelineProyectos() {
   if (texto.trim()) params.set("q", texto.trim());
   const { datos: d, error, recargar } = useConsulta<Pipeline>(`/panel/proyectos${params.toString() ? `?${params}` : ""}`);
   // Si InooWork no responde, los proyectos de clientes se siguen viendo y solo faltan los tableros.
-  const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
+  const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null }[] }>("/tableros");
+  const [creando, setCreando] = useState(false);
+  const clientes = [...new Set((r.datos?.datos ?? []).map((t) => t.cliente).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "es"));
   const q = texto.trim().toLowerCase();
   const tableros = (r.datos?.datos ?? []).filter((t) => (!mios || t.esMio) && (!q || `${t.cliente ?? ""} ${t.nombre} ${t.area ?? ""} ${t.lider?.nombre ?? ""}`.toLowerCase().includes(q)));
   return (
@@ -62,7 +64,13 @@ function PipelineProyectos() {
             <LuSearch size={16} />
           </span>
         </div>
+        {r.datos && (
+          <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando(true)}>
+            <LuPlus size={16} /> Nuevo proyecto
+          </button>
+        )}
       </div>
+      {creando && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} alCerrar={() => setCreando(false)} />}
       {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
       {error ? (
         <ErrorCarga error={error} reintentar={recargar} />
@@ -95,6 +103,90 @@ function PipelineProyectos() {
         </div>
       )}
     </>
+  );
+}
+
+/** Crea el proyecto en InooWork con su plantilla y abre el tablero (6 nov). */
+function NuevoTablero({ equipo, clientes, alCerrar }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; alCerrar: () => void }) {
+  const { ir } = useNavegacion();
+  const avisar = useAviso();
+  const yo = usePortal().sesion?.usuario.id;
+  const [nombre, setNombre] = useState("");
+  const [cliente, setCliente] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [color, setColor] = useState<string>(COLORES_GRUPO[0]);
+  const [miembros, setMiembros] = useState<string[]>([]);
+  const [err, setErr] = useState<Record<string, string>>({});
+  const [enviando, setEnviando] = useState(false);
+  const companeros = equipo.filter((p) => p.id !== yo);
+  const crear = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr({});
+    setEnviando(true);
+    try {
+      const t = await api<S<"TableroInooWork">>("/tableros", { metodo: "POST", cuerpo: { nombre, cliente, ...(descripcion.trim() ? { descripcion } : {}), color, miembros } });
+      avisar({ titulo: "Proyecto creado", texto: "Ya está también en InooWork." });
+      ir(`/equipo/proyectos/tableros/${t.id}`);
+    } catch (x) {
+      if (x instanceof ProblemaApi && x.errores.length) setErr(Object.fromEntries(x.errores.map((y) => [y.campo, y.mensaje])));
+      else avisar({ titulo: "No pudimos crear el proyecto", texto: x instanceof ProblemaApi ? x.detalle ?? x.titulo : undefined });
+    } finally {
+      setEnviando(false);
+    }
+  };
+  const error = (c: string) => err[c] && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err[c]}</p>;
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta="Nuevo proyecto" ancho={520}>
+      <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void crear(e)}>
+        <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
+        <p className="texto-sm texto-muted">Se crea en InooWork con tabla, línea de tiempo y kanban. Tú quedas como líder.</p>
+        <div className="campo">
+          <label htmlFor="tab-nombre">Nombre del proyecto</label>
+          <div className="entrada"><input id="tab-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={120} placeholder="Ej.: Web institucional 2027" autoFocus /></div>
+          {error("nombre")}
+        </div>
+        <div className="campo">
+          <label htmlFor="tab-cliente">Cliente</label>
+          <div className="entrada"><input id="tab-cliente" list="tab-clientes" value={cliente} onChange={(e) => setCliente(e.target.value)} maxLength={120} placeholder="Escribe o elige un cliente" /></div>
+          <datalist id="tab-clientes">{clientes.map((c) => <option key={c} value={c} />)}</datalist>
+          {error("cliente")}
+        </div>
+        <div className="campo">
+          <label htmlFor="tab-descripcion">Descripción <span className="texto-muted">(opcional)</span></label>
+          <textarea id="tab-descripcion" className="input" rows={2} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={2000} />
+          {error("descripcion")}
+        </div>
+        <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+          <legend>Color</legend>
+          <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+            {COLORES_GRUPO.map((c) => (
+              <button key={c} type="button" aria-label={`Color ${c}`} aria-pressed={color === c} onClick={() => setColor(c)}
+                style={{ width: 26, height: 26, borderRadius: "50%", background: c, border: color === c ? "3px solid var(--c-texto)" : "2px solid transparent", cursor: "pointer" }} />
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+          <legend>Miembros</legend>
+          {companeros.length ? (
+            <div className="invitados">
+              {companeros.map((p) => (
+                <label key={p.id} className={`chip-persona${miembros.includes(p.id) ? " activo" : ""}`}>
+                  <input type="checkbox" checked={miembros.includes(p.id)} onChange={() => setMiembros((xs) => (xs.includes(p.id) ? xs.filter((i) => i !== p.id) : [...xs, p.id]))} />
+                  {p.nombre}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="texto-xs texto-muted">Nadie más del equipo tiene ficha en InooWork todavía.</p>
+          )}
+          {error("miembros")}
+        </fieldset>
+        <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="boton" onClick={alCerrar}>Cancelar</button>
+          <button type="submit" className="boton boton--primario" disabled={enviando}>{enviando ? "Creando…" : "Crear proyecto"}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

@@ -3438,11 +3438,51 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [datos, conectado]
+                required: [datos, conectado, equipo]
                 properties:
                   datos: { type: array, items: { $ref: '#/components/schemas/TableroResumen' } }
                   conectado: { type: boolean }
+                  equipo:
+                    type: array
+                    description: El equipo activo con ficha en InooWork (los que pueden ser miembros de un proyecto nuevo).
+                    items:
+                      type: object
+                      required: [id, nombre, area]
+                      properties:
+                        id: { type: string, format: uuid }
+                        nombre: { type: string }
+                        area: { type: [string, 'null'] }
         '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: InooWork no respondió }
+    post:
+      tags: [Tableros]
+      operationId: crearTablero
+      summary: 'Crea un proyecto en InooWork con su plantilla (tabla, línea de tiempo y kanban; grupo To-Do). El líder es quien lo crea'
+      description: |
+        Necesita ficha de InooWork (o nivel ADMIN, y entonces queda sin líder, como en InooWork). El departamento sale del
+        área de quien lo crea. `miembros` son ids de usuario del portal; todos deben tener ficha en InooWork.
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, cliente]
+              properties:
+                nombre: { type: string, maxLength: 120 }
+                cliente: { type: string, maxLength: 120 }
+                descripcion: { type: string, maxLength: 2000 }
+                color: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+                miembros: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
   /tableros/{proyectoId}:

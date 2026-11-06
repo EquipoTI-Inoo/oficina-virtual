@@ -2320,7 +2320,9 @@ a.avatar:hover {
 .cuadro-tipo { flex: none; width: 14px; height: 14px; margin-top: 6px; border-radius: 4px; }
 .invitados { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip-persona { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--c-borde); border-radius: 999px; font-size: 12.5px; cursor: pointer; }
-.chip-persona input { display: none; }
+.chip-persona { position: relative; }
+.chip-persona input { position: absolute; width: 1px; height: 1px; opacity: 0; margin: 0; pointer-events: none; }
+.chip-persona:focus-within { outline: 2px solid var(--c-primario); outline-offset: 2px; }
 .chip-persona.activo { border-color: var(--c-primario); background: var(--c-primario-suave); color: var(--c-primario); font-weight: 600; }
 @media (max-width: 960px) {
   .calendario { grid-template-columns: 1fr; }

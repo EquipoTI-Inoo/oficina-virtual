@@ -43,7 +43,7 @@ import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
-import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, type CambioPersona } from "../dominio/personas-equipo";
+import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
 import { enviadorSmtp } from "./correo-smtp";
 import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
@@ -3765,9 +3765,25 @@ async function yoTablero(ctx: Ctx): Promise<Yo> {
 
 // ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
 
+/** Quién puede ser miembro de un proyecto nuevo: el equipo activo con ficha en InooWork. */
+const equipoInooWork = async (ctx: Ctx) =>
+  (await ctx.c.query<{ id: string; nombre: string; area: string | null; empleado: string }>(
+    "SELECT id, nombre, area::text AS area, inoowork_empleado_id AS empleado FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id IS NOT NULL ORDER BY nombre",
+  )).rows;
+
 ruta("GET", "/tableros", async (ctx) => {
   soloEquipo(ctx);
-  return TABLEROS.listar(await yoTablero(ctx));
+  const [tableros, equipo] = await Promise.all([TABLEROS.listar(await yoTablero(ctx)), equipoInooWork(ctx)]);
+  return { ...tableros, equipo: equipo.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area })) };
+});
+ruta("POST", "/tableros", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const yo = await yoTablero(ctx);
+  return TABLEROS.crear(yo, (await cuerpo()) as Record<string, unknown>, {
+    lider: yo.empleadoId ? { id: yo.empleadoId, nombre: ctx.u.nombre } : null,
+    departamento: departamentoDe({ area: ctx.u.area ?? null, rolEquipo: ctx.u.rolEquipo }),
+    miembros: async (ids) => (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id)).map((x) => ({ id: x.empleado, nombre: x.nombre })),
+  });
 });
 ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);

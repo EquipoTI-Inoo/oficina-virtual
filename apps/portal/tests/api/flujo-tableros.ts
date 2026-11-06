@@ -89,6 +89,32 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", "/tableros/PROJ-MKT01/items", ROSA, { nombre: "Revisar presupuesto", grupoId: "g-mkt-mes" })).status, 200, "el nivel ADMIN edita todo, como el admin de InooWork");
     });
 
+    test("crear un proyecto: plantilla de InooWork, quien lo crea es líder y los miembros lo ven", async () => {
+      await reiniciar();
+      const lista = (await llamar("GET", "/tableros", DIEGO)).json;
+      assert.ok(lista.equipo.some((x: any) => x.nombre === "Camila Paredes"), "el equipo con ficha para elegir miembros");
+      assert.ok(lista.equipo.every((x: any) => Object.keys(x).sort().join() === "area,id,nombre"), "solo nombre y área");
+      const mal = await llamar("POST", "/tableros", DIEGO, { nombre: " ", cliente: "", color: "rojo", miembros: [uid(1, 99)] });
+      assert.deepEqual([mal.status, mal.json.errores.map((e: any) => e.campo).sort()], [422, ["cliente", "color", "nombre"]]);
+      const sinFicha = await llamar("POST", "/tableros", DIEGO, { nombre: "X", cliente: "Y", miembros: [uid(1, 99)] });
+      assert.deepEqual([sinFicha.status, sinFicha.json.errores.map((e: any) => e.campo)], [422, ["miembros"]]);
+      assert.equal((await llamar("POST", "/tableros", VALERIA, { nombre: "X", cliente: "Y" })).status, 403, "un cliente no crea");
+
+      const r = await llamar("POST", "/tableros", DIEGO, { nombre: " Web 2027 ", cliente: "Casa Oliva", descripcion: "Rediseño", color: "#10b981", miembros: [uid(1, 6)] });
+      assert.equal(r.status, 200);
+      const t = r.json;
+      assert.deepEqual([t.nombre, t.cliente, t.descripcion, t.color, t.estado, t.lider.nombre, t.area], ["Web 2027", "Casa Oliva", "Rediseño", "#10b981", "Sin Iniciar", "Diego Castro", "CRM e Innovación"]);
+      assert.deepEqual(t.grupos.map((g: any) => g.nombre), ["To-Do"]);
+      assert.deepEqual(t.vistas.map((v: any) => v.tipo), ["TABLA", "LINEA_TIEMPO", "KANBAN"]);
+      assert.deepEqual(t.personas.map((x: any) => x.nombre), ["Diego Castro", "Camila Paredes"]);
+      assert.equal(t.puedeEditar, true);
+      assert.ok((await ids(CAMILA)).includes(t.id), "la miembro lo ve");
+      const solo = (await llamar("POST", "/tableros", DIEGO, { nombre: "Interno", cliente: "Inoo" })).json;
+      assert.ok(!(await ids(CAMILA)).includes(solo.id), "quien no es miembro, no lo ve");
+      assert.ok((await ids(ROSA)).includes(solo.id), "el nivel ADMIN, sí");
+      assert.equal((await llamar("POST", `/tableros/${t.id}/items`, CAMILA, { nombre: "Mapa del sitio", grupoId: "default" })).status, 200);
+    });
+
     test("conectado a InooWork: lee de su API y guarda el proyecto completo con la llave", async () => {
       await reiniciar();
       const guardados: { metodo: string; url: string; llave: string | null; cuerpo: any }[] = [];
@@ -99,6 +125,7 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       usarFetchTableros(async (url, init) => {
         const h = new Headers(init?.headers);
         guardados.push({ metodo: init?.method ?? "GET", url: String(url), llave: h.get("x-api-key"), cuerpo: init?.body ? JSON.parse(String(init.body)) : null });
+        if (init?.method === "POST") return Response.json(JSON.parse(String(init.body)), { status: 201 });
         if (init?.method === "PUT") {
           const p = JSON.parse(String(init.body));
           proyectos = proyectos.map((x) => (x.id === p.id ? p : x));
@@ -115,6 +142,9 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
         assert.equal(put.llave, "llave-de-prueba");
         assert.equal(put.cuerpo.extra, "se conserva", "no se pierde nada del proyecto");
         assert.equal(put.cuerpo.items[0].name, "Primer ítem");
+        await llamar("POST", "/tableros", DIEGO, { nombre: "Nuevo", cliente: "Inoo" });
+        const post = guardados.find((g) => g.metodo === "POST")!;
+        assert.deepEqual([post.url, post.llave, post.cuerpo.leaderId, post.cuerpo.clientName], ["http://inoowork.falso/api/projects", "llave-de-prueba", "EMP-002", "Inoo"]);
         usarFetchTableros(async () => {
           throw new Error("sin red");
         });
