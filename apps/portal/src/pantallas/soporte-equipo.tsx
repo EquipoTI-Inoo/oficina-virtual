@@ -5,7 +5,7 @@ import {
   LuExternalLink, LuFile, LuFolder, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
   LuX, LuCheckCheck,
 } from "react-icons/lu";
-import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_DEMO, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import {
   Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
@@ -291,7 +291,7 @@ function CrearTicket() {
           <div className="fila" style={{ marginTop: -4 }}>
             <Etiqueta tono="gris">Nuevo ticket</Etiqueta>
             <span className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>
-              {sesion?.clientes[0]?.nombre ?? "Casa Oliva"} · {sesion?.usuario.nombre}
+              {[sesion?.clientes[0]?.nombre, sesion?.usuario.nombre].filter(Boolean).join(" · ")}
             </span>
           </div>
           <div className="campo">
@@ -462,7 +462,7 @@ function TusCuentas({ todas }: { todas: boolean }) {
   const { ir } = useNavegacion();
   const avisar = useAviso();
   const [nuevo, setNuevo] = useState(false);
-  const { datos: d, error, recargar } = useConsulta<PanelResp>(`/panel/clientes?periodo=${PERIODO_DEMO}`);
+  const { datos: d, error, recargar } = useConsulta<PanelResp>(`/panel/clientes?periodo=${PERIODO_PORTAL}`);
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
   return (
@@ -682,9 +682,9 @@ function Ficha() {
           {gestion && <AccesoDelCliente clienteId={id} />}
           <TablerosDelCliente nombre={d.nombre} />
           <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />
+          {ref && (
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5, paddingLeft: 4 }}>Referencias de marca</h3>
-            <div style={{ height: 120, borderRadius: 12, backgroundImage: "url(/muestras/serum.jpg)", backgroundSize: "cover", backgroundPosition: "center 65%" }} role="img" aria-label="Referencia de marca" />
             <p className="negrita" style={{ fontSize: 11, paddingLeft: 4 }}>{ref?.titulo}</p>
             <p className="texto-xs texto-muted" style={{ fontSize: 10, paddingLeft: 4, lineHeight: 1.6 }}>{ref?.notas}</p>
             <div className="fila" style={{ gap: 8, paddingLeft: 4 }}>
@@ -693,14 +693,17 @@ function Ficha() {
               ))}
             </div>
           </div>
+          )}
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Carpeta de Drive</h3>
             <LuFolder size={20} color="var(--c-primario)" />
             <p className="negrita" style={{ fontSize: 11 }}>{d.nombre} / Contenido</p>
-            <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>Octubre 2026 · Originales, versiones y entregables.</p>
-            <a className="boton boton--chico" href={d.driveUrl ?? "#"} target="_blank" rel="noreferrer">
-              <LuExternalLink size={16} /> Abrir carpeta en Drive
-            </a>
+            <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>Originales, versiones y entregables.</p>
+            {d.driveUrl ? (
+              <a className="boton boton--chico" href={d.driveUrl} target="_blank" rel="noreferrer">
+                <LuExternalLink size={16} /> Abrir carpeta en Drive
+              </a>
+            ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
             <p className="texto-xs texto-muted" style={{ fontSize: 9 }}>Acceso del equipo de agencia.</p>
           </div>
           <Aviso icono={<LuShieldCheck size={16} />} titulo="Contexto de aprobación">

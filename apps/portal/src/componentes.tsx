@@ -5,7 +5,7 @@ import {
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
-import { api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S } from "./base";
+import { fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -172,9 +172,9 @@ export function ErrorCarga({ error, reintentar }: { error: { titulo: string; det
 }
 
 /** Miniatura de pieza tal como la dibuja Figma: texto de marca a la izquierda y foto a la derecha. */
-export function Miniatura({ diseno, alto = 146, foto = "/muestras/serum.jpg", grande }: { diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean }; alto?: number; foto?: string; grande?: boolean }) {
+export function Miniatura({ diseno, alto = 146, foto, grande }: { diseno?: { fondo?: string; titular?: string; bajada?: string; eyebrow?: string; foto?: boolean }; alto?: number; foto?: string; grande?: boolean }) {
   const d = diseno ?? {};
-  const conFoto = d.foto !== false;
+  const conFoto = !!foto && d.foto !== false;
   const escala = grande ? 2.2 : 1;
   return (
     <div className={`mini${d.fondo === "salvia" ? " mini--salvia" : ""}${conFoto ? "" : " mini--texto"}`} style={{ height: alto }}>
@@ -193,7 +193,7 @@ export function Miniatura({ diseno, alto = 146, foto = "/muestras/serum.jpg", gr
           </span>
         )}
       </div>
-      {conFoto && <div className="mini-foto" style={{ backgroundImage: `url(${foto})` }} role="img" aria-label="Producto Casa Oliva" />}
+      {conFoto && <div className="mini-foto" style={{ backgroundImage: `url(${foto})` }} role="img" aria-label="Imagen de la pieza" />}
     </div>
   );
 }
@@ -583,7 +583,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
   const aviso = inicio.datos?.avisos?.[0];
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
-  const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? me.datos?.clientes[0]?.nombre ?? "Casa Oliva" : "Equipo Inoo";
+  const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? me.datos?.clientes[0]?.nombre ?? "" : "Equipo Inoo";
   const comoCliente = espacio === "cliente" && me.datos?.usuario.tipo === "EQUIPO";
   const marcarLeidas = async () => {
     setLeidas(true);
@@ -610,7 +610,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
               </nav>
             </div>
             <div className="superior-der">
-              <span className="periodo">Octubre 2026</span>
+              <span className="periodo">{fMesAnio(PERIODO_PORTAL)}</span>
               <button className="campana" data-sin-leer={sinLeer} aria-label={sinLeer ? "Notificaciones sin leer" : "Notificaciones"} onClick={marcarLeidas}>
                 <LuBell size={18} />
               </button>

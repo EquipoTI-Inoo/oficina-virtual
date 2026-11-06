@@ -7,7 +7,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { LuBot, LuEllipsis, LuNewspaper, LuPlus, LuShieldCheck, LuUser } from "react-icons/lu";
-import { api, Enlace, fCorta, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, type S } from "../base";
+import { api, Enlace, fCorta, HOY_PORTAL, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
 
 const COLUMNAS: Record<string, [string, string]> = {
@@ -21,7 +21,7 @@ const TIPO_PIEZA: Record<string, string> = { COPY: "Pieza para redes", CARRUSEL:
 
 type PiezaBandeja = S<"PiezaResumen"> & { diseno?: { foto?: boolean }; formato?: string };
 const rutaPiezas = (clienteId: string, servicioId: string, origen = "") =>
-  `/panel/piezas?clienteId=${clienteId}&periodo=${PERIODO_DEMO}&servicioContratadoId=${servicioId}${origen ? `&origen=${origen}` : ""}`;
+  `/panel/piezas?clienteId=${clienteId}&periodo=${PERIODO_PORTAL}&servicioContratadoId=${servicioId}${origen ? `&origen=${origen}` : ""}`;
 
 /** Kanban de las piezas de un proyecto: borrador → revisión → aprobado → cambios → publicado. */
 export function KanbanPiezas({ clienteId, servicioId, soloBlogs = false }: { clienteId: string; servicioId: string; soloBlogs?: boolean }) {
@@ -64,7 +64,6 @@ export function KanbanPiezas({ clienteId, servicioId, soloBlogs = false }: { cli
                     <span>{(TIPO_PIEZA[p.tipo] ?? p.tipo).toUpperCase()}</span>
                     <LuEllipsis size={12} />
                   </div>
-                  {p.titulo === "Tu ritual, tu momento" && <div style={{ height: 64, borderRadius: 6, backgroundImage: "url(/muestras/serum.jpg)", backgroundSize: "cover", backgroundPosition: "center 62%" }} />}
                   <h4>{p.titulo}</h4>
                   <span>{p.canal}</span>
                   <div className={`origen${p.origen?.tipo === "AGENTE" ? " origen--agente" : ""}`}>
@@ -118,13 +117,13 @@ function NuevaPieza({ clienteId, servicioId, soloBlogs, abierto, alCerrar, alCre
   const [titulo, setTitulo] = useState("");
   const [tipo, setTipo] = useState(soloBlogs ? "BLOG" : "COPY");
   const [canal, setCanal] = useState(soloBlogs ? "Blog web" : "Instagram");
-  const [fecha, setFecha] = useState("2026-10-26");
+  const [fecha, setFecha] = useState(HOY_PORTAL);
   const [error, setError] = useState<string | null>(null);
   const crear = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     try {
-      await api(`/clientes/${clienteId}/piezas`, { metodo: "POST", cuerpo: { tipo, titulo, canal, periodo: PERIODO_DEMO, fechaProgramada: `${fecha}T15:00:00Z`, servicioContratadoId: servicioId }, idempotente: true });
+      await api(`/clientes/${clienteId}/piezas`, { metodo: "POST", cuerpo: { tipo, titulo, canal, periodo: PERIODO_PORTAL, fechaProgramada: `${fecha}T15:00:00Z`, servicioContratadoId: servicioId }, idempotente: true });
       setTitulo("");
       alCrear();
     } catch (x) {
@@ -186,7 +185,7 @@ export function BlogsDelSoporte({ clienteId, servicioId, incluidos }: { clienteI
       </h3>
       {d ? (
         <span className="texto-xs texto-muted">
-          {nombreMes(PERIODO_DEMO)}: {d.resumen.aprobadas ?? 0} de {incluidos} aprobados · {d.resumen.publicadas ?? 0} publicados
+          {nombreMes(PERIODO_PORTAL)}: {d.resumen.aprobadas ?? 0} de {incluidos} aprobados · {d.resumen.publicadas ?? 0} publicados
         </span>
       ) : (
         <Cargando />
@@ -203,7 +202,7 @@ export function BlogsDelSoporte({ clienteId, servicioId, incluidos }: { clienteI
         etiqueta="Tablero de blogs"
         ancho={1080}
       >
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Blogs de {nombreMes(PERIODO_DEMO)}</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Blogs de {nombreMes(PERIODO_PORTAL)}</h2>
         <KanbanPiezas clienteId={clienteId} servicioId={servicioId} soloBlogs />
       </Modal>
     </div>

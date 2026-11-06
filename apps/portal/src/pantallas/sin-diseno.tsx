@@ -6,7 +6,7 @@
  */
 import { useRef, useState, type FormEvent } from "react";
 import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuSparkles, LuTriangleAlert, LuUpload } from "react-icons/lu";
-import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_DEMO, ProblemaApi, useConsulta, type S } from "../base";
+import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_PORTAL, ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
 import { respuestaVacia } from "../dominio/requerimientos";
 import { CamposFormulario } from "./requerimientos";
@@ -185,9 +185,10 @@ function moverPeriodo(p: string, d: number) {
 function CalendarioEquipo() {
   const avisar = useAviso();
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
-  const [clienteId, setClienteId] = useState(CLIENTE_DEMO);
-  const [periodo, setPeriodo] = useState(moverPeriodo(PERIODO_DEMO, 1));
-  const cal = useConsulta<S<"Calendario">>(`/clientes/${clienteId}/calendario/${periodo}`);
+  const [elegido, setClienteId] = useState<string | null>(null);
+  const clienteId = elegido ?? clientes.datos?.datos[0]?.id ?? "";
+  const [periodo, setPeriodo] = useState(moverPeriodo(PERIODO_PORTAL, 1));
+  const cal = useConsulta<S<"Calendario">>(clienteId ? `/clientes/${clienteId}/calendario/${periodo}` : null);
   const [cambios, setCambios] = useState(false);
   const [comentario, setComentario] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -212,7 +213,7 @@ function CalendarioEquipo() {
     <>
       <Cabecera antetitulo="Equipo Inoo · Calendario" titulo="Planes de contenido" bajada="Revisa la propuesta mensual del Jefe de Marketing antes de que los agentes produzcan." accion={<Enlace a="/equipo/calendario" className="boton">← Mi calendario</Enlace>} />
       <div className="fila" style={{ gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Selector etiqueta="Cliente" valor={clienteId} alCambiar={setClienteId} opciones={(clientes.datos?.datos ?? [{ id: CLIENTE_DEMO, nombre: "Casa Oliva" }]).map((c) => [c.id, c.nombre] as [string, string])} />
+        <Selector etiqueta="Cliente" valor={clienteId} alCambiar={setClienteId} opciones={(clientes.datos?.datos ?? []).map((c) => [c.id, c.nombre] as [string, string])} />
         <div className="fila" style={{ gap: 4 }}>
           <button className="boton" aria-label="Mes anterior" onClick={() => setPeriodo(moverPeriodo(periodo, -1))}>
             <LuChevronLeft size={16} />
@@ -325,7 +326,7 @@ const ESTADO_EJECUCION: Record<string, [string, "verde" | "ambar" | "azul" | "gr
 
 function CostosIa() {
   const [estado, setEstado] = useState("");
-  const costos = useConsulta<S<"ReporteCostos">>(`/panel/costos-ia?periodo=${PERIODO_DEMO}`);
+  const costos = useConsulta<S<"ReporteCostos">>(`/panel/costos-ia?periodo=${PERIODO_PORTAL}`);
   const ejec = useConsulta<{ datos: S<"Ejecucion">[] }>(`/panel/ejecuciones${estado ? `?estado=${estado}` : ""}`);
   if (costos.error?.status === 403) {
     return (

@@ -3,7 +3,7 @@
  * «Mi cuenta» (reunión 12 oct): se abre desde la foto de perfil. Reúne lo que el cliente consulta poco:
  * sus datos y contrato, pagos, usuarios, correos y ayuda. Así el menú queda en lo que usa a diario y el
  * soporte queda a mano para quien lo busca, sin estar en primera pantalla (como en la app de un banco).
- * Los números de WhatsApp de Ayuda son de relleno hasta que el equipo los defina.
+ * El WhatsApp de Ayuda es la línea pública de Inoo, hasta que cada área tenga la suya.
  */
 import { useState, type ReactNode } from "react";
 import { LuFileText, LuMail, LuMessageCircle, LuTicket } from "react-icons/lu";
@@ -312,10 +312,10 @@ function Notificaciones() {
 
 // ───────────────────────────── Ayuda (soporte escondido, con el canal humano directo)
 
-/** Números de relleno hasta que el equipo los defina. */
+/** La línea pública de WhatsApp de Inoo (inoo.pe/contacto). Se reemplaza si cada área tiene la suya. */
 const CONTACTOS = [
-  { area: "Pagos y facturación", detalle: "Facturas, detracciones y fechas de pago.", whatsapp: "51900000001" },
-  { area: "Tu proyecto", detalle: "Avance, fechas de entrega o algo que te preocupa de un servicio.", whatsapp: "51900000002", responsable: true },
+  { area: "Pagos y facturación", detalle: "Facturas, detracciones y fechas de pago.", whatsapp: "51955229312" },
+  { area: "Tu proyecto", detalle: "Avance, fechas de entrega o algo que te preocupa de un servicio.", whatsapp: "51955229312", responsable: true },
 ];
 
 function Ayuda() {

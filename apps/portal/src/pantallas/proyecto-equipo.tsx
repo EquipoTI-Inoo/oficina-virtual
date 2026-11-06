@@ -8,7 +8,7 @@
 import { EquipoAsignado } from "./accesos";
 import { useState } from "react";
 import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
-import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { entrarComoCliente } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
@@ -203,7 +203,7 @@ function ProyectoEquipo() {
           )}
           {(d.codigo === "SOCIAL_MEDIA_PRO" || d.codigo === "PAID_MEDIA") && (
             <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 14 }} aria-label="Piezas del mes">
-              <h2 className="tarjeta-titulo">Piezas de {nombreMes(PERIODO_DEMO)}</h2>
+              <h2 className="tarjeta-titulo">Piezas de {nombreMes(PERIODO_PORTAL)}</h2>
               <KanbanPiezas clienteId={d.clienteId} servicioId={d.servicioContratadoId} />
             </section>
           )}

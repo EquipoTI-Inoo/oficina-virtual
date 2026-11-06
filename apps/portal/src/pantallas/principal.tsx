@@ -6,9 +6,8 @@ import {
   LuClipboardList, LuExternalLink, LuSearch, LuShieldCheck, LuSparkles, LuWallet,
 } from "react-icons/lu";
 import {
-  api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarSesion, HOY_DEMO, leerSesion, ProblemaApi,
-  useConsulta, useNavegacion, type S,
-} from "../base";
+  api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
+  useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL } from "../base";
 import {
   Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
@@ -323,7 +322,7 @@ function Inicio() {
   return (
     <>
       <Cabecera
-        antetitulo={fHoyLargo(HOY_DEMO).toUpperCase()}
+        antetitulo={fHoyLargo(HOY_PORTAL).toUpperCase()}
         titulo={`Hola, ${nombre} 👋`}
         ligero
         bajada={`Así van tus proyectos con Inoo${cuenta?.nombre ? `, ${cuenta.nombre}` : ""}.`}
@@ -504,7 +503,7 @@ export function ResultadosDelMes() {
 export function AsiVaElMes({ progreso: a, proxima, nota, conEnlace = true }: { progreso: S<"ProgresoPiezas">; proxima?: { titulo?: string; fechaProgramada?: string } | null; nota?: string; conEnlace?: boolean }) {
   return (
     <div className="tarjeta" style={{ padding: "22px 20px" }}>
-      <h3 className="tarjeta-titulo">Así va octubre</h3>
+      <h3 className="tarjeta-titulo">Así va {nombreMes(PERIODO_PORTAL).toLowerCase()}</h3>
       <div className="fila entre" style={{ marginTop: 14 }}>
         <span className="texto-sm texto-muted">
           {a.aprobadas} de {a.totales} piezas aprobadas
@@ -560,6 +559,7 @@ export function PantallaServicios() {
 }
 
 function Servicios() {
+  const cuenta = usePortal().sesion?.clientes.find((c) => c.clienteId === clienteActivo())?.nombre;
   const { datos: d, error, recargar } = useConsulta<S<"ServiciosCliente">>(`/clientes/${clienteActivo()}/servicios`);
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
@@ -569,7 +569,7 @@ function Servicios() {
   return (
     <>
       <Cabecera
-        antetitulo="Casa Oliva · Octubre 2026"
+        antetitulo={[cuenta, fMesAnio(PERIODO_PORTAL)].filter(Boolean).join(" · ")}
         titulo="Mis servicios"
         bajada="Lo que tienes contratado y en qué etapa está cada servicio."
       />
@@ -578,7 +578,7 @@ function Servicios() {
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 600 }}>{d.plan?.nombre}</h2>
             <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
-              Contrato hasta el {d.plan?.fechaFin ? fCorta(d.plan.fechaFin) : "—"} · Casa Oliva
+              Contrato hasta el {d.plan?.fechaFin ? fCorta(d.plan.fechaFin) : "—"}{cuenta ? ` · ${cuenta}` : ""}
             </p>
           </div>
           <div className="fila" style={{ gap: 8 }}>
@@ -641,7 +641,7 @@ function Entregables() {
   const [q, setQ] = useState("");
   const [canal, setCanal] = useState("");
   const consulta = useMemo(() => {
-    const p = new URLSearchParams({ estado: "LISTO_REVISION", periodo: "2026-10" });
+    const p = new URLSearchParams({ estado: "LISTO_REVISION" });
     if (q) p.set("q", q);
     if (canal) p.set("canal", canal);
     return `/clientes/${clienteActivo()}/piezas?${p}`;
@@ -679,9 +679,6 @@ function Entregables() {
           </select>
           <LuChevronDown size={14} style={{ position: "absolute", right: 14, pointerEvents: "none" }} />
         </label>
-        <span className="selector selector--alto" style={{ fontWeight: 500, fontSize: 12.5 }}>
-          Octubre 2026 <LuChevronDown size={14} />
-        </span>
       </div>
       <div className="fila entre" style={{ marginBottom: 16 }}>
         <Etiqueta tono="violeta">Listo para revisión · {total}</Etiqueta>

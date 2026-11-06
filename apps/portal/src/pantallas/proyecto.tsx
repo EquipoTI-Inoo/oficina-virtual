@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_DEMO, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
@@ -37,7 +37,7 @@ export function PantallaProyecto() {
 
 function Proyecto() {
   const { params } = useNavegacion();
-  const { datos: d, error, recargar } = useConsulta<S<"PerfilProyecto">>(`/servicios-contratados/${params.id}?periodo=${PERIODO_DEMO}`);
+  const { datos: d, error, recargar } = useConsulta<S<"PerfilProyecto">>(`/servicios-contratados/${params.id}?periodo=${PERIODO_PORTAL}`);
   if (error) return <ErrorCarga error={error} reintentar={error.status === 404 ? undefined : recargar} />;
   if (!d) return <Cargando />;
   const [estado, tono] = ESTADO_AVANCE[d.estado ?? "EN_CURSO"];
@@ -73,7 +73,7 @@ function Proyecto() {
               <div className="fila" style={{ gap: 10, color: "var(--c-primario)" }}>
                 {ICONO_SERVICIO[d.codigo]}
                 <h2 className="tarjeta-titulo" style={{ color: "var(--c-tinta)" }}>
-                  {esPorConsumo(d.codigo) ? `Tu bolsa de ${nombreMes(PERIODO_DEMO)}` : d.avance.periodo ? `Etapas de ${nombreMes(d.avance.periodo)}` : "Etapas del proyecto"}
+                  {esPorConsumo(d.codigo) ? `Tu bolsa de ${nombreMes(PERIODO_PORTAL)}` : d.avance.periodo ? `Etapas de ${nombreMes(d.avance.periodo)}` : "Etapas del proyecto"}
                 </h2>
               </div>
             </div>

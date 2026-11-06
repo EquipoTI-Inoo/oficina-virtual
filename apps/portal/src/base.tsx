@@ -231,6 +231,9 @@ export const fHoyLargo = (iso: string) => {
 export const fNumero = (n: number) => n.toLocaleString("es-PE").replace(/,/g, " ").replace(/\./g, " ");
 export const fBytes = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1).replace(".", ",")} MB` : `${Math.round(b / 1024)} KB`);
 
-/** Fecha "de hoy" del entorno (Figma: martes 6 de octubre de 2026). */
-export const HOY_DEMO = "2026-10-06";
-export const PERIODO_DEMO = "2026-10";
+/**
+ * «Hoy» en hora de Lima. En el entorno de pruebas, NEXT_PUBLIC_FECHA_FIJA lo deja en la fecha de los datos de
+ * demo (ver next.config.mjs); en producción no existe y es la fecha real.
+ */
+export const HOY_PORTAL = process.env.NEXT_PUBLIC_FECHA_FIJA || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+export const PERIODO_PORTAL = HOY_PORTAL.slice(0, 7);

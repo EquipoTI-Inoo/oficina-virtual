@@ -5,7 +5,7 @@
  * ilimitado aparte. El estado nunca va solo por color: «Por agotarse» y «Excedido» llevan texto e ícono.
  */
 import { LuMessageCircle, LuTriangleAlert } from "react-icons/lu";
-import { api, fDiaMes, nombreMes, PERIODO_DEMO, useConsulta, type ProblemaApi, type S } from "../base";
+import { api, fDiaMes, nombreMes, PERIODO_PORTAL, useConsulta, type ProblemaApi, type S } from "../base";
 import { AvanceLineal, Cargando, useAviso } from "../componentes";
 
 type Consumo = S<"ConsumoSoporte">;
@@ -91,7 +91,7 @@ export function AvanceOConsumo({ s, compacto }: { s: { avance: S<"AvanceProyecto
 
 /** La bolsa del soporte, leída de la API (perfil del proyecto). */
 export function ConsumoDelServicio({ servicioId, version = "" }: { servicioId: string; version?: string }) {
-  const { datos } = useConsulta<Consumo>(`/servicios-contratados/${servicioId}/consumo?periodo=${PERIODO_DEMO}&v=${encodeURIComponent(version)}`);
+  const { datos } = useConsulta<Consumo>(`/servicios-contratados/${servicioId}/consumo?periodo=${PERIODO_PORTAL}&v=${encodeURIComponent(version)}`);
   return datos ? <BolsaDelMes consumo={datos} /> : <Cargando />;
 }
 
@@ -99,7 +99,7 @@ export function ConsumoDelServicio({ servicioId, version = "" }: { servicioId: s
 export function TicketsDelSoporte({ clienteId, servicioId, alCambiar }: { clienteId: string; servicioId: string; alCambiar: () => void }) {
   const avisar = useAviso();
   const lista = useConsulta<{ datos: S<"Ticket">[] }>(`/clientes/${clienteId}/tickets?servicioContratadoId=${servicioId}`);
-  const delMes = (lista.datos?.datos ?? []).filter((t) => t.creadoEn.startsWith(PERIODO_DEMO));
+  const delMes = (lista.datos?.datos ?? []).filter((t) => t.creadoEn.startsWith(PERIODO_PORTAL));
   const clasificar = async (t: S<"Ticket">, complejidad: string) => {
     try {
       await api(`/tickets/${t.id}`, { metodo: "PATCH", cuerpo: { complejidad } });
@@ -111,7 +111,7 @@ export function TicketsDelSoporte({ clienteId, servicioId, alCambiar }: { client
   };
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14 }}>Tickets de {nombreMes(PERIODO_DEMO)}</h3>
+      <h3 className="tarjeta-titulo" style={{ fontSize: 14 }}>Tickets de {nombreMes(PERIODO_PORTAL)}</h3>
       {!lista.datos && <Cargando />}
       {lista.datos && !delMes.length && <p className="texto-xs texto-muted">Sin tickets este mes.</p>}
       {delMes.map((t) => (

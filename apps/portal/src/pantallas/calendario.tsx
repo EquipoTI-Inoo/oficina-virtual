@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { LuCalendarPlus, LuCheck, LuChevronLeft, LuChevronRight, LuExternalLink, LuPencil, LuPlus, LuTrash2, LuUsers } from "react-icons/lu";
-import { api, Enlace, HOY_DEMO, ProblemaApi, useConsulta, type S } from "../base";
+import { api, Enlace, HOY_PORTAL, ProblemaApi, useConsulta, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import type { TipoAgenda } from "../dominio/agenda";
 import { usePersonaDeLaUrl } from "./mi-panel";
@@ -80,7 +80,7 @@ export function PantallaCalendario() {
 type Nuevo = { fecha: string; hora: string | null };
 
 function Calendario() {
-  const hoy = HOY_DEMO;
+  const hoy = HOY_PORTAL;
   const [vista, setVista] = useState<Vista>("SEMANA");
   const [ancla, setAncla] = useState(hoy);
   const [ocultos, setOcultos] = useState<Set<TipoAgenda>>(new Set());

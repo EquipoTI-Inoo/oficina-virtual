@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import { LuChevronLeft, LuChevronRight } from "react-icons/lu";
-import { fCorta, HOY_DEMO, nombreMes, type S } from "../base";
+import { fCorta, HOY_PORTAL, nombreMes, type S } from "../base";
 
 const DIA = 86_400_000;
 const ms = (iso: string) => Date.parse(`${iso.slice(0, 10)}T12:00:00Z`);
@@ -24,7 +24,7 @@ const ETIQUETA_TIPO: Record<TipoEvento, string> = { ETAPA: "Fin de etapa", REUNI
 const estadoBarra = (e: S<"EtapaProyecto">) => (e.estado === "COMPLETADO" ? "hecha" : e.atrasada ? "atrasada" : e.estado === "SIN_INICIAR" ? "pendiente" : "curso");
 
 /** Gantt de etapas: una barra por etapa de su inicio a su fin (real si terminó, previsto si no), la línea de hoy y las reuniones. */
-export function GanttEtapas({ etapas, reuniones = [], hoy = HOY_DEMO }: { etapas: S<"EtapaProyecto">[]; reuniones?: { titulo: string; fecha: string }[]; hoy?: string }) {
+export function GanttEtapas({ etapas, reuniones = [], hoy = HOY_PORTAL }: { etapas: S<"EtapaProyecto">[]; reuniones?: { titulo: string; fecha: string }[]; hoy?: string }) {
   const conFechas = etapas.filter((e) => e.fechaInicio && (e.fechaFin ?? e.fechaEstimada));
   if (!conFechas.length) return <p className="texto-xs texto-muted">Las etapas todavía no tienen fechas.</p>;
   const fechas = conFechas.flatMap((e) => [e.fechaInicio!, e.fechaFin ?? e.fechaEstimada!]).concat(reuniones.map((r) => r.fecha.slice(0, 10)));
@@ -102,7 +102,7 @@ export const eventosDeReuniones = (rs: { titulo: string; fecha: string; estado: 
   rs.filter((r) => r.estado !== "CANCELADA").map((r) => ({ fecha: r.fecha.slice(0, 10), texto: r.titulo, tipo: "REUNION" }));
 
 /** Calendario mensual del proyecto (lunes a domingo), con navegación entre meses. */
-export function CalendarioProyecto({ eventos, hoy = HOY_DEMO }: { eventos: EventoCalendario[]; hoy?: string }) {
+export function CalendarioProyecto({ eventos, hoy = HOY_PORTAL }: { eventos: EventoCalendario[]; hoy?: string }) {
   const [mes, setMes] = useState(hoy.slice(0, 7));
   const [a, m] = mes.split("-").map(Number);
   const primero = new Date(Date.UTC(a, m - 1, 1, 12));

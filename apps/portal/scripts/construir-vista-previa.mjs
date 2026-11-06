@@ -19,7 +19,7 @@ await build({
   target: "es2022",
   minify: process.argv.includes("--min"),
   sourcemap: !process.argv.includes("--min"),
-  define: { "process.env.NODE_ENV": '"production"' },
+  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_FECHA_FIJA": '"2026-10-06"' },
   nodePaths: process.env.NODE_PATH ? process.env.NODE_PATH.split(":") : [],
   loader: { ".jpg": "file" },
   logLevel: "warning",
