@@ -42,7 +42,7 @@ for k, v in json.load(sys.stdin).items():
     linea = k + "=" + v
     txt, n = re.subn(r"(?m)^" + k + r"=.*$", lambda _: linea, txt)
     if not n:
-        txt = txt.rstrip("\n") + "\n" + linea + "\n"
+        txt = txt.rstrip("\\n") + "\\n" + linea + "\\n"
 open(ruta, "w").write(txt)
 `;
 
