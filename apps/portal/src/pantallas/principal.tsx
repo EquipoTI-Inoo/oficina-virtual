@@ -37,7 +37,16 @@ export function PantallaIngreso() {
 
   useEffect(() => {
     // Desde «Portal de Inoo» en InooWork (6 nov): llega un pase de un solo uso y se entra sin escribir nada.
-    const pase = new URLSearchParams(window.location.search).get("inoowork");
+    const busqueda = new URLSearchParams(window.location.search);
+    const pase = busqueda.get("inoowork");
+    // Desde InooWork sin pase: se dice por qué, para poder arreglarlo (6 nov).
+    if (!pase && busqueda.get("desde") === "inoowork") {
+      const motivo = busqueda.get("motivo") ?? "";
+      window.history.replaceState(null, "", window.location.pathname);
+      setError(motivo === "sin_sesion" ? "InooWork no tiene tu sesión guardada: cierra sesión allá, vuelve a entrar y prueba de nuevo. Mientras, ingresa aquí."
+        : motivo === "red" ? "No pudimos hablar con InooWork para pasarte directo. Ingresa con tu usuario."
+        : `InooWork no entregó el acceso directo (código ${motivo || "desconocido"}). Ingresa con tu usuario y avísale a TI.`);
+    }
     if (pase) {
       window.history.replaceState(null, "", window.location.pathname);
       setEnviando(true);
