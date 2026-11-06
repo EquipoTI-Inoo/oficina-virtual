@@ -115,7 +115,8 @@ interface Estado {
   topesIa: Record<Area, TopesArea>;
   llavesJarvis: { usuarioId: string; prefijo: string; hash: string; creadoEn: string; ultimoUso: string | null }[];
   /** Conversaciones del chat de Jarvis y su dueño: la pasarela cobra a esa persona (2 nov). */
-  sesionesJarvis: Record<string, { usuarioId: string; area: Area }>;
+  sesionesJarvis: Record<string, { usuarioId: string; area: Area; botId?: string; titulo?: string | null; archivada?: boolean; creadoEn?: string; ultimoUso?: string;
+    mensajes?: { rol: "PERSONA" | "BOT"; texto: string; adjuntos: string[]; creadoEn: string; autor?: string | null }[] }>;
   /** Recordatorios ya enviados (fase 18): no se repiten. */
   recordatoriosEnviados: string[];
   /** Lo que Jarvis propone y su dueño aprueba en el chat (6 nov). */
@@ -3401,11 +3402,19 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
-  // La conversación es de quien la empezó: así la pasarela le cobra a esa persona.
-  const duenio = E.sesionesJarvis[b.sesionId];
-  if (duenio && duenio.usuarioId !== ctx.usuario.id) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otra persona", "Empieza una conversación nueva.");
-  E.sesionesJarvis[b.sesionId] = { usuarioId: ctx.usuario.id, area: bot.area };
-  bot.ultimoUso = new Date().toISOString();
+  // 6 nov: la conversación es del área. Se sigue con el mismo bot y queda a nombre de quien escribe ahora (a esa
+  // persona le cobra la pasarela y con sus permisos lee Jarvis el portal).
+  const previa = E.sesionesJarvis[b.sesionId];
+  if (previa?.botId && previa.botId !== bot.id) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otro bot", "Empieza una conversación nueva.");
+  const ahora = new Date().toISOString();
+  const conv = (E.sesionesJarvis[b.sesionId] ??= { usuarioId: ctx.usuario.id, area: bot.area, botId: bot.id, creadoEn: ahora, mensajes: [] });
+  conv.usuarioId = ctx.usuario.id;
+  // 6 nov: el chat no se pierde. El mensaje se guarda ya; la respuesta, cuando el bot termina.
+  const adjuntos = b.archivos.map((a) => a.nombre).slice(0, 5);
+  Object.assign(conv, { botId: conv.botId ?? bot.id, ultimoUso: ahora, archivada: false, titulo: conv.titulo ?? (b.mensaje.trim() || adjuntos[0] || "Conversación").slice(0, 60) });
+  (conv.mensajes ??= []).push({ rol: "PERSONA", texto: b.mensaje, adjuntos, creadoEn: ahora, autor: ctx.usuario.nombre });
+  const alTerminar = async (texto: string) => conv.mensajes!.push({ rol: "BOT", texto, adjuntos: [], creadoEn: new Date().toISOString(), autor: null });
+  bot.ultimoUso = ahora;
   // El bot puede reescribir su trabajo (solo si quien chatea podría editarlo).
   const alActualizarTrabajo = puedeEditarBot(ctx, bot)
     ? async (nuevo: string) => {
@@ -3415,7 +3424,46 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
         return { anterior };
       }
     : undefined;
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo }, req.signal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
+});
+
+// ───────────────────────────── conversaciones guardadas (6 nov)
+
+const conversacionVistaMock = (id: string, x: Estado["sesionesJarvis"][string]) => ({
+  id, titulo: x.titulo ?? "Conversación", creadaEn: x.creadoEn ?? new Date().toISOString(), ultimoUso: x.ultimoUso ?? x.creadoEn ?? new Date().toISOString(), mensajes: x.mensajes?.length ?? 0,
+  ultimaPersona: persona(x.usuarioId)?.nombre ?? null,
+});
+/** 6 nov: las conversaciones son del área (como el bot). */
+function miConversacion(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const x = E.sesionesJarvis[id];
+  if (!x?.botId) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  botDeMiArea(ctx, x.botId);
+  return x;
+}
+ruta("GET", "/jarvis/bots/:id/conversaciones", (ctx, p) => {
+  const bot = botDeMiArea(ctx, p.id);
+  const datos = Object.entries(E.sesionesJarvis)
+    .filter(([, x]) => x.botId === bot.id && !x.archivada && (x.mensajes?.length ?? 0) > 0)
+    .map(([id, x]) => conversacionVistaMock(id, x))
+    .sort((a, b) => b.ultimoUso.localeCompare(a.ultimoUso));
+  return { datos };
+});
+ruta("GET", "/jarvis/conversaciones/:sesion", (ctx, p) => {
+  const x = miConversacion(ctx, p.sesion);
+  return { ...conversacionVistaMock(p.sesion, x), datos: (x.mensajes ?? []).map((m) => ({ ...m, autor: m.autor ?? null })) };
+});
+ruta("PATCH", "/jarvis/conversaciones/:sesion", async (ctx, p, _q, req) => {
+  const x = miConversacion(ctx, p.sesion);
+  const b = await cuerpo<{ titulo?: unknown }>(req);
+  const titulo = typeof b.titulo === "string" ? b.titulo.trim() : "";
+  if (!titulo || titulo.length > 120) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "titulo", mensaje: "Ponle un nombre (hasta 120 caracteres)" }]);
+  x.titulo = titulo;
+  return conversacionVistaMock(p.sesion, x);
+});
+ruta("DELETE", "/jarvis/conversaciones/:sesion", (ctx, p) => {
+  miConversacion(ctx, p.sesion).archivada = true;
+  return null;
 });
 
 // ───────────────────────────────────────────── accesos del equipo (2 nov)

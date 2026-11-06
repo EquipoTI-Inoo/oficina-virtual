@@ -6,9 +6,9 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
-import { api, BASE, Enlace, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
-import { Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
+import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuHistory, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
+import { api, BASE, Enlace, fDiaHora, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
+import { Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
 import { COLORES_BOT, FORMAS_BOT, saludoInicial, sinBloqueTrabajo } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
 import { ACEPTA_ADJUNTOS, leerAdjunto, type Adjunto } from "./leer-archivos";
@@ -188,6 +188,8 @@ interface MensajeChat {
   error?: boolean;
   /** rol «aviso»: el bot reescribió su trabajo. */
   trabajo?: TrabajoNuevo & { deshecho?: boolean };
+  /** 6 nov: quién lo escribió, si fue otra persona del área (las conversaciones son del área). */
+  autor?: string;
   /** rol «yo»: los archivos que iban con el mensaje (las imágenes, con su miniatura). */
   adjuntos?: { nombre: string; vista?: string }[];
   /** rol «bot»: quien chatea detuvo la respuesta. */
@@ -344,6 +346,59 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
   const [menu, setMenu] = useState(false);
   // Sube al terminar cada respuesta: Jarvis pudo haber dejado una propuesta.
   const [vuelta, setVuelta] = useState(0);
+  // 6 nov: las conversaciones se guardan. La lista de este bot y los mensajes de la que está abierta.
+  const conversaciones = useConsulta<{ datos: S<"ConversacionJarvis">[] }>(`/jarvis/bots/${bot.id}/conversaciones`);
+  const miNombre = usePortal().sesion?.usuario.nombre;
+  const [verLista, setVerLista] = useState(false);
+  useEffect(() => {
+    let vigente = true;
+    api<{ datos: { rol: "PERSONA" | "BOT"; texto: string; adjuntos: string[]; autor?: string | null }[] }>(`/jarvis/conversaciones/${encodeURIComponent(sesion)}`)
+      .then((c) => {
+        if (vigente && c.datos.length) {
+          setMensajes(c.datos.map((m) => (m.rol === "PERSONA"
+            ? { rol: "yo" as const, texto: m.texto, adjuntos: m.adjuntos.map((nombre) => ({ nombre })), autor: m.autor && m.autor !== miNombre ? m.autor : undefined }
+            : { rol: "bot" as const, texto: m.texto })));
+        }
+      })
+      .catch(() => undefined); // conversación nueva: todavía no existe
+    return () => {
+      vigente = false;
+    };
+  }, [sesion, miNombre]);
+  const { recargar: recargarConversaciones } = conversaciones;
+  useEffect(() => {
+    if (vuelta) void recargarConversaciones();
+  }, [vuelta, recargarConversaciones]);
+  const abrirConversacion = (id: string) => {
+    try {
+      window.localStorage.setItem(claveSesion(bot.id), id);
+    } catch {
+      /* sin almacenamiento */
+    }
+    setMensajes(inicio());
+    setSesion(id);
+    setVerLista(false);
+  };
+  const renombrar = async (c: S<"ConversacionJarvis">) => {
+    const titulo = window.prompt("Nombre de la conversación", c.titulo)?.trim();
+    if (!titulo || titulo === c.titulo) return;
+    try {
+      await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "PATCH", cuerpo: { titulo } });
+      void conversaciones.recargar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos renombrarla", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+  const borrarConversacion = async (c: S<"ConversacionJarvis">) => {
+    try {
+      await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "DELETE" });
+      if (c.id === sesion) nuevaConversacion();
+      void conversaciones.recargar();
+      avisar({ titulo: "Conversación borrada" });
+    } catch (e) {
+      avisar({ titulo: "No pudimos borrarla", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
   const avisar = useAviso();
   const fin = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -481,7 +536,30 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
             </div>
           )}
         </div>
-        <span className="texto-xs texto-muted">Creado por {bot.creadoPor.nombre}</span>
+        <span className="fila" style={{ gap: 10 }}>
+          <span style={{ position: "relative" }}>
+            <button className="boton boton--chico" aria-expanded={verLista} onClick={() => setVerLista(!verLista)}>
+              <LuHistory size={14} /> Conversaciones{conversaciones.datos?.datos.length ? ` (${conversaciones.datos.datos.length})` : ""}
+            </button>
+            {verLista && (
+              <div className="jarvis-menu jarvis-conversaciones" role="menu" aria-label="Conversaciones">
+                <button role="menuitem" onClick={nuevaConversacion}><LuMessageSquarePlus size={14} /> Nueva conversación</button>
+                {!conversaciones.datos?.datos.length && <span className="texto-xs texto-muted" style={{ padding: "6px 10px" }}>Todavía no hay conversaciones guardadas.</span>}
+                {conversaciones.datos?.datos.map((c) => (
+                  <span key={c.id} className={`jarvis-conversacion${c.id === sesion ? " activa" : ""}`}>
+                    <button role="menuitem" className="jarvis-conversacion-abrir" onClick={() => abrirConversacion(c.id)} title={c.titulo}>
+                      <span className="negrita" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.titulo}</span>
+                      <span className="texto-xs texto-muted">{fDiaHora(c.ultimoUso)} · {c.mensajes} mensajes{c.ultimaPersona ? ` · ${c.ultimaPersona}` : ""}</span>
+                    </button>
+                    <button className="boton-icono" aria-label={`Renombrar ${c.titulo}`} onClick={() => void renombrar(c)}><LuPencil size={13} /></button>
+                    <button className="boton-icono" aria-label={`Borrar ${c.titulo}`} onClick={() => void borrarConversacion(c)}><LuTrash2 size={13} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </span>
+          <span className="texto-xs texto-muted">Creado por {bot.creadoPor.nombre}</span>
+        </span>
       </header>
       <div className="jarvis-mensajes" aria-live="polite">
         {(mensajes.length === 0 || (!bot.instrucciones.trim() && mensajes.length === 1)) && (
@@ -510,6 +588,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
             </div>
           ) : (
             <div key={i} className={`burbuja-jarvis burbuja-jarvis--${m.rol === "yo" ? "yo" : "jarvis"}${m.error ? " burbuja-jarvis--error" : ""}`}>
+              {m.autor && <span className="texto-xs negrita" style={{ display: "block", opacity: 0.8, marginBottom: 2 }}>{m.autor}</span>}
               {!!m.adjuntos?.length && (
                 <span className="jarvis-adjuntos">
                   {m.adjuntos.map((a, j) => (

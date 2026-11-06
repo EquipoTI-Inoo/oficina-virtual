@@ -2153,6 +2153,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jarvis/bots/{botId}/conversaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        /** Las conversaciones del área con un bot (6 nov: se guardan y las ve toda el área), de la más reciente a la más antigua */
+        get: operations["listarConversacionesBot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/conversaciones/{sesionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sesionId: string;
+            };
+            cookie?: never;
+        };
+        /** Una conversación mía con sus mensajes */
+        get: operations["verConversacionJarvis"];
+        put?: never;
+        post?: never;
+        /** Borrar una conversación: deja de verse, pero se conserva */
+        delete: operations["archivarConversacionJarvis"];
+        options?: never;
+        head?: never;
+        /** Ponerle nombre a una conversación */
+        patch: operations["renombrarConversacionJarvis"];
+        trace?: never;
+    };
     "/jarvis/propuestas": {
         parameters: {
             query?: never;
@@ -4236,6 +4276,18 @@ export interface components {
             forma?: "CIRCULO" | "CUADRADO" | "ROMBO";
             /** @description Su trabajo: qué hace, con qué fuentes y qué no debe hacer */
             instrucciones?: string;
+        };
+        ConversacionJarvis: {
+            /** @description El código de la conversación (sesionId del chat) */
+            id: string;
+            titulo: string;
+            /** Format: date-time */
+            creadaEn: string;
+            /** Format: date-time */
+            ultimoUso: string;
+            mensajes: number;
+            /** @description Quién escribió el último mensaje (las conversaciones son del área) */
+            ultimaPersona?: string | null;
         };
         AccionJarvis: {
             /** Format: uuid */
@@ -10562,6 +10614,116 @@ export interface operations {
                 content?: never;
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarConversacionesBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ConversacionJarvis"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    verConversacionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sesionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionJarvis"] & {
+                        datos: {
+                            /** @enum {string} */
+                            rol: "PERSONA" | "BOT";
+                            texto: string;
+                            adjuntos: string[];
+                            /** Format: date-time */
+                            creadoEn: string;
+                            /** @description Quién escribió el mensaje (null en los del bot) */
+                            autor?: string | null;
+                        }[];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    archivarConversacionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sesionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archivada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    renombrarConversacionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sesionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    titulo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversacionJarvis"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     proponerAccionJarvis: {

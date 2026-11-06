@@ -164,7 +164,13 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
         assert.equal(await gastoDiego(), g);
         // Nadie usa una conversación ajena.
         await llamar("PATCH", `/panel/equipo/${uid(1, 6)}`, ADMIN, { area: "CRM" });
-        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "hola", sesionId: "conv-diego-001" })).json.codigo, "SESION_AJENA");
+        // 6 nov: las conversaciones son del área. Camila (ahora de CRM) la sigue y desde ahí corre a su nombre;
+        // Diego la retoma y vuelve a la suya. Con otro bot no se puede seguir.
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "hola", sesionId: "conv-diego-001" })).status, 200);
+        assert.equal((await llamar("GET", "/jarvis/conversaciones/conv-diego-001", CAMILA)).json.ultimaPersona, "Camila Paredes");
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "sigo yo", sesionId: "conv-diego-001" });
+        const otroBot = (await llamar("POST", "/jarvis/bots", DIEGO, { nombre: "Otro bot", color: "#d64545", forma: "ROMBO" })).json;
+        assert.equal((await llamar("POST", `/jarvis/bots/${otroBot.id}/chat`, DIEGO, { mensaje: "hola", sesionId: "conv-diego-001" })).json.codigo, "SESION_AJENA");
 
         // Las herramientas del portal (mcp-portal.mjs) leen como la persona de la conversación, no como un usuario fijo.
         const comoHermes = (clave: string, conv: string, metodo = "GET", camino = "/panel/colaborador") =>
@@ -176,6 +182,41 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
         assert.equal((await comoHermes("hk_diseno", "conv-diego-001")).status, 401, "la conversación es de otra área");
         assert.equal((await comoHermes("hk_crm", "no-existe-123")).status, 401);
         assert.equal((await comoHermes("hk_crm", "conv-diego-001", "POST", "/me/agenda/eventos")).status, 403, "solo lectura");
+      } finally {
+        globalThis.fetch = fetchPrevio;
+        if (antesHermes === undefined) delete process.env.JARVIS_HERMES;
+        else process.env.JARVIS_HERMES = antesHermes;
+      }
+    });
+
+    test("los chats no se pierden: cada conversación guarda lo que se dijo, con título y autor, y la ve su área", async () => {
+      await reiniciar();
+      const antesHermes = process.env.JARVIS_HERMES;
+      const fetchPrevio = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (!String(url).startsWith("http://hermes.falso")) return fetchPrevio(url, init);
+        const trozo = (t: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}
+
+`;
+        return new Response(`${trozo("Tienes ")}${trozo("2 tareas.")}data: [DONE]
+
+`, { headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      process.env.JARVIS_HERMES = JSON.stringify({ CRM: { url: "http://hermes.falso", clave: "hk_crm" } });
+      try {
+        const bot = (await llamar("GET", "/jarvis/bots", DIEGO)).json.bots[0];
+        assert.deepEqual((await llamar("GET", `/jarvis/bots/${bot.id}/conversaciones`, DIEGO)).json.datos, []);
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "¿Qué tengo pendiente hoy?", sesionId: "conv-guardada-1" });
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "Gracias", sesionId: "conv-guardada-1" });
+        const lista = (await llamar("GET", `/jarvis/bots/${bot.id}/conversaciones`, DIEGO)).json.datos;
+        assert.deepEqual(lista.map((c: any) => [c.id, c.titulo, c.mensajes]), [["conv-guardada-1", "¿Qué tengo pendiente hoy?", 4]]);
+        const c = (await llamar("GET", "/jarvis/conversaciones/conv-guardada-1", DIEGO)).json;
+        assert.deepEqual(c.datos.map((m: any) => [m.rol, m.texto]), [["PERSONA", "¿Qué tengo pendiente hoy?"], ["BOT", "Tienes 2 tareas."], ["PERSONA", "Gracias"], ["BOT", "Tienes 2 tareas."]]);
+        assert.equal((await llamar("GET", "/jarvis/conversaciones/conv-guardada-1", CAMILA)).status, 404, "otra área no la ve");
+        assert.deepEqual(c.datos.filter((m: any) => m.rol === "PERSONA").map((m: any) => m.autor), ["Diego Castro", "Diego Castro"], "cada mensaje dice quién lo escribió");
+        assert.equal((await llamar("PATCH", "/jarvis/conversaciones/conv-guardada-1", DIEGO, { titulo: "Pendientes de hoy" })).json.titulo, "Pendientes de hoy");
+        assert.equal((await llamar("DELETE", "/jarvis/conversaciones/conv-guardada-1", DIEGO)).status, 204);
+        assert.deepEqual((await llamar("GET", `/jarvis/bots/${bot.id}/conversaciones`, DIEGO)).json.datos, [], "borrada: ya no se lista");
       } finally {
         globalThis.fetch = fetchPrevio;
         if (antesHermes === undefined) delete process.env.JARVIS_HERMES;

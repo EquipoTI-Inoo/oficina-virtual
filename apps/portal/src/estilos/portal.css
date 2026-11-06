@@ -2482,3 +2482,9 @@ button.cuenta { cursor: pointer; }
 
 /* Entorno de pruebas (6 nov). */
 .barra-pruebas { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 10px 14px; border-radius: 12px; background: #fff7e6; border: 1px solid #f5c26b; color: #6b4a00; font-size: 13px; }
+
+/* Conversaciones guardadas de Jarvis (6 nov). */
+.jarvis-conversaciones { right: 0; left: auto; width: min(340px, 86vw); max-height: 420px; overflow-y: auto; }
+.jarvis-conversacion { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.jarvis-conversacion.activa { background: var(--c-primario-suave); }
+.jarvis-conversacion-abrir { flex: 1; min-width: 0; text-align: left; }

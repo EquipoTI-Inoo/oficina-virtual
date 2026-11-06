@@ -3141,6 +3141,88 @@ paths:
         '204': { description: Revocada (o no había) }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /jarvis/bots/{botId}/conversaciones:
+    parameters:
+      - { name: botId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarConversacionesBot
+      summary: 'Las conversaciones del área con un bot (6 nov: se guardan y las ve toda el área), de la más reciente a la más antigua'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/ConversacionJarvis' } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /jarvis/conversaciones/{sesionId}:
+    parameters:
+      - { name: sesionId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Jarvis del equipo]
+      operationId: verConversacionJarvis
+      summary: 'Una conversación mía con sus mensajes'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/ConversacionJarvis' }
+                  - type: object
+                    required: [datos]
+                    properties:
+                      datos:
+                        type: array
+                        items:
+                          type: object
+                          required: [rol, texto, adjuntos, creadoEn]
+                          properties:
+                            rol: { type: string, enum: [PERSONA, BOT] }
+                            texto: { type: string }
+                            adjuntos: { type: array, items: { type: string } }
+                            creadoEn: { type: string, format: date-time }
+                            autor: { type: [string, 'null'], description: 'Quién escribió el mensaje (null en los del bot)' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Jarvis del equipo]
+      operationId: renombrarConversacionJarvis
+      summary: 'Ponerle nombre a una conversación'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [titulo]
+              properties:
+                titulo: { type: string, maxLength: 120 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversacionJarvis' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: archivarConversacionJarvis
+      summary: 'Borrar una conversación: deja de verse, pero se conserva'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Archivada }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /jarvis/propuestas:
     post:
       tags: [Jarvis del equipo]
@@ -5656,6 +5738,16 @@ components:
         color: { type: string, enum: ['#5554d9', '#1f9d74', '#d9822b', '#d64545', '#2b7bd9', '#9b51e0', '#475467'] }
         forma: { type: string, enum: [CIRCULO, CUADRADO, ROMBO] }
         instrucciones: { type: string, maxLength: 4000, description: 'Su trabajo: qué hace, con qué fuentes y qué no debe hacer' }
+    ConversacionJarvis:
+      type: object
+      required: [id, titulo, creadaEn, ultimoUso, mensajes]
+      properties:
+        id: { type: string, description: El código de la conversación (sesionId del chat) }
+        titulo: { type: string }
+        creadaEn: { type: string, format: date-time }
+        ultimoUso: { type: string, format: date-time }
+        mensajes: { type: integer }
+        ultimaPersona: { type: [string, 'null'], description: 'Quién escribió el último mensaje (las conversaciones son del área)' }
     AccionJarvis:
       type: object
       required: [id, conversacion, tipo, resumen, estado, error, enlace, creadoEn, decididoEn]

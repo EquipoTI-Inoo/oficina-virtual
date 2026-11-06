@@ -159,7 +159,7 @@ export type AlActualizarTrabajo = (nuevo: string) => Promise<{ anterior: string 
  */
 export async function hablarConBot(
   hermes: HermesDelArea,
-  p: { botId: string; sistema: string; mensaje: string; sesionId: string; alActualizarTrabajo?: AlActualizarTrabajo },
+  p: { botId: string; sistema: string; mensaje: string; sesionId: string; alActualizarTrabajo?: AlActualizarTrabajo; alTerminar?: (texto: string) => Promise<unknown> },
   senal?: AbortSignal,
 ): Promise<Response> {
   let r: Response;
@@ -189,12 +189,15 @@ export async function hablarConBot(
     const texto = await r.text().catch(() => "");
     return Response.json({ error: { message: `El Hermes del área respondió ${r.status}: ${texto.slice(0, 300)}`, code: "JARVIS_ERROR" } }, { status: 502 });
   }
-  const cuerpo = p.alActualizarTrabajo ? r.body.pipeThrough(vigilarTrabajo(p.alActualizarTrabajo)) : r.body;
+  const cuerpo = p.alActualizarTrabajo || p.alTerminar ? r.body.pipeThrough(vigilarTrabajo(p.alActualizarTrabajo, p.alTerminar)) : r.body;
   return new Response(cuerpo, { status: 200, headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
 }
 
-/** Deja pasar el stream tal cual, junta el texto y, al terminar, guarda el trabajo nuevo si el bot escribió uno. */
-function vigilarTrabajo(alActualizar: AlActualizarTrabajo) {
+/**
+ * Deja pasar el stream tal cual, junta el texto y, al terminar, guarda la respuesta (6 nov: los chats no se pierden)
+ * y el trabajo nuevo si el bot escribió uno.
+ */
+function vigilarTrabajo(alActualizar?: AlActualizarTrabajo, alTerminar?: (texto: string) => Promise<unknown>) {
   const dec = new TextDecoder();
   const enc = new TextEncoder();
   let resto = "";
@@ -220,8 +223,9 @@ function vigilarTrabajo(alActualizar: AlActualizarTrabajo) {
     },
     async flush(ctrl) {
       leer(`${dec.decode()}\n`);
-      const nuevo = extraerTrabajo(texto);
-      if (!nuevo) return;
+      if (alTerminar && texto.trim()) await alTerminar(texto).catch(() => null);
+      const nuevo = alActualizar ? extraerTrabajo(texto) : null;
+      if (!nuevo || !alActualizar) return;
       const r = await alActualizar(nuevo).catch(() => null);
       if (r && r.anterior !== nuevo) ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ inoo: { trabajo: { anterior: r.anterior, nuevo } } })}\n\n`));
     },

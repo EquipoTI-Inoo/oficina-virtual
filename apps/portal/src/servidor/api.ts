@@ -2704,14 +2704,21 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
-  // La conversación es de quien la empezó: así la pasarela le cobra a esa persona.
-  const sesion = (await ctx.c.query<{ usuario_id: string }>(
+  // 6 nov: la conversación es del área. Se sigue con el mismo bot, y queda a nombre de quien escribe ahora: a esa
+  // persona le cobra la pasarela y con sus permisos lee Jarvis el portal.
+  const previa = (await ctx.c.query<{ bot_id: string | null }>("SELECT bot_id FROM sesion_jarvis WHERE sesion_id = $1", [b.sesionId])).rows[0];
+  if (previa && previa.bot_id !== bot.id) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otro bot", "Empieza una conversación nueva.");
+  await ctx.c.query(
     `INSERT INTO sesion_jarvis (sesion_id, usuario_id, bot_id, area) VALUES ($1, $2, $3, $4::area_equipo)
-     ON CONFLICT (sesion_id) DO UPDATE SET ultimo_uso = now() RETURNING usuario_id`,
+     ON CONFLICT (sesion_id) DO UPDATE SET ultimo_uso = now(), usuario_id = EXCLUDED.usuario_id`,
     [b.sesionId, ctx.u.usuarioId, bot.id, bot.area],
-  )).rows[0];
-  if (sesion.usuario_id !== ctx.u.usuarioId) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otra persona", "Empieza una conversación nueva.");
+  );
   await ctx.c.query("UPDATE bot_jarvis SET ultimo_uso = now() WHERE id = $1", [bot.id]);
+  // 6 nov: el chat no se pierde. El mensaje de la persona se guarda ya; la respuesta, cuando el bot termina.
+  const adjuntos = Array.isArray(cuerpoChat.archivos) ? (cuerpoChat.archivos as { nombre?: unknown }[]).map((a) => String(a?.nombre ?? "archivo")).slice(0, 5) : [];
+  await ctx.c.query("INSERT INTO mensaje_jarvis (sesion_id, rol, autor_id, texto, adjuntos) VALUES ($1, 'PERSONA', $2, $3, $4)", [b.sesionId, ctx.u.usuarioId, b.mensaje, JSON.stringify(adjuntos)]);
+  await ctx.c.query("UPDATE sesion_jarvis SET titulo = coalesce(titulo, left($2, 60)), archivada = false WHERE sesion_id = $1", [b.sesionId, b.mensaje.trim() || adjuntos[0] || "Conversación"]);
+  const alTerminar = (texto: string) => comoSistema((c) => c.query("INSERT INTO mensaje_jarvis (sesion_id, rol, texto) VALUES ($1, 'BOT', $2)", [b.sesionId, texto]));
   // El bot puede reescribir su trabajo (solo si quien chatea podría editarlo). Se guarda al terminar el
   // streaming, cuando la transacción de esta solicitud ya cerró: por eso va aparte.
   const alActualizarTrabajo = puedeEditarBotDb(ctx, bot)
@@ -2723,7 +2730,55 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
       })
     : undefined;
   // Con la señal de la solicitud, «Detener» en el chat corta la conexión con Hermes, que interrumpe al bot.
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo }, ctx.senal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, ctx.senal);
+});
+
+// ───────────────────────────── conversaciones guardadas (6 nov)
+
+interface FilaConversacion { sesion_id: string; titulo: string | null; creado_en: Date; ultimo_uso: Date; mensajes: number; ultimo_nombre: string | null }
+const conversacionVista = (x: FilaConversacion) => ({ id: x.sesion_id, titulo: x.titulo ?? "Conversación", creadaEn: iso(x.creado_en)!, ultimoUso: iso(x.ultimo_uso)!, mensajes: x.mensajes, ultimaPersona: x.ultimo_nombre });
+const COLUMNAS_CONVERSACION = `s.sesion_id, s.titulo, s.creado_en, s.ultimo_uso, s.bot_id, (SELECT count(*)::int FROM mensaje_jarvis m WHERE m.sesion_id = s.sesion_id) AS mensajes,
+  (SELECT u.nombre FROM usuario u WHERE u.id = s.usuario_id) AS ultimo_nombre`;
+
+/** Una conversación de un bot que la persona ve (6 nov: son del área). 404 si no existe o es de otra área. */
+async function miConversacionDb(ctx: Ctx, sesion: string) {
+  soloEquipo(ctx);
+  const x = (await ctx.c.query<FilaConversacion & { bot_id: string | null }>(`SELECT ${COLUMNAS_CONVERSACION} FROM sesion_jarvis s WHERE s.sesion_id = $1`, [sesion])).rows[0];
+  if (!x?.bot_id) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  await botDeMiAreaDb(ctx, x.bot_id);
+  return x;
+}
+
+ruta("GET", "/jarvis/bots/:id/conversaciones", async (ctx, p) => {
+  const bot = await botDeMiAreaDb(ctx, p.id);
+  const { rows } = await ctx.c.query<FilaConversacion>(
+    `SELECT ${COLUMNAS_CONVERSACION} FROM sesion_jarvis s WHERE s.bot_id = $1 AND NOT s.archivada ORDER BY s.ultimo_uso DESC LIMIT 100`, [bot.id],
+  );
+  return { datos: rows.filter((x) => x.mensajes > 0).map(conversacionVista) };
+});
+
+ruta("GET", "/jarvis/conversaciones/:sesion", async (ctx, p) => {
+  const x = await miConversacionDb(ctx, p.sesion);
+  const { rows } = await ctx.c.query<{ rol: "PERSONA" | "BOT"; texto: string; adjuntos: string[]; creado_en: Date; autor: string | null }>(
+    "SELECT m.rol, m.texto, m.adjuntos, m.creado_en, u.nombre AS autor FROM mensaje_jarvis m LEFT JOIN usuario u ON u.id = m.autor_id WHERE m.sesion_id = $1 ORDER BY m.id", [x.sesion_id],
+  );
+  return { ...conversacionVista(x), datos: rows.map((m) => ({ rol: m.rol, texto: m.texto, adjuntos: m.adjuntos ?? [], creadoEn: iso(m.creado_en)!, autor: m.autor })) };
+});
+
+ruta("PATCH", "/jarvis/conversaciones/:sesion", async (ctx, p, _q, cuerpo) => {
+  const x = await miConversacionDb(ctx, p.sesion);
+  const b = await cuerpo();
+  const titulo = typeof b.titulo === "string" ? b.titulo.trim() : "";
+  if (!titulo || titulo.length > 120) validacion([{ campo: "titulo", mensaje: "Ponle un nombre (hasta 120 caracteres)" }]);
+  await ctx.c.query("UPDATE sesion_jarvis SET titulo = $2 WHERE sesion_id = $1", [x.sesion_id, titulo]);
+  return conversacionVista({ ...x, titulo });
+});
+
+/** Borrar una conversación la archiva: deja de verse, pero se conserva (y su costo sigue contando). */
+ruta("DELETE", "/jarvis/conversaciones/:sesion", async (ctx, p) => {
+  const x = await miConversacionDb(ctx, p.sesion);
+  await ctx.c.query("UPDATE sesion_jarvis SET archivada = true WHERE sesion_id = $1", [x.sesion_id]);
+  return null;
 });
 
 // ───────────────────────────────────────────── accesos del equipo (2 nov)
