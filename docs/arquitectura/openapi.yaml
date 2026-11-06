@@ -3401,6 +3401,28 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarClienteTablero
+      summary: 'Cambia el cliente del proyecto en InooWork (líder, miembros activos y nivel ADMIN)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cliente]
+              properties:
+                cliente: { type: string, maxLength: 120 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /tableros/{proyectoId}/items:
     parameters:

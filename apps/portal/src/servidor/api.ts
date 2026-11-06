@@ -3740,6 +3740,10 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.ver(p.id, await yoTablero(ctx));
 });
+ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarCliente(p.id, await yoTablero(ctx), (await cuerpo()) as { cliente?: unknown });
+});
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   return TABLEROS.crearItem(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
@@ -4441,32 +4445,35 @@ ruta("GET", "/panel/clientes", async (ctx, _p, q) => {
   // 2 nov: cada uno ve sus cuentas; el nivel ADMIN, todas.
   const a = await alcanceDb(ctx);
   const todas = (await filasPanel(ctx, periodo)).filter((f) => veCuenta(a, f.cliente.id));
-  const gasto = redondear(todas.reduce((t, f) => t + f.gastoIa.gastoUsd, 0));
-  const limite = todas.reduce((t, f) => t + f.gastoIa.limiteUsd, 0);
+  // Los clientes de prueba se ven en la lista, pero no cuentan en los números de la agencia.
+  const dePrueba = new Set((await ctx.c.query<{ id: string }>("SELECT id FROM cliente WHERE es_prueba")).rows.map((r) => r.id));
+  const reales = todas.filter((f) => !dePrueba.has(f.cliente.id));
+  const gasto = redondear(reales.reduce((t, f) => t + f.gastoIa.gastoUsd, 0));
+  const limite = reales.reduce((t, f) => t + f.gastoIa.limiteUsd, 0);
   // Reunión 15 oct: el panel mira proyectos (etapas atrasadas) y requerimientos, no solo piezas.
   const hoy = HOY_LIMA();
   const etapas = (await ctx.c.query<{ servicio_contratado_id: string; cliente_nombre: string; estado: S<"EstadoHito">; fecha_estimada: Date | null }>(
     `SELECT ep.servicio_contratado_id, c.nombre AS cliente_nombre, ep.estado, ep.fecha_estimada
      FROM etapa_proyecto ep JOIN servicio_contratado sc ON sc.id = ep.servicio_contratado_id JOIN cliente c ON c.id = sc.cliente_id
-     WHERE sc.estado = 'ACTIVO'`,
+     WHERE sc.estado = 'ACTIVO' AND NOT c.es_prueba`,
   )).rows;
   const conRetraso = new Map<string, string>();
   for (const e of etapas) if (etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy)) conRetraso.set(e.servicio_contratado_id, e.cliente_nombre);
   const porCliente = new Map<string, number>();
   for (const c of conRetraso.values()) porCliente.set(c, (porCliente.get(c) ?? 0) + 1);
-  const abiertos = (await ctx.c.query<{ fecha_limite: Date }>("SELECT fecha_limite FROM requerimiento WHERE estado IN ('PENDIENTE', 'OBSERVADO')")).rows;
+  const abiertos = (await ctx.c.query<{ fecha_limite: Date }>("SELECT r.fecha_limite FROM requerimiento r JOIN cliente c ON c.id = r.cliente_id WHERE r.estado IN ('PENDIENTE', 'OBSERVADO') AND NOT c.es_prueba")).rows;
   const resumen: S<"ResumenAgencia"> = {
-    clientesActivos: todas.filter((f) => f.cliente.estado === "ACTIVO").length,
+    clientesActivos: reales.filter((f) => f.cliente.estado === "ACTIVO").length,
     proyectosConRetraso: conRetraso.size,
     retrasoPorCliente: [...porCliente].map(([clienteNombre, proyectos]) => ({ clienteNombre, proyectos })),
     requerimientosAtrasados: abiertos.filter((r) => diasAtraso(fechaIso(r.fecha_limite)!, hoy, ctx.feriados) > 0).length,
-    piezasAtrasadas: todas.reduce((t, f) => t + f.atrasadas, 0),
-    atrasadasPorCliente: todas.filter((f) => f.atrasadas).map((f) => ({ clienteNombre: f.cliente.nombre, atrasadas: f.atrasadas })),
-    aprobacionesPendientes: todas.reduce((t, f) => t + f.porAprobar, 0),
+    piezasAtrasadas: reales.reduce((t, f) => t + f.atrasadas, 0),
+    atrasadasPorCliente: reales.filter((f) => f.atrasadas).map((f) => ({ clienteNombre: f.cliente.nombre, atrasadas: f.atrasadas })),
+    aprobacionesPendientes: reales.reduce((t, f) => t + f.porAprobar, 0),
     gastoIaUsd: gasto,
     limiteIaUsd: limite,
     pctLimite: limite ? Math.round((gasto / limite) * 1000) / 10 : 0,
-    clientesSobreUmbral: todas.filter((f) => f.gastoIa.alerta).map((f) => ({ clienteId: f.cliente.id, clienteNombre: f.cliente.nombre, gastoUsd: f.gastoIa.gastoUsd, limiteUsd: f.gastoIa.limiteUsd, pctLimite: f.gastoIa.pctLimite })),
+    clientesSobreUmbral: reales.filter((f) => f.gastoIa.alerta).map((f) => ({ clienteId: f.cliente.id, clienteNombre: f.cliente.nombre, gastoUsd: f.gastoIa.gastoUsd, limiteUsd: f.gastoIa.limiteUsd, pctLimite: f.gastoIa.pctLimite })),
   };
   const datos = filtrarPanel(todas, q).map(({ amId: _a, ...f }) => f);
   return { resumen, datos, paginacion: { siguienteCursor: null, total: datos.length } };
@@ -4611,7 +4618,7 @@ ruta("GET", "/panel/costos-ia", async (ctx, _p, q) => {
             coalesce(sum(m.tokens_entrada), 0) AS entrada, coalesce(sum(m.tokens_salida), 0) AS salida,
             coalesce(sum(m.imagenes), 0) AS imagenes, coalesce(sum(m.costo_usd), 0) AS costo
      FROM cliente c LEFT JOIN consumo_modelo m ON m.cliente_id = c.id AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1
-     WHERE c.estado <> 'BAJA' GROUP BY c.id, c.nombre, c.limite_gasto_ia_usd, m.modelo`,
+     WHERE c.estado <> 'BAJA' AND NOT c.es_prueba GROUP BY c.id, c.nombre, c.limite_gasto_ia_usd, m.modelo`,
     [periodo],
   );
   const porCliente = new Map<string, S<"ReporteCostos">["clientes"][number]>();
@@ -5293,6 +5300,8 @@ async function ingresarConInooWork(req: Request): Promise<Response | null> {
     throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Usuario o contraseña incorrectos");
   }
   olvidarFallidos(usuarioIW);
+  // InooWork valida la contraseña aunque la ficha esté desactivada: eso se revisa aquí.
+  if (await fichaDesactivadaEnInooWork(r.empleadoId, r.usuario)) throw new ErrorApi(403, "CUENTA_DESACTIVADA", "Tu cuenta está desactivada", "Si es un error, escríbele a RRHH.");
   const id = await db.transaccion(async (c) => {
     // Cuentas antiguas de InooWork pueden no tener id de empleado: entonces, por su usuario.
     const u = (await c.query<{ id: string }>(
@@ -5389,6 +5398,44 @@ async function sesionPortal(camino: string, req: Request): Promise<Response> {
   }
 }
 
+/** ¿La ficha está desactivada en InooWork? Si InooWork no responde, no bloquea: la sincronización lo corrige. */
+async function fichaDesactivadaEnInooWork(empleadoId: string | null, usuario: string) {
+  try {
+    const u = usuario.toLowerCase();
+    const e = (await leerEmpleados()).find((x) => (empleadoId ? x.id === empleadoId : (x.username ?? "").toLowerCase() === u));
+    return e?.status === "inactive";
+  } catch (x) {
+    console.warn(JSON.stringify({ sesion: "estado_inoowork_sin_respuesta", error: (x as Error).message.slice(0, 200) }));
+    return false;
+  }
+}
+
+/**
+ * Trae los cambios del equipo desde InooWork: altas, datos y bajas. Las reglas de accesos siguen mandando: lo que
+ * llega así no da privilegios ni deja al portal sin super usuario. Una lista vacía no se aplica: sería un error.
+ */
+export async function sincronizarConInooWork() {
+  const empleados = await leerEmpleados();
+  if (!empleados.length) throw new Error("InooWork devolvió una lista vacía");
+  const ids = new Set(empleados.map((e) => e.id));
+  return comoSistema(async (c) => {
+    const ctx = { u: { usuarioId: "", tipo: "SERVICIO", clienteIds: [], roles: {}, nombre: "Sincronización", email: "", cargo: null, rolEquipo: null }, c, esEquipo: true, esServicio: true, feriados: new Set<string>() } as unknown as Ctx;
+    const enlazadas = (await c.query<{ id: string }>("SELECT inoowork_empleado_id AS id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id IS NOT NULL")).rows.map((r) => r.id);
+    return sincronizarEmpleadosDb(ctx, { empleados, empleadosEliminados: enlazadas.filter((id) => !ids.has(id)) });
+  });
+}
+
+let ultimaSincronizacion = 0;
+/** Cada INOOWORK_SYNC_MINUTOS (60; 0 la apaga), con el uso del portal. Nunca frena ni rompe la solicitud que la dispara. */
+function sincronizarSiToca(ahora = Date.now()) {
+  const minutos = Number(process.env.INOOWORK_SYNC_MINUTOS ?? 60);
+  if (!minutos || !inooworkConectado() || ahora - ultimaSincronizacion < minutos * 60_000) return;
+  ultimaSincronizacion = ahora;
+  void sincronizarConInooWork()
+    .then((r) => console.log(JSON.stringify({ inoowork: "sincronizado", ...r })))
+    .catch((e) => console.error(JSON.stringify({ inoowork: "sincronizacion_fallida", error: (e as Error).message.slice(0, 200) })));
+}
+
 async function sesion(camino: string, req: Request): Promise<Response> {
   try {
     if (camino === "/sesion/ingresar" && ingresoConInooWork()) {
@@ -5476,6 +5523,7 @@ async function ingresarDemo(req: Request): Promise<Response> {
 }
 
 export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promise<Response> {
+  sincronizarSiToca();
   const url = new URL(req.url, "http://localhost");
   const camino = url.pathname.startsWith(base) ? url.pathname.slice(base.length) || "/" : url.pathname;
   const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;

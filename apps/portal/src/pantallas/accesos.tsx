@@ -4,13 +4,32 @@
  * Asigna el nivel ADMIN a cualquiera o un lead a la gente de su área (las mismas reglas de la API).
  */
 import { useState, type FormEvent } from "react";
-import { LuKeyRound, LuLink, LuPlus, LuUsers, LuX } from "react-icons/lu";
-import { api, fCorta, ProblemaApi, useConsulta, type S } from "../base";
+import { LuKeyRound, LuLink, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
+import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Etiqueta, useAviso, usePortal } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
+import { mismoCliente } from "../dominio/tableros";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
 
 const ORIGEN: Record<S<"AccesoPersona">["origen"], string> = { AM: "AM de la cuenta", RESPONSABLE: "Responsable", ASIGNADO: "Asignado" };
+
+/** Los tableros de InooWork de este cliente, según el nombre que tienen allá. */
+export function TablerosDelCliente({ nombre }: { nombre: string }) {
+  const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
+  const suyos = (r.datos?.datos ?? []).filter((t) => mismoCliente(t.cliente, nombre));
+  if (!suyos.length) return null;
+  return (
+    <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
+      <h3 className="tarjeta-titulo fila" style={{ fontSize: 14.5, gap: 8 }}><LuSquareKanban size={15} /> Tableros de InooWork</h3>
+      {suyos.map((t) => (
+        <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="fila entre texto-sm boton-lista">
+          <span className="negrita">{t.nombre}</span>
+          <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total}{t.items.vencidos ? ` · ${t.items.vencidos} vencidos` : ""}</span>
+        </Enlace>
+      ))}
+    </section>
+  );
+}
 
 const ROL_CLIENTE: Record<S<"Miembro">["rol"], string> = { ADMIN_CLIENTE: "Administra la cuenta", APROBADOR: "Aprueba entregables", LECTOR: "Solo lectura" };
 
@@ -34,6 +53,20 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
       await navigator.clipboard.writeText(`${window.location.origin}${r.ruta}`);
       avisar({ titulo: `Enlace de ${m.nombre} copiado`, texto: `Sirve una sola vez y vence el ${fCorta(r.expiraEn)}. Pásaselo solo a esa persona.` });
     } catch (x) {
+      avisar({ titulo: "No pudimos crear el enlace", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const enviarPorWhatsApp = async (m: S<"Miembro">) => {
+    // Se abre antes de pedir el enlace: si no, el navegador lo trata como ventana emergente y la bloquea.
+    const ventana = window.open("about:blank", "_blank");
+    try {
+      const r = await api<{ ruta: string; expiraEn: string }>(`/clientes/${clienteId}/miembros/${m.usuarioId}/enlace-acceso`, { metodo: "POST", cuerpo: {} });
+      const texto = `Hola, ${m.nombre.split(/\s+/)[0]}: ya tienes acceso al portal de Inoo. Crea tu contraseña con este enlace personal, que sirve una sola vez y vence el ${fCorta(r.expiraEn)}: ${window.location.origin}${r.ruta}`;
+      const destino = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+      if (ventana) ventana.location.href = destino;
+      else window.location.href = destino;
+    } catch (x) {
+      ventana?.close();
       avisar({ titulo: "No pudimos crear el enlace", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
     }
   };
@@ -67,7 +100,10 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
             <span className="texto-xs texto-muted">{m.email} · {ROL_CLIENTE[m.rol]}</span>
             {m.invitacionPendiente && <span style={{ display: "block", marginTop: 4 }}><Etiqueta tono="ambar">Todavía no entra</Etiqueta></span>}
           </span>
-          <button className="boton boton--chico" onClick={() => void copiarEnlace(m)} aria-label={`Copiar enlace de acceso de ${m.nombre}`}><LuLink size={13} /> Copiar enlace</button>
+          <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+            <button className="boton boton--chico" onClick={() => void enviarPorWhatsApp(m)} aria-label={`Enviar enlace de acceso de ${m.nombre} por WhatsApp`}><LuMessageCircle size={13} /> WhatsApp</button>
+            <button className="boton boton--chico" onClick={() => void copiarEnlace(m)} aria-label={`Copiar enlace de acceso de ${m.nombre}`}><LuLink size={13} /> Copiar enlace</button>
+          </span>
         </div>
       ))}
       {agregando && (

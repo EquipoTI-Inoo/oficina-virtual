@@ -69,6 +69,10 @@ export function personasDelProyecto(p: ProyectoIW): PersonaIW[] {
 const hoy = () => new Date().toISOString().slice(0, 10);
 export const itemVencido = (i: { status: string; dueDate?: string }, dia = hoy()) => i.status !== "Completado" && !!i.dueDate && i.dueDate < dia;
 
+const normalizarCliente = (n: string) => n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/^prueba\s*·\s*/, "").replace(/\s+/g, " ").trim();
+/** En InooWork el cliente es texto: «Casa Oliva» y «casa  oliva» son el mismo. */
+export const mismoCliente = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && normalizarCliente(a) === normalizarCliente(b);
+
 /** En qué columna de «Proyectos» va un tablero. Los cancelados no se muestran (null). */
 export function columnaDeTablero(estado: string | null | undefined, vencidos: number) {
   switch (estado) {

@@ -1530,6 +1530,10 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.ver(p.id, yoTablero(ctx));
 });
+ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarCliente(p.id, yoTablero(ctx), await cuerpo<{ cliente?: unknown }>(req));
+});
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   return TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));

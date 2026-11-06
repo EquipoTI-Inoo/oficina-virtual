@@ -27,6 +27,22 @@ export function PantallaTablero() {
   );
 }
 
+/** El cliente del proyecto, elegido de los clientes reales para que no quede escrito de varias formas. */
+function ClienteDelTablero({ actual, cambiar }: { actual: string | null; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+  const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
+  const [valor, setValor] = useState(actual ?? "");
+  const nombres = [...new Set(["Inoo", ...(clientes.datos?.datos ?? []).map((c) => c.nombre)])];
+  const cambio = valor.trim() && valor.trim() !== (actual ?? "");
+  return (
+    <form className="fila" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }} onSubmit={(e) => { e.preventDefault(); if (cambio) void cambiar("", "PATCH", { cliente: valor.trim() }); }}>
+      <label htmlFor="tablero-cliente" className="texto-sm negrita" style={actual ? undefined : { color: "var(--c-alerta)" }}>{actual ? "Cliente" : "Falta el cliente"}</label>
+      <input id="tablero-cliente" className="input" style={{ width: 240 }} list="tablero-clientes" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Elige un cliente, o Inoo si es interno" />
+      <datalist id="tablero-clientes">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
+      {cambio && <button className="boton boton--chico boton--primario">Guardar</button>}
+    </form>
+  );
+}
+
 function TableroProyecto() {
   const { params } = useNavegacion();
   const r = useConsulta<Tablero>(`/tableros/${params.id}`);
@@ -68,6 +84,7 @@ function TableroProyecto() {
         bajada={t.descripcion ?? undefined}
         accion={!t.puedeEditar ? <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span> : undefined}
       />
+      {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div className="segmentado" role="tablist" aria-label="Vista del tablero">
           {vistas.map((v) => (

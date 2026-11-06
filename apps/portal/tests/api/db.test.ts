@@ -9,7 +9,7 @@ import { after, before, describe, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
-import { despacharCorreos, manejarSolicitudDb } from "../../src/servidor/api";
+import { despacharCorreos, manejarSolicitudDb, sincronizarConInooWork } from "../../src/servidor/api";
 import { usarVerificadorCognito } from "../../src/servidor/auth";
 import { usarFetchCognito } from "../../src/servidor/cognito";
 import { comoUsuario, desdePglite, usarBaseDatos } from "../../src/servidor/db";
@@ -44,6 +44,8 @@ import { FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CATALOGO_SERVICIOS, PLANTILLAS } from "../../src/dominio/servicios";
 import { BORRADOR, CASA_OLIVA, crearLlamar, DIEGO, MARTIN_LECTOR, NATIVA, pruebasFlujoPiezas, TU_RITUAL, VALERIA } from "./flujo-piezas";
 
+// La sincronización automática se prueba aparte: aquí no debe dispararse sola.
+process.env.INOOWORK_SYNC_MINUTOS = "0";
 const sql = (ruta: string) => readFileSync(new URL(`../../../../database/${ruta}`, import.meta.url), "utf8");
 const db = new PGlite({ extensions: { pgcrypto, citext } });
 const SEMILLAS = `${sql("semillas/0001_casa_oliva.sql")}\n${sql("semillas/0002_integraciones_demo.sql")}`;
@@ -101,6 +103,7 @@ before(async () => {
   await db.exec(sql("migraciones/0038_recordatorios.sql"));
   await db.exec(sql("migraciones/0039_super_usuario.sql"));
   await db.exec(sql("migraciones/0040_ingreso_portal.sql"));
+  await db.exec(sql("migraciones/0041_clientes_de_prueba.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -1157,5 +1160,81 @@ describe("Ingreso propio de los clientes e importación de InooWork · Postgres"
       restaurar();
       process.env.SESION_SECRETO = "s".repeat(40);
     }
+  });
+});
+
+describe("InooWork manda sobre quién está en el equipo · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const ADMIN = `demo.${uid(1, 4)}`;
+  const antes = { url: process.env.INOOWORK_URL, modo: process.env.AUTH_EQUIPO, secreto: process.env.SESION_SECRETO };
+  const lista = (xs: unknown[]) => usarFetchInooWork(async () => Response.json(xs));
+  const persona = async (correo: string) => (await db.query<{ activo: boolean; area: string | null; nivel_acceso: string | null; rol_equipo: string }>("SELECT activo, area::text AS area, nivel_acceso::text AS nivel_acceso, rol_equipo::text AS rol_equipo FROM usuario WHERE email = $1", [correo])).rows[0];
+  before(() => {
+    process.env.INOOWORK_URL = "http://inoowork.falso";
+    process.env.AUTH_EQUIPO = "inoowork";
+    process.env.SESION_SECRETO = "s".repeat(40);
+  });
+  after(() => {
+    usarFetchInooWork(null);
+    usarFetchIngreso(null);
+    for (const [k, v] of [["INOOWORK_URL", antes.url], ["AUTH_EQUIPO", antes.modo], ["SESION_SECRETO", antes.secreto]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  test("la sincronización trae altas y bajas, sin dar privilegios ni dejar al portal sin super usuario", async () => {
+    await reiniciar();
+    await db.query("UPDATE usuario SET inoowork_empleado_id = 'EMP-SUPER' WHERE id = $1", [uid(1, 4)]);
+    lista([
+      { id: "EMP-NUEVA", name: "Nora Nueva", email: "nora@inoo.pe", department: "Marketing", status: "active", username: "nora" },
+      { id: "EMP-FIN", name: "Fina Admin", email: "fina@inoo.pe", department: "Finanzas", status: "active", username: "fina" },
+      { id: "EMP-002", name: "Diego Castro", email: "diego.castro@inoo.pe", department: "Administración", status: "active", username: "diegocastro" },
+      { id: "EMP-003", name: "Camila Paredes", email: "camila.paredes@inoo.pe", department: "Diseño Grafico", status: "inactive", username: "camila" },
+    ]);
+    const r = await sincronizarConInooWork();
+    assert.equal(r.personasCreadas, 2);
+    assert.equal((await persona("nora@inoo.pe")).activo, true);
+    const fina = await persona("fina@inoo.pe");
+    assert.deepEqual([fina.nivel_acceso, fina.rol_equipo], ["PROYECTO", "DISENO"], "no entra con privilegios");
+    assert.equal((await persona("diego.castro@inoo.pe")).area, "CRM", "InooWork no le sube el nivel a nadie");
+    assert.equal((await persona("camila.paredes@inoo.pe")).activo, false, "desactivada allá, desactivada aquí");
+    assert.equal((await persona("finanzas@inoo.pe")).activo, false, "ya no está en InooWork");
+    assert.equal((await persona("admin@inoo.pe")).activo, true, "no se desactiva al último super usuario, aunque ya no esté allá");
+  });
+
+  test("si InooWork responde vacío o falla, no se toca a nadie", async () => {
+    await reiniciar();
+    lista([]);
+    await assert.rejects(sincronizarConInooWork(), /lista vacía/);
+    usarFetchInooWork(async () => new Response("{}", { status: 500 }));
+    await assert.rejects(sincronizarConInooWork());
+    const activos = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM usuario WHERE tipo = 'EQUIPO' AND activo")).rows[0].n;
+    assert.equal(activos, 4);
+  });
+
+  test("con la ficha desactivada en InooWork no se entra, aunque la contraseña sea correcta", async () => {
+    await reiniciar();
+    usarFetchIngreso(async () => Response.json({ message: "ok", userId: 7, username: "diegocastro", employeeId: "EMP-002" }));
+    const entrar = () => llamar("POST", "/sesion/ingresar", undefined, { email: "diegocastro", clave: "clave-iw" });
+    lista([{ id: "EMP-002", name: "Diego Castro", status: "inactive" }]);
+    const fuera = await entrar();
+    assert.deepEqual([fuera.status, fuera.json.codigo], [403, "CUENTA_DESACTIVADA"]);
+    lista([{ id: "EMP-002", name: "Diego Castro", status: "active" }]);
+    assert.equal((await entrar()).status, 200);
+    usarFetchInooWork(async () => { throw new Error("sin red"); });
+    assert.equal((await entrar()).status, 200, "si InooWork no contesta esa consulta, no deja a nadie afuera");
+  });
+
+  test("los clientes de prueba se ven en la lista, pero no cuentan en los números", async () => {
+    await reiniciar();
+    const numeros = async () => (await llamar("GET", "/panel/clientes", ADMIN)).json;
+    const antesN = await numeros();
+    assert.ok(antesN.resumen.clientesActivos > 0);
+    await db.query("UPDATE cliente SET es_prueba = true");
+    const despues = await numeros();
+    assert.deepEqual([despues.resumen.clientesActivos, despues.resumen.proyectosConRetraso, despues.resumen.requerimientosAtrasados, despues.resumen.piezasAtrasadas, despues.resumen.gastoIaUsd], [0, 0, 0, 0, 0]);
+    assert.equal(despues.datos.length, antesN.datos.length, "la lista sigue igual");
+    assert.deepEqual((await llamar("GET", "/panel/costos-ia?periodo=2026-10", ADMIN)).json.clientes, []);
   });
 });

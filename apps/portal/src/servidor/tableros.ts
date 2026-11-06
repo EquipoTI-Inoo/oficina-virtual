@@ -145,6 +145,11 @@ export function crearTableros(fallar: Fallar) {
         })),
     })),
     ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),
+    cambiarCliente: (id: string, yo: Yo, b: { cliente?: unknown }) => cambiar(id, yo, (p) => {
+      const cliente = typeof b.cliente === "string" ? b.cliente.trim() : "";
+      validar(cliente && cliente.length <= 120 ? [] : [{ campo: "cliente", mensaje: "Escribe el nombre del cliente" }]);
+      p.clientName = cliente;
+    }),
     crearItem: (id: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p) => {
       validar(validarItem(b, p, true));
       aplicarItem(p, b, null);

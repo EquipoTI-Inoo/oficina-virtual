@@ -17,6 +17,14 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
   const ids = async (token: string) => (await llamar("GET", "/tableros", token)).json.datos.map((x: any) => x.id).sort();
 
   describe(`Tableros de InooWork · ${nombre}`, () => {
+    test("el líder o un miembro le pone el cliente al tablero; quien no está en el proyecto, no", async () => {
+      await reiniciar();
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { cliente: "  Casa Oliva " })).json.cliente, "Casa Oliva");
+      assert.equal((await llamar("GET", "/tableros", DIEGO)).json.datos.find((x: any) => x.id === "PROJ-OPS01").cliente, "Casa Oliva");
+      assert.deepEqual((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { cliente: " " })).json.errores.map((e: any) => e.campo), ["cliente"]);
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", CAMILA, { cliente: "Otro" })).status, 404, "no es miembro");
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);

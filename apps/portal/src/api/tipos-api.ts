@@ -2320,7 +2320,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Cambia el cliente del proyecto en InooWork (líder, miembros activos y nivel ADMIN) */
+        patch: operations["cambiarClienteTablero"];
         trace?: never;
     };
     "/tableros/{proyectoId}/items": {
@@ -10743,6 +10744,36 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    cambiarClienteTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cliente: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
         };
     };
     crearItemTablero: {
