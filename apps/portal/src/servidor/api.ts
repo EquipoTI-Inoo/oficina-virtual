@@ -54,6 +54,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
+import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { anotarFallido, firmarSesion, ingresoConInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
@@ -2564,6 +2565,74 @@ const puedeEditarBotDb = (ctx: Ctx, b: FilaBot) => b.creado_por === ctx.u.usuari
 function exigirEditarBotDb(ctx: Ctx, b: FilaBot) {
   if (!puedeEditarBotDb(ctx, b)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
 }
+
+// ───────────────────────────── acciones de Jarvis con aprobación (6 nov)
+
+interface FilaAccionJarvis { id: string; sesion_id: string; tipo: TipoAccionJarvis; datos: DatosAccion; resumen: string; estado: string; error: string | null; enlace: string | null; creado_en: Date; decidido_en: Date | null }
+const accionJarvisVista = (a: FilaAccionJarvis) => ({
+  id: a.id, conversacion: a.sesion_id, tipo: a.tipo, resumen: a.resumen, estado: a.estado, error: a.error, enlace: a.enlace, creadoEn: iso(a.creado_en)!, decididoEn: iso(a.decidido_en),
+});
+
+ruta("POST", "/jarvis/propuestas", async (ctx, _p, _q, cuerpo) => {
+  const j = ctx.u.jarvis;
+  if (!j) throw new ErrorApi(403, "SOLO_JARVIS", "Esta ruta es para Jarvis", "Las propuestas las hace Jarvis y las aprueba su dueño en el chat.");
+  const v = validarAccionJarvis(await cuerpo());
+  if (v.errores.length) validacion(v.errores);
+  const d = v.datos!;
+  const pendientes = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM accion_jarvis WHERE usuario_id = $1 AND estado = 'PENDIENTE'", [ctx.u.usuarioId])).rows[0].n;
+  if (pendientes >= MAX_PENDIENTES_JARVIS) throw new ErrorApi(409, "DEMASIADAS_PROPUESTAS", `Tu dueño tiene ${pendientes} propuestas sin decidir`, "Pídele que apruebe o rechace las que tiene antes de proponer otra.");
+  // Lo que no vería la persona tampoco se le puede proponer (404 igual que si no existiera).
+  const sc = d.servicioContratadoId ? await buscarServicio(ctx, d.servicioContratadoId) : null;
+  const responsable = d.responsableId
+    ? (await ctx.c.query<{ nombre: string }>("SELECT nombre FROM usuario WHERE id = $1 AND tipo = 'EQUIPO' AND activo", [d.responsableId])).rows[0]?.nombre
+    : null;
+  if (d.responsableId && !responsable) validacion([{ campo: "datos.responsableId", mensaje: "Esa persona no está en el equipo" }]);
+  const resumen = resumenAccionJarvis(v.tipo!, d, { proyecto: sc ? tituloServicio(sc.nombre, sc.marca ?? sc.cliente_nombre) : null, responsable });
+  const a = (await ctx.c.query<FilaAccionJarvis>(
+    "INSERT INTO accion_jarvis (sesion_id, usuario_id, area, tipo, datos, resumen) VALUES ($1, $2, $3::area_equipo, $4, $5, $6) RETURNING *",
+    [j.sesionId, ctx.u.usuarioId, j.area, v.tipo, JSON.stringify(d), resumen],
+  )).rows[0];
+  return { __status: 201, ...accionJarvisVista(a), mensaje: `Propuesta lista. Todavía no está hecha: ${ctx.u.nombre} la tiene que aprobar en el chat.` };
+});
+
+ruta("GET", "/me/jarvis/propuestas", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const conv = q.get("conversacion");
+  const { rows } = await ctx.c.query<FilaAccionJarvis>(
+    `SELECT * FROM accion_jarvis WHERE usuario_id = $1 AND ($2::text IS NULL OR sesion_id = $2) ORDER BY creado_en DESC LIMIT 50`, [ctx.u.usuarioId, conv],
+  );
+  return { datos: rows.map(accionJarvisVista) };
+});
+
+ruta("POST", "/me/jarvis/propuestas/:id/decision", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.u.jarvis || ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo la persona puede decidir sus propuestas");
+  const b = await cuerpo();
+  if (typeof b.aprobar !== "boolean") validacion([{ campo: "aprobar", mensaje: "Di si la apruebas (true) o la rechazas (false)" }]);
+  const a = (await ctx.c.query<FilaAccionJarvis>("SELECT * FROM accion_jarvis WHERE id = $1 AND usuario_id = $2 FOR UPDATE", [esUuid(p.id) ? p.id : null, ctx.u.usuarioId])).rows[0];
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa propuesta");
+  if (a.estado !== "PENDIENTE") throw new ErrorApi(409, "YA_DECIDIDA", "Esa propuesta ya se decidió");
+  const cerrar = async (estado: string, extra: { error?: string | null; enlace?: string | null } = {}) =>
+    accionJarvisVista((await ctx.c.query<FilaAccionJarvis>(
+      "UPDATE accion_jarvis SET estado = $2::estado_accion_jarvis, error = $3, enlace = $4, decidido_en = now() WHERE id = $1 RETURNING *", [a.id, estado, extra.error ?? null, extra.enlace ?? null],
+    )).rows[0]);
+  if (!b.aprobar) return cerrar("RECHAZADA");
+  // La misma ruta que usaría la persona con un clic: mismas validaciones y permisos. Si falla, no queda nada a medias.
+  const accion = rutaDeAccionJarvis(a.tipo, a.datos);
+  const destino = RUTAS.map(([m, patron, fn]) => ({ fn, params: m === "POST" ? coincide(patron, accion.camino) : null })).find((x) => x.params);
+  if (!destino) return cerrar("FALLIDA", { error: "Esa acción ya no existe en el portal" });
+  await ctx.c.query("SAVEPOINT accion_jarvis");
+  try {
+    const r = await destino.fn(ctx, destino.params!, new URLSearchParams(), async () => structuredClone(accion.cuerpo));
+    await ctx.c.query("RELEASE SAVEPOINT accion_jarvis");
+    return cerrar("APROBADA", { enlace: accion.enlace(r) });
+  } catch (e) {
+    await ctx.c.query("ROLLBACK TO SAVEPOINT accion_jarvis");
+    if (!(e instanceof ErrorApi) || e.status >= 500) throw e;
+    const detalle = [e.titulo, ...(e.errores ?? []).map((x) => x.mensaje)].filter(Boolean).join(": ");
+    return cerrar("FALLIDA", { error: detalle.slice(0, 500) });
+  }
+});
 
 ruta("GET", "/jarvis/bots", async (ctx) => {
   soloEquipo(ctx);

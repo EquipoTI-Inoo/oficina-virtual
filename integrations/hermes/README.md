@@ -19,7 +19,7 @@ Esta prueba mide tres cosas antes de construir nada en el portal:
 
 | Archivo | Qué es |
 | --- | --- |
-| `mcp-portal.mjs` | MCP del portal, solo lectura. Herramientas: `mi_panel`, `mis_proyectos`, `proyecto`, `tareas_proyecto`, `requerimientos_cliente`. Node 22, sin dependencias |
+| `mcp-portal.mjs` | MCP del portal. Lee con `mi_panel`, `mis_proyectos`, `proyecto`, `tareas_proyecto`, `requerimientos_cliente`, y propone con `proponer_accion` (tarea, comentario interno o pendiente): nada se hace hasta que la persona lo aprueba en el chat. Node 22, sin dependencias |
 | `config.example.yaml` | Bloques para `~/.hermes/config.yaml`: modelo por la pasarela del portal, contenedor Docker y el MCP del portal |
 | `env.example` | Llaves para `~/.hermes/.env`: la clave del área y el token del MCP |
 
@@ -77,6 +77,6 @@ Ojo con el horario pico de DeepSeek (precio doble): de 20:00 a 23:00 y de 01:00 
   conversación con `X-Hermes-Session-Id`.
 - **Un perfil por colaborador** (`hermes profile create <nombre>`), cada uno con su puerto, su clave y su token del
   portal. El token deja de ser `demo.*`: el portal emite uno por persona.
-- **Herramientas de escritura** (crear tareas y comentarios internos). Lo que le llegaría al cliente queda como
-  borrador que aprueba una persona.
+- **Herramientas de escritura:** hechas el 6 nov con `proponer_accion` (tareas, comentarios internos y pendientes),
+  siempre con la aprobación de la persona en el chat. Lo que le llegaría al cliente sigue fuera.
 - **Un VPS propio para los agentes**, separado del portal.

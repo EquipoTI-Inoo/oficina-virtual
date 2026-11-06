@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * MCP del portal para Hermes (prueba de concepto de «Mi Jarvis»). Solo lectura.
+ * MCP del portal para Hermes («Mi Jarvis»). Lee el portal y, desde el 6 nov, propone acciones: crear una tarea,
+ * un comentario interno o un pendiente del calendario. Nada se hace hasta que la persona lo aprueba en el chat.
  *
  * Hermes lo lanza como servidor stdio (ver config.example.yaml). Habla JSON-RPC por líneas en
  * stdin/stdout (Model Context Protocol) y llama a la API del portal como la persona que está chateando
@@ -23,19 +24,22 @@ const VERSION_PROTOCOLO = "2025-06-18";
 
 const log = (...a) => console.error("[mcp-portal]", ...a);
 
-async function api(ruta, conversacion) {
-  const headers = { Accept: "application/json" };
+async function api(ruta, conversacion, cuerpo) {
+  const headers = { Accept: "application/json", ...(cuerpo === undefined ? {} : { "Content-Type": "application/json" }) };
   if (CLAVE) {
     if (!conversacion) throw new Error("Falta «conversacion»: pasa el código que viene en tus instrucciones.");
     Object.assign(headers, { Authorization: `Bearer ${CLAVE}`, "X-Jarvis-Conversacion": conversacion });
   } else {
     headers.Authorization = `Bearer ${TOKEN}`;
   }
-  const r = await fetch(`${BASE}${ruta}`, { headers });
+  const r = await fetch(`${BASE}${ruta}`, { method: cuerpo === undefined ? "GET" : "POST", headers, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
   const texto = await r.text();
   if (!r.ok) {
     let detalle = texto;
-    try { detalle = JSON.parse(texto).detail ?? JSON.parse(texto).title ?? texto; } catch { /* texto plano */ }
+    try {
+      const j = JSON.parse(texto);
+      detalle = [j.title, j.detail, ...(j.errores ?? []).map((e) => `${e.campo}: ${e.mensaje}`)].filter(Boolean).join(" · ") || texto;
+    } catch { /* texto plano */ }
     throw new Error(`El portal respondió ${r.status} en ${ruta}: ${detalle}`);
   }
   return texto ? JSON.parse(texto) : null;
@@ -89,6 +93,23 @@ const HERRAMIENTAS = [
     inputSchema: { type: "object", properties: { clienteId: id("Id del cliente") }, required: ["clienteId"] },
     run: ({ clienteId, conversacion }) => api(`/clientes/${enc(clienteId)}/requerimientos`, conversacion),
   },
+  {
+    name: "proponer_accion",
+    description:
+      "Propone hacer algo en el portal. NO lo hace: la persona lo ve en el chat y lo aprueba o lo rechaza. Úsalo solo cuando te lo pidan. " +
+      "Tipos: CREAR_TAREA (servicioContratadoId, titulo, y opcionales descripcion, responsableId, fechaLimite AAAA-MM-DD), " +
+      "COMENTAR_PROYECTO (servicioContratadoId, texto; siempre interno, el cliente no lo ve) y CREAR_PENDIENTE (titulo, fecha AAAA-MM-DD, notas opcional) en su calendario. " +
+      "Saca los ids de mis_proyectos o proyecto. Después dile a la persona que quedó esperando su aprobación.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tipo: { type: "string", enum: ["CREAR_TAREA", "COMENTAR_PROYECTO", "CREAR_PENDIENTE"] },
+        datos: { type: "object", description: "Los campos del tipo elegido" },
+      },
+      required: ["tipo", "datos"],
+    },
+    run: ({ tipo, datos, conversacion }) => api("/jarvis/propuestas", conversacion, { tipo, datos }),
+  },
 ];
 
 function responder(idMsg, result) {
@@ -106,7 +127,7 @@ async function atender(msg) {
       return responder(idMsg, {
         protocolVersion: params?.protocolVersion ?? VERSION_PROTOCOLO,
         capabilities: { tools: {} },
-        serverInfo: { name: "inoo-portal", version: "0.1.0" },
+        serverInfo: { name: "inoo-portal", version: "0.2.0" },
       });
     case "ping":
       return responder(idMsg, {});

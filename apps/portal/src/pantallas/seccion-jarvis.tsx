@@ -6,8 +6,8 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronDown, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
-import { api, BASE, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
+import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
+import { api, BASE, Enlace, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
 import { COLORES_BOT, FORMAS_BOT, saludoInicial, sinBloqueTrabajo } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
@@ -273,6 +273,61 @@ async function leerRespuesta(cuerpo: ReadableStream<Uint8Array>, alTexto: (t: st
   }
 }
 
+/**
+ * Lo que Jarvis propuso en esta conversación (6 nov): nada se hace hasta que la persona lo aprueba aquí.
+ * Al aprobar, el portal lo hace como ella, con sus permisos.
+ */
+function PropuestasJarvis({ sesion, version }: { sesion: string; version: number }) {
+  const r = useConsulta<{ datos: S<"AccionJarvis">[] }>(`/me/jarvis/propuestas?conversacion=${encodeURIComponent(sesion)}`);
+  const avisar = useAviso();
+  const [decidiendo, setDecidiendo] = useState<string | null>(null);
+  const { recargar } = r;
+  useEffect(() => {
+    if (version) void recargar();
+  }, [version, recargar]);
+  const decidir = async (a: S<"AccionJarvis">, aprobar: boolean) => {
+    setDecidiendo(a.id);
+    try {
+      const x = await api<S<"AccionJarvis">>(`/me/jarvis/propuestas/${a.id}/decision`, { metodo: "POST", cuerpo: { aprobar } });
+      avisar(x.estado === "APROBADA" ? { titulo: "Hecho" } : x.estado === "FALLIDA" ? { titulo: "No se pudo hacer", texto: x.error ?? undefined } : { titulo: "Propuesta rechazada" });
+    } catch (e) {
+      avisar({ titulo: "No pudimos decidir", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    } finally {
+      setDecidiendo(null);
+      void recargar();
+    }
+  };
+  const xs = [...(r.datos?.datos ?? [])].reverse();
+  if (!xs.length) return null;
+  return (
+    <div className="pila" style={{ gap: 8 }} aria-label="Propuestas de Jarvis" role="region">
+      {xs.map((a) => (
+        <div key={a.id} className={`propuesta-jarvis propuesta-jarvis--${a.estado.toLowerCase()}`}>
+          <span className="fila" style={{ gap: 8, alignItems: "flex-start" }}>
+            <span aria-hidden style={{ display: "inline-flex", marginTop: 2 }}>
+              {a.estado === "PENDIENTE" ? <LuHand size={15} /> : a.estado === "APROBADA" ? <LuCheck size={15} /> : a.estado === "FALLIDA" ? <LuCircleAlert size={15} /> : <LuX size={15} />}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span className="texto-xs texto-muted" style={{ display: "block" }}>
+                {a.estado === "PENDIENTE" ? "Quiere hacer esto. Solo pasa si lo apruebas:" : a.estado === "APROBADA" ? "Hecho" : a.estado === "FALLIDA" ? "No se pudo hacer" : "Rechazado"}
+              </span>
+              <span className="texto-sm">{a.resumen}</span>
+              {a.error && <span className="texto-xs" style={{ display: "block", color: "var(--c-alerta)" }}>{a.error}</span>}
+              {a.estado === "APROBADA" && a.enlace && <Enlace a={a.enlace} className="enlace texto-xs">Ver dónde quedó</Enlace>}
+            </span>
+          </span>
+          {a.estado === "PENDIENTE" && (
+            <span className="fila" style={{ gap: 8 }}>
+              <button className="boton boton--chico boton--primario" disabled={!!decidiendo} onClick={() => void decidir(a, true)}>Aprobar</button>
+              <button className="boton boton--chico" disabled={!!decidiendo} onClick={() => void decidir(a, false)}>Rechazar</button>
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado: boolean; alEditar: () => void; alCambiar: () => void }) {
   const [sesion, setSesion] = useState(() => (typeof window === "undefined" ? crypto.randomUUID() : sesionDe(bot.id)));
   // Bot recién creado (sin trabajo): saluda y empieza a preguntar para configurarse, como Grok.
@@ -287,6 +342,8 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
   const selector = useRef<HTMLInputElement>(null);
   const [viendo, setViendo] = useState<number | null>(null);
   const [menu, setMenu] = useState(false);
+  // Sube al terminar cada respuesta: Jarvis pudo haber dejado una propuesta.
+  const [vuelta, setVuelta] = useState(0);
   const avisar = useAviso();
   const fin = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -371,6 +428,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
       corte.current = null;
       setPasos([]);
       setEnviando(false);
+      setVuelta((n) => n + 1);
     }
   };
   const nuevaConversacion = () => {
@@ -475,6 +533,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
             </div>
           ),
         )}
+        <PropuestasJarvis sesion={sesion} version={vuelta} />
         <div ref={fin} />
       </div>
       {(adjuntos.length > 0 || leyendo > 0) && (

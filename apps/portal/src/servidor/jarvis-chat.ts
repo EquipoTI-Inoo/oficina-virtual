@@ -134,7 +134,7 @@ export function areaDeClaveHermes(clave: string): Area | null {
 
 const MARCA = /⟦inoo:([A-Za-z0-9_-]{8,64})⟧/g;
 export const marcaSesion = (sesionId: string) =>
-  `\n\nCódigo de esta conversación: ⟦inoo:${sesionId}⟧. En cada herramienta del portal pasa conversacion="${sesionId}"; sin él, el portal no te responde.`;
+  `\n\nCódigo de esta conversación: ⟦inoo:${sesionId}⟧. En cada herramienta del portal pasa conversacion="${sesionId}"; sin él, el portal no te responde. Si te piden hacer algo (una tarea, un comentario interno o un pendiente), usa proponer_accion: no se hace hasta que la persona lo apruebe aquí en el chat, así que dile que quedó esperando su aprobación.`;
 
 /** La conversación marcada en los mensajes, o null. */
 export function leerMarca(mensajes: unknown): string | null {

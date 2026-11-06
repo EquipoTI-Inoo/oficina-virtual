@@ -183,6 +183,80 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       }
     });
 
+    test("acciones con aprobación: Jarvis propone, su dueño decide y el portal lo hace como él", async () => {
+      await reiniciar();
+      const antesHermes = process.env.JARVIS_HERMES;
+      const fetchPrevio = globalThis.fetch;
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (!String(url).startsWith("http://hermes.falso")) return fetchPrevio(url, init);
+        return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      process.env.JARVIS_HERMES = JSON.stringify({ CRM: { url: "http://hermes.falso", clave: "hk_crm" }, DISENO: { url: "http://hermes.falso", clave: "hk_diseno" } });
+      try {
+        const bot = (await llamar("GET", "/jarvis/bots", DIEGO)).json.bots[0];
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "hola", sesionId: "conv-acciones-1" });
+        const hermes = (metodo: string, camino: string, cuerpo?: unknown, conv = "conv-acciones-1", clave = "hk_crm") =>
+          llamar(metodo, camino, undefined, cuerpo, { authorization: `Bearer ${clave}`, "x-jarvis-conversacion": conv });
+        const proyecto = (await llamar("GET", `/panel/proyectos?responsableId=${uid(1, 3)}`, DIEGO)).json.datos[0];
+        const sc = proyecto.servicioContratadoId;
+
+        assert.equal((await hermes("POST", `/servicios-contratados/${sc}/tareas`, { titulo: "Directo" })).status, 403, "sigue sin poder escribir directo");
+        assert.equal((await llamar("POST", "/jarvis/propuestas", DIEGO, { tipo: "CREAR_PENDIENTE", datos: {} })).json.codigo, "SOLO_JARVIS");
+        const mala = await hermes("POST", "/jarvis/propuestas", { tipo: "BORRAR_TODO", datos: {} });
+        assert.deepEqual([mala.status, mala.json.errores[0].campo], [422, "tipo"]);
+        assert.deepEqual((await hermes("POST", "/jarvis/propuestas", { tipo: "CREAR_TAREA", datos: { servicioContratadoId: sc, titulo: "x" } })).json.errores.map((e: any) => e.campo), ["datos.titulo"]);
+
+        const tarea = await hermes("POST", "/jarvis/propuestas", { tipo: "CREAR_TAREA", datos: { servicioContratadoId: sc, titulo: "Revisar el mapa del sitio", responsableId: uid(1, 6), fechaLimite: "2026-10-20" } });
+        assert.equal(tarea.status, 201);
+        assert.equal(tarea.json.estado, "PENDIENTE");
+        assert.match(tarea.json.resumen, /Crear la tarea «Revisar el mapa del sitio» en «.+» para Camila Paredes, vence el 2026-10-20/);
+        assert.match(tarea.json.mensaje, /Todavía no está hecha/);
+        const titulos = async () => (await llamar("GET", `/servicios-contratados/${sc}/tareas`, DIEGO)).json.datos.map((t: any) => t.titulo);
+        assert.ok(!(await titulos()).includes("Revisar el mapa del sitio"), "nada hasta que la apruebe");
+
+        assert.equal((await hermes("POST", `/me/jarvis/propuestas/${tarea.json.id}/decision`, { aprobar: true })).status, 403, "Jarvis no se aprueba solo");
+        assert.equal((await llamar("POST", `/me/jarvis/propuestas/${tarea.json.id}/decision`, CAMILA, { aprobar: true })).status, 404, "solo su dueño");
+        const lista = (await llamar("GET", "/me/jarvis/propuestas?conversacion=conv-acciones-1", DIEGO)).json.datos;
+        assert.deepEqual(lista.map((x: any) => [x.id, x.estado]), [[tarea.json.id, "PENDIENTE"]]);
+        assert.deepEqual((await llamar("GET", "/me/jarvis/propuestas", CAMILA)).json.datos, []);
+
+        const ok = await llamar("POST", `/me/jarvis/propuestas/${tarea.json.id}/decision`, DIEGO, { aprobar: true });
+        assert.deepEqual([ok.status, ok.json.estado, ok.json.enlace], [200, "APROBADA", `/equipo/proyectos/${sc}`]);
+        const creada = (await llamar("GET", `/servicios-contratados/${sc}/tareas`, DIEGO)).json.datos.find((t: any) => t.titulo === "Revisar el mapa del sitio");
+        assert.deepEqual([creada.responsable?.nombre, creada.fechaLimite], ["Camila Paredes", "2026-10-20"]);
+        assert.equal((await llamar("POST", `/me/jarvis/propuestas/${tarea.json.id}/decision`, DIEGO, { aprobar: true })).json.codigo, "YA_DECIDIDA");
+
+        const com = (await hermes("POST", "/jarvis/propuestas", { tipo: "COMENTAR_PROYECTO", datos: { servicioContratadoId: sc, texto: "Ojo con el plazo del cliente" } })).json;
+        assert.equal((await llamar("POST", `/me/jarvis/propuestas/${com.id}/decision`, DIEGO, { aprobar: true })).json.estado, "APROBADA");
+        const coms = (await llamar("GET", `/servicios-contratados/${sc}/comentarios`, DIEGO)).json.datos.filter((c: any) => c.texto === "Ojo con el plazo del cliente");
+        assert.deepEqual(coms.map((c: any) => c.interno), [true], "siempre interno");
+        if (proyecto.clienteId === uid(2, 1)) {
+          assert.ok(!(await llamar("GET", `/servicios-contratados/${sc}/comentarios`, VALERIA)).json.datos.some((c: any) => c.texto === "Ojo con el plazo del cliente"), "el cliente no lo ve");
+        }
+
+        const pend = (await hermes("POST", "/jarvis/propuestas", { tipo: "CREAR_PENDIENTE", datos: { titulo: "Mandar el acta", fecha: "2026-10-08" } })).json;
+        assert.equal((await llamar("POST", `/me/jarvis/propuestas/${pend.id}/decision`, DIEGO, { aprobar: false })).json.estado, "RECHAZADA");
+        const agenda = (await llamar("GET", "/me/agenda?desde=2026-10-01&hasta=2026-10-31", DIEGO)).json;
+        assert.ok(!JSON.stringify(agenda).includes("Mandar el acta"), "rechazada: no se hace");
+
+        const imposible = (await hermes("POST", "/jarvis/propuestas", { tipo: "CREAR_PENDIENTE", datos: { titulo: "Día que no existe", fecha: "2026-02-30" } })).json;
+        const falla = (await llamar("POST", `/me/jarvis/propuestas/${imposible.id}/decision`, DIEGO, { aprobar: true })).json;
+        assert.equal(falla.estado, "FALLIDA");
+        assert.match(falla.error, /Elige el día/);
+
+        await llamar("PATCH", `/panel/equipo/${uid(1, 6)}`, ADMIN, { area: "CRM" });
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "hola", sesionId: "conv-acciones-2" });
+        const ajeno = (await llamar("GET", "/panel/proyectos", ADMIN)).json.datos.find((x: any) => x.clienteId === uid(2, 2));
+        if (ajeno) {
+          assert.equal((await hermes("POST", "/jarvis/propuestas", { tipo: "COMENTAR_PROYECTO", datos: { servicioContratadoId: ajeno.servicioContratadoId, texto: "hola" } }, "conv-acciones-2")).status, 404, "con los permisos de Camila");
+        }
+      } finally {
+        globalThis.fetch = fetchPrevio;
+        if (antesHermes === undefined) delete process.env.JARVIS_HERMES;
+        else process.env.JARVIS_HERMES = antesHermes;
+      }
+    });
+
     test("archivos e imágenes en el chat, y los pasos de Hermes llegan al navegador", async () => {
       await reiniciar();
       const antesHermes = process.env.JARVIS_HERMES;

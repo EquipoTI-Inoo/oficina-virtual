@@ -2060,6 +2060,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jarvis/propuestas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Jarvis propone una acción (tarea, comentario interno o pendiente del calendario); su dueño la aprueba en el chat
+         * @description Solo para el Hermes del área, con su clave y X-Jarvis-Conversacion: es lo único que Jarvis puede mandar por POST.
+         *     No hace nada todavía: queda PENDIENTE hasta que la persona dueña de la conversación decide. Lo que esa persona
+         *     no vería (un proyecto ajeno) da 404. Hasta 10 pendientes por persona.
+         */
+        post: operations["proponerAccionJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/propuestas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lo que Jarvis me propuso (las últimas 50), de una conversación o de todas */
+        get: operations["listarMisPropuestasJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/propuestas/{propuestaId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                propuestaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Aprobar (el portal lo hace como yo, con mis permisos) o rechazar una propuesta de Jarvis
+         * @description Si al hacerla el portal la rechaza (p. ej. una fecha que no existe), queda FALLIDA con el motivo y no se hace nada.
+         */
+        post: operations["decidirPropuestaJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jarvis/bots": {
         parameters: {
             query?: never;
@@ -4065,6 +4126,25 @@ export interface components {
             forma?: "CIRCULO" | "CUADRADO" | "ROMBO";
             /** @description Su trabajo: qué hace, con qué fuentes y qué no debe hacer */
             instrucciones?: string;
+        };
+        AccionJarvis: {
+            /** Format: uuid */
+            id: string;
+            conversacion: string;
+            /** @enum {string} */
+            tipo: "CREAR_TAREA" | "COMENTAR_PROYECTO" | "CREAR_PENDIENTE";
+            /** @description Lo que se va a hacer */
+            resumen: string;
+            /** @enum {string} */
+            estado: "PENDIENTE" | "APROBADA" | "RECHAZADA" | "FALLIDA";
+            /** @description Por qué falló al hacerla */
+            error: string | null;
+            /** @description Dónde quedó (ruta del portal) */
+            enlace: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            decididoEn: string | null;
         };
         BotJarvis: {
             /** Format: uuid */
@@ -10178,6 +10258,114 @@ export interface operations {
                 content?: never;
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    proponerAccionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    tipo: "CREAR_TAREA" | "COMENTAR_PROYECTO" | "CREAR_PENDIENTE";
+                    /**
+                     * @description CREAR_TAREA: servicioContratadoId, titulo, descripcion?, responsableId?, fechaLimite? (AAAA-MM-DD).
+                     *     COMENTAR_PROYECTO: servicioContratadoId, texto (siempre interno). CREAR_PENDIENTE: titulo, fecha, notas?.
+                     */
+                    datos: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Propuesta guardada, sin hacer */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccionJarvis"] & {
+                        mensaje: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description Demasiadas propuestas sin decidir */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarMisPropuestasJarvis: {
+        parameters: {
+            query?: {
+                conversacion?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["AccionJarvis"][];
+                    };
+                };
+            };
+        };
+    };
+    decidirPropuestaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                propuestaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    aprobar: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccionJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description Ya se decidió */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Validacion"];
         };
     };
     botsDeMiArea: {

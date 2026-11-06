@@ -2473,3 +2473,9 @@ button.cuenta { cursor: pointer; }
 .busqueda-resultados { max-height: min(60vh, 460px); overflow-y: auto; }
 .busqueda-item { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .busqueda-item[aria-selected="true"] { background: var(--c-primario-suave); }
+
+/* Propuestas de Jarvis en el chat (6 nov). */
+.propuesta-jarvis { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid var(--c-borde); border-radius: 12px; background: var(--c-superficie, #fff); }
+.propuesta-jarvis--pendiente { border-color: var(--c-primario); background: var(--c-primario-suave); }
+.propuesta-jarvis--fallida { border-color: var(--c-alerta); }
+.propuesta-jarvis--rechazada { opacity: .7; }

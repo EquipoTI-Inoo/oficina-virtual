@@ -41,6 +41,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
+import { esPropuestaJarvis, MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type EstadoAccionJarvis, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
 import { calcularAvance, calcularMetricas, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
@@ -114,6 +115,8 @@ interface Estado {
   sesionesJarvis: Record<string, { usuarioId: string; area: Area }>;
   /** Recordatorios ya enviados (fase 18): no se repiten. */
   recordatoriosEnviados: string[];
+  /** Lo que Jarvis propone y su dueño aprueba en el chat (6 nov). */
+  accionesJarvis: { id: string; sesionId: string; usuarioId: string; tipo: TipoAccionJarvis; datos: DatosAccion; resumen: string; estado: EstadoAccionJarvis; error: string | null; enlace: string | null; creadoEn: string; decididoEn: string | null }[];
   /** Historial de accesos (5 nov): lo más nuevo al final. */
   cambiosAcceso: { id: string; usuarioId: string; hechoPorId: string | null; campo: string; antes: string; despues: string; creadoEn: string }[];
   /** Enlaces para crear la contraseña: token → usuario. */
@@ -200,6 +203,7 @@ function estadoInicial(): Estado {
     llavesJarvis: llavesGuardadas(),
     sesionesJarvis: {},
     recordatoriosEnviados: [],
+    accionesJarvis: [],
     cambiosAcceso: [],
     enlacesClave: {},
     consumoJarvis: [],
@@ -266,6 +270,8 @@ interface Ctx {
   esEquipo: boolean;
   /** Llamada de n8n con X-Api-Key (rutas /integraciones/*). */
   esServicio?: boolean;
+  /** Pide Jarvis desde esta conversación (6 nov): lee como su dueño y solo puede proponer acciones. */
+  jarvis?: { sesionId: string; area: Area };
   /**
    * «Ver como cliente» (2 nov): alguien del equipo usa el portal de ese cliente con X-En-Nombre-De. La API lo
    * trata como el cliente (ADMIN_CLIENTE) y lo que haga queda firmado con su nombre «en nombre del cliente».
@@ -297,11 +303,11 @@ function autenticar(req: Request): Ctx {
     // Jarvis (2 nov): el Hermes del área lee el portal como la persona dueña de la conversación. Solo lectura.
     const area = areaDeClaveHermes(token);
     if (!area) throw new ErrorApi(401, "NO_AUTENTICADO", "Clave de Jarvis inválida");
-    if (req.method !== "GET") throw new ErrorApi(403, "SOLO_LECTURA", "Jarvis solo puede leer el portal");
+    if (req.method !== "GET" && !esPropuestaJarvis(req)) throw new ErrorApi(403, "SOLO_LECTURA", "Jarvis solo puede leer el portal", "Para hacer algo, usa proponer_accion: tu dueño lo aprueba en el chat.");
     const s = E.sesionesJarvis[conversacion];
     const usuario = s && s.area === area ? E.usuarios.find((u) => u.id === s.usuarioId && u.tipo === "EQUIPO" && u.activo !== false) : undefined;
     if (!usuario) throw new ErrorApi(401, "NO_AUTENTICADO", "Esa conversación no existe en tu área", "Pasa en «conversacion» el código que viene en tus instrucciones.");
-    return { usuario, esEquipo: true };
+    return { usuario, esEquipo: true, jarvis: { sesionId: conversacion, area } };
   }
   const id = token.startsWith("demo.") ? token.slice(5) : null;
   const usuario = E.usuarios.find((u) => u.id === id && u.activo !== false);
@@ -3216,6 +3222,66 @@ const puedeEditarBot = (ctx: Ctx, b: D.BotJarvisDemo) => b.creadoPorId === ctx.u
 function exigirEditarBot(ctx: Ctx, b: D.BotJarvisDemo) {
   if (!puedeEditarBot(ctx, b)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
 }
+
+// ───────────────────────────── acciones de Jarvis con aprobación (6 nov)
+
+const accionJarvisVista = (a: Estado["accionesJarvis"][number]) => ({
+  id: a.id, conversacion: a.sesionId, tipo: a.tipo, resumen: a.resumen, estado: a.estado, error: a.error, enlace: a.enlace, creadoEn: a.creadoEn, decididoEn: a.decididoEn,
+});
+
+ruta("POST", "/jarvis/propuestas", async (ctx, _p, _q, req) => {
+  const j = ctx.jarvis;
+  if (!j) throw new ErrorApi(403, "SOLO_JARVIS", "Esta ruta es para Jarvis", "Las propuestas las hace Jarvis y las aprueba su dueño en el chat.");
+  const v = validarAccionJarvis(await cuerpo(req));
+  if (v.errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, v.errores);
+  const d = v.datos!;
+  const pendientes = E.accionesJarvis.filter((a) => a.usuarioId === ctx.usuario.id && a.estado === "PENDIENTE").length;
+  if (pendientes >= MAX_PENDIENTES_JARVIS) throw new ErrorApi(409, "DEMASIADAS_PROPUESTAS", `Tu dueño tiene ${pendientes} propuestas sin decidir`, "Pídele que apruebe o rechace las que tiene antes de proponer otra.");
+  // Lo que no vería la persona tampoco se le puede proponer (404 igual que si no existiera).
+  const sc = d.servicioContratadoId ? E.servicios.find((x) => x.id === d.servicioContratadoId) : null;
+  if (d.servicioContratadoId && (!sc || !veProyecto(alcance(ctx), sc.id))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  const responsable = d.responsableId ? E.usuarios.find((u) => u.id === d.responsableId && u.tipo === "EQUIPO" && u.activo !== false)?.nombre : null;
+  if (d.responsableId && !responsable) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "datos.responsableId", mensaje: "Esa persona no está en el equipo" }]);
+  const a = {
+    id: crypto.randomUUID(), sesionId: j.sesionId, usuarioId: ctx.usuario.id, tipo: v.tipo!, datos: d, resumen: resumenAccionJarvis(v.tipo!, d, { proyecto: sc ? tituloDe(sc) : null, responsable }),
+    estado: "PENDIENTE" as const, error: null, enlace: null, creadoEn: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), decididoEn: null,
+  };
+  E.accionesJarvis.push(a);
+  return { __status: 201, ...accionJarvisVista(a), mensaje: `Propuesta lista. Todavía no está hecha: ${ctx.usuario.nombre} la tiene que aprobar en el chat.` };
+});
+
+ruta("GET", "/me/jarvis/propuestas", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const conv = q.get("conversacion");
+  return { datos: E.accionesJarvis.filter((a) => a.usuarioId === ctx.usuario.id && (!conv || a.sesionId === conv)).reverse().slice(0, 50).map(accionJarvisVista) };
+});
+
+ruta("POST", "/me/jarvis/propuestas/:id/decision", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.jarvis || ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo la persona puede decidir sus propuestas");
+  const b = await cuerpo<{ aprobar?: unknown }>(req);
+  if (typeof b.aprobar !== "boolean") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "aprobar", mensaje: "Di si la apruebas (true) o la rechazas (false)" }]);
+  const a = E.accionesJarvis.find((x) => x.id === p.id && x.usuarioId === ctx.usuario.id);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa propuesta");
+  if (a.estado !== "PENDIENTE") throw new ErrorApi(409, "YA_DECIDIDA", "Esa propuesta ya se decidió");
+  const cerrar = (estado: EstadoAccionJarvis, extra: { error?: string | null; enlace?: string | null } = {}) => {
+    Object.assign(a, { estado, error: extra.error ?? null, enlace: extra.enlace ?? null, decididoEn: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") });
+    return accionJarvisVista(a);
+  };
+  if (!b.aprobar) return cerrar("RECHAZADA");
+  // La misma ruta que usaría la persona con un clic: mismas validaciones y permisos.
+  const accion = rutaDeAccionJarvis(a.tipo, a.datos);
+  const destino = RUTAS.map(([m, patron, fn]) => ({ fn, params: m === "POST" ? coincide(patron, accion.camino) : null })).find((x) => x.params);
+  if (!destino) return cerrar("FALLIDA", { error: "Esa acción ya no existe en el portal" });
+  try {
+    const peticion = new Request(`http://localhost/api/v1${accion.camino}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(accion.cuerpo) });
+    const r = await destino.fn(ctx, destino.params!, new URLSearchParams(), peticion);
+    return cerrar("APROBADA", { enlace: accion.enlace(r) });
+  } catch (e) {
+    if (!(e instanceof ErrorApi) || e.status >= 500) throw e;
+    return cerrar("FALLIDA", { error: [e.titulo, ...(e.errores ?? []).map((x) => x.mensaje)].filter(Boolean).join(": ").slice(0, 500) });
+  }
+});
 
 ruta("GET", "/jarvis/bots", (ctx) => {
   soloEquipo(ctx);

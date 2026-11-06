@@ -3007,6 +3007,96 @@ paths:
         '204': { description: Revocada (o no había) }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /jarvis/propuestas:
+    post:
+      tags: [Jarvis del equipo]
+      operationId: proponerAccionJarvis
+      summary: 'Jarvis propone una acción (tarea, comentario interno o pendiente del calendario); su dueño la aprueba en el chat'
+      description: |
+        Solo para el Hermes del área, con su clave y X-Jarvis-Conversacion: es lo único que Jarvis puede mandar por POST.
+        No hace nada todavía: queda PENDIENTE hasta que la persona dueña de la conversación decide. Lo que esa persona
+        no vería (un proyecto ajeno) da 404. Hasta 10 pendientes por persona.
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipo, datos]
+              properties:
+                tipo: { type: string, enum: [CREAR_TAREA, COMENTAR_PROYECTO, CREAR_PENDIENTE] }
+                datos:
+                  type: object
+                  description: |
+                    CREAR_TAREA: servicioContratadoId, titulo, descripcion?, responsableId?, fechaLimite? (AAAA-MM-DD).
+                    COMENTAR_PROYECTO: servicioContratadoId, texto (siempre interno). CREAR_PENDIENTE: titulo, fecha, notas?.
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Propuesta guardada, sin hacer
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/AccionJarvis' }
+                  - type: object
+                    required: [mensaje]
+                    properties:
+                      mensaje: { type: string }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { description: Demasiadas propuestas sin decidir }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/jarvis/propuestas:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarMisPropuestasJarvis
+      summary: 'Lo que Jarvis me propuso (las últimas 50), de una conversación o de todas'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: conversacion, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/AccionJarvis' } }
+
+  /me/jarvis/propuestas/{propuestaId}/decision:
+    parameters:
+      - { name: propuestaId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: decidirPropuestaJarvis
+      summary: 'Aprobar (el portal lo hace como yo, con mis permisos) o rechazar una propuesta de Jarvis'
+      description: Si al hacerla el portal la rechaza (p. ej. una fecha que no existe), queda FALLIDA con el motivo y no se hace nada.
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [aprobar]
+              properties:
+                aprobar: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccionJarvis' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { description: Ya se decidió }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /jarvis/bots:
     get:
       tags: [Jarvis del equipo]
@@ -5427,6 +5517,19 @@ components:
         color: { type: string, enum: ['#5554d9', '#1f9d74', '#d9822b', '#d64545', '#2b7bd9', '#9b51e0', '#475467'] }
         forma: { type: string, enum: [CIRCULO, CUADRADO, ROMBO] }
         instrucciones: { type: string, maxLength: 4000, description: 'Su trabajo: qué hace, con qué fuentes y qué no debe hacer' }
+    AccionJarvis:
+      type: object
+      required: [id, conversacion, tipo, resumen, estado, error, enlace, creadoEn, decididoEn]
+      properties:
+        id: { type: string, format: uuid }
+        conversacion: { type: string }
+        tipo: { type: string, enum: [CREAR_TAREA, COMENTAR_PROYECTO, CREAR_PENDIENTE] }
+        resumen: { type: string, description: Lo que se va a hacer, en una frase }
+        estado: { type: string, enum: [PENDIENTE, APROBADA, RECHAZADA, FALLIDA] }
+        error: { type: [string, 'null'], description: Por qué falló al hacerla }
+        enlace: { type: [string, 'null'], description: Dónde quedó (ruta del portal) }
+        creadoEn: { type: string, format: date-time }
+        decididoEn: { type: [string, 'null'], format: date-time }
     BotJarvis:
       type: object
       required: [id, nombre, color, forma, instrucciones, creadoPor, creadoEn, actualizadoEn, ultimoUso, puedeEditar]

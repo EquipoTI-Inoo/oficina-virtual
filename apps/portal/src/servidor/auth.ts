@@ -17,6 +17,7 @@ import { nivelDe, permisosDe, type Nivel, type Permiso, type PermisosPersonaliza
 import type { Area } from "../dominio/ia-equipo";
 import { areaDeClaveHermes } from "./jarvis-chat";
 import { esSesionInooWork, leerSesion, emitidaEn } from "./sesion-inoowork";
+import { esPropuestaJarvis } from "../dominio/acciones-jarvis";
 
 export interface Usuario extends SesionDb {
   nombre: string;
@@ -33,7 +34,10 @@ export interface Usuario extends SesionDb {
   roles: Record<string, "ADMIN_CLIENTE" | "APROBADOR" | "LECTOR">;
   /** Solo llaves de integración. */
   scopes?: string[];
+  /** Pide Jarvis desde esta conversación (6 nov): lee como su dueño y solo puede proponer acciones. */
+  jarvis?: { sesionId: string; area: Area };
 }
+
 
 async function autenticarLlave(llave: string, c: Consultor): Promise<Usuario> {
   const { rows } = await c.query<{ id: string; hash: string; scopes: string[]; usuario_id: string | null; nombre: string; email: string; tipo: Usuario["tipo"] }>(
@@ -103,15 +107,17 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   if (!token) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
 
   let filtro: { columna: "id" | "cognito_sub"; valor: string };
+  let jarvis: Usuario["jarvis"];
   const conversacion = req.headers.get("x-jarvis-conversacion");
   if (conversacion !== null) {
     // Jarvis (2 nov): el Hermes del área lee el portal como la persona dueña de la conversación. Solo lectura.
     const area = areaDeClaveHermes(token);
     if (!area) throw new ErrorApi(401, "NO_AUTENTICADO", "Clave de Jarvis inválida");
-    if (req.method !== "GET") throw new ErrorApi(403, "SOLO_LECTURA", "Jarvis solo puede leer el portal");
+    if (req.method !== "GET" && !esPropuestaJarvis(req)) throw new ErrorApi(403, "SOLO_LECTURA", "Jarvis solo puede leer el portal", "Para hacer algo, usa proponer_accion: tu dueño lo aprueba en el chat.");
     const s = (await c.query<{ usuario_id: string }>("SELECT usuario_id FROM sesion_jarvis WHERE sesion_id = $1 AND area = $2::area_equipo", [conversacion, area])).rows[0];
     if (!s) throw new ErrorApi(401, "NO_AUTENTICADO", "Esa conversación no existe en tu área", "Pasa en «conversacion» el código que viene en tus instrucciones.");
     filtro = { columna: "id", valor: s.usuario_id };
+    jarvis = { sesionId: conversacion, area };
   } else if (esSesionInooWork(token)) {
     // El equipo entró con su usuario de InooWork (sesion-inoowork.ts): sesión firmada por el portal.
     const id = leerSesion(token);
@@ -164,5 +170,6 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     })() : {}),
     clienteIds: m.rows.map((r) => r.cliente_id),
     roles: Object.fromEntries(m.rows.map((r) => [r.cliente_id, r.rol])),
+    ...(jarvis ? { jarvis } : {}),
   };
 }
