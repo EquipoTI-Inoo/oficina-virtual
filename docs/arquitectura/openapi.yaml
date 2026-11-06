@@ -217,6 +217,78 @@ paths:
         '401': { description: 'PASE_NO_VALIDO: vencido, ya usado o mal firmado', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '403': { description: 'CUENTA_DESACTIVADA o CUENTA_NO_ENLAZADA', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
 
+  /pruebas/usuarios:
+    get:
+      tags: [Sesión]
+      operationId: listarUsuariosDePrueba
+      summary: 'Cuenta pruebas@inoo.pe: los usuarios de prueba y para qué sirve cada uno'
+      description: 'Entorno de pruebas (6 nov): los usuarios de prueba (también un Admin con super usuario) solo ven y tocan datos de prueba; las personas reales no ven nada de prueba (migración 0046).'
+      x-roles: [CUENTA_PRUEBAS]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, nombre, tipo, descripcion]
+                      properties:
+                        id: { type: string, format: uuid }
+                        nombre: { type: string }
+                        tipo: { type: string, enum: [EQUIPO, CLIENTE] }
+                        descripcion: { type: string }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /pruebas/entrar:
+    post:
+      tags: [Sesión]
+      operationId: entrarComoUsuarioDePrueba
+      summary: 'Cuenta pruebas@inoo.pe: entra como uno de los usuarios de prueba'
+      x-roles: [CUENTA_PRUEBAS]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usuarioId]
+              properties:
+                usuarioId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Sesión iniciada como ese usuario de prueba
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SesionIniciada' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /panel/cuenta-pruebas/enlace:
+    post:
+      tags: [Panel interno]
+      operationId: enlaceCuentaPruebas
+      summary: 'Super usuario real: enlace de un solo uso para poner la contraseña de pruebas@inoo.pe'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ruta, expiraEn, email]
+                properties:
+                  ruta: { type: string }
+                  expiraEn: { type: string, format: date-time }
+                  email: { type: string }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /sesion/restablecer:
     post:
       tags: [Sesión]
@@ -4829,6 +4901,8 @@ components:
         nivelAcceso: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'Solo equipo: su nivel efectivo' }
         esLead: { type: boolean }
         esSuperUsuario: { type: boolean, description: 'Solo equipo: por encima de ADMIN; cambia niveles, permisos y quién es ADMIN' }
+        esPrueba: { type: boolean, description: 'Entorno de pruebas (6 nov): solo ve y toca datos de prueba' }
+        esCuentaPruebas: { type: boolean, description: 'La cuenta pruebas@inoo.pe: solo elige con qué usuario de prueba entrar' }
         permisos: { type: array, items: { $ref: '#/components/schemas/PermisoEquipo' }, description: 'Solo equipo: sus permisos efectivos' }
     PersonaMini:
       type: object
@@ -5314,6 +5388,7 @@ components:
         expiraEn: { type: string, format: date-time }
         tipo: { type: string, enum: [CLIENTE, EQUIPO] }
         clienteId: { type: [string, 'null'], format: uuid, description: 'Cliente con el que entra (solo usuarios CLIENTE)' }
+        cuentaPruebas: { type: boolean, description: 'Es la cuenta pruebas@inoo.pe: el portal abre el menú de usuarios de prueba' }
     DesafioNuevaClave:
       type: object
       required: [desafio, sesion, pool]

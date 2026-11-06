@@ -101,6 +101,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pruebas/usuarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cuenta pruebas@inoo.pe: los usuarios de prueba y para qué sirve cada uno
+         * @description Entorno de pruebas (6 nov): los usuarios de prueba (también un Admin con super usuario) solo ven y tocan datos de prueba; las personas reales no ven nada de prueba (migración 0046).
+         */
+        get: operations["listarUsuariosDePrueba"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pruebas/entrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cuenta pruebas@inoo.pe: entra como uno de los usuarios de prueba */
+        post: operations["entrarComoUsuarioDePrueba"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/cuenta-pruebas/enlace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Super usuario real: enlace de un solo uso para poner la contraseña de pruebas@inoo.pe */
+        post: operations["enlaceCuentaPruebas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sesion/restablecer": {
         parameters: {
             query?: never;
@@ -3331,6 +3385,10 @@ export interface components {
             esLead?: boolean;
             /** @description Solo equipo: por encima de ADMIN; cambia niveles, permisos y quién es ADMIN */
             esSuperUsuario?: boolean;
+            /** @description Entorno de pruebas (6 nov): solo ve y toca datos de prueba */
+            esPrueba?: boolean;
+            /** @description La cuenta pruebas@inoo.pe: solo elige con qué usuario de prueba entrar */
+            esCuentaPruebas?: boolean;
             /** @description Solo equipo: sus permisos efectivos */
             permisos?: components["schemas"]["PermisoEquipo"][];
         };
@@ -3876,6 +3934,8 @@ export interface components {
              * @description Cliente con el que entra (solo usuarios CLIENTE)
              */
             clienteId: string | null;
+            /** @description Es la cuenta pruebas@inoo.pe: el portal abre el menú de usuarios de prueba */
+            cuentaPruebas?: boolean;
         };
         DesafioNuevaClave: {
             /** @enum {string} */
@@ -6363,6 +6423,91 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+        };
+    };
+    listarUsuariosDePrueba: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: {
+                            /** Format: uuid */
+                            id: string;
+                            nombre: string;
+                            /** @enum {string} */
+                            tipo: "EQUIPO" | "CLIENTE";
+                            descripcion: string;
+                        }[];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    entrarComoUsuarioDePrueba: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    usuarioId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sesión iniciada como ese usuario de prueba */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    enlaceCuentaPruebas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ruta: string;
+                        /** Format: date-time */
+                        expiraEn: string;
+                        email: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
         };
     };
     restablecerClave: {

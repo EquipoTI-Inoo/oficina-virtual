@@ -46,15 +46,18 @@ export interface SesionDb {
   usuarioId: string;
   tipo: "EQUIPO" | "CLIENTE" | "SERVICIO";
   clienteIds: string[];
+  /** Entorno de pruebas (6 nov): solo ve lo de prueba. Sin el dato (servicios), la base no separa nada. */
+  esPrueba?: boolean;
 }
 
 /** Activa el rol sin privilegios y las variables de RLS para el resto de la transacción. */
 export async function comoUsuario(c: Consultor, s: SesionDb) {
   await c.query("SET LOCAL ROLE app_portal");
-  await c.query("SELECT set_config('app.usuario_tipo', $1, true), set_config('app.cliente_ids', $2, true), set_config('app.usuario_id', $3, true)", [
+  await c.query("SELECT set_config('app.usuario_tipo', $1, true), set_config('app.cliente_ids', $2, true), set_config('app.usuario_id', $3, true), set_config('app.es_prueba', $4, true)", [
     s.tipo,
     `{${s.clienteIds.join(",")}}`,
     s.usuarioId,
+    s.tipo === "SERVICIO" || s.esPrueba === undefined ? "" : String(s.esPrueba),
   ]);
 }
 

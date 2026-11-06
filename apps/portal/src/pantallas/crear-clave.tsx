@@ -22,7 +22,7 @@ export function PantallaCrearClave() {
     try {
       const r = await api<S<"SesionIniciada">>("/sesion/crear-clave", { metodo: "POST", cuerpo: { token: params.token, clave } });
       guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: r.refreshToken ?? null, pool: r.pool }, true);
-      ir(r.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
+      ir(r.cuentaPruebas ? "/pruebas" : r.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
     } catch (x) {
       const p = x as ProblemaApi;
       setError(p.errores?.[0]?.mensaje ?? p.titulo);

@@ -52,17 +52,20 @@ async function llamar(metodo: string, ruta: string, cuerpo?: unknown) {
   return r.json() as Promise<unknown>;
 }
 
-async function listarIW(): Promise<ProyectoIW[]> {
+/** En el entorno de pruebas (6 nov) siempre el set de demo, nunca el InooWork real. */
+const demo = (prueba?: boolean) => !tablerosConectados() || !!prueba;
+
+async function listarIW(prueba?: boolean): Promise<ProyectoIW[]> {
   // Copia: un cambio que falla a medias no toca los datos guardados.
-  if (!tablerosConectados()) return structuredClone(simulados());
+  if (demo(prueba)) return structuredClone(simulados());
   const xs = await llamar("GET", "/api/projects");
   return Array.isArray(xs) ? (xs as ProyectoIW[]) : [];
 }
-async function obtenerIW(id: string): Promise<ProyectoIW | null> {
-  return (await listarIW()).find((p) => p.id === id) ?? null;
+async function obtenerIW(id: string, prueba?: boolean): Promise<ProyectoIW | null> {
+  return (await listarIW(prueba)).find((p) => p.id === id) ?? null;
 }
-async function guardarIW(p: ProyectoIW) {
-  if (!tablerosConectados()) {
+async function guardarIW(p: ProyectoIW, prueba?: boolean) {
+  if (demo(prueba)) {
     const xs = simulados();
     const i = xs.findIndex((x) => x.id === p.id);
     if (i >= 0) xs[i] = p;
@@ -70,8 +73,8 @@ async function guardarIW(p: ProyectoIW) {
   }
   await llamar("PUT", `/api/projects/${encodeURIComponent(p.id)}`, p);
 }
-async function crearIW(p: ProyectoIW) {
-  if (!tablerosConectados()) {
+async function crearIW(p: ProyectoIW, prueba?: boolean) {
+  if (demo(prueba)) {
     simulados().push(structuredClone(p));
     return;
   }
@@ -80,7 +83,7 @@ async function crearIW(p: ProyectoIW) {
 
 // ───────────────────────────── vistas para el portal
 
-export interface Yo { empleadoId: string | null; esAdmin: boolean }
+export interface Yo { empleadoId: string | null; esAdmin: boolean; prueba?: boolean }
 /** Para crear (6 nov): quién lo crea, su departamento en InooWork y cómo pasar ids del portal a fichas de InooWork. */
 export interface DatosCreacion {
   lider: PersonaIW | null;
@@ -127,7 +130,7 @@ export function crearTableros(fallar: Fallar) {
     }
   };
   const visible = async (id: string, yo: Yo) => {
-    const p = await obtenerIW(id);
+    const p = await obtenerIW(id, yo.prueba);
     if (!p || p.archived || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese proyecto");
     return p;
   };
@@ -137,7 +140,7 @@ export function crearTableros(fallar: Fallar) {
       const p = await visible(id, yo);
       if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder y los miembros del proyecto lo pueden cambiar");
       fn(p);
-      await guardarIW(p);
+      await guardarIW(p, yo.prueba);
       return tableroVista(p, yo);
     });
   const validar = (errores: { campo: string; mensaje: string }[]) => {
@@ -151,8 +154,8 @@ export function crearTableros(fallar: Fallar) {
 
   return {
     listar: (yo: Yo) => protegido(async () => ({
-      conectado: tablerosConectados(),
-      datos: (await listarIW())
+      conectado: tablerosConectados() && !yo.prueba,
+      datos: (await listarIW(yo.prueba))
         .filter((p) => !p.archived && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
         .map((p) => ({
           id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
@@ -169,7 +172,7 @@ export function crearTableros(fallar: Fallar) {
       // 6 nov: ningún proyecto sin una persona de Inoo (quien lo crea sin ficha tiene que sumar a alguien).
       if (!yo.empleadoId && !miembros.length) validar([{ campo: "miembros", mensaje: "Agrega al menos a una persona de Inoo" }]);
       const p = nuevoProyecto(b, yo.empleadoId ? datos.lider : null, miembros, datos.departamento);
-      await crearIW(p);
+      await crearIW(p, yo.prueba);
       return tableroVista(p, yo);
     }),
     ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),

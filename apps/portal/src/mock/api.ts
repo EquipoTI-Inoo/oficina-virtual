@@ -43,6 +43,7 @@ import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { tablerosDelPanel } from "../dominio/tableros";
+import { descripcionPrueba } from "../dominio/pruebas";
 import { esPropuestaJarvis, MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type EstadoAccionJarvis, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
 import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
@@ -707,6 +708,7 @@ ruta("GET", "/me", (ctx) => {
       cargo: ctx.usuario.cargo,
       iniciales: ctx.usuario.iniciales,
       tipo: ctx.usuario.tipo,
+      ...(ctx.usuario.esCuentaPruebas ? { esCuentaPruebas: true } : {}),
       rolEquipo: ctx.usuario.rolEquipo,
       ...(ctx.esEquipo ? { area: ctx.usuario.area, nivelAcceso: nivelDe(ctx.usuario), esLead: !!ctx.usuario.esLead, esSuperUsuario: !!ctx.usuario.esSuperUsuario, permisos: permisosDe(ctx.usuario) } : {}),
     },
@@ -3253,6 +3255,33 @@ function exigirEditarBot(ctx: Ctx, b: D.BotJarvisDemo) {
   if (!puedeEditarBot(ctx, b)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
 }
 
+// ───────────────────────────── entorno de pruebas (6 nov). En la demo todos los datos son de prueba.
+
+const usuariosDePrueba = () => E.usuarios.filter((u) => (u.tipo === "EQUIPO" || u.tipo === "CLIENTE") && !u.esCuentaPruebas && u.activo !== false);
+ruta("GET", "/pruebas/usuarios", (ctx) => {
+  if (!ctx.usuario.esCuentaPruebas) throw new ErrorApi(403, "SIN_PERMISO", "Solo para la cuenta de pruebas");
+  return {
+    datos: usuariosDePrueba().map((u) => ({
+      id: u.id, nombre: u.nombre, tipo: u.tipo as "EQUIPO" | "CLIENTE",
+      descripcion: descripcionPrueba({
+        tipo: u.tipo, rolEquipo: u.rolEquipo ?? null, area: u.area ?? null, cargo: u.cargo ?? null, esSuperUsuario: !!u.esSuperUsuario,
+        clientes: E.miembros.filter((m) => m.usuarioId === u.id).map((m) => ({ nombre: E.clientes.find((c) => c.id === m.clienteId)?.nombre ?? "", rol: m.rol })),
+      }),
+    })),
+  };
+});
+ruta("POST", "/pruebas/entrar", async (ctx, _p, _q, req) => {
+  if (!ctx.usuario.esCuentaPruebas) throw new ErrorApi(403, "SIN_PERMISO", "Solo para la cuenta de pruebas");
+  const b = await cuerpo<{ usuarioId?: unknown }>(req);
+  const u = usuariosDePrueba().find((x) => x.id === b.usuarioId);
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese usuario de prueba no existe");
+  return { token: `demo.${u.id}`, tipo: u.tipo, clienteId: E.miembros.find((m) => m.usuarioId === u.id)?.clienteId ?? null };
+});
+ruta("POST", "/panel/cuenta-pruebas/enlace", (ctx) => {
+  exigirSuperUsuario(ctx);
+  return { ruta: `/crear-clave?token=${"0".repeat(64)}`, expiraEn: new Date(Date.now() + 7 * 86_400_000).toISOString(), email: "pruebas@inoo.pe" };
+});
+
 // ───────────────────────────── acciones de Jarvis con aprobación (6 nov)
 
 const accionJarvisVista = (a: Estado["accionesJarvis"][number]) => ({
@@ -4324,7 +4353,7 @@ async function ingresar(req: Request) {
     ?? (quien && !quien.includes("@") ? E.usuarios.find((x) => x.tipo === "EQUIPO" && ((x.inooworkUsuario ?? "").toLowerCase() === quien || x.email.toLowerCase().split("@")[0] === quien)) : undefined);
   if (!u || u.claveDemo !== b.clave || u.activo === false) throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
   const clienteId = E.miembros.find((m) => m.usuarioId === u.id)?.clienteId ?? null;
-  return { token: `demo.${u.id}`, tipo: u.tipo, clienteId };
+  return { token: `demo.${u.id}`, tipo: u.tipo, clienteId, ...(u.esCuentaPruebas ? { cuentaPruebas: true } : {}) };
 }
 
 /**

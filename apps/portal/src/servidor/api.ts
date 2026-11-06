@@ -55,6 +55,7 @@ import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
+import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUEBAS, permitidoACuentaPruebas } from "../dominio/pruebas";
 import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { anotarFallido, firmarSesion, ingresoConInooWork, leerPaseInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
@@ -388,6 +389,8 @@ ruta("GET", "/me", async (ctx) => {
       cargo: ctx.u.cargo,
       iniciales: ctx.u.nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
       tipo: ctx.u.tipo as S<"Sesion">["usuario"]["tipo"],
+      ...(ctx.u.esPrueba ? { esPrueba: true } : {}),
+      ...(ctx.u.esCuentaPruebas ? { esCuentaPruebas: true } : {}),
       ...(ctx.esEquipo && !ctx.esServicio ? { area: ctx.u.area ?? null, nivelAcceso: ctx.u.nivelAcceso ?? null, esLead: !!ctx.u.esLead, esSuperUsuario: !!ctx.u.esSuperUsuario, permisos: ctx.u.permisos ?? [] } : {}),
       rolEquipo: ctx.u.rolEquipo as S<"Sesion">["usuario"]["rolEquipo"],
     },
@@ -2209,6 +2212,8 @@ async function registrarCambiosAccesoDb(ctx: Ctx, usuarioId: string, antes: Esta
 
 /** Manda la persona a InooWork y guarda cómo quedó. Nunca falla: si InooWork no responde, queda PENDIENTE. */
 async function enviarAInooWorkDb(ctx: Ctx, u: FilaFichaPersona, reintento = false): Promise<FilaFichaPersona> {
+  // Entorno de pruebas (6 nov): los cambios a personas de prueba se quedan en el portal.
+  if (ctx.u.esPrueba) return u;
   const jefe = u.reporta_a_id
     ? (await ctx.c.query<{ usuario: string }>("SELECT coalesce(inoowork_usuario, email::text) AS usuario FROM usuario WHERE id = $1", [u.reporta_a_id])).rows[0]?.usuario ?? null
     : null;
@@ -2346,11 +2351,11 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
   // Jefes, al final: el supervisor puede haber llegado en el mismo envío. Se ignoran los que harían un ciclo.
   for (const e of b.empleados ?? []) {
     if (e.supervisorUsername === undefined) continue;
-    const u = (await ctx.c.query<{ id: string; reporta_a_id: string | null }>("SELECT id, reporta_a_id FROM usuario WHERE tipo = 'EQUIPO' AND inoowork_empleado_id = $1", [e.id])).rows[0];
+    const u = (await ctx.c.query<{ id: string; reporta_a_id: string | null }>("SELECT id, reporta_a_id FROM usuario WHERE tipo = 'EQUIPO' AND NOT es_prueba AND inoowork_empleado_id = $1", [e.id])).rows[0];
     if (!u) continue;
     const sup = e.supervisorUsername?.trim().toLowerCase() || null;
     const jefe = sup
-      ? (await ctx.c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND (lower(inoowork_usuario) = $1 OR lower(email::text) = $1) LIMIT 1", [sup])).rows[0]?.id ?? null
+      ? (await ctx.c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND NOT es_prueba AND (lower(inoowork_usuario) = $1 OR lower(email::text) = $1) LIMIT 1", [sup])).rows[0]?.id ?? null
       : null;
     const nuevo = jefe && !(await errorJefeDb(ctx, u.id, jefe)) ? jefe : sup ? u.reporta_a_id : null;
     if (nuevo !== u.reporta_a_id) await ctx.c.query("UPDATE usuario SET reporta_a_id = $2 WHERE id = $1", [u.id, nuevo]);
@@ -3092,9 +3097,10 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   }
   // 6 nov: también los tableros de InooWork donde es líder o miembro (si InooWork no responde, sin ellos).
   let deInooWork: ReturnType<typeof tablerosDelPanel> = { tableros: [], activos: 0 };
-  if (persona.empleado) {
+  const empleadoPanel = ctx.u.esPrueba ? EMPLEADO_DE_PRUEBA[persona.email.toLowerCase()] : persona.empleado;
+  if (empleadoPanel) {
     try {
-      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: persona.empleado, esAdmin: false })).datos);
+      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: empleadoPanel, esAdmin: false, prueba: !!ctx.u.esPrueba })).datos);
     } catch {
       /* InooWork no respondió */
     }
@@ -3849,6 +3855,8 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {
 const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores));
 /** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
 async function yoTablero(ctx: Ctx): Promise<Yo> {
+  // En pruebas, el set de demo con el empleado de demo de esa persona.
+  if (ctx.u.esPrueba) return { empleadoId: EMPLEADO_DE_PRUEBA[ctx.u.email.toLowerCase()] ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN", prueba: true };
   const r = (await ctx.c.query<{ inoowork_empleado_id: string | null }>("SELECT inoowork_empleado_id FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0];
   return { empleadoId: r?.inoowork_empleado_id ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN" };
 }
@@ -4290,12 +4298,12 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   const contactoId = k ? await usuarioCliente(ctx, k.email.trim().toLowerCase(), k.nombre.trim(), k.cargo?.trim() || null) : b.contactoPrincipalId ?? null;
   const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" || ctx.u.nivelAcceso === "CUENTA" ? ctx.u.usuarioId : null);
   const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario, ingreso)
-     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario, ingreso, es_prueba)
+     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
     [
       nombre, slug, b.estado ?? "ACTIVO", JSON.stringify(b.marca ?? {}), JSON.stringify(b.tono ?? {}), JSON.stringify(b.publico ?? {}),
       b.pilaresContenido ?? b.publico?.intereses ?? [], (b.canales ?? []).map(canalVisible), b.wordpressUrl ?? null, am, contactoId,
-      b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null, ingreso && JSON.stringify(registroIngreso(ctx, ingreso.respuestas)),
+      b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null, ingreso && JSON.stringify(registroIngreso(ctx, ingreso.respuestas)), !!ctx.u.esPrueba,
     ],
   )).rows[0].id;
   if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
@@ -4392,6 +4400,57 @@ ruta("POST", "/clientes/:id/miembros", async (ctx, p, _q, cuerpo) => {
 });
 
 // El equipo le pasa a un cliente su enlace para crear la contraseña: por correo, o por WhatsApp si hace falta.
+// ───────────────────────────── entorno de pruebas (6 nov)
+
+/** La cuenta pruebas@inoo.pe: los usuarios de prueba y para qué sirve cada uno. */
+ruta("GET", "/pruebas/usuarios", async (ctx) => {
+  if (!ctx.u.esCuentaPruebas) throw new ErrorApi(403, "SIN_PERMISO", "Solo para la cuenta de pruebas");
+  const { rows } = await ctx.c.query<{ id: string; nombre: string; email: string; tipo: string; rol_equipo: string | null; area: string | null; cargo: string | null; es_super_usuario: boolean }>(
+    `SELECT id, nombre, email::text, tipo::text, rol_equipo::text, area::text, cargo, es_super_usuario FROM usuario
+     WHERE es_prueba AND NOT es_cuenta_pruebas AND activo AND tipo IN ('EQUIPO', 'CLIENTE') ORDER BY tipo DESC, nombre`,
+  );
+  const cuentas = (await ctx.c.query<{ usuario_id: string; nombre: string; rol: string }>(
+    "SELECT m.usuario_id, c.nombre, m.rol::text AS rol FROM miembro_cliente m JOIN cliente c ON c.id = m.cliente_id WHERE c.es_prueba ORDER BY c.nombre",
+  )).rows;
+  return {
+    datos: rows.map((u) => ({
+      id: u.id, nombre: u.nombre, tipo: u.tipo as "EQUIPO" | "CLIENTE",
+      descripcion: descripcionPrueba({ tipo: u.tipo, rolEquipo: u.rol_equipo, area: u.area, cargo: u.cargo, esSuperUsuario: u.es_super_usuario, clientes: cuentas.filter((x) => x.usuario_id === u.id) }),
+    })),
+  };
+});
+
+/** Entrar como un usuario de prueba: su sesión, como si hubiera ingresado él. */
+ruta("POST", "/pruebas/entrar", async (ctx, _p, _q, cuerpo) => {
+  if (!ctx.u.esCuentaPruebas) throw new ErrorApi(403, "SIN_PERMISO", "Solo para la cuenta de pruebas");
+  const b = await cuerpo();
+  const id = typeof b.usuarioId === "string" && esUuid(b.usuarioId) ? b.usuarioId : null;
+  const u = id ? (await ctx.c.query<{ id: string; tipo: string }>("SELECT id, tipo::text FROM usuario WHERE id = $1 AND es_prueba AND NOT es_cuenta_pruebas AND activo AND tipo IN ('EQUIPO', 'CLIENTE')", [id])).rows[0] : undefined;
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese usuario de prueba no existe");
+  if (u.tipo === "CLIENTE") return iniciarSesionCliente(ctx.c, u.id);
+  const s = firmarSesion(u.id);
+  return { token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null };
+});
+
+/** Un super usuario real pone (o cambia) la contraseña de pruebas@inoo.pe con un enlace de un solo uso. */
+ruta("POST", "/panel/cuenta-pruebas/enlace", async (ctx) => {
+  exigirSuperUsuario(ctx);
+  if (ctx.u.esPrueba) throw new ErrorApi(403, "NO_EN_PRUEBAS", MENSAJE_PRUEBAS.titulo);
+  const token = nuevoTokenEnlace();
+  const expira = new Date(Date.now() + DIAS_ENLACE_ACCESO * 86_400_000);
+  // La cuenta es de pruebas: desde una sesión real la base no la muestra. Se busca sin el rol restringido, en la
+  // misma transacción, y se vuelve a él enseguida.
+  await ctx.c.query("RESET ROLE");
+  try {
+    const cuenta = (await ctx.c.query<{ id: string }>("SELECT id FROM usuario WHERE es_cuenta_pruebas AND activo LIMIT 1")).rows[0];
+    if (!cuenta) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe la cuenta de pruebas");
+    await ctx.c.query("INSERT INTO enlace_clave (usuario_id, token_hash, creado_por, expira_en) VALUES ($1, $2, $3, $4)", [cuenta.id, hashToken(token), ctx.u.usuarioId, expira]);
+  } finally {
+    await comoUsuario(ctx.c, ctx.u);
+  }
+  return { ruta: rutaCrearClave(token), expiraEn: expira.toISOString(), email: "pruebas@inoo.pe" };
+});
+
 ruta("POST", "/clientes/:id/miembros/:usuario/enlace-acceso", async (ctx, p) => {
   if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo");
   soloEquipo(ctx);
@@ -5346,6 +5405,8 @@ export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number;
   const db = await baseDatos();
   const ahora = o.ahora ?? new Date();
   const { ids, noLaborables } = await db.transaccion(async (c) => ({
+    // Entorno de pruebas (6 nov): lo de los clientes de prueba no manda correos (sus direcciones son inventadas).
+    descartados: await c.query("UPDATE outbox_evento SET correos_procesados_en = now(), correos_error = 'entorno de pruebas' WHERE correos_procesados_en IS NULL AND cliente_id IN (SELECT id FROM cliente WHERE es_prueba)"),
     ids: (await c.query<{ id: string }>(
       `SELECT id FROM outbox_evento
        WHERE correos_procesados_en IS NULL
@@ -5503,7 +5564,7 @@ async function ingresarConInooWork(req: Request): Promise<Response | null> {
   const id = await db.transaccion(async (c) => {
     // Cuentas antiguas de InooWork pueden no tener id de empleado: entonces, por su usuario.
     const u = (await c.query<{ id: string }>(
-      "SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND (inoowork_empleado_id = $1 OR id = $2 OR lower(inoowork_usuario) = lower($3)) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST, (id = $2) DESC NULLS LAST LIMIT 1",
+      "SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND NOT es_prueba AND (inoowork_empleado_id = $1 OR id = $2 OR lower(inoowork_usuario) = lower($3)) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST, (id = $2) DESC NULLS LAST LIMIT 1",
       [r.empleadoId, porCorreo?.id ?? null, r.usuario],
     )).rows[0];
     if (!u) return null;
@@ -5525,7 +5586,7 @@ async function ingresarConPase(req: Request): Promise<Response> {
   if (!empleado) throw new ErrorApi(401, "PASE_NO_VALIDO", "El acceso desde InooWork venció", "Vuelve a abrir el portal desde InooWork, o ingresa con tu usuario.");
   if (await fichaDesactivadaEnInooWork(empleado, "")) throw new ErrorApi(403, "CUENTA_DESACTIVADA", "Tu cuenta está desactivada", "Si es un error, escríbele a RRHH.");
   const db = await baseDatos();
-  const u = await db.transaccion(async (c) => (await c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id = $1 LIMIT 1", [empleado])).rows[0]);
+  const u = await db.transaccion(async (c) => (await c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND NOT es_prueba AND inoowork_empleado_id = $1 LIMIT 1", [empleado])).rows[0]);
   if (!u) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal", "Pídele al ADMIN que te agregue en «Equipo».");
   const s = firmarSesion(u.id);
   return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
@@ -5537,7 +5598,8 @@ async function iniciarSesionCliente(c: Consultor, usuarioId: string) {
   await c.query("SELECT registrar_actividad_cliente(array(SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1))", [usuarioId]);
   const m = (await c.query<{ cliente_id: string }>("SELECT cliente_id FROM miembro_cliente WHERE usuario_id = $1 ORDER BY creado_en LIMIT 1", [usuarioId])).rows[0];
   const s = firmarSesion(usuarioId);
-  return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "CLIENTE", clienteId: m?.cliente_id ?? null });
+  const pruebas = (await c.query<{ es_cuenta_pruebas: boolean }>("SELECT es_cuenta_pruebas FROM usuario WHERE id = $1", [usuarioId])).rows[0]?.es_cuenta_pruebas;
+  return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "CLIENTE", clienteId: m?.cliente_id ?? null, ...(pruebas ? { cuentaPruebas: true } : {}) });
 }
 
 /** Manda el enlace de restablecer. Directo y sin guardar el cuerpo: el token no queda en el historial de correos. */
@@ -5631,7 +5693,7 @@ export async function sincronizarConInooWork() {
   const ids = new Set(empleados.map((e) => e.id));
   return comoSistema(async (c) => {
     const ctx = { u: { usuarioId: "", tipo: "SERVICIO", clienteIds: [], roles: {}, nombre: "Sincronización", email: "", cargo: null, rolEquipo: null }, c, esEquipo: true, esServicio: true, feriados: new Set<string>() } as unknown as Ctx;
-    const enlazadas = (await c.query<{ id: string }>("SELECT inoowork_empleado_id AS id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id IS NOT NULL")).rows.map((r) => r.id);
+    const enlazadas = (await c.query<{ id: string }>("SELECT inoowork_empleado_id AS id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND NOT es_prueba AND inoowork_empleado_id IS NOT NULL")).rows.map((r) => r.id);
     return sincronizarEmpleadosDb(ctx, { empleados, empleadosEliminados: enlazadas.filter((id) => !ids.has(id)) });
   });
 }
@@ -5791,6 +5853,9 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     const db = await baseDatos();
     return await db.transaccion(async (c) => {
       const u = await autenticar(req, c);
+      // Entorno de pruebas (6 nov): lo que tocaría algo real no se puede, y la cuenta de pruebas solo elige usuario.
+      if (u.esCuentaPruebas && !permitidoACuentaPruebas(req.method, camino)) throw new ErrorApi(403, "CUENTA_DE_PRUEBAS", "Elige primero con qué usuario de prueba entrar");
+      if (u.esPrueba && bloqueadoEnPruebas(req.method, camino)) throw new ErrorApi(403, "NO_EN_PRUEBAS", MENSAJE_PRUEBAS.titulo, MENSAJE_PRUEBAS.detalle);
       await comoUsuario(c, u);
       // Standby (16 oct): cualquier uso del portal por el cliente cuenta como actividad y reactiva sus servicios.
       if (u.tipo === "CLIENTE" && u.clienteIds.length) await c.query("SELECT registrar_actividad_cliente($1::uuid[])", [u.clienteIds]);

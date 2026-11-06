@@ -109,6 +109,7 @@ before(async () => {
   await db.exec(sql("migraciones/0043_acciones_jarvis.sql"));
   await db.exec(sql("migraciones/0044_proyectos_culminados.sql"));
   await db.exec(sql("migraciones/0045_subir_contenido.sql"));
+  await db.exec(sql("migraciones/0046_entorno_de_pruebas.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -983,6 +984,71 @@ describe("ingreso de prueba con la base real", () => {
   });
 });
 
+describe("Entorno de pruebas · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const t = (n: number) => `demo.00000000-0000-4000-8001-00000000000${n}`;
+  const CASA = "00000000-0000-4000-8002-000000000001";
+  const CUENTA = "00000000-0000-4000-8001-0000000009ab";
+  // Casa Oliva y su gente son de prueba; Camila (proyecto) y Rosa (nivel ADMIN) también. Diego y Admin son reales.
+  async function armar() {
+    await reiniciar();
+    await db.exec(`UPDATE cliente SET es_prueba = true WHERE id = '${CASA}';
+      UPDATE usuario SET es_prueba = true WHERE id IN ('00000000-0000-4000-8001-000000000001', '00000000-0000-4000-8001-000000000002', '00000000-0000-4000-8001-000000000005', '00000000-0000-4000-8001-000000000006');
+      UPDATE usuario SET es_super_usuario = true WHERE id = '00000000-0000-4000-8001-000000000005';
+      INSERT INTO usuario (id, email, nombre, tipo, es_prueba, es_cuenta_pruebas) VALUES ('${CUENTA}', 'pruebas@inoo.pe', 'Entorno de pruebas', 'CLIENTE', true, true);`);
+  }
+  const clientes = async (n: number) => ((await llamar("GET", "/clientes", t(n))).json.datos ?? []).map((c: any) => c.id);
+
+  test("lo real no ve nada de prueba, y lo de prueba solo ve lo de prueba, aunque sea super usuario", async () => {
+    await armar();
+    assert.ok(!(await clientes(4)).includes(CASA), "el Admin real no ve Casa Oliva");
+    assert.ok(!(await clientes(3)).includes(CASA), "Diego tampoco");
+    assert.deepEqual(await clientes(5), [CASA], "Rosa (Admin de prueba) solo ve los clientes de prueba");
+    assert.equal((await llamar("GET", `/clientes/${CASA}`, t(4))).status, 404);
+    const reales = (await llamar("GET", "/panel/personas", t(4))).json.datos.map((p: any) => p.nombre);
+    assert.ok(!reales.includes("Camila Paredes") && !reales.includes("Rosa Paredes"), "las personas de prueba no salen en el equipo real");
+    const deRosa = (await llamar("GET", "/panel/personas", t(5))).json.datos.map((p: any) => p.nombre).sort();
+    assert.deepEqual(deRosa, ["Camila Paredes", "Rosa Paredes"], "el Admin de prueba solo ve al equipo de prueba");
+    assert.ok((await llamar("GET", "/panel/proyectos", t(4))).json.datos.every((x: any) => x.clienteId !== CASA));
+    assert.ok((await llamar("GET", "/panel/proyectos", t(5))).json.datos.every((x: any) => x.clienteId === CASA));
+    assert.ok(!(await llamar("GET", "/buscar?q=casa", t(4))).json.datos.some((r: any) => r.titulo.includes("Casa Oliva")), "ni en la búsqueda");
+    // Un cliente nuevo que crea el Admin de prueba nace de prueba.
+    const nuevo = await llamar("POST", "/clientes", t(5), { nombre: "Prueba Nueva" });
+    assert.equal(nuevo.status, 201);
+    assert.ok(!(await clientes(4)).includes(nuevo.json.id));
+    assert.ok((await clientes(5)).includes(nuevo.json.id));
+  });
+
+  test("en pruebas no se toca lo real: Jarvis, feriados, topes de IA ni InooWork", async () => {
+    await armar();
+    for (const [m, ruta] of [["GET", "/jarvis/bots"], ["GET", "/panel/ia-equipo"], ["POST", "/avisos"], ["POST", "/panel/personas"], ["POST", "/panel/personas/importar-inoowork"]] as const) {
+      assert.equal((await llamar(m, ruta, t(5), m === "GET" ? undefined : {})).json.codigo, "NO_EN_PRUEBAS", ruta);
+    }
+    assert.notEqual((await llamar("GET", "/jarvis/bots", t(3))).json.codigo, "NO_EN_PRUEBAS", "la gente real sí usa Jarvis");
+  });
+
+  test("la cuenta de pruebas solo elige con quién entrar; entrar da la sesión de ese usuario", async () => {
+    await armar();
+    const antesSecreto = process.env.SESION_SECRETO;
+    process.env.SESION_SECRETO ??= "s".repeat(40);
+    assert.equal((await llamar("GET", "/clientes", `demo.${CUENTA}`)).json.codigo, "CUENTA_DE_PRUEBAS");
+    const lista = (await llamar("GET", "/pruebas/usuarios", `demo.${CUENTA}`)).json.datos;
+    assert.deepEqual(lista.map((u: any) => u.nombre).sort(), ["Camila Paredes", "Martín Salas", "Rosa Paredes", "Valeria Mendoza"]);
+    assert.match(lista.find((u: any) => u.nombre === "Rosa Paredes").descripcion, /super usuario \(solo sobre datos de prueba\)/);
+    assert.match(lista.find((u: any) => u.nombre === "Valeria Mendoza").descripcion, /Cliente de Casa Oliva/);
+    assert.equal((await llamar("GET", "/pruebas/usuarios", t(4))).status, 403, "nadie más ve la lista");
+    assert.equal((await llamar("POST", "/pruebas/entrar", `demo.${CUENTA}`, { usuarioId: "00000000-0000-4000-8001-000000000003" })).status, 404, "a un usuario real no se entra");
+    const r = await llamar("POST", "/pruebas/entrar", `demo.${CUENTA}`, { usuarioId: "00000000-0000-4000-8001-000000000006" });
+    assert.equal(r.json.tipo, "EQUIPO");
+    const me = (await llamar("GET", "/me", r.json.token)).json.usuario;
+    assert.deepEqual([me.nombre, me.esPrueba], ["Camila Paredes", true]);
+    const enlace = await llamar("POST", "/panel/cuenta-pruebas/enlace", t(4), {});
+    assert.match(enlace.json.ruta, /^\/crear-clave\//, "un super usuario real crea el enlace de su contraseña");
+    assert.equal((await llamar("POST", "/panel/cuenta-pruebas/enlace", t(5), {})).status, 403, "el super usuario de prueba no");
+    if (antesSecreto === undefined) delete process.env.SESION_SECRETO;
+  });
+});
+
 describe("Ingreso del equipo con su usuario de InooWork · Postgres", () => {
   const llamar = crearLlamar((req) => manejarSolicitudDb(req));
   const ingresar = (email: string, clave: string) => llamar("POST", "/sesion/ingresar", undefined, { email, clave });
@@ -1258,7 +1324,7 @@ describe("InooWork manda sobre quién está en el equipo · Postgres", () => {
     assert.equal((await entrar()).status, 200, "si InooWork no contesta esa consulta, no deja a nadie afuera");
   });
 
-  test("los clientes de prueba se ven en la lista, pero no cuentan en los números", async () => {
+  test("los clientes de prueba no se ven en el portal real ni cuentan en los números (6 nov: entorno de pruebas)", async () => {
     await reiniciar();
     const numeros = async () => (await llamar("GET", "/panel/clientes", ADMIN)).json;
     const antesN = await numeros();
@@ -1266,7 +1332,7 @@ describe("InooWork manda sobre quién está en el equipo · Postgres", () => {
     await db.query("UPDATE cliente SET es_prueba = true");
     const despues = await numeros();
     assert.deepEqual([despues.resumen.clientesActivos, despues.resumen.proyectosConRetraso, despues.resumen.requerimientosAtrasados, despues.resumen.piezasAtrasadas, despues.resumen.gastoIaUsd], [0, 0, 0, 0, 0]);
-    assert.equal(despues.datos.length, antesN.datos.length, "la lista sigue igual");
+    assert.equal(despues.datos.length, 0, "desde el 6 nov no aparecen: se ven solo desde la cuenta de pruebas");
     assert.deepEqual((await llamar("GET", "/panel/costos-ia?periodo=2026-10", ADMIN)).json.clientes, []);
   });
 });

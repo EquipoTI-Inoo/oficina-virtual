@@ -2479,3 +2479,6 @@ button.cuenta { cursor: pointer; }
 .propuesta-jarvis--pendiente { border-color: var(--c-primario); background: var(--c-primario-suave); }
 .propuesta-jarvis--fallida { border-color: var(--c-alerta); }
 .propuesta-jarvis--rechazada { opacity: .7; }
+
+/* Entorno de pruebas (6 nov). */
+.barra-pruebas { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 10px 14px; border-radius: 12px; background: #fff7e6; border: 1px solid #f5c26b; color: #6b4a00; font-size: 13px; }

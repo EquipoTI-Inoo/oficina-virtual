@@ -34,6 +34,8 @@ export interface Usuario extends SesionDb {
   roles: Record<string, "ADMIN_CLIENTE" | "APROBADOR" | "LECTOR">;
   /** Solo llaves de integración. */
   scopes?: string[];
+  /** Entorno de pruebas (6 nov). esCuentaPruebas: la cuenta pruebas@inoo.pe, que solo elige usuario de prueba. */
+  esCuentaPruebas?: boolean;
   /** Pide Jarvis desde esta conversación (6 nov): lee como su dueño y solo puede proponer acciones. */
   jarvis?: { sesionId: string; area: Area };
 }
@@ -144,8 +146,8 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   }
 
   // usuario y miembro_cliente no tienen RLS: se leen antes de activar la sesión restringida.
-  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados; sesiones_desde: Date | null }>(
-    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados, sesiones_desde FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
+  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados; sesiones_desde: Date | null; es_prueba: boolean; es_cuenta_pruebas: boolean }>(
+    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados, sesiones_desde, es_prueba, es_cuenta_pruebas FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
     [filtro.valor],
   );
   const u = rows[0];
@@ -170,6 +172,8 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     })() : {}),
     clienteIds: m.rows.map((r) => r.cliente_id),
     roles: Object.fromEntries(m.rows.map((r) => [r.cliente_id, r.rol])),
+    esPrueba: u.es_prueba,
+    ...(u.es_cuenta_pruebas ? { esCuentaPruebas: true } : {}),
     ...(jarvis ? { jarvis } : {}),
   };
 }

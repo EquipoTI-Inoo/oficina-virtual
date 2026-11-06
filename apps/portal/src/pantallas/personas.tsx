@@ -7,7 +7,7 @@
  *  · «Organigrama» (todo el equipo): quién reporta a quién.
  */
 import { useState } from "react";
-import { LuNetwork, LuPencil, LuRefreshCw, LuUserPlus } from "react-icons/lu";
+import { LuFlaskConical, LuNetwork, LuPencil, LuRefreshCw, LuUserPlus } from "react-icons/lu";
 import { api, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { NIVELES, NOMBRE_NIVEL, NOMBRE_PERMISO, permisosDe, PERMISOS, type Nivel, type Permiso } from "../dominio/accesos";
@@ -37,6 +37,7 @@ function Personas() {
   const [traspasando, setTraspasando] = useState<Ficha | null>(null);
   const avisar = useAviso();
   const soySuper = !!usePortal().sesion?.usuario.esSuperUsuario;
+  const esPrueba = !!usePortal().sesion?.usuario.esPrueba;
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const todas = r.datos.datos;
@@ -72,6 +73,18 @@ function Personas() {
     void r.recargar();
   };
 
+  /** pruebas@inoo.pe (6 nov): un enlace de un solo uso para ponerle o cambiarle la contraseña. */
+  const enlacePruebas = async () => {
+    try {
+      const x = await api<{ ruta: string; email: string }>("/panel/cuenta-pruebas/enlace", { metodo: "POST" });
+      const url = `${window.location.origin}${x.ruta}`;
+      await navigator.clipboard.writeText(url).catch(() => undefined);
+      avisar({ titulo: "Enlace copiado", texto: `Ábrelo para poner la contraseña de ${x.email}. Sirve una sola vez. ${url}` });
+    } catch (e) {
+      avisar({ titulo: "No pudimos crear el enlace", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+
   return (
     <>
       <Cabecera
@@ -80,6 +93,11 @@ function Personas() {
         bajada="Quién trabaja en Inoo, qué ve cada persona y a quién reporta. Los cambios se reflejan en InooWork."
         accion={
           <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+            {soySuper && !esPrueba && (
+              <button className="boton" onClick={() => void enlacePruebas()} title="Para poner o cambiar la contraseña de pruebas@inoo.pe">
+                <LuFlaskConical size={15} /> Cuenta de pruebas
+              </button>
+            )}
             {soySuper && r.datos.inooworkConectado && (
               <button className="boton" onClick={() => void importar()}>
                 <LuRefreshCw size={15} /> Importar de InooWork

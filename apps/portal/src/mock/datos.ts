@@ -44,6 +44,8 @@ export interface UsuarioDemo {
   permisosPersonalizados?: PermisosPersonalizados;
   /** false = desactivada (2 nov): no entra, pero se conservan sus registros. */
   activo?: boolean;
+  /** La cuenta pruebas@inoo.pe (6 nov): solo elige con qué usuario de prueba entrar. En la demo, todos lo son. */
+  esCuentaPruebas?: boolean;
   /** Enlace con InooWork (solo equipo): id de empleado y cómo quedó la última sincronización. */
   inooworkEmpleadoId?: string | null;
   inooworkEstado?: "SINCRONIZADO" | "SIMULADO" | "PENDIENTE";
@@ -65,6 +67,8 @@ export const USUARIOS: UsuarioDemo[] = [
   { id: uid(1, 5), inooworkEmpleadoId: EMPLEADO_DEMO.rosa, reportaAId: uid(1, 4), nombre: "Rosa Paredes", email: "finanzas@inoo.pe", cargo: "Administración y Finanzas", iniciales: "RP", tipo: "EQUIPO", rolEquipo: "FINANZAS", area: "ADMINISTRACION", claveDemo: "demo1234" },
   // Equipo operativo (16 oct): no ve el blog ni el detalle de pagos; es responsable del e-commerce de Casa Oliva.
   { id: uid(1, 6), inooworkEmpleadoId: EMPLEADO_DEMO.camila, reportaAId: uid(1, 4), nombre: "Camila Paredes", email: "camila.paredes@inoo.pe", cargo: "Desarrollo web", iniciales: "CP", tipo: "EQUIPO", rolEquipo: "DESARROLLO_WEB", area: "DISENO", claveDemo: "demo1234" },
+  // La cuenta pruebas@inoo.pe (6 nov), al final: el resto de la demo usa el orden de esta lista.
+  { id: uid(1, 90), nombre: "Entorno de pruebas", email: "pruebas@inoo.pe", cargo: null, iniciales: "EP", tipo: "CLIENTE", rolEquipo: null, area: null, esCuentaPruebas: true, claveDemo: "demo1234" },
 ];
 
 export const MIEMBROS: { clienteId: string; usuarioId: string; rol: RolCliente }[] = [

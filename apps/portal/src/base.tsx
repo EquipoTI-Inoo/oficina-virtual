@@ -54,6 +54,8 @@ export interface SesionLocal {
   vistaCliente?: string | null;
   /** Sin «Recordarme» (6 nov): dura mientras el navegador siga abierto, en todas sus pestañas. */
   soloEstaVisita?: boolean;
+  /** Entorno de pruebas (6 nov): la sesión de pruebas@inoo.pe, para volver a su menú desde un usuario de prueba. */
+  pruebas?: string | null;
 }
 
 /**

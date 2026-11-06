@@ -674,6 +674,10 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   useEffect(() => {
     if (me.error?.status === 401) ir("/ingresar");
   }, [me.error, ir]);
+  // La cuenta de pruebas no trabaja: solo elige usuario de prueba (6 nov).
+  useEffect(() => {
+    if (me.datos?.usuario.esCuentaPruebas) ir("/pruebas");
+  }, [me.datos, ir]);
 
   const porAprobar = inicio.datos?.indicadores.porAprobar ?? 0;
   const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
@@ -737,6 +741,12 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
           </div>
           {buscando && <BuscadorGlobal alCerrar={() => setBuscando(false)} />}
           <main className="contenido">
+            {me.datos?.usuario.esPrueba && (
+              <div className="barra-pruebas" role="status">
+                <span><strong>Entorno de pruebas</strong> · estás como {me.datos.usuario.nombre}. Nada de esto toca clientes reales.</span>
+                {leerSesion()?.pruebas ? <Enlace a="/pruebas" className="enlace texto-sm negrita">Cambiar de usuario de prueba</Enlace> : null}
+              </div>
+            )}
             {comoCliente && <BarraVistaCliente cliente={nombreCuenta} persona={me.datos!.usuario.nombre} />}
             {children}
           </main>
