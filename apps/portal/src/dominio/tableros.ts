@@ -95,6 +95,15 @@ export function columnaDeTablero(estado: string | null | undefined, items: { tot
   return items.vencidos > 0 ? ("CON_RETRASO" as const) : ("EN_CURSO" as const);
 }
 
+/** Los tableros donde la persona es líder o miembro, para su panel (6 nov). Los culminados y cancelados no cuentan como activos. */
+export function tablerosDelPanel(lista: { id: string; nombre: string; cliente: string | null; estado: string | null; items: { total: number; completados: number; vencidos: number }; esMio: boolean }[]) {
+  const tableros = lista.filter((t) => t.esMio).flatMap((t) => {
+    const columna = columnaDeTablero(t.estado, t.items);
+    return columna ? [{ id: t.id, nombre: t.nombre, cliente: t.cliente, columna, items: t.items }] : [];
+  });
+  return { tableros, activos: tableros.filter((t) => t.columna !== "CULMINADO").length };
+}
+
 /** Cambia el estado del proyecto. Al culminarlo guarda la fecha (completadoEn) para archivarlo a los 14 días. */
 export function aplicarEstadoProyecto(p: ProyectoIW, estado: string, hoyIso = hoy()) {
   p.status = estado;

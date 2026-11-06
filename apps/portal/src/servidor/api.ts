@@ -53,6 +53,7 @@ import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
+import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { anotarFallido, firmarSesion, ingresoConInooWork, leerPaseInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
@@ -3055,8 +3056,8 @@ ruta("GET", "/servicios-contratados/:id/reporte", async (ctx, p) => {
 ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const quien = q.get("usuarioId") ?? ctx.u.usuarioId;
-  const persona = (await ctx.c.query<{ id: string; nombre: string; cargo: string | null; email: string; area: Area | null }>(
-    "SELECT id, nombre, cargo, email::text, area::text AS area FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [esUuid(quien) ? quien : null],
+  const persona = (await ctx.c.query<{ id: string; nombre: string; cargo: string | null; email: string; area: Area | null; empleado: string | null }>(
+    "SELECT id, nombre, cargo, email::text, area::text AS area, inoowork_empleado_id AS empleado FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [esUuid(quien) ? quien : null],
   )).rows[0];
   if (!persona || (!ctx.esServicio && !puedeSupervisar(yoDb(ctx), persona))) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
   const hoy = HOY_LIMA();
@@ -3089,10 +3090,19 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
       miArea.push({ persona: personaEquipoVista(g), tareasAbiertas: suyas.length, tareasVencidas: suyas.filter((t) => t.vencida).length, proyectos: (await proyectosDePersonaDb(ctx.c, g.id)).length });
     }
   }
+  // 6 nov: también los tableros de InooWork donde es líder o miembro (si InooWork no responde, sin ellos).
+  let deInooWork: ReturnType<typeof tablerosDelPanel> = { tableros: [], activos: 0 };
+  if (persona.empleado) {
+    try {
+      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: persona.empleado, esAdmin: false })).datos);
+    } catch {
+      /* InooWork no respondió */
+    }
+  }
   return {
-    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, miArea, tareas, proyectos,
+    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, miArea, tareas, proyectos, tableros: deInooWork.tableros,
     resumen: {
-      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length,
+      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length + deInooWork.activos,
       proyectosCerrados: suyos.length - activos.length, rebotes, conRetraso,
     },
   } satisfies S<"PanelColaborador">;

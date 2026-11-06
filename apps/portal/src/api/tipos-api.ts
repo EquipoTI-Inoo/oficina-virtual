@@ -4466,6 +4466,18 @@ export interface components {
             }[] | null;
             /** @description Abiertas, asignadas a la persona; vencidas primero */
             tareas: components["schemas"]["Tarea"][];
+            /** @description 6 nov: tableros de InooWork donde es líder o miembro (también cuentan en proyectosActivos, salvo los culminados) */
+            tableros?: {
+                id: string;
+                nombre: string;
+                cliente: string | null;
+                columna: components["schemas"]["ColumnaProyecto"];
+                items: {
+                    total: number;
+                    completados: number;
+                    vencidos: number;
+                };
+            }[];
             /** @description Activos o en pausa donde es responsable */
             proyectos: {
                 /** Format: uuid */

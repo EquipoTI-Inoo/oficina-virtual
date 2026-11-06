@@ -76,7 +76,26 @@ function MiPanel() {
       <div className="con-lateral seccion">
         <section className="pila">
           <h2 className="seccion-titulo">Mis proyectos</h2>
-          {!d.proyectos.length && <p className="texto-sm texto-muted">No eres responsable de ningún proyecto activo.</p>}
+          {!d.proyectos.length && !d.tableros?.length && <p className="texto-sm texto-muted">No tienes proyectos activos: ni como responsable ni en tableros de InooWork.</p>}
+          {(d.tableros ?? []).map((t) => {
+            const pct = t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0;
+            return (
+              <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="tarjeta" style={{ padding: "16px 18px", display: "grid", gap: 8, color: "inherit", textDecoration: "none" }}>
+                <span className="fila entre" style={{ gap: 8 }}>
+                  <span>
+                    <span className="texto-xs texto-muted" style={{ display: "block" }}>{t.cliente ?? "Sin cliente"} · tablero de InooWork</span>
+                    <span className="negrita">{t.nombre}</span>
+                  </span>
+                  <Etiqueta tono={t.columna === "CON_RETRASO" ? "rojo" : t.columna === "CULMINADO" ? "verde" : "azul"}>{COLUMNA[t.columna]}</Etiqueta>
+                </span>
+                <span className="fila" style={{ gap: 8 }}>
+                  <span style={{ flex: 1 }}><Barra pct={pct} tono={t.items.vencidos ? "ambar" : undefined} /></span>
+                  <span className="texto-xs negrita">{pct} %</span>
+                </span>
+                <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total} completados{t.items.vencidos ? ` · ${t.items.vencidos} vencidos` : ""}</span>
+              </Enlace>
+            );
+          })}
           {d.proyectos.map((p) => (
             <Enlace key={p.servicioContratadoId} a={`/equipo/proyectos/${p.servicioContratadoId}`} className="tarjeta" style={{ padding: "16px 18px", display: "grid", gap: 8, color: "inherit", textDecoration: "none" }}>
               <span className="fila entre" style={{ gap: 8 }}>

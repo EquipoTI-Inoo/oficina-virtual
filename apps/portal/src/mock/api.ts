@@ -42,6 +42,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
+import { tablerosDelPanel } from "../dominio/tableros";
 import { esPropuestaJarvis, MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type EstadoAccionJarvis, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
 import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
@@ -3635,7 +3636,7 @@ ruta("GET", "/servicios-contratados/:id/reporte", (ctx, p) => {
   return new Response(libroXlsx(hojas), { headers: { "content-type": TIPO_XLSX, "content-disposition": `attachment; filename="${archivoReporte(perfil.titulo)}"` } });
 });
 
-ruta("GET", "/panel/colaborador", (ctx, _p, q) => {
+ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const quien = q.get("usuarioId") ?? ctx.usuario.id;
   const objetivo = E.usuarios.find((u) => u.id === quien && u.tipo === "EQUIPO");
@@ -3654,10 +3655,19 @@ ruta("GET", "/panel/colaborador", (ctx, _p, q) => {
         return { persona: equipoVista(u), tareasAbiertas: suyas.length, tareasVencidas: suyas.filter((t) => tareaVencida(t, D.HOY)).length, proyectos: new Set(proyectosDePersona(u.id)).size };
       })
     : null;
+  // 6 nov: también los tableros de InooWork donde es líder o miembro.
+  let deInooWork: ReturnType<typeof tablerosDelPanel> = { tableros: [], activos: 0 };
+  if (objetivo.inooworkEmpleadoId) {
+    try {
+      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: objetivo.inooworkEmpleadoId, esAdmin: false })).datos);
+    } catch {
+      /* InooWork no respondió */
+    }
+  }
   return {
-    persona: persona(quien)!, miArea, tareas, proyectos,
+    persona: persona(quien)!, miArea, tareas, proyectos, tableros: deInooWork.tableros,
     resumen: {
-      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length,
+      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length + deInooWork.activos,
       proyectosCerrados: suyos.length - activos.length,
       rebotes: E.entregables.filter((e) => activos.some((s) => s.id === e.servicioContratadoId)).reduce((t, e) => t + e.rebotes, 0),
       conRetraso: activos.filter((s) => etapasDe(s).some((e) => etapaAtrasada(e, D.HOY))).length,

@@ -80,7 +80,7 @@ export function pruebasKpis(nombre: string, manejar: Manejador, reiniciar: () =>
       assert.deepEqual(p.proyectos.map((x: any) => x.servicioContratadoId).sort(), [CRM, WEB, uid(4, 1)].sort(), "es responsable de la web, el CRM y el soporte web (Social Media Pro es de Camila)");
       assert.ok(p.proyectos.every((x: any) => x.kpis.length >= 3));
       assert.ok(p.tareas.every((t: any) => t.responsable.nombre === "Diego Castro" && t.estado !== "HECHA"));
-      assert.deepEqual([p.resumen.proyectosActivos, p.resumen.tareasAbiertas, p.resumen.rebotes], [3, p.tareas.length, 1]);
+      assert.deepEqual([p.resumen.proyectosActivos, p.resumen.tareasAbiertas, p.resumen.rebotes], [3 + (p.tableros ?? []).filter((t: any) => t.columna !== "CULMINADO").length, p.tareas.length, 1]);
       assert.equal((await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 4)}`, DIEGO)).status, 404, "el panel del Admin no es de su área (2 nov)");
       const deDiego = (await llamar("GET", `/panel/colaborador?usuarioId=${uid(1, 3)}`, `demo.${uid(1, 4)}`)).json;
       assert.equal(deDiego.persona.nombre, "Diego Castro", "el ADMIN ve el de cualquiera");

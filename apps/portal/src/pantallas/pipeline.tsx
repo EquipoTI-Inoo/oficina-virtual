@@ -47,19 +47,23 @@ function PipelineProyectos() {
   const [creando, setCreando] = useState(false);
   const clientes = [...new Set((r.datos?.datos ?? []).map((t) => t.cliente).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "es"));
   const q = texto.trim().toLowerCase();
+  const yoId = sesion?.usuario.id;
+  // ¿Hay algo en «Todos» que no sea suyo? Con los datos sin filtro por persona.
+  const veMas = !mios && (!!(r.datos?.datos ?? []).some((t) => !t.esMio) || !!(d?.datos ?? []).some((p) => p.responsable?.id !== yoId));
   const tableros = (r.datos?.datos ?? []).filter((t) => (!mios || t.esMio) && (!q || `${t.cliente ?? ""} ${t.nombre} ${t.area ?? ""} ${t.lider?.nombre ?? ""}`.toLowerCase().includes(q)));
   return (
     <>
       <Cabecera titulo="Proyectos" bajada="Cada tarjeta es un proyecto. Los que tienen el ícono de tablero vienen de InooWork, y lo que cambies en ellos también se ve allá." />
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
-        <div className="chips" role="group" aria-label="Qué proyectos ver">
+        {/* Solo si ves más proyectos de los que llevas (ADMIN, leads, por cuenta): si no, los dos dan lo mismo (6 nov). */}
+        {(veMas || mios) && <div className="chips" role="group" aria-label="Qué proyectos ver">
           <button type="button" className="chip" aria-pressed={!mios} onClick={() => setMios(false)}>
             Todos
           </button>
           <button type="button" className="chip" aria-pressed={mios} onClick={() => setMios(true)}>
             Mis proyectos
           </button>
-        </div>
+        </div>}
         <div className="entrada" style={{ flex: "1 1 220px", maxWidth: 320 }}>
           <input id="buscar-proyecto" aria-label="Buscar proyecto" placeholder="Buscar cliente o servicio" value={texto} onChange={(e) => setTexto(e.target.value)} />
           <span className="icono-campo" aria-hidden>

@@ -5853,6 +5853,18 @@ components:
               tareasVencidas: { type: integer }
               proyectos: { type: integer }
         tareas: { type: array, description: 'Abiertas, asignadas a la persona; vencidas primero', items: { $ref: '#/components/schemas/Tarea' } }
+        tableros:
+          type: array
+          description: '6 nov: tableros de InooWork donde es líder o miembro (también cuentan en proyectosActivos, salvo los culminados)'
+          items:
+            type: object
+            required: [id, nombre, cliente, columna, items]
+            properties:
+              id: { type: string }
+              nombre: { type: string }
+              cliente: { type: [string, 'null'] }
+              columna: { $ref: '#/components/schemas/ColumnaProyecto' }
+              items: { type: object, required: [total, completados, vencidos], properties: { total: { type: integer }, completados: { type: integer }, vencidos: { type: integer } } }
         proyectos:
           type: array
           description: 'Activos o en pausa donde es responsable'

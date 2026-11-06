@@ -714,7 +714,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
                 <img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo
               </Enlace>
               <nav className="migas" aria-label="Ruta">
-                <span>{nombreCuenta}</span>
+                <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/mi-panel"} style={{ color: "inherit", textDecoration: "none" }}>{nombreCuenta}</Enlace>
                 <LuChevronRight size={14} color="var(--c-tinta)" />
                 <strong>{migas}</strong>
               </nav>
