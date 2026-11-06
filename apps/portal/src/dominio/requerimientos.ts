@@ -109,6 +109,15 @@ export const PLANTILLAS_REQUERIMIENTO: PlantillaRequerimientoDemo[] = [
       c("usuario", "¿Creaste un usuario administrador para Inoo?", "SI_NO", true, { ayuda: "Usa el correo accesos@inoo.pe. No nos envíes contraseñas." }),
     ],
   },
+  // Subir contenido (6 nov, pedido de Ernesto): para cualquier proyecto, se manda por enlace y el cliente sube sus
+  // archivos (MP4, PDF, Excel, JPG, PNG o Word) sin tener cuenta.
+  {
+    codigo: "SUBIR_CONTENIDO", nombre: "Subir contenido", descripcion: "Sube aquí los archivos que necesitamos para tu proyecto.", servicios: [], diasHabiles: 5,
+    campos: [
+      c("archivos", "Tus archivos", "ARCHIVOS", true, { ayuda: "Videos MP4, PDF, Excel, imágenes JPG o PNG y Word. Hasta 100 MB cada uno." }),
+      c("notas", "¿Algo que debamos saber de estos archivos?", "TEXTO_LARGO", false),
+    ],
+  },
   // Lo que quedó pendiente del lado del cliente en una reunión (reunión 15 oct). Lo crea la API al
   // marcar la reunión como realizada; el título del requerimiento dice qué falta.
   {

@@ -143,6 +143,22 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal((await llamar("GET", `/publico/formularios/${segundo}`)).status, 404);
     });
 
+    test("subir contenido: formulario por enlace para cualquier proyecto; acepta MP4, PDF, Excel (también .xls), JPG y PNG", async () => {
+      await reiniciar();
+      const pl = (await llamar("GET", "/plantillas-requerimiento", DIEGO)).json.datos.find((x: any) => x.codigo === "SUBIR_CONTENIDO");
+      assert.deepEqual([pl?.servicios, pl?.campos.map((c: any) => [c.clave, c.tipo, c.obligatorio])], [[], [["archivos", "ARCHIVOS", true], ["notas", "TEXTO_LARGO", false]]]);
+      const r = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "SUBIR_CONTENIDO", servicioContratadoId: uid(4, 4) })).json;
+      assert.equal(r.titulo, "Subir contenido");
+      const token = (await llamar("POST", `/requerimientos/${r.id}/enlace`, DIEGO, {})).json.enlace.url.slice(3);
+      const subir = (mime: string, nombre: string) => llamar("POST", `/publico/formularios/${token}/archivos`, undefined, { nombre, mime, bytes: 2048 });
+      for (const [mime, nombre] of [["video/mp4", "evento.mp4"], ["application/pdf", "brochure.pdf"], ["application/vnd.ms-excel", "precios.xls"], ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "precios.xlsx"], ["image/jpeg", "foto.jpg"], ["image/png", "logo.png"]]) {
+        assert.ok([200, 201].includes((await subir(mime, nombre)).status), nombre);
+      }
+      assert.equal((await subir("application/zip", "todo.zip")).status, 415);
+      const sinArchivos = await llamar("PUT", `/publico/formularios/${token}/respuesta`, undefined, { respuestas: {}, enviar: true, nombre: "Valeria" });
+      assert.ok(sinArchivos.json.errores.some((e: any) => e.campo === "archivos"), "los archivos son obligatorios");
+    });
+
     test("el cliente guarda un borrador y lo envía con los obligatorios completos", async () => {
       await reiniciar();
       const ruta = `/requerimientos/${USUARIOS_CRM}/respuesta`;

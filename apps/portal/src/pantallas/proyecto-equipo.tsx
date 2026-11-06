@@ -8,6 +8,7 @@
 import { EquipoAsignado } from "./accesos";
 import { useState } from "react";
 import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
+import { FormulariosDelProyecto } from "./requerimientos";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { entrarComoCliente } from "../base";
 import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
@@ -225,6 +226,7 @@ function ProyectoEquipo() {
           </div>
           <DetallesDelProyecto d={d} alGuardar={(cuerpo) => actualizar(cuerpo, "Detalles del proyecto guardados")} />
           {d.codigo === "SOPORTE_CONTINUO" && d.variante?.codigo === "WEB" && <BlogsDelSoporte clienteId={d.clienteId} servicioId={d.servicioContratadoId} incluidos={d.progreso?.totales ?? 0} />}
+          <FormulariosDelProyecto clienteId={d.clienteId} servicioContratadoId={d.servicioContratadoId} codigoServicio={d.codigo} />
           <ReunionesEquipo servicioId={d.servicioContratadoId} alCambiar={() => void perfil.recargar()} />
         </aside>
       </div>

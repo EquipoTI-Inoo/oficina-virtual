@@ -436,7 +436,7 @@ function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; va
   return <p className="texto-sm" style={{ whiteSpace: "pre-line", lineHeight: 1.5 }}>{String(valor)}</p>;
 }
 
-const MIME_OK = ["image/jpeg", "image/png", "video/mp4", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
+const MIME_OK = ["image/jpeg", "image/png", "video/mp4", "application/pdf", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 
 export interface Subida {
   iniciar: (a: { nombre: string; mime: string; bytes: number }) => Promise<{ archivo: { id: string }; subida: { url: string; headers: Record<string, string> } }>;
@@ -485,7 +485,7 @@ function SubirArchivos({ id, valor, alCambiar, subida }: { id: string; valor: Ar
           </button>
         </span>
       ))}
-      <input ref={input} id={id} type="file" multiple hidden accept=".jpg,.jpeg,.png,.mp4,.pdf,.docx,.xlsx" onChange={(e) => void subir(e.target.files)} />
+      <input ref={input} id={id} type="file" multiple hidden accept=".jpg,.jpeg,.png,.mp4,.pdf,.docx,.xlsx,.xls" onChange={(e) => void subir(e.target.files)} />
       <button type="button" className="boton" style={{ justifySelf: "start" }} disabled={subiendo} onClick={() => input.current?.click()}>
         <LuPaperclip size={16} /> {subiendo ? "Subiendo…" : "Adjuntar archivos"}
       </button>
@@ -559,6 +559,113 @@ export function RequerimientosDelCliente({ clienteId }: { clienteId: string }) {
       )}
       <PedirRequerimiento clienteId={clienteId} abierto={abierto} alCerrar={() => setAbierto(false)} alCrear={() => void lista.recargar()} />
     </div>
+  );
+}
+
+/**
+ * Formularios por enlace desde el proyecto (6 nov, pedido de Ernesto): el equipo elige qué pedir (por ejemplo
+ * «Subir contenido»), el portal crea el pedido y su enlace, y se copia para mandárselo al cliente. No necesita cuenta.
+ */
+export function FormulariosDelProyecto({ clienteId, servicioContratadoId, codigoServicio }: { clienteId: string; servicioContratadoId: string; codigoServicio: S<"CodigoServicio"> }) {
+  const lista = useConsulta<Lista>(`/clientes/${clienteId}/requerimientos?servicioContratadoId=${servicioContratadoId}`);
+  const [abierto, setAbierto] = useState(false);
+  const [creado, setCreado] = useState<Req | null>(null);
+  const xs = (lista.datos?.datos ?? []).filter((r) => r.servicioContratadoId === servicioContratadoId);
+  return (
+    <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
+      <div className="fila entre">
+        <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Formularios para el cliente</h3>
+        <button className="boton boton--chico" onClick={() => { setCreado(null); setAbierto(true); }}>
+          <LuPlus size={14} /> Nuevo formulario
+        </button>
+      </div>
+      <p className="texto-xs texto-muted" style={{ margin: 0 }}>Se mandan por enlace: el cliente responde y sube sus archivos (MP4, PDF, Excel, JPG, PNG o Word) sin entrar al portal.</p>
+      {!lista.datos ? <Cargando /> : xs.length === 0 ? (
+        <p className="texto-xs texto-muted">Todavía no hay formularios en este proyecto.</p>
+      ) : (
+        <div className="lista-suave">
+          {xs.slice(0, 6).map((r) => <FilaRequerimiento key={r.id} r={r} accion="Ver" />)}
+        </div>
+      )}
+      <NuevoFormulario
+        abierto={abierto} clienteId={clienteId} servicioContratadoId={servicioContratadoId} codigoServicio={codigoServicio} creado={creado}
+        alCerrar={() => setAbierto(false)} alCrear={(r) => { setCreado(r); void lista.recargar(); }}
+      />
+    </div>
+  );
+}
+
+function NuevoFormulario({ abierto, clienteId, servicioContratadoId, codigoServicio, creado, alCerrar, alCrear }: {
+  abierto: boolean; clienteId: string; servicioContratadoId: string; codigoServicio: S<"CodigoServicio">; creado: Req | null; alCerrar: () => void; alCrear: (r: Req) => void;
+}) {
+  const avisar = useAviso();
+  const plantillas = useConsulta<{ datos: S<"PlantillaRequerimiento">[] }>(abierto ? "/plantillas-requerimiento" : null);
+  const disponibles = (plantillas.datos?.datos ?? [])
+    .filter((p) => p.codigo !== "PENDIENTE_REUNION" && (!p.servicios.length || p.servicios.includes(codigoServicio)))
+    .sort((a, b) => (a.codigo === "SUBIR_CONTENIDO" ? -1 : b.codigo === "SUBIR_CONTENIDO" ? 1 : a.nombre.localeCompare(b.nombre, "es")));
+  const [plantilla, setPlantilla] = useState("SUBIR_CONTENIDO");
+  const [mensaje, setMensaje] = useState("");
+  const [dias, setDias] = useState(String(ENLACE_FORMULARIO.diasDefecto));
+  const [ocupado, setOcupado] = useState(false);
+  const url = creado?.enlace && typeof window !== "undefined" ? `${window.location.origin}${creado.enlace.url}` : null;
+  const crear = async () => {
+    setOcupado(true);
+    try {
+      const r = await api<Req>(`/clientes/${clienteId}/requerimientos`, { metodo: "POST", cuerpo: { plantillaCodigo: plantilla, servicioContratadoId, mensaje: mensaje.trim() || undefined }, idempotente: true });
+      alCrear(await api<Req>(`/requerimientos/${r.id}/enlace`, { metodo: "POST", cuerpo: { diasVigencia: Number(dias) } }));
+      setMensaje("");
+    } catch (e) {
+      avisar({ titulo: "No pudimos crear el formulario", texto: (e as ProblemaApi).errores?.[0]?.mensaje ?? (e as ProblemaApi).titulo });
+    } finally {
+      setOcupado(false);
+    }
+  };
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(url!);
+      avisar({ titulo: "Enlace copiado", texto: "Pégalo en WhatsApp o en un correo para el cliente." });
+    } catch {
+      avisar({ titulo: "Cópialo a mano", texto: url! });
+    }
+  };
+  return (
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo formulario" ancho={500}>
+      <div className="pila" style={{ gap: 14 }}>
+        <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuLink size={18} /> Nuevo formulario</h2>
+        {url ? (
+          <>
+            <Aviso icono={<LuCheck size={16} />} titulo="Listo: ya puedes mandarlo">Quien tenga el enlace puede responder hasta el {fDiaMes(creado!.enlace!.venceEn)}. Lo que suban te llega a este proyecto.</Aviso>
+            <div className="entrada"><input readOnly aria-label="Enlace del formulario" value={url} onFocus={(e) => e.target.select()} /></div>
+            <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
+              <button className="boton" onClick={alCerrar}>Cerrar</button>
+              <button className="boton boton--primario" onClick={() => void copiar()}><LuCopy size={14} /> Copiar enlace</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="campo">
+              <label htmlFor="form-plantilla">Qué le pedimos</label>
+              <select id="form-plantilla" className="input" value={plantilla} onChange={(e) => setPlantilla(e.target.value)} style={{ height: 38 }}>
+                {disponibles.map((p) => <option key={p.codigo} value={p.codigo}>{p.nombre}</option>)}
+              </select>
+              <span className="ayuda-campo">{disponibles.find((p) => p.codigo === plantilla)?.descripcion}</span>
+            </div>
+            <div className="campo">
+              <label htmlFor="form-mensaje">Mensaje para el cliente <span className="texto-muted">(opcional)</span></label>
+              <textarea id="form-mensaje" className="input" rows={2} maxLength={1000} value={mensaje} onChange={(e) => setMensaje(e.target.value)} placeholder="Ej.: Súbenos los videos del evento y las fotos de los productos." />
+            </div>
+            <div className="campo" style={{ maxWidth: 200 }}>
+              <label htmlFor="form-dias">El enlace dura (días)</label>
+              <div className="entrada"><input id="form-dias" type="number" min={1} max={ENLACE_FORMULARIO.diasMax} value={dias} onChange={(e) => setDias(e.target.value)} /></div>
+            </div>
+            <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
+              <button className="boton" onClick={alCerrar}>Cancelar</button>
+              <button className="boton boton--primario" disabled={ocupado || !plantilla} onClick={() => void crear()}>{ocupado ? "Creando…" : "Crear y obtener enlace"}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 
