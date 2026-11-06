@@ -182,15 +182,19 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  # Respaldo diario (6 nov): en el servidor (14 días) y en el Drive de Inoo (los últimos 30). Ver respaldo/respaldar.mjs.
   respaldo:
-    image: postgres:16-alpine
+    image: node:22-alpine
     restart: unless-stopped
     environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-    entrypoint: >
-      /bin/sh -c "while true; do pg_dump -h postgres -U ${POSTGRES_USER} -Fc ${POSTGRES_DB} > /respaldos/oficina_$$(date +%F).dump;
-      find /respaldos -name '*.dump' -mtime +14 -delete; sleep 86400; done"
-    volumes: [./respaldos:/respaldos]
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DRIVE_CLIENT_ID: ${DRIVE_CLIENT_ID:-}
+      DRIVE_CLIENT_SECRET: ${DRIVE_CLIENT_SECRET:-}
+      DRIVE_REFRESH_TOKEN: ${DRIVE_REFRESH_TOKEN:-}
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache postgresql16-client >/dev/null && exec node /app/respaldar.mjs"]
+    volumes: [./respaldos:/respaldos, ./respaldo/respaldar.mjs:/app/respaldar.mjs:ro]
     depends_on:
       postgres: { condition: service_healthy }
 
