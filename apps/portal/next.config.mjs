@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const config = {
-  // Entorno de pruebas: la fecha de los datos de demo. En un build de producción no se fija: manda la fecha real.
-  env: { NEXT_PUBLIC_FECHA_FIJA: process.env.NEXT_PUBLIC_FECHA_FIJA ?? (process.env.NODE_ENV === "production" ? "" : "2026-10-06") },
+  // Sin definir (desarrollo y pruebas), la fecha de los datos de demo. El Dockerfile la deja vacía: manda la fecha real.
+  env: { NEXT_PUBLIC_FECHA_FIJA: process.env.NEXT_PUBLIC_FECHA_FIJA ?? "2026-10-06" },
   output: "standalone",
   // Otra carpeta de compilación (p. ej. para correr las pruebas e2e sin pisar la de `npm run dev`).
   distDir: process.env.NEXT_DIST_DIR || ".next",

@@ -1906,6 +1906,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/clave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** El cliente cambia su contraseña. Las otras sesiones abiertas dejan de valer; devuelve un token nuevo para esta */
+        post: operations["cambiarMiClave"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/personas/{usuarioId}/traspaso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pasa las cuentas, los proyectos abiertos y las tareas abiertas de una persona a otra (permiso GESTIONAR_EQUIPO) */
+        post: operations["traspasarTrabajo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/panel/personas/importar-inoowork": {
         parameters: {
             query?: never;
@@ -3212,7 +3246,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            tipo: "PIEZAS_LISTAS" | "PIEZA_APROBADA" | "CAMBIOS_REGISTRADOS" | "TICKET_CREADO" | "TICKET_RESPONDIDO" | "TICKET_RESUELTO" | "BRIEF_RECIBIDO" | "ALERTA_GASTO_IA";
+            tipo: "AVISO" | "PIEZAS_LISTAS" | "PIEZA_APROBADA" | "CAMBIOS_REGISTRADOS" | "TICKET_CREADO" | "TICKET_RESPONDIDO" | "TICKET_RESUELTO" | "BRIEF_RECIBIDO" | "ALERTA_GASTO_IA";
             /** Format: uuid */
             clienteId?: string | null;
             titulo: string;
@@ -9832,6 +9866,75 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    cambiarMiClave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    actual: string;
+                    nueva: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        token: string;
+                        /** Format: date-time */
+                        expiraEn: string;
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    traspasarTrabajo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    aId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        cuentas: number;
+                        proyectos: number;
+                        tareas: number;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
         };
     };
     importarDeInooWork: {

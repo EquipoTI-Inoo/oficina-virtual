@@ -9,6 +9,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Un build real usa la fecha de hoy. Para fijarla en un entorno con datos de demo: --build-arg NEXT_PUBLIC_FECHA_FIJA=2026-10-06
+ARG NEXT_PUBLIC_FECHA_FIJA=""
+ENV NEXT_PUBLIC_FECHA_FIJA=$NEXT_PUBLIC_FECHA_FIJA
 RUN npm run build
 
 FROM node:22-alpine AS run

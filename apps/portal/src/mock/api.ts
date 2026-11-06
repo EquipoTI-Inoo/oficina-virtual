@@ -712,6 +712,17 @@ ruta("GET", "/me", (ctx) => {
   return sesion;
 });
 ruta("GET", "/me/notificaciones", () => ({ datos: notificaciones(), paginacion: { siguienteCursor: null } }));
+ruta("POST", "/me/clave", async (ctx, _p, _q, req) => {
+  if (ctx.usuario.tipo !== "CLIENTE" || ctx.enNombreDe) throw new ErrorApi(409, "NO_DISPONIBLE", "Esta cuenta cambia su contraseña en InooWork");
+  const b = await cuerpo<{ actual?: unknown; nueva?: unknown }>(req);
+  if (b.actual !== ctx.usuario.claveDemo) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "actual", mensaje: "Tu contraseña actual no es esa" }]);
+  const error = errorClaveNueva(b.nueva);
+  if (error) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "nueva", mensaje: error }]);
+  if (b.nueva === b.actual) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "nueva", mensaje: "Elige una distinta a la actual" }]);
+  ctx.usuario.claveDemo = b.nueva as string;
+  return { token: `demo.${ctx.usuario.id}`, expiraEn: new Date(Date.now() + 7 * 86_400_000).toISOString() };
+});
+
 ruta("POST", "/me/notificaciones/leer", () => {
   notificaciones().forEach((n) => E.notificacionesLeidas.add(n.id));
   return null;
@@ -4084,6 +4095,19 @@ function aplicarSincronizacion(b: Partial<S<"SincronizacionInooWork">>) {
   }
   return { hitosActualizados, ticketsActualizados, ...personas };
 }
+
+ruta("POST", "/panel/personas/:id/traspaso", async (ctx, p, _q, req) => {
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
+  const b = await cuerpo<{ aId?: unknown }>(req);
+  if (b.aId === p.id || !esDelEquipo(b.aId)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "aId", mensaje: "Elige a otra persona activa del equipo" }]);
+  if (!E.usuarios.some((u) => u.id === p.id && u.tipo === "EQUIPO")) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const a = b.aId as string;
+  let cuentas = 0, proyectos = 0, tareas = 0;
+  for (const c of E.clientes) if (amDe(c) === p.id) { c.accountManagerId = a; cuentas++; }
+  for (const s of E.servicios) if (s.responsableId === p.id && s.estado !== "FINALIZADO") { s.responsableId = a; proyectos++; }
+  for (const t of E.tareas) if (t.responsableId === p.id && t.estado !== "HECHA") { t.responsableId = a; tareas++; }
+  return { cuentas, proyectos, tareas };
+});
 
 ruta("POST", "/panel/personas/importar-inoowork", (ctx) => {
   exigirSuperUsuario(ctx);

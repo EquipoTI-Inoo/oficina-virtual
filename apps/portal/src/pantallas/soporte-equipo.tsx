@@ -14,7 +14,7 @@ import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimien
 import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
-import { AccesoDelCliente, EquipoAsignado, TablerosDelCliente } from "./accesos";
+import { AccesoDelCliente, EquipoAsignado, GestionCuenta, TablerosDelCliente } from "./accesos";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -463,6 +463,20 @@ function TusCuentas({ todas }: { todas: boolean }) {
   const avisar = useAviso();
   const [nuevo, setNuevo] = useState(false);
   const { datos: d, error, recargar } = useConsulta<PanelResp>(`/panel/clientes?periodo=${PERIODO_PORTAL}`);
+  const avisarExportar = useAviso();
+  const exportar = async () => {
+    try {
+      const csv = await api<string>(`/panel/clientes/exportar?periodo=${PERIODO_PORTAL}`);
+      const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `clientes-${PERIODO_PORTAL}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      avisarExportar({ titulo: "No pudimos exportar" });
+    }
+  };
   if (error) return <ErrorCarga error={error} reintentar={recargar} />;
   if (!d) return <Cargando />;
   return (
@@ -472,9 +486,12 @@ function TusCuentas({ todas }: { todas: boolean }) {
         titulo="Clientes"
         bajada={todas ? "Todas las cuentas activas de la agencia." : "Las cuentas que tienes a tu cargo o que te asignaron."}
         accion={
-          <button className="boton boton--primario" onClick={() => setNuevo(true)}>
-            <LuPlus size={18} /> Nuevo cliente
-          </button>
+          <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button className="boton" onClick={() => void exportar()}>Exportar CSV</button>
+            <button className="boton boton--primario" onClick={() => setNuevo(true)}>
+              <LuPlus size={18} /> Nuevo cliente
+            </button>
+          </span>
         }
       />
       <TablaClientes filas={d.datos} todas={todas} />
@@ -679,6 +696,7 @@ function Ficha() {
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}
+          {gestion && <GestionCuenta cliente={d} alGuardar={() => void c.recargar()} />}
           {gestion && <AccesoDelCliente clienteId={id} />}
           <TablerosDelCliente nombre={d.nombre} />
           <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />

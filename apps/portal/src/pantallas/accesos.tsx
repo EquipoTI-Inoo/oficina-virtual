@@ -13,6 +13,42 @@ import { NOMBRE_AREA } from "../dominio/ia-equipo";
 
 const ORIGEN: Record<S<"AccesoPersona">["origen"], string> = { AM: "AM de la cuenta", RESPONSABLE: "Responsable", ASIGNADO: "Asignado" };
 
+const ESTADO_CUENTA: Record<S<"Cliente">["estado"], string> = { ACTIVO: "Activa", PAUSADO: "En pausa", BAJA: "De baja" };
+
+/** Quién lleva la cuenta y en qué estado está. */
+export function GestionCuenta({ cliente, alGuardar }: { cliente: S<"Cliente">; alGuardar: () => void }) {
+  const avisar = useAviso();
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>("/panel/equipo");
+  const guardar = async (cuerpo: Record<string, unknown>, listo: string) => {
+    try {
+      await api(`/clientes/${cliente.id}`, { metodo: "PATCH", cuerpo });
+      avisar({ titulo: listo });
+      alGuardar();
+    } catch (x) {
+      avisar({ titulo: "No pudimos guardar el cambio", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const cambiarEstado = (estado: S<"Cliente">["estado"]) => {
+    if (estado === "BAJA" && !window.confirm(`¿Dar de baja a ${cliente.nombre}? Sale de las listas de cuentas activas. Se puede revertir.`)) return;
+    void guardar({ estado }, `${cliente.nombre}: ${ESTADO_CUENTA[estado].toLowerCase()}`);
+  };
+  return (
+    <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Gestión de la cuenta</h3>
+      <label className="texto-xs" htmlFor="gc-am">Quién lleva la cuenta</label>
+      <select id="gc-am" className="input" value={cliente.accountManager?.id ?? ""} onChange={(e) => void guardar({ accountManagerId: e.target.value }, "Cambiamos a quien lleva la cuenta")}>
+        {!cliente.accountManager && <option value="">Sin asignar</option>}
+        {cliente.accountManager && !equipo.datos?.datos.some((p) => p.id === cliente.accountManager?.id) && <option value={cliente.accountManager.id}>{cliente.accountManager.nombre}</option>}
+        {(equipo.datos?.datos ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+      </select>
+      <label className="texto-xs" htmlFor="gc-estado">Estado de la cuenta</label>
+      <select id="gc-estado" className="input" value={cliente.estado} onChange={(e) => cambiarEstado(e.target.value as S<"Cliente">["estado"])}>
+        {(Object.keys(ESTADO_CUENTA) as S<"Cliente">["estado"][]).map((x) => <option key={x} value={x}>{ESTADO_CUENTA[x]}</option>)}
+      </select>
+    </section>
+  );
+}
+
 /** Los tableros de InooWork de este cliente, según el nombre que tienen allá. */
 export function TablerosDelCliente({ nombre }: { nombre: string }) {
   const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
@@ -70,6 +106,24 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
       avisar({ titulo: "No pudimos crear el enlace", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
     }
   };
+  const cambiarRol = async (m: S<"Miembro">, rolNuevo: S<"Miembro">["rol"]) => {
+    try {
+      await api(`/clientes/${clienteId}/miembros/${m.usuarioId}`, { metodo: "PATCH", cuerpo: { rol: rolNuevo } });
+      void lista.recargar();
+    } catch (x) {
+      avisar({ titulo: "No pudimos cambiar su permiso", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const quitarAcceso = async (m: S<"Miembro">) => {
+    if (!window.confirm(`¿Quitarle el acceso a ${m.nombre}? No podrá ver más esta cuenta.`)) return;
+    try {
+      await api(`/clientes/${clienteId}/miembros/${m.usuarioId}`, { metodo: "DELETE" });
+      avisar({ titulo: `${m.nombre} ya no tiene acceso` });
+      void lista.recargar();
+    } catch (x) {
+      avisar({ titulo: "No pudimos quitarle el acceso", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
   const agregar = async (e: FormEvent) => {
     e.preventDefault();
     setErrores({});
@@ -97,12 +151,16 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
         <div key={m.usuarioId} className="fila entre texto-sm" style={{ gap: 8, flexWrap: "wrap" }}>
           <span>
             <span className="negrita" style={{ display: "block" }}>{m.nombre}</span>
-            <span className="texto-xs texto-muted">{m.email} · {ROL_CLIENTE[m.rol]}</span>
+            <span className="texto-xs texto-muted" style={{ display: "block" }}>{m.email}</span>
+            <select className="input" style={{ marginTop: 4, height: 30, fontSize: 12 }} aria-label={`Permiso de ${m.nombre}`} value={m.rol} onChange={(e) => void cambiarRol(m, e.target.value as S<"Miembro">["rol"])}>
+              {(Object.keys(ROL_CLIENTE) as S<"Miembro">["rol"][]).map((x) => <option key={x} value={x}>{ROL_CLIENTE[x]}</option>)}
+            </select>
             {m.invitacionPendiente && <span style={{ display: "block", marginTop: 4 }}><Etiqueta tono="ambar">Todavía no entra</Etiqueta></span>}
           </span>
           <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
             <button className="boton boton--chico" onClick={() => void enviarPorWhatsApp(m)} aria-label={`Enviar enlace de acceso de ${m.nombre} por WhatsApp`}><LuMessageCircle size={13} /> WhatsApp</button>
             <button className="boton boton--chico" onClick={() => void copiarEnlace(m)} aria-label={`Copiar enlace de acceso de ${m.nombre}`}><LuLink size={13} /> Copiar enlace</button>
+            <button className="boton-icono" onClick={() => void quitarAcceso(m)} aria-label={`Quitarle el acceso a ${m.nombre}`}><LuX size={14} /></button>
           </span>
         </div>
       ))}

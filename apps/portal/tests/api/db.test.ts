@@ -104,6 +104,7 @@ before(async () => {
   await db.exec(sql("migraciones/0039_super_usuario.sql"));
   await db.exec(sql("migraciones/0040_ingreso_portal.sql"));
   await db.exec(sql("migraciones/0041_clientes_de_prueba.sql"));
+  await db.exec(sql("migraciones/0042_notificaciones_y_sesiones.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -1236,5 +1237,70 @@ describe("InooWork manda sobre quién está en el equipo · Postgres", () => {
     assert.deepEqual([despues.resumen.clientesActivos, despues.resumen.proyectosConRetraso, despues.resumen.requerimientosAtrasados, despues.resumen.piezasAtrasadas, despues.resumen.gastoIaUsd], [0, 0, 0, 0, 0]);
     assert.equal(despues.datos.length, antesN.datos.length, "la lista sigue igual");
     assert.deepEqual((await llamar("GET", "/panel/costos-ia?periodo=2026-10", ADMIN)).json.clientes, []);
+  });
+});
+
+describe("Campana y contraseña · Postgres", () => {
+  const llamar = crearLlamar((req) => manejarSolicitudDb(req));
+  const ADMIN = `demo.${uid(1, 4)}`;
+  const de = async (token: string) => (await llamar("GET", "/me/notificaciones", token)).json.datos as any[];
+  const antes = { modo: process.env.AUTH_MODO, secreto: process.env.SESION_SECRETO };
+  before(() => {
+    process.env.SESION_SECRETO = "s".repeat(40);
+  });
+  after(() => {
+    for (const [k, v] of [["AUTH_MODO", antes.modo], ["SESION_SECRETO", antes.secreto]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  test("lo que pasa llega a la campana de quien corresponde, y los comentarios internos no le llegan al cliente", async () => {
+    await reiniciar();
+    process.env.AUTH_MODO = "demo";
+    const sc = uid(4, 3);
+    const t = await llamar("POST", `/servicios-contratados/${sc}/tareas`, ADMIN, { titulo: "Revisar accesos", responsableId: uid(1, 3) });
+    assert.equal(t.status, 201);
+    const n = (await de(DIEGO)).find((x) => x.titulo === "Te asignaron una tarea");
+    assert.deepEqual([n.cuerpo, n.enlace], ["Revisar accesos", `/equipo/proyectos/${sc}`]);
+    assert.equal((await llamar("GET", "/me", DIEGO)).json.notificacionesSinLeer > 0, true);
+    assert.equal((await de(ADMIN)).some((x) => x.titulo === "Te asignaron una tarea"), false, "a quien la asignó no le avisa");
+
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('comentario_proyecto.creado', '${CASA_OLIVA}', '{"servicioContratadoId":"${sc}","interno":true,"usuarioId":"${uid(1, 4)}"}')`);
+    assert.equal((await de(VALERIA)).some((x) => x.titulo.includes("comentó")), false, "interno: el cliente no se entera");
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('comentario_proyecto.creado', '${CASA_OLIVA}', '{"servicioContratadoId":"${sc}","interno":false,"usuarioId":"${uid(1, 4)}"}')`);
+    assert.equal((await de(VALERIA)).some((x) => x.titulo.includes("comentó")), true);
+    assert.equal((await de(MARTIN_LECTOR)).some((x) => x.titulo.includes("comentó")), false, "quien solo lee no decide");
+  });
+
+  test("un evento raro o con datos malos no frena la acción que lo dispara", async () => {
+    await reiniciar();
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('tarea.asignada', '${CASA_OLIVA}', '{"tareaId":"no-es-uuid"}')`);
+    await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('evento.desconocido', '${CASA_OLIVA}', '{}')`);
+    const r = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM outbox_evento WHERE tipo IN ('tarea.asignada', 'evento.desconocido')");
+    assert.equal(r.rows[0].n, 2);
+  });
+
+  test("el cliente cambia su contraseña: las otras sesiones se cierran y esta sigue", async () => {
+    await reiniciar();
+    process.env.AUTH_MODO = "demo";
+    const e = await llamar("POST", `/clientes/${CASA_OLIVA}/miembros/${uid(1, 1)}/enlace-acceso`, ADMIN, {});
+    process.env.AUTH_MODO = "portal";
+    const c = (await llamar("POST", "/sesion/crear-clave", undefined, { token: e.json.ruta.split("/").pop(), clave: "Clave2026x" })).json;
+    const otra = (await llamar("POST", "/sesion/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "Clave2026x" })).json.token;
+    assert.equal((await llamar("GET", "/me", otra)).status, 200);
+    const cambiar = (b: unknown, t = c.token) => llamar("POST", "/me/clave", t, b);
+    assert.deepEqual((await cambiar({ actual: "Mala2026x", nueva: "Nueva2026x" })).json.errores.map((x: any) => x.campo), ["actual"]);
+    assert.deepEqual((await cambiar({ actual: "Clave2026x", nueva: "corta" })).json.errores.map((x: any) => x.campo), ["nueva"]);
+    assert.deepEqual((await cambiar({ actual: "Clave2026x", nueva: "Clave2026x" })).json.errores.map((x: any) => x.campo), ["nueva"]);
+    await db.query("UPDATE usuario SET sesiones_desde = now() - interval '1 hour' WHERE id = $1", [uid(1, 1)]);
+    const r = await cambiar({ actual: "Clave2026x", nueva: "Nueva2026x" });
+    assert.equal(r.status, 200);
+    assert.equal((await llamar("GET", "/me", r.json.token)).status, 200, "esta sesión sigue");
+    await db.query("UPDATE usuario SET sesiones_desde = now() + interval '1 minute' WHERE id = $1", [uid(1, 1)]);
+    assert.equal((await llamar("GET", "/me", otra)).status, 401, "una sesión anterior al cambio ya no vale");
+    await db.query("UPDATE usuario SET sesiones_desde = NULL WHERE id = $1", [uid(1, 1)]);
+    assert.equal((await llamar("POST", "/sesion/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "Clave2026x" })).status, 401, "la anterior ya no entra");
+    assert.equal((await llamar("POST", "/sesion/ingresar", undefined, { email: "valeria@casaoliva.pe", clave: "Nueva2026x" })).status, 200);
   });
 });

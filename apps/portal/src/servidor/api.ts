@@ -551,6 +551,26 @@ ruta("GET", "/me/notificaciones", async (ctx) => {
   };
 });
 
+// El cliente cambia su contraseña. Las demás sesiones abiertas dejan de valer; esta sigue con un token nuevo.
+ruta("POST", "/me/clave", async (ctx, _p, _q, cuerpo) => {
+  if (ctx.u.tipo !== "CLIENTE" || ctx.enNombreDe || process.env.AUTH_MODO !== "portal") throw new ErrorApi(409, "NO_DISPONIBLE", "Esta cuenta cambia su contraseña en InooWork");
+  const b = (await cuerpo()) as { actual?: unknown; nueva?: unknown };
+  revisarIntentos(`clave:${ctx.u.usuarioId}`);
+  const f = (await ctx.c.query<{ clave_hash: string | null }>("SELECT clave_hash FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0];
+  if (!(await verificarClave(typeof b.actual === "string" ? b.actual : "", f?.clave_hash))) {
+    anotarFallido(`clave:${ctx.u.usuarioId}`);
+    validacion([{ campo: "actual", mensaje: "Tu contraseña actual no es esa" }]);
+  }
+  const error = errorClaveNueva(b.nueva);
+  if (error) validacion([{ campo: "nueva", mensaje: error }]);
+  if (b.nueva === b.actual) validacion([{ campo: "nueva", mensaje: "Elige una distinta a la actual" }]);
+  olvidarFallidos(`clave:${ctx.u.usuarioId}`);
+  await ctx.c.query("UPDATE usuario SET clave_hash = $2, sesiones_desde = now() WHERE id = $1", [ctx.u.usuarioId, await hashClave(b.nueva as string)]);
+  await ctx.c.query("UPDATE enlace_clave SET usado_en = now() WHERE usuario_id = $1 AND usado_en IS NULL", [ctx.u.usuarioId]);
+  const s = firmarSesion(ctx.u.usuarioId);
+  return { token: s.token, expiraEn: s.expiraEn };
+});
+
 ruta("POST", "/me/notificaciones/leer", async (ctx, _p, _q, cuerpo) => {
   const b = (await cuerpo()) as { ids?: string[] };
   const ids = Array.isArray(b.ids) && b.ids.length ? b.ids : null;
@@ -2337,6 +2357,19 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
   }
   return { personasCreadas, personasActualizadas, empleadosSinCorreo };
 }
+
+// Cuando alguien se va o cambia de área: sus cuentas, proyectos y tareas abiertas pasan a otra persona.
+ruta("POST", "/panel/personas/:id/traspaso", async (ctx, p, _q, cuerpo) => {
+  exigirPermiso(ctx, "GESTIONAR_EQUIPO");
+  const b = (await cuerpo()) as { aId?: unknown };
+  const destino = typeof b.aId === "string" && esUuid(b.aId) && b.aId !== p.id ? (await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO' AND activo", [b.aId])).rows[0] : undefined;
+  if (!destino) validacion([{ campo: "aId", mensaje: "Elige a otra persona activa del equipo" }]);
+  if (!esUuid(p.id) || !(await ctx.c.query("SELECT 1 FROM usuario WHERE id = $1 AND tipo = 'EQUIPO'", [p.id])).rows[0]) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const cuentas = await ctx.c.query("UPDATE cliente SET account_manager_id = $2 WHERE account_manager_id = $1 RETURNING 1", [p.id, b.aId]);
+  const proyectos = await ctx.c.query("UPDATE servicio_contratado SET responsable_id = $2 WHERE responsable_id = $1 AND estado <> 'FINALIZADO' RETURNING 1", [p.id, b.aId]);
+  const tareas = await ctx.c.query("UPDATE tarea SET responsable_id = $2 WHERE responsable_id = $1 AND estado <> 'HECHA' RETURNING 1", [p.id, b.aId]);
+  return { cuentas: cuentas.rows.length, proyectos: proyectos.rows.length, tareas: tareas.rows.length };
+});
 
 // Importación inicial: un super usuario trae al equipo desde InooWork.
 ruta("POST", "/panel/personas/importar-inoowork", async (ctx) => {
@@ -5018,6 +5051,8 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<(S<"Correo
   const outbox = (await ctx.c.query<{ id: string }>("SELECT id FROM outbox_evento WHERE id = $1 AND tipo = $2 AND cliente_id IS NOT DISTINCT FROM $3", [ev.id, ev.tipo, clienteId])).rows[0];
   if (!outbox) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese evento en el outbox");
   if (!regla || !clienteId) return [];
+  // Los clientes de prueba no reciben correos: sus direcciones no son de nadie.
+  if ((await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1 AND es_prueba", [clienteId])).rows.length) return [];
   const r = (await reglasDe(ctx, clienteId)).find((x) => x.evento === regla);
   if (!r?.activa) return [];
   const plantilla = PLANTILLAS_CORREO[r.plantilla] ? r.plantilla : regla;
@@ -5387,7 +5422,7 @@ async function sesionPortal(camino: string, req: Request): Promise<Response> {
            WHERE e.token_hash = $1 AND e.usado_en IS NULL AND e.expira_en > now() FOR UPDATE OF e`, [hashToken(t("token"))],
         )).rows[0];
         if (!e) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "token", mensaje: "Este enlace ya se usó o venció. Pídele uno nuevo a tu equipo Inoo." }]);
-        await c.query("UPDATE usuario SET clave_hash = $2 WHERE id = $1", [e.usuario_id, hash]);
+        await c.query("UPDATE usuario SET clave_hash = $2, sesiones_desde = now() WHERE id = $1", [e.usuario_id, hash]);
         // Un enlace que se usa invalida los demás de esa persona.
         await c.query("UPDATE enlace_clave SET usado_en = now() WHERE usuario_id = $1 AND usado_en IS NULL", [e.usuario_id]);
         return iniciarSesionCliente(c, e.usuario_id);

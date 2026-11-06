@@ -72,6 +72,18 @@ export function pruebasPersonas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await de("EMP-A1")).correo, "buzon+emp-a1@inoo.pe");
     });
 
+    test("traspasar el trabajo: las cuentas, proyectos y tareas abiertas pasan a otra persona", async () => {
+      await reiniciar();
+      assert.equal((await llamar("POST", `/panel/personas/${DIEGO_ID}/traspaso`, DIEGO, { aId: CAMILA_ID })).status, 403, "un lead no traspasa");
+      assert.equal((await llamar("POST", `/panel/personas/${DIEGO_ID}/traspaso`, ADMIN, { aId: DIEGO_ID })).status, 422, "a sí misma no");
+      assert.equal((await llamar("POST", `/panel/personas/${DIEGO_ID}/traspaso`, ADMIN, { aId: uid(1, 1) })).status, 422, "a un cliente no");
+      const r = await llamar("POST", `/panel/personas/${DIEGO_ID}/traspaso`, ADMIN, { aId: CAMILA_ID });
+      assert.equal(r.status, 200);
+      assert.ok(r.json.cuentas > 0, "Diego llevaba cuentas");
+      const fila = (await llamar("GET", "/panel/proyectos", ADMIN)).json.datos.find((p: any) => p.responsable?.id === DIEGO_ID);
+      assert.equal(fila, undefined, "ya nada queda a su nombre");
+    });
+
     test("crear clientes: ADMIN y nivel por cuenta (CRM y Comercial), no nivel por proyecto", async () => {
       await reiniciar();
       const ana = (await llamar("POST", "/panel/personas", ADMIN, { nombre: "Ana Comercial", correo: "ana.comercial@inoo.pe", area: "COMERCIAL", rolEquipo: "DISENO" })).json;

@@ -11,7 +11,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { ErrorApi } from "./errores";
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
-export const HORAS_SESION = 12;
+/** Se pueden cortar antes: el usuario desactivado no entra, y cambiar la contraseña invalida las anteriores. */
+export const HORAS_SESION = 7 * 24;
 const PREFIJO = "iw.";
 
 export const ingresoConInooWork = () => env("AUTH_EQUIPO") === "inoowork" && !!env("INOOWORK_URL");
@@ -27,7 +28,7 @@ const firma = (datos: string) => b64(createHmac("sha256", secreto()).update(dato
 /** Sesión del portal para alguien del equipo que entró con InooWork. */
 export function firmarSesion(usuarioId: string, ahora = Date.now()) {
   const expiraEn = new Date(ahora + HORAS_SESION * 3_600_000).toISOString();
-  const datos = b64(JSON.stringify({ u: usuarioId, exp: expiraEn }));
+  const datos = b64(JSON.stringify({ u: usuarioId, exp: expiraEn, iat: ahora }));
   return { token: `${PREFIJO}${datos}.${firma(datos)}`, expiraEn };
 }
 
@@ -45,6 +46,16 @@ export function leerSesion(token: string, ahora = Date.now()): string | null {
     return typeof p.u === "string" && typeof p.exp === "string" && Date.parse(p.exp) > ahora ? p.u : null;
   } catch {
     return null;
+  }
+}
+
+/** Cuándo se emitió la sesión (0 si es anterior a este dato). */
+export function emitidaEn(token: string) {
+  try {
+    const p = JSON.parse(Buffer.from(token.slice(PREFIJO.length).split(".")[0], "base64url").toString()) as { iat?: unknown };
+    return typeof p.iat === "number" ? p.iat : 0;
+  } catch {
+    return 0;
   }
 }
 

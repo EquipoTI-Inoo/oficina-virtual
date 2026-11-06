@@ -148,7 +148,7 @@ function Calendario() {
               );
             })}
           </div>
-          {!quien && <div className="tarjeta calendario-google">
+          {!quien && (!g?.simulada || !!process.env.NEXT_PUBLIC_FECHA_FIJA) && <div className="tarjeta calendario-google">
             <p className="negrita texto-sm fila" style={{ gap: 8 }}>
               <LogoGoogle /> Google Calendar
             </p>

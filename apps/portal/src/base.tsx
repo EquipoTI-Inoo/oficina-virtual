@@ -75,7 +75,7 @@ export function cambiarClienteActivo(clienteId: string) {
   actualizarSesion({ clienteId });
 }
 
-function actualizarSesion(cambios: Partial<SesionLocal>) {
+export function actualizarSesion(cambios: Partial<SesionLocal>) {
   const s = leerSesion();
   if (!s) return;
   const almacen = window.sessionStorage.getItem(CLAVE_SESION) ? window.sessionStorage : window.localStorage;

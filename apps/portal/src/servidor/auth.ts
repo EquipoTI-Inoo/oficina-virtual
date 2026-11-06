@@ -16,7 +16,7 @@ import { ErrorApi } from "./errores";
 import { nivelDe, permisosDe, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import type { Area } from "../dominio/ia-equipo";
 import { areaDeClaveHermes } from "./jarvis-chat";
-import { esSesionInooWork, leerSesion } from "./sesion-inoowork";
+import { esSesionInooWork, leerSesion, emitidaEn } from "./sesion-inoowork";
 
 export interface Usuario extends SesionDb {
   nombre: string;
@@ -138,12 +138,16 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   }
 
   // usuario y miembro_cliente no tienen RLS: se leen antes de activar la sesión restringida.
-  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados }>(
-    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
+  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados; sesiones_desde: Date | null }>(
+    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados, sesiones_desde FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
     [filtro.valor],
   );
   const u = rows[0];
   if (!u) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
+  // Con 2 s de margen, porque la base y el portal pueden tener relojes apenas distintos.
+  if (u.sesiones_desde && esSesionInooWork(token) && conversacion === null && emitidaEn(token) + 2000 < u.sesiones_desde.getTime()) {
+    throw new ErrorApi(401, "NO_AUTENTICADO", "Tu sesión venció: vuelve a ingresar");
+  }
   // El primer ingreso cierra las invitaciones pendientes (migración 0015).
   if (u.tipo === "CLIENTE") await c.query("UPDATE miembro_cliente SET invitacion_pendiente = false WHERE usuario_id = $1 AND invitacion_pendiente", [u.id]);
   const m = await c.query<{ cliente_id: string; rol: Usuario["roles"][string] }>("SELECT cliente_id, rol FROM miembro_cliente WHERE usuario_id = $1", [u.id]);

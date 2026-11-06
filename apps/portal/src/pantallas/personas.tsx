@@ -34,6 +34,7 @@ function Personas() {
   const r = useConsulta<{ datos: Ficha[]; inooworkConectado: boolean }>("/panel/personas");
   const [editando, setEditando] = useState<Ficha | "nueva" | null>(null);
   const [verInactivas, setVerInactivas] = useState(false);
+  const [traspasando, setTraspasando] = useState<Ficha | null>(null);
   const avisar = useAviso();
   const soySuper = !!usePortal().sesion?.usuario.esSuperUsuario;
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
@@ -134,6 +135,7 @@ function Personas() {
                       )}
                       {(soySuper || !p.esSuperUsuario) && (
                         <>
+                          <button className="boton boton--chico" onClick={() => setTraspasando(p)} aria-label={`Traspasar el trabajo de ${p.nombre}`}>Traspasar</button>
                           <button className="boton boton--chico" onClick={() => setEditando(p)} aria-label={`Editar a ${p.nombre}`}>
                             <LuPencil size={13} /> Editar
                           </button>
@@ -155,6 +157,7 @@ function Personas() {
           {verInactivas ? "Ocultar desactivadas" : `Ver desactivadas (${inactivas})`}
         </button>
       )}
+      {traspasando && <TraspasarTrabajo persona={traspasando} equipo={todas.filter((x) => x.activo && x.id !== traspasando.id)} alCerrar={() => setTraspasando(null)} />}
       {editando && (
         <EditorPersona
           persona={editando === "nueva" ? null : editando}
@@ -168,6 +171,38 @@ function Personas() {
         />
       )}
     </>
+  );
+}
+
+/** Sus cuentas, proyectos abiertos y tareas abiertas pasan a otra persona. Para cuando alguien se va o cambia de área. */
+function TraspasarTrabajo({ persona, equipo, alCerrar }: { persona: Ficha; equipo: Ficha[]; alCerrar: () => void }) {
+  const avisar = useAviso();
+  const [a, setA] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const traspasar = async () => {
+    setEnviando(true);
+    try {
+      const r = await api<{ cuentas: number; proyectos: number; tareas: number }>(`/panel/personas/${persona.id}/traspaso`, { metodo: "POST", cuerpo: { aId: a } });
+      avisar({ titulo: "Trabajo traspasado", texto: `${r.cuentas} cuentas, ${r.proyectos} proyectos y ${r.tareas} tareas.` });
+      alCerrar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos traspasarlo", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
+    } finally {
+      setEnviando(false);
+    }
+  };
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta={`Traspasar el trabajo de ${persona.nombre}`} ancho={460}>
+      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Traspasar el trabajo de {persona.nombre}</h2>
+      <p className="texto-xs texto-muted">Pasan a otra persona sus cuentas, sus proyectos abiertos y sus tareas abiertas. Los tableros de InooWork se cambian allá.</p>
+      <Campo id="tr-a" etiqueta="Pasar a">
+        <select id="tr-a" value={a} onChange={(e) => setA(e.target.value)}>
+          <option value="">Elige a alguien</option>
+          {equipo.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+      </Campo>
+      <button className="boton boton--primario boton--bloque" disabled={!a || enviando} onClick={() => void traspasar()}>Traspasar</button>
+    </Modal>
   );
 }
 

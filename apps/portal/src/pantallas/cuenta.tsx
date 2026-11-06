@@ -5,9 +5,9 @@
  * soporte queda a mano para quien lo busca, sin estar en primera pantalla (como en la app de un banco).
  * El WhatsApp de Ayuda es la línea pública de Inoo, hasta que cada área tenga la suya.
  */
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { LuFileText, LuMail, LuMessageCircle, LuTicket } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { actualizarSesion, api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso, usePortal } from "../componentes";
 
 export const PESTANAS_CUENTA = [
@@ -74,6 +74,50 @@ const Dato = ({ etiqueta, children }: { etiqueta: string; children: ReactNode })
 
 // ───────────────────────────── Mi cuenta
 
+function CambiarClave() {
+  const avisar = useAviso();
+  const [actual, setActual] = useState("");
+  const [nueva, setNueva] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [errores, setErrores] = useState<Record<string, string>>({});
+  const [enviando, setEnviando] = useState(false);
+  const enviar = async (e: FormEvent) => {
+    e.preventDefault();
+    if (nueva !== repetir) return setErrores({ repetir: "Las contraseñas no coinciden" });
+    setErrores({});
+    setEnviando(true);
+    try {
+      const r = await api<{ token: string }>("/me/clave", { metodo: "POST", cuerpo: { actual, nueva } });
+      actualizarSesion({ token: r.token });
+      setActual(""); setNueva(""); setRepetir("");
+      avisar({ titulo: "Cambiamos tu contraseña", texto: "Se cerró tu sesión en los demás dispositivos." });
+    } catch (x) {
+      const p = x as ProblemaApi;
+      if (p.errores?.length) setErrores(Object.fromEntries(p.errores.map((y) => [y.campo, y.mensaje])));
+      else avisar({ titulo: "No pudimos cambiarla", texto: p.titulo });
+    } finally {
+      setEnviando(false);
+    }
+  };
+  const campo = (id: string, etiqueta: string, valor: string, cambiar: (v: string) => void, auto: string) => (
+    <div className="campo">
+      <label htmlFor={id}>{etiqueta}</label>
+      <div className="entrada"><input id={id} type="password" autoComplete={auto} value={valor} onChange={(e) => cambiar(e.target.value)} required /></div>
+      {errores[id.replace("clave-", "")] && <p className="texto-xs" role="alert" style={{ color: "var(--c-alerta)" }}>{errores[id.replace("clave-", "")]}</p>}
+    </div>
+  );
+  return (
+    <Tarjeta titulo="Cambiar contraseña">
+      <form className="pila" style={{ gap: 12 }} onSubmit={enviar}>
+        {campo("clave-actual", "Contraseña actual", actual, setActual, "current-password")}
+        {campo("clave-nueva", "Contraseña nueva", nueva, setNueva, "new-password")}
+        {campo("clave-repetir", "Repite la nueva", repetir, setRepetir, "new-password")}
+        <button className="boton boton--primario" style={{ justifySelf: "start" }} disabled={enviando || !actual || !nueva || !repetir}>Cambiar contraseña</button>
+      </form>
+    </Tarjeta>
+  );
+}
+
 function MisDatos() {
   const { sesion } = usePortal();
   const avisar = useAviso();
@@ -94,8 +138,9 @@ function MisDatos() {
         <Dato etiqueta="Nombre">{sesion.usuario.nombre}</Dato>
         <Dato etiqueta="Correo">{sesion.usuario.email}</Dato>
         <Dato etiqueta="Tu permiso">{ROL_CLIENTE[sesion.clientes[0]?.rol ?? ""] ?? "—"}</Dato>
-        <p className="texto-xs texto-muted">Para cambiar tus datos o tu contraseña, escríbele a tu equipo Inoo.</p>
+        <p className="texto-xs texto-muted">Para cambiar tus datos, escríbele a tu equipo Inoo.</p>
       </Tarjeta>
+      {sesion.usuario.tipo === "CLIENTE" && <CambiarClave />}
       <Tarjeta titulo="Tu plan">
         <Dato etiqueta="Empresa">{c.nombre}</Dato>
         <Dato etiqueta="Plan">{c.plan?.nombre ?? "—"}</Dato>

@@ -2805,6 +2805,68 @@ paths:
                   datos: { type: array, items: { $ref: '#/components/schemas/NodoOrganigrama' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /me/clave:
+    post:
+      tags: [Sesión]
+      operationId: cambiarMiClave
+      summary: 'El cliente cambia su contraseña. Las otras sesiones abiertas dejan de valer; devuelve un token nuevo para esta'
+      x-roles: [CLIENTE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actual, nueva]
+              properties:
+                actual: { type: string }
+                nueva: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiraEn]
+                properties:
+                  token: { type: string }
+                  expiraEn: { type: string, format: date-time }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /panel/personas/{usuarioId}/traspaso:
+    post:
+      tags: [Panel interno]
+      operationId: traspasarTrabajo
+      summary: 'Pasa las cuentas, los proyectos abiertos y las tareas abiertas de una persona a otra (permiso GESTIONAR_EQUIPO)'
+      x-roles: [ADMIN]
+      parameters: [ { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [aId]
+              properties:
+                aId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cuentas, proyectos, tareas]
+                properties:
+                  cuentas: { type: integer }
+                  proyectos: { type: integer }
+                  tareas: { type: integer }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /panel/personas/importar-inoowork:
     post:
       tags: [Panel interno]
@@ -4590,7 +4652,7 @@ components:
       required: [id, tipo, titulo, leida, creadoEn]
       properties:
         id: { type: string, format: uuid }
-        tipo: { type: string, enum: [PIEZAS_LISTAS, PIEZA_APROBADA, CAMBIOS_REGISTRADOS, TICKET_CREADO, TICKET_RESPONDIDO, TICKET_RESUELTO, BRIEF_RECIBIDO, ALERTA_GASTO_IA] }
+        tipo: { type: string, enum: [AVISO, PIEZAS_LISTAS, PIEZA_APROBADA, CAMBIOS_REGISTRADOS, TICKET_CREADO, TICKET_RESPONDIDO, TICKET_RESUELTO, BRIEF_RECIBIDO, ALERTA_GASTO_IA] }
         clienteId: { type: [string, 'null'], format: uuid }
         titulo: { type: string }
         cuerpo: { type: [string, 'null'] }

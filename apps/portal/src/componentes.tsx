@@ -5,7 +5,7 @@ import {
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper,
 } from "react-icons/lu";
-import { fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
+import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -417,6 +417,32 @@ function CuentaCliente({ clientes }: { clientes: S<"Sesion">["clientes"] }) {
   );
 }
 
+/** Lo que le pasó a la persona. Se abre con la campana. */
+function ListaNotificaciones({ alCerrar }: { alCerrar: () => void }) {
+  const r = useConsulta<{ datos: S<"Notificacion">[] }>("/me/notificaciones");
+  const xs = r.datos?.datos ?? [];
+  return (
+    <div className="tarjeta" role="dialog" aria-label="Notificaciones" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: "min(340px, 86vw)", maxHeight: 420, overflowY: "auto", zIndex: 40, padding: 12, display: "grid", gap: 4 }}>
+      <span className="negrita texto-sm" style={{ padding: "2px 6px 6px" }}>Notificaciones</span>
+      {r.datos && !xs.length && <span className="texto-sm texto-muted" style={{ padding: "4px 6px 8px" }}>Por ahora no tienes novedades.</span>}
+      {!r.datos && !r.error && <span className="texto-xs texto-muted" style={{ padding: 6 }}>Cargando…</span>}
+      {r.error && <span className="texto-xs texto-muted" style={{ padding: 6 }}>No pudimos cargarlas.</span>}
+      {xs.map((n) => {
+        const texto = (
+          <>
+            <span className={n.leida ? "texto-sm" : "texto-sm negrita"} style={{ display: "block" }}>{n.titulo}</span>
+            {n.cuerpo && <span className="texto-xs texto-muted" style={{ display: "block" }}>{n.cuerpo}</span>}
+            <span className="texto-xs texto-muted">{fDiaHora(n.creadoEn)}</span>
+          </>
+        );
+        return n.enlace
+          ? <Enlace key={n.id} a={n.enlace} onClick={alCerrar} className="boton-lista" style={{ display: "block", padding: "6px", color: "inherit", textDecoration: "none" }}>{texto}</Enlace>
+          : <div key={n.id} style={{ padding: 6 }}>{texto}</div>;
+      })}
+    </div>
+  );
+}
+
 function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN; por proyecto, «Clientes» son sus marcas.
@@ -585,7 +611,9 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
   const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? me.datos?.clientes[0]?.nombre ?? "" : "Equipo Inoo";
   const comoCliente = espacio === "cliente" && me.datos?.usuario.tipo === "EQUIPO";
+  const [campanaAbierta, setCampanaAbierta] = useState(false);
   const marcarLeidas = async () => {
+    setCampanaAbierta((x) => !x);
     setLeidas(true);
     await api("/me/notificaciones/leer", { metodo: "POST", cuerpo: {} }).catch(() => undefined);
   };
@@ -611,9 +639,12 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
             </div>
             <div className="superior-der">
               <span className="periodo">{fMesAnio(PERIODO_PORTAL)}</span>
+              <span style={{ position: "relative", display: "inline-flex" }}>
               <button className="campana" data-sin-leer={sinLeer} aria-label={sinLeer ? "Notificaciones sin leer" : "Notificaciones"} onClick={marcarLeidas}>
                 <LuBell size={18} />
               </button>
+                {campanaAbierta && <ListaNotificaciones alCerrar={() => setCampanaAbierta(false)} />}
+              </span>
               {espacio === "cliente" ? <MenuCuenta sesion={me.datos} /> : <span className="avatar">{me.datos?.usuario.iniciales ?? ""}</span>}
             </div>
           </div>
