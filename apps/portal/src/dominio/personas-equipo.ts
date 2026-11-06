@@ -117,13 +117,36 @@ export interface EmpleadoInooWork {
 }
 
 /**
+ * En InooWork varias personas pueden compartir un correo (6 nov 2026: un buzón común para 10 personas). Para el
+ * portal el correo es único, así que un correo repetido no identifica a nadie: se enlaza solo por id de empleado.
+ */
+export function correosRepetidos(empleados: { email?: string | null }[]) {
+  const vistos = new Set<string>();
+  const repetidos = new Set<string>();
+  for (const e of empleados) {
+    const c = correoValido(e.email) ? e.email.trim().toLowerCase() : null;
+    if (c && vistos.has(c)) repetidos.add(c);
+    if (c) vistos.add(c);
+  }
+  return repetidos;
+}
+
+/** Correo propio de quien comparte buzón. Con «+», sigue llegando al buzón común. */
+export function aliasDeCorreo(correo: string, empleadoId: string) {
+  const [local, dominio] = correo.trim().toLowerCase().split("@");
+  return `${local}+${empleadoId.toLowerCase().replace(/[^a-z0-9-]/g, "")}@${dominio}`;
+}
+const esAlias = (correo: string) => correo.split("@")[0].includes("+");
+
+/**
  * Lo que el portal manda a InooWork de una persona. `username`: el que ya tiene en InooWork o, si nace en el
  * portal, su correo (InooWork también busca por él). `supervisorUsername`: el de su jefe.
  */
 export function empleadoDesdePersona(p: { nombre: string; correo: string; usuarioInooWork?: string | null; cargo: string | null; area: Area | null; rolEquipo: string | null; activo: boolean; supervisorUsername?: string | null }) {
   return {
     name: p.nombre,
-    email: p.correo,
+    // El alias es del portal: en InooWork se queda el buzón común que ya tiene.
+    ...(esAlias(p.correo) ? {} : { email: p.correo }),
     username: p.usuarioInooWork || p.correo,
     supervisorUsername: p.supervisorUsername ?? "",
     role: p.cargo ?? "",

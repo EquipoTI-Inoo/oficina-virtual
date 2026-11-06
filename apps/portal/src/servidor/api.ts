@@ -43,7 +43,7 @@ import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
-import { areaDeDepartamento, cambiosDesdeEmpleado, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, type CambioPersona } from "../dominio/personas-equipo";
+import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, type CambioPersona } from "../dominio/personas-equipo";
 import { enviadorSmtp } from "./correo-smtp";
 import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
@@ -2262,7 +2262,11 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
   let personasActualizadas = 0;
   const empleadosSinCorreo: string[] = [];
   const desactivada = (u: { id: string; email: string }) => emitirOutbox(ctx, "equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "INOOWORK" });
-  for (const e of b.empleados ?? []) {
+  const repetidos = correosRepetidos(b.empleados ?? []);
+  for (const original of b.empleados ?? []) {
+    // Un correo compartido no identifica a nadie: se enlaza solo por el id de empleado.
+    const compartido = correoValidoPersona(original.email) && repetidos.has(original.email.trim().toLowerCase()) ? original.email : null;
+    const e = compartido ? { ...original, email: null } : original;
     const correo = correoValidoPersona(e.email) ? e.email.trim().toLowerCase() : null;
     const u = (await ctx.c.query<FilaFichaPersona & { tipo: string }>(
       `SELECT ${COLUMNAS_FICHA_PERSONA}, tipo FROM usuario WHERE (tipo = 'EQUIPO' AND inoowork_empleado_id = $1) OR ($2::text IS NOT NULL AND email = $2) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST LIMIT 1`,
@@ -2285,7 +2289,8 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
       continue;
     }
     if (e.status === "inactive") continue;
-    if (!correo) {
+    const correoNuevo = correo ?? (compartido ? aliasDeCorreo(compartido, e.id) : null);
+    if (!correoNuevo) {
       empleadosSinCorreo.push(e.id);
       continue;
     }
@@ -2299,9 +2304,9 @@ async function sincronizarEmpleadosDb(ctx: Ctx, b: Partial<S<"SincronizacionInoo
     const n = (await ctx.c.query<{ id: string }>(
       `INSERT INTO usuario (email, nombre, cargo, tipo, rol_equipo, area, nivel_acceso, inoowork_empleado_id, inoowork_usuario, inoowork_estado)
        VALUES ($1, $2, $3, 'EQUIPO', $4::rol_equipo, $5::area_equipo, $6::nivel_acceso, $7, $8, 'SINCRONIZADO') RETURNING id`,
-      [correo, e.name.trim(), e.role?.trim() || null, rol, area, nivel, e.id, e.username ?? null],
+      [correoNuevo, e.name.trim(), e.role?.trim() || null, rol, area, nivel, e.id, e.username ?? null],
     )).rows[0];
-    await emitirOutbox(ctx, "equipo.persona_creada", null, { usuarioId: n.id, email: correo, nombre: e.name.trim(), origen: "INOOWORK" });
+    await emitirOutbox(ctx, "equipo.persona_creada", null, { usuarioId: n.id, email: correoNuevo, nombre: e.name.trim(), origen: "INOOWORK" });
     personasCreadas++;
   }
   // Jefes, al final: el supervisor puede haber llegado en el mismo envío. Se ignoran los que harían un ciclo.
@@ -5286,9 +5291,10 @@ async function ingresarConInooWork(req: Request): Promise<Response | null> {
   }
   olvidarFallidos(usuarioIW);
   const id = await db.transaccion(async (c) => {
+    // Cuentas antiguas de InooWork pueden no tener id de empleado: entonces, por su usuario.
     const u = (await c.query<{ id: string }>(
-      "SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND (inoowork_empleado_id = $1 OR id = $2) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST LIMIT 1",
-      [r.empleadoId, porCorreo?.id ?? null],
+      "SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND (inoowork_empleado_id = $1 OR id = $2 OR lower(inoowork_usuario) = lower($3)) ORDER BY (inoowork_empleado_id = $1) DESC NULLS LAST, (id = $2) DESC NULLS LAST LIMIT 1",
+      [r.empleadoId, porCorreo?.id ?? null, r.usuario],
     )).rows[0];
     if (!u) return null;
     await c.query(

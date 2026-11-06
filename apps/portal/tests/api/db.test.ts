@@ -991,9 +991,19 @@ describe("Ingreso del equipo con su usuario de InooWork · Postgres", () => {
       if (b.password !== "clave-iw") return Response.json({ error: "Usuario o contraseña incorrectos" }, { status: 401 });
       if (b.username === "diegocastro") return Response.json({ message: "ok", userId: 7, username: "diegocastro", employeeId: "EMP-002" });
       if (b.username === "fantasma") return Response.json({ message: "ok", userId: 9, username: "fantasma", employeeId: "EMP-999" });
+      if (b.username === "antiguo") return Response.json({ message: "ok", userId: 11, username: "antiguo", employeeId: null });
       return Response.json({ error: "Usuario o contraseña incorrectos" }, { status: 401 });
     });
   });
+  test("una cuenta antigua de InooWork, sin id de empleado, entra por su usuario", async () => {
+    await reiniciar();
+    assert.equal((await ingresar("antiguo", "clave-iw")).status, 403, "sin enlazar: no entra");
+    await db.query("UPDATE usuario SET inoowork_usuario = 'Antiguo' WHERE id = $1", [uid(1, 6)]);
+    const r = await ingresar("antiguo", "clave-iw");
+    assert.deepEqual([r.status, r.json.tipo], [200, "EQUIPO"]);
+    assert.equal((await llamar("GET", "/me", r.json.token)).json.usuario.id, uid(1, 6));
+  });
+
   after(() => {
     usarFetchIngreso(null);
     for (const [k, v] of [["AUTH_EQUIPO", antes.auth], ["INOOWORK_URL", antes.url], ["SESION_SECRETO", antes.secreto]] as const) {

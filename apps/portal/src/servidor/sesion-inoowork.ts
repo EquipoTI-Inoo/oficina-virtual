@@ -67,7 +67,7 @@ export const anotarFallido = (usuario: string, ahora = Date.now()) => fallidos.s
 export const olvidarFallidos = (usuario: string) => fallidos.delete(usuario.toLowerCase());
 
 /** Le pregunta a InooWork si el usuario y la contraseña son correctos. Devuelve el empleado, o null si no. */
-export async function validarEnInooWork(usuario: string, clave: string): Promise<{ empleadoId: string; usuario: string } | null> {
+export async function validarEnInooWork(usuario: string, clave: string): Promise<{ empleadoId: string | null; usuario: string } | null> {
   let r: Response;
   try {
     r = await enviar(`${env("INOOWORK_URL")!.replace(/\/+$/, "")}/api/login`, {
@@ -82,5 +82,5 @@ export async function validarEnInooWork(usuario: string, clave: string): Promise
   if (r.status === 401 || r.status === 400) return null;
   if (!r.ok) throw new ErrorApi(503, "INOOWORK_NO_RESPONDE", "No pudimos verificar tu usuario con InooWork", "Intenta de nuevo en un momento.");
   const j = (await r.json().catch(() => ({}))) as { employeeId?: unknown; username?: unknown };
-  return typeof j.employeeId === "string" && j.employeeId ? { empleadoId: j.employeeId, usuario: typeof j.username === "string" ? j.username : usuario } : null;
+  return { empleadoId: typeof j.employeeId === "string" && j.employeeId ? j.employeeId : null, usuario: typeof j.username === "string" ? j.username : usuario };
 }

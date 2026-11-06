@@ -34,7 +34,7 @@ import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaClie
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
 import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
-import { cambiosDesdeEmpleado, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, type CambioPersona } from "../dominio/personas-equipo";
+import { aliasDeCorreo, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, type CambioPersona } from "../dominio/personas-equipo";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
@@ -3970,7 +3970,11 @@ function sincronizarEmpleados(b: Partial<S<"SincronizacionInooWork">>) {
     emitir("equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "INOOWORK" });
     return true;
   };
-  for (const e of b.empleados ?? []) {
+  const repetidos = correosRepetidos(b.empleados ?? []);
+  for (const original of b.empleados ?? []) {
+    // Un correo compartido no identifica a nadie: se enlaza solo por el id de empleado.
+    const compartido = correoValido(original.email) && repetidos.has(original.email.trim().toLowerCase()) ? original.email : null;
+    const e = compartido ? { ...original, email: null } : original;
     const correo = correoValido(e.email) ? e.email.trim().toLowerCase() : null;
     const u = E.usuarios.find((x) => x.tipo === "EQUIPO" && x.inooworkEmpleadoId === e.id) ?? (correo ? E.usuarios.find((x) => x.email.toLowerCase() === correo) : undefined);
     if (u && u.tipo !== "EQUIPO") continue; // ese correo es de un cliente: no se toca
@@ -3996,13 +4000,14 @@ function sincronizarEmpleados(b: Partial<S<"SincronizacionInooWork">>) {
       continue;
     }
     if (e.status === "inactive") continue;
-    if (!correo) {
+    const correoNuevo = correo ?? (compartido ? aliasDeCorreo(compartido, e.id) : null);
+    if (!correoNuevo) {
       empleadosSinCorreo.push(e.id);
       continue;
     }
     const area = areaDeDepartamento(e.department);
     const n: D.UsuarioDemo = {
-      id: nuevoId(1), nombre: e.name.trim(), email: correo, cargo: e.role?.trim() || null, iniciales: inicialesDe(e.name), tipo: "EQUIPO",
+      id: nuevoId(1), nombre: e.name.trim(), email: correoNuevo, cargo: e.role?.trim() || null, iniciales: inicialesDe(e.name), tipo: "EQUIPO",
       rolEquipo: e.department?.trim().toLowerCase() === "finanzas" ? "FINANZAS" : area ? ROL_DEL_AREA[area] : ROL_SIN_AREA, area, activo: true,
       inooworkEmpleadoId: e.id, inooworkUsuario: e.username ?? null, inooworkEstado: "SINCRONIZADO", inooworkError: null, claveDemo: "demo1234",
     };

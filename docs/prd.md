@@ -120,7 +120,7 @@ El repositorio muestra que **InooWork hoy es la intranet de RRHH del equipo de I
 
 **Antes de conectar nada, hay que proteger la API de InooWork.** Hoy cualquiera que conozca la URL puede leer, cambiar o borrar datos de colaboradores. Mínimo: token o API key en todos los endpoints (la sección 14 de API_GUIDE.md ya trae el paso a paso), sacar las credenciales del repositorio y cerrar el cambio de contraseña sin autenticar.
 
-**Estado de la seguridad:** los cambios ya están hechos y probados en el código (token en toda la API, permisos por rol, API key para integraciones, fin de las contraseñas en texto plano). Falta desplegarlos en intranet.inoo.pe y cambiar la contraseña del admin, que quedó expuesta en el historial del repositorio.
+**Estado de la seguridad (revisado el 5 nov):** `main` de InooWork y `intranet.inoo.pe` no tienen autenticación en la API. El parche está en la rama `seguridad-ino-00`, sin publicar: primero cierra contraseñas, usuarios y fichas, y deja la asistencia abierta para el APK viejo; `estricto` cierra toda la API cuando el equipo actualice la app. Falta revisarlo, publicarlo y cambiar la contraseña del admin, que quedó expuesta en el historial del repositorio. Sin esto no se debe activar el ingreso del equipo con InooWork.
 
 **Cómo se integra**
 

@@ -3,8 +3,7 @@
 }
 
 {$DOMINIO_PORTAL} {
-	# caddy-extra/*.caddy: reglas del servidor que no van al repositorio (clave de acceso de la demo).
-	import /etc/caddy/extra/*.caddy
+	# Abierto a internet con su propio ingreso. La clave de caddy-extra queda solo en n8n y NocoDB.
 	encode gzip
 	reverse_proxy portal:3000
 }

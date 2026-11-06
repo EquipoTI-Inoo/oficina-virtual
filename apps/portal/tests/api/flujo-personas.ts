@@ -51,6 +51,27 @@ export function pruebasPersonas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(reintento.inoowork.empleadoId, lucia.inoowork.empleadoId);
     });
 
+    test("quienes comparten correo en InooWork siguen siendo personas distintas, con un alias del mismo buzón", async () => {
+      await reiniciar();
+      const empleados = [
+        { id: "EMP-A1", name: "Ana Común", email: "Buzon@inoo.pe", department: "Marketing", status: "active", username: "anacomun" },
+        { id: "EMP-B2", name: "Beto Común", email: "buzon@inoo.pe", department: "Comercial", status: "active", username: "betocomun" },
+        { id: "EMP-C3", name: "Caro Propia", email: "caro@inoo.pe", department: "Marketing", status: "active", username: "caro" },
+      ];
+      const r = (await llamar("POST", "/integraciones/inoowork/sincronizacion", undefined, { empleados }, N8N)).json;
+      assert.deepEqual([r.personasCreadas, r.empleadosSinCorreo], [3, []]);
+      const de = async (id: string) => (await llamar("GET", "/panel/personas", ADMIN)).json.datos.find((p: any) => p.inoowork.empleadoId === id);
+      const ana = await de("EMP-A1");
+      const beto = await de("EMP-B2");
+      assert.deepEqual([ana.nombre, ana.correo, ana.area], ["Ana Común", "buzon+emp-a1@inoo.pe", "MARKETING"]);
+      assert.deepEqual([beto.nombre, beto.correo, beto.area], ["Beto Común", "buzon+emp-b2@inoo.pe", "COMERCIAL"]);
+      assert.equal((await de("EMP-C3")).correo, "caro@inoo.pe", "con correo propio, sin alias");
+
+      const otra = (await llamar("POST", "/integraciones/inoowork/sincronizacion", undefined, { empleados }, N8N)).json;
+      assert.deepEqual([otra.personasCreadas, otra.personasActualizadas], [0, 0], "repetir no crea ni cambia nada");
+      assert.equal((await de("EMP-A1")).correo, "buzon+emp-a1@inoo.pe");
+    });
+
     test("crear clientes: ADMIN y nivel por cuenta (CRM y Comercial), no nivel por proyecto", async () => {
       await reiniciar();
       const ana = (await llamar("POST", "/panel/personas", ADMIN, { nombre: "Ana Comercial", correo: "ana.comercial@inoo.pe", area: "COMERCIAL", rolEquipo: "DISENO" })).json;
