@@ -47,7 +47,7 @@ import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetid
 import { enviadorSmtp } from "./correo-smtp";
 import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
-import { inooworkConectado, leerEmpleados, sincronizarPersona } from "./inoowork";
+import { fotoDeEmpleado, inooworkConectado, leerEmpleados, sincronizarPersona } from "./inoowork";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
@@ -2533,6 +2533,46 @@ ruta("GET", "/me/jarvis", async (ctx) => {
     llave: k ? { prefijo: k.prefijo, creadoEn: iso(k.creado_en)!, ultimoUso: iso(k.ultimo_uso) } : null,
     urlPasarela: "/api/v1/ia-equipo", modelos: [...MODELOS_JARVIS],
   } satisfies S<"MiJarvis">;
+});
+
+// «Mi cuenta» del equipo (reunión 6 nov): perfil, foto de InooWork, accesos y gasto de Jarvis del mes.
+ruta("GET", "/me/cuenta", async (ctx) => {
+  soloEquipo(ctx);
+  const u = (await ctx.c.query<{ nombre: string; email: string; cargo: string | null; area: Area | null; empleado: string | null; sesiones_desde: Date | null }>(
+    "SELECT nombre, email::text AS email, cargo, area::text AS area, inoowork_empleado_id AS empleado, sesiones_desde FROM usuario WHERE id = $1",
+    [ctx.u.usuarioId],
+  )).rows[0];
+  const clientes = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente ORDER BY nombre")).rows;
+  const accesos: S<"MiCuentaEquipo">["accesos"] = [];
+  for (const c of clientes) {
+    if (await veClienteDb(ctx, c.id, true)) accesos.push({ clienteId: c.id, nombre: c.nombre, acceso: "COMPLETO" });
+    else if (await veClienteDb(ctx, c.id)) accesos.push({ clienteId: c.id, nombre: c.nombre, acceso: "PROYECTOS" });
+  }
+  const { mes } = diaYMesLima(new Date());
+  const j = (await ctx.c.query<{ gasto: string | null; n: number }>(
+    "SELECT sum(costo_usd) AS gasto, count(*)::int AS n FROM consumo_jarvis WHERE usuario_id = $1 AND to_char(creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $2",
+    [ctx.u.usuarioId, mes],
+  )).rows[0];
+  const aCargo = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM servicio_contratado WHERE responsable_id = $1 AND estado::text IN ('ACTIVO', 'STANDBY')", [ctx.u.usuarioId])).rows[0].n;
+  const base = process.env.INOOWORK_URL?.trim().replace(/\/+$/, "");
+  return {
+    perfil: {
+      nombre: u.nombre, email: u.email, cargo: u.cargo, area: u.area, nivelAcceso: ctx.u.nivelAcceso ?? null, esSuperUsuario: !!ctx.u.esSuperUsuario,
+      areasLideradas: ctx.u.areasLideradas ?? [], fotoUrl: await fotoDeEmpleado(u.empleado),
+    },
+    accesos, proyectosACargo: aCargo,
+    jarvis: { gastoMesUsd: Math.round(Number(j.gasto ?? 0) * 100) / 100, mensajesMes: j.n, area: u.area },
+    cambiarClaveUrl: base ? `${base}/` : null,
+    sesionesCerradasEn: iso(u.sesiones_desde),
+  } satisfies S<"MiCuentaEquipo">;
+});
+
+// Cierra las demás sesiones (la base guarda desde cuándo valen); esta sigue con un token nuevo.
+ruta("POST", "/me/sesiones/cerrar", async (ctx) => {
+  if (ctx.enNombreDe || ctx.esServicio || ctx.u.jarvis) throw new ErrorApi(409, "NO_DISPONIBLE", "Desde aquí no se pueden cerrar las sesiones");
+  await ctx.c.query("UPDATE usuario SET sesiones_desde = now() WHERE id = $1", [ctx.u.usuarioId]);
+  const s = firmarSesion(ctx.u.usuarioId);
+  return { token: s.token, expiraEn: s.expiraEn };
 });
 
 ruta("POST", "/me/jarvis/llave", async (ctx) => {

@@ -73,6 +73,28 @@ export async function leerEmpleados(): Promise<EmpleadoInooWork[]> {
   return lista.filter((e): e is EmpleadoInooWork => typeof e?.id === "string" && typeof e?.name === "string");
 }
 
+/**
+ * Foto de una persona (campo `avatar` de su ficha), para «Mi cuenta» (6 nov). InooWork solo lista todas las fichas,
+ * así que la lista se guarda 10 minutos. Solo enlaces https o imágenes embebidas de hasta 400 KB; si no, null.
+ */
+let fotos: { hasta: number; porId: Map<string, string | null> } | null = null;
+export async function fotoDeEmpleado(empleadoId: string | null): Promise<string | null> {
+  if (!empleadoId || !inooworkConectado()) return null;
+  if (!fotos || fotos.hasta < Date.now()) {
+    try {
+      const lista = (await leerEmpleados()) as (EmpleadoInooWork & { avatar?: unknown })[];
+      fotos = { hasta: Date.now() + 10 * 60_000, porId: new Map(lista.map((e) => [e.id, fotoValida(e.avatar)])) };
+    } catch {
+      return null;
+    }
+  }
+  return fotos.porId.get(empleadoId) ?? null;
+}
+const fotoValida = (v: unknown) =>
+  typeof v === "string" && (/^https:\/\/\S{1,2000}$/.test(v) || (/^data:image\/(png|jpe?g|webp|gif);base64,/.test(v) && v.length < 400_000)) ? v : null;
+/** Solo pruebas. */
+export const olvidarFotos = () => { fotos = null; };
+
 /** Usuario de InooWork con contraseña aleatoria. 409: ya existía y queda enlazado igual. Devuelve el error, si hubo. */
 async function registrar(correo: string, empleadoId: string) {
   const r = await llamar("POST", "/api/register", { username: correo, password: randomBytes(18).toString("base64url"), employeeId: empleadoId });

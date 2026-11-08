@@ -407,6 +407,41 @@ paths:
       responses:
         '204': { description: Marcadas }
 
+  /me/cuenta:
+    get:
+      tags: [Sesión]
+      operationId: miCuentaEquipo
+      summary: '«Mi cuenta» del equipo (reunión 6 nov): perfil con la foto de InooWork, accesos, proyectos a cargo y gasto de Jarvis del mes'
+      description: |
+        La foto sale de la ficha de InooWork (`avatar`); si InooWork no responde, llega en null y se muestran las iniciales.
+        La contraseña del equipo se cambia en InooWork: `cambiarClaveUrl` lleva allá (null si InooWork no está conectado).
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MiCuentaEquipo' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+  /me/sesiones/cerrar:
+    post:
+      tags: [Sesión]
+      operationId: cerrarMisSesiones
+      summary: 'Cierra todas mis otras sesiones abiertas (otros equipos o navegadores). Esta sigue con un token nuevo'
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiraEn]
+                properties:
+                  token: { type: string }
+                  expiraEn: { type: string, format: date-time }
+        '409': { description: 'Viendo como cliente o con un ingreso que no lo permite' }
+
   /servicios:
     get:
       tags: [Servicios]
@@ -5737,6 +5772,42 @@ components:
         totalMesUsd: { type: number }
         areas: { type: array, items: { $ref: '#/components/schemas/ConsumoArea' } }
         sinArea: { type: array, description: 'Personas del equipo sin área: no pueden usar Jarvis', items: { $ref: '#/components/schemas/PersonaEquipo' } }
+    MiCuentaEquipo:
+      type: object
+      required: [perfil, accesos, proyectosACargo, jarvis, cambiarClaveUrl, sesionesCerradasEn]
+      properties:
+        perfil:
+          type: object
+          required: [nombre, email, cargo, area, nivelAcceso, esSuperUsuario, areasLideradas, fotoUrl]
+          properties:
+            nombre: { type: string }
+            email: { type: string }
+            cargo: { type: [string, 'null'] }
+            area: { type: [string, 'null'] }
+            nivelAcceso: { type: [string, 'null'] }
+            esSuperUsuario: { type: boolean }
+            areasLideradas: { type: array, items: { type: string } }
+            fotoUrl: { type: [string, 'null'], description: 'Foto de la ficha de InooWork' }
+        accesos:
+          type: array
+          description: Clientes que veo y con qué alcance
+          items:
+            type: object
+            required: [clienteId, nombre, acceso]
+            properties:
+              clienteId: { type: string, format: uuid }
+              nombre: { type: string }
+              acceso: { type: string, enum: [COMPLETO, PROYECTOS] }
+        proyectosACargo: { type: integer, description: Proyectos activos donde soy responsable }
+        jarvis:
+          type: object
+          required: [gastoMesUsd, mensajesMes, area]
+          properties:
+            gastoMesUsd: { type: number, description: Lo que gasté en Jarvis este mes (hora de Lima) }
+            mensajesMes: { type: integer }
+            area: { type: [string, 'null'], description: Área a la que se cobra }
+        cambiarClaveUrl: { type: [string, 'null'] }
+        sesionesCerradasEn: { type: [string, 'null'], format: date-time, description: 'Última vez que se cerraron todas las sesiones' }
     MiJarvis:
       type: object
       required: [area, consumo, llave, urlPasarela, modelos]

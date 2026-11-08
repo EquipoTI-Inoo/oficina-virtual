@@ -126,6 +126,8 @@ interface Estado {
   /** Enlaces para crear la contraseña: token → usuario. */
   enlacesClave: Record<string, string>;
   consumoJarvis: ConsumoJarvis[];
+  /** Mi cuenta: cuándo se cerraron todas las sesiones de cada persona. */
+  sesionesCerradas: Map<string, string>;
   botsJarvis: D.BotJarvisDemo[];
   eventosAgenda: D.EventoAgendaDemo[];
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
@@ -211,6 +213,7 @@ function estadoInicial(): Estado {
     cambiosAcceso: [],
     enlacesClave: {},
     consumoJarvis: [],
+    sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
@@ -3218,6 +3221,28 @@ ruta("GET", "/me/jarvis", (ctx) => {
     llave: k ? { prefijo: k.prefijo, creadoEn: k.creadoEn, ultimoUso: k.ultimoUso } : null,
     urlPasarela: "/api/v1/ia-equipo", modelos: [...MODELOS_JARVIS],
   } satisfies S<"MiJarvis">;
+});
+
+// «Mi cuenta» del equipo (reunión 6 nov). En la demo no hay InooWork: sin foto ni enlace para la contraseña.
+ruta("GET", "/me/cuenta", (ctx) => {
+  soloEquipo(ctx);
+  const u = ctx.usuario;
+  const { mes } = diaYMesLima(new Date());
+  const mios = E.consumoJarvis.filter((c) => c.usuarioId === u.id && diaYMesLima(new Date(c.creadoEn)).mes === mes);
+  return {
+    perfil: { nombre: u.nombre, email: u.email, cargo: u.cargo, area: u.area, nivelAcceso: nivelDe(u), esSuperUsuario: !!u.esSuperUsuario, areasLideradas: u.areasLideradas ?? [], fotoUrl: null },
+    accesos: E.clientes.filter((c) => veCliente(ctx, c.id)).map((c) => ({ clienteId: c.id, nombre: c.nombre, acceso: veCliente(ctx, c.id, true) ? ("COMPLETO" as const) : ("PROYECTOS" as const) })),
+    proyectosACargo: E.servicios.filter((s) => s.responsableId === u.id && (s.estado === "ACTIVO" || s.estado === "STANDBY")).length,
+    jarvis: { gastoMesUsd: Math.round(mios.reduce((t, c) => t + c.costoUsd, 0) * 100) / 100, mensajesMes: mios.length, area: u.area },
+    cambiarClaveUrl: null,
+    sesionesCerradasEn: E.sesionesCerradas.get(u.id) ?? null,
+  } satisfies S<"MiCuentaEquipo">;
+});
+
+ruta("POST", "/me/sesiones/cerrar", (ctx) => {
+  if (ctx.enNombreDe || ctx.esServicio) throw new ErrorApi(409, "NO_DISPONIBLE", "Desde aquí no se pueden cerrar las sesiones");
+  E.sesionesCerradas.set(ctx.usuario.id, new Date().toISOString().replace(/\.\d{3}Z$/, "Z"));
+  return { token: `demo.${ctx.usuario.id}`, expiraEn: new Date(Date.now() + 7 * 86_400_000).toISOString() };
 });
 
 ruta("POST", "/me/jarvis/llave", async (ctx) => {

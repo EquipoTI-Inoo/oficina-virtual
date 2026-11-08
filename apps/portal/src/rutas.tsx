@@ -8,6 +8,7 @@
  */
 import type { ComponentType } from "react";
 import { PantallaProyecto } from "./pantallas/proyecto";
+import { PantallaMiCuentaEquipo } from "./pantallas/mi-cuenta-equipo";
 import { PantallaRequerimiento, PantallaRequerimientos } from "./pantallas/requerimientos";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
 import { PantallaCalendarioEquipo, PantallaCostosIa } from "./pantallas/sin-diseno";
@@ -54,6 +55,7 @@ export const RUTAS: Ruta[] = [
   { patron: "/cuenta/ayuda", pantalla: PantallaCuenta, figma: null, espacio: "cliente" },
   { patron: "/equipo/proyectos", pantalla: PantallaPipeline, figma: null, espacio: "equipo" },
   { patron: "/equipo/mi-panel", pantalla: PantallaMiPanel, figma: null, espacio: "equipo" },
+  { patron: "/equipo/mi-cuenta", pantalla: PantallaMiCuentaEquipo, figma: null, espacio: "equipo" },
   { patron: "/equipo/jarvis", pantalla: PantallaJarvis, figma: null, espacio: "equipo" },
   { patron: "/entregables/documento/:id", pantalla: PantallaEntregableCliente, figma: null, espacio: "cliente" },
   { patron: "/equipo/entregables/:id", pantalla: PantallaEntregableEquipo, figma: null, espacio: "equipo" },

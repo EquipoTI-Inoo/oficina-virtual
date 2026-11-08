@@ -11,6 +11,31 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
   const llamar = crearLlamar(manejar);
 
   describe(`clientes y usuarios · ${nombre}`, () => {
+    test("Mi cuenta del equipo (6 nov): perfil, accesos, proyectos a cargo y gasto de Jarvis; cerrar las demás sesiones", async () => {
+      await reiniciar();
+      assert.equal((await llamar("GET", "/me/cuenta", VALERIA)).status, 403, "es del equipo");
+      const r = await llamar("GET", "/me/cuenta", DIEGO);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.perfil.nombre, "Diego Castro");
+      assert.equal(r.json.perfil.fotoUrl, null, "sin InooWork no hay foto");
+      assert.ok(r.json.accesos.some((a: any) => a.clienteId === CASA_OLIVA && a.acceso === "COMPLETO"));
+      assert.equal(typeof r.json.proyectosACargo, "number");
+      assert.deepEqual(Object.keys(r.json.jarvis).sort(), ["area", "gastoMesUsd", "mensajesMes"]);
+      assert.equal(r.json.cambiarClaveUrl, null);
+      assert.equal(r.json.sesionesCerradasEn, null);
+      // El backend real firma la sesión nueva con SESION_SECRETO (en pruebas, uno de relleno).
+      const antes = process.env.SESION_SECRETO;
+      process.env.SESION_SECRETO ??= "s".repeat(40);
+      try {
+        const c = await llamar("POST", "/me/sesiones/cerrar", DIEGO, {});
+        assert.equal(c.status, 200);
+        assert.equal(typeof c.json.token, "string");
+        assert.notEqual((await llamar("GET", "/me/cuenta", c.json.token)).json.sesionesCerradasEn, null);
+      } finally {
+        if (antes === undefined) delete process.env.SESION_SECRETO;
+      }
+    });
+
     test("alta de cliente con su responsable: se crea su acceso al portal (invitación pendiente) y el aniversario", async () => {
       await reiniciar();
       const malo = await llamar("POST", "/clientes", DIEGO, { nombre: "Hidráulica Sur", contacto: { nombre: "Ana", email: "ana" } });

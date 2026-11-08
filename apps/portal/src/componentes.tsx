@@ -3,7 +3,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck,
+  LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard,
 } from "react-icons/lu";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
@@ -582,7 +582,9 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
             {u?.iniciales ?? "··"}
           </Enlace>
         ) : (
-          <span className="avatar">{u?.iniciales ?? "··"}</span>
+          <Enlace a="/equipo/mi-cuenta" className="avatar" aria-label="Mi cuenta" onClick={alNavegar}>
+            {u?.iniciales ?? "··"}
+          </Enlace>
         )}
         <span>
           <span className="persona-nombre" style={{ display: "block" }}>{u?.nombre ?? ""}</span>
@@ -597,8 +599,11 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
   );
 }
 
-/** Foto de perfil del cliente: abre «Mi cuenta» (datos, pagos, usuarios, correos y ayuda). */
-function MenuCuenta({ sesion }: { sesion: S<"Sesion"> | null }) {
+/**
+ * Iniciales de arriba a la derecha: abren «Mi cuenta». Cliente: datos, pagos, usuarios y ayuda. Equipo (6 nov):
+ * Mi cuenta, Mi panel, Calendario y Jarvis.
+ */
+function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | null; espacio?: "cliente" | "equipo" }) {
   const { ir } = useNavegacion();
   const [abierto, setAbierto] = useState(false);
   const caja = useRef<HTMLDivElement>(null);
@@ -614,7 +619,12 @@ function MenuCuenta({ sesion }: { sesion: S<"Sesion"> | null }) {
     };
   }, [abierto]);
   const esAdmin = sesion?.clientes[0]?.rol === "ADMIN_CLIENTE";
-  const opciones = [
+  const opciones = espacio === "equipo" ? [
+    { a: "/equipo/mi-cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
+    { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuLayoutDashboard size={16} /> },
+    { a: "/equipo/calendario", texto: "Mi calendario", icono: <LuCalendarDays size={16} /> },
+    { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot size={16} /> },
+  ] : [
     { a: "/cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
     ...(esAdmin ? [{ a: "/cuenta/pagos", texto: "Pagos", icono: <LuWallet size={16} /> }] : []),
     { a: "/cuenta/usuarios", texto: "Usuarios", icono: <LuUsers size={16} /> },
@@ -736,7 +746,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
               </button>
                 {campanaAbierta && <ListaNotificaciones alCerrar={() => setCampanaAbierta(false)} />}
               </span>
-              {espacio === "cliente" ? <MenuCuenta sesion={me.datos} /> : <span className="avatar">{me.datos?.usuario.iniciales ?? ""}</span>}
+              <MenuCuenta sesion={me.datos} espacio={espacio} />
             </div>
           </div>
           {buscando && <BuscadorGlobal alCerrar={() => setBuscando(false)} />}

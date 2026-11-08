@@ -240,6 +240,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/cuenta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * «Mi cuenta» del equipo (reunión 6 nov): perfil con la foto de InooWork, accesos, proyectos a cargo y gasto de Jarvis del mes
+         * @description La foto sale de la ficha de InooWork (`avatar`); si InooWork no responde, llega en null y se muestran las iniciales.
+         *     La contraseña del equipo se cambia en InooWork: `cambiarClaveUrl` lleva allá (null si InooWork no está conectado).
+         */
+        get: operations["miCuentaEquipo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/sesiones/cerrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cierra todas mis otras sesiones abiertas (otros equipos o navegadores). Esta sigue con un token nuevo */
+        post: operations["cerrarMisSesiones"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios": {
         parameters: {
             query?: never;
@@ -4230,6 +4268,42 @@ export interface components {
             /** @description Personas del equipo sin área: no pueden usar Jarvis */
             sinArea: components["schemas"]["PersonaEquipo"][];
         };
+        MiCuentaEquipo: {
+            perfil: {
+                nombre: string;
+                email: string;
+                cargo: string | null;
+                area: string | null;
+                nivelAcceso: string | null;
+                esSuperUsuario: boolean;
+                areasLideradas: string[];
+                /** @description Foto de la ficha de InooWork */
+                fotoUrl: string | null;
+            };
+            /** @description Clientes que veo y con qué alcance */
+            accesos: {
+                /** Format: uuid */
+                clienteId: string;
+                nombre: string;
+                /** @enum {string} */
+                acceso: "COMPLETO" | "PROYECTOS";
+            }[];
+            /** @description Proyectos activos donde soy responsable */
+            proyectosACargo: number;
+            jarvis: {
+                /** @description Lo que gasté en Jarvis este mes (hora de Lima) */
+                gastoMesUsd: number;
+                mensajesMes: number;
+                /** @description Área a la que se cobra */
+                area: string | null;
+            };
+            cambiarClaveUrl: string | null;
+            /**
+             * Format: date-time
+             * @description Última vez que se cerraron todas las sesiones
+             */
+            sesionesCerradasEn: string | null;
+        };
         MiJarvis: {
             area: components["schemas"]["AreaEquipo"] | null;
             /** @description El de mi área (sin el detalle por persona) */
@@ -6836,6 +6910,58 @@ export interface operations {
         responses: {
             /** @description Marcadas */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    miCuentaEquipo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiCuentaEquipo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    cerrarMisSesiones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        token: string;
+                        /** Format: date-time */
+                        expiraEn: string;
+                    };
+                };
+            };
+            /** @description Viendo como cliente o con un ingreso que no lo permite */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
