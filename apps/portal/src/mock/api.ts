@@ -24,7 +24,7 @@ import {
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
-import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
+import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, TOPES_INICIALES, validarBot, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
 import { leerPaseInooWork } from "../servidor/sesion-inoowork";
 import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
@@ -34,7 +34,7 @@ import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaClie
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
-import { altaProhibida, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
+import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
 import { aliasDeCorreo, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
@@ -115,7 +115,7 @@ interface Estado {
   topesIa: Record<Area, TopesArea>;
   llavesJarvis: { usuarioId: string; prefijo: string; hash: string; creadoEn: string; ultimoUso: string | null }[];
   /** Conversaciones del chat de Jarvis y su dueño: la pasarela cobra a esa persona (2 nov). */
-  sesionesJarvis: Record<string, { usuarioId: string; area: Area; botId?: string; titulo?: string | null; archivada?: boolean; creadoEn?: string; ultimoUso?: string;
+  sesionesJarvis: Record<string, { usuarioId: string; area: Area; botId?: string; titulo?: string | null; archivada?: boolean; creadoEn?: string; ultimoUso?: string; espacio?: string | null;
     mensajes?: { rol: "PERSONA" | "BOT"; texto: string; adjuntos: string[]; creadoEn: string; autor?: string | null }[] }>;
   /** Recordatorios ya enviados (fase 18): no se repiten. */
   recordatoriosEnviados: string[];
@@ -354,7 +354,7 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
     // CRM y Comercial (nivel por cuenta) gestionan cuentas: crean clientes, contratan proyectos e invitan usuarios.
     if (roles.includes("ACCOUNT_MANAGER") && nivelDe(ctx.usuario) === "CUENTA") return;
     // 6 nov: los leads de área también crean clientes y contratan proyectos (solo donde se pide LEAD).
-    if (roles.includes("LEAD") && ctx.usuario.esLead) return;
+    if (roles.includes("LEAD") && (ctx.usuario.esLead || !!ctx.usuario.areasLideradas?.length)) return;
     throw new ErrorApi(403, "SIN_PERMISO", "Tu rol en el equipo no permite esta acción");
   }
   const rol = clienteId ? rolEn(ctx, clienteId) : null;
@@ -3240,18 +3240,40 @@ ruta("DELETE", "/me/jarvis/llave", (ctx) => {
   return null;
 });
 
-const botVista = (ctx: Ctx, b: D.BotJarvisDemo): S<"BotJarvis"> => ({
-  id: b.id, nombre: b.nombre, color: b.color, forma: b.forma, instrucciones: b.instrucciones, creadoPor: persona(b.creadoPorId)!,
-  creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn, ultimoUso: b.ultimoUso, puedeEditar: b.creadoPorId === ctx.usuario.id || esNivelAdmin(ctx) || (!!ctx.usuario.esLead && ctx.usuario.area === b.area),
-});
-/** Un bot de mi área (404 si es de otra: no se distingue de uno que no existe). */
+/** Espacios de Jarvis (8 nov): su área, las que lidera y, si es super usuario, todas y Gerencia. */
+const espaciosMock = (ctx: Ctx) => espaciosJarvis({ area: ctx.usuario.area ?? null, esSuperUsuario: !!ctx.usuario.esSuperUsuario, lidera: areasQueLidera(ctx.usuario) });
+const espacioDeBot = (b: D.BotJarvisDemo): EspacioJarvis => (b.seccion === "GERENCIA" ? "GERENCIA" : b.area);
+/** Desde qué espacio usa el bot: el suyo si lo ve; si no, uno donde se lo prestaron (o el pedido). */
+function espacioDeUso(ctx: Ctx, b: D.BotJarvisDemo, pedido?: string | null): EspacioJarvis | null {
+  const mios = espaciosMock(ctx);
+  const posibles = [espacioDeBot(b), ...(b.prestamos ?? []).map((x) => x.espacio)].filter((e) => mios.includes(e));
+  return posibles.find((e) => e === pedido) ?? posibles[0] ?? null;
+}
+function botVista(ctx: Ctx, b: D.BotJarvisDemo, espacio = espacioDeUso(ctx, b)): S<"BotJarvis"> {
+  const propio = espacio === null || espacio === espacioDeBot(b);
+  const prestamo = propio ? null : (b.prestamos ?? []).find((x) => x.espacio === espacio);
+  return {
+    id: b.id, nombre: b.nombre, color: b.color, forma: b.forma, personaje: (b.personaje ?? null) as S<"BotJarvis">["personaje"], instrucciones: b.instrucciones, creadoPor: persona(b.creadoPorId)!,
+    creadoEn: b.creadoEn, actualizadoEn: b.actualizadoEn, ultimoUso: b.ultimoUso, puedeEditar: propio && puedeEditarBot(ctx, b),
+    prestadoDe: prestamo ? { clave: espacioDeBot(b), nombre: nombreEspacio(espacioDeBot(b)), conChats: prestamo.conChats } : null,
+    prestamos: propio ? (b.prestamos ?? []).map((x) => ({ clave: x.espacio, nombre: nombreEspacio(x.espacio), conChats: x.conChats })) : [],
+  };
+}
+/** Un bot de un espacio que la persona ve, propio o prestado (404 si no: no se distingue de uno que no existe). */
 function botDeMiArea(ctx: Ctx, id: string) {
   soloEquipo(ctx);
   const b = E.botsJarvis.find((x) => x.id === id);
-  if (!b || !ctx.usuario.area || b.area !== ctx.usuario.area) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
+  if (!b || !espacioDeUso(ctx, b)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
   return b;
 }
-const puedeEditarBot = (ctx: Ctx, b: D.BotJarvisDemo) => b.creadoPorId === ctx.usuario.id || esNivelAdmin(ctx) || (!!ctx.usuario.esLead && ctx.usuario.area === b.area);
+/** ¿Un chat hablado desde `deChat` (null = el espacio del bot) se ve desde `espacio`? */
+function chatVisible(b: D.BotJarvisDemo, espacio: EspacioJarvis, deChat: string | null | undefined) {
+  if (espacio === espacioDeBot(b)) return !deChat;
+  return deChat === espacio || (!deChat && !!(b.prestamos ?? []).find((x) => x.espacio === espacio)?.conChats);
+}
+function puedeEditarBot(ctx: Ctx, b: D.BotJarvisDemo) {
+  return b.creadoPorId === ctx.usuario.id || esNivelAdmin(ctx) || (b.seccion !== "GERENCIA" && lideraArea(ctx.usuario, b.area));
+}
 function exigirEditarBot(ctx: Ctx, b: D.BotJarvisDemo) {
   if (!puedeEditarBot(ctx, b)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot o un ADMIN lo puede cambiar");
 }
@@ -3343,25 +3365,33 @@ ruta("POST", "/me/jarvis/propuestas/:id/decision", async (ctx, p, _q, req) => {
   }
 });
 
-ruta("GET", "/jarvis/bots", (ctx) => {
+ruta("GET", "/jarvis/bots", (ctx, _p, q) => {
   soloEquipo(ctx);
-  const area = ctx.usuario.area;
+  const espacios = espaciosMock(ctx);
+  const pedido = q.get("area") as EspacioJarvis | null;
+  const espacio = pedido && espacios.includes(pedido) ? pedido : espacios[0] ?? null;
+  const area = espacio ? areaDelEspacio(espacio) : null;
   return {
-    area, consumo: area ? consumoAreaMock(area) : null, conectado: area ? !!hermesDelArea(area) : false,
-    bots: area ? E.botsJarvis.filter((b) => b.area === area).sort((a, b) => a.nombre.localeCompare(b.nombre)).map((b) => botVista(ctx, b)) : [],
+    area, espacio, espacios: espacios.map((e) => ({ clave: e, nombre: nombreEspacio(e) })),
+    consumo: area ? consumoAreaMock(area) : null, conectado: area ? !!hermesDelArea(area) : false,
+    bots: espacio ? E.botsJarvis.filter((b) => espacioDeBot(b) === espacio || (b.prestamos ?? []).some((x) => x.espacio === espacio)).sort((a, b) => a.nombre.localeCompare(b.nombre)).map((b) => botVista(ctx, b, espacio)) : [],
   } satisfies S<"BotsDelArea">;
 });
 
 ruta("POST", "/jarvis/bots", async (ctx, _p, _q, req) => {
   soloEquipo(ctx);
   if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Los bots los crean personas del equipo");
-  if (!ctx.usuario.area) throw new ErrorApi(409, "SIN_AREA", "No tienes un área asignada", "Pídele al ADMIN que te asigne una en «Costos de IA».");
-  const b = await cuerpo<{ nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown }>(req);
+  const b = await cuerpo<{ nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown; espacio?: unknown; personaje?: unknown }>(req);
+  const espacios = espaciosMock(ctx);
+  const espacio = (typeof b.espacio === "string" ? b.espacio : espacios[0]) as EspacioJarvis | undefined;
+  if (!espacio) throw new ErrorApi(409, "SIN_AREA", "No tienes un área asignada", "Pídele al ADMIN que te asigne una en «Equipo».");
+  if (!espacios.includes(espacio)) throw new ErrorApi(403, "SIN_PERMISO", "No puedes crear bots en esa área");
   const errores = validarBot(b);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const ahora = new Date().toISOString();
   const bot: D.BotJarvisDemo = {
-    id: nuevoId(36), area: ctx.usuario.area, nombre: (b.nombre as string).trim(), color: b.color as string, forma: b.forma as D.BotJarvisDemo["forma"],
+    id: nuevoId(36), area: areaDelEspacio(espacio), seccion: espacio === "GERENCIA" ? "GERENCIA" : "AREA", personaje: (b.personaje as string | null | undefined) ?? null,
+    nombre: (b.nombre as string).trim(), color: b.color as string, forma: b.forma as D.BotJarvisDemo["forma"],
     instrucciones: typeof b.instrucciones === "string" ? b.instrucciones.trim() : "", creadoPorId: ctx.usuario.id, creadoEn: ahora, actualizadoEn: ahora, ultimoUso: null,
   };
   E.botsJarvis.push(bot);
@@ -3371,15 +3401,52 @@ ruta("POST", "/jarvis/bots", async (ctx, _p, _q, req) => {
 ruta("PATCH", "/jarvis/bots/:id", async (ctx, p, _q, req) => {
   const bot = botDeMiArea(ctx, p.id);
   exigirEditarBot(ctx, bot);
-  const b = await cuerpo<{ nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown }>(req);
+  const b = await cuerpo<{ nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown; personaje?: unknown }>(req);
   const errores = validarBot(b, true);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.personaje !== undefined) bot.personaje = b.personaje as string | null;
   if (typeof b.nombre === "string") bot.nombre = b.nombre.trim();
   if (typeof b.color === "string") bot.color = b.color;
   if (typeof b.forma === "string") bot.forma = b.forma as D.BotJarvisDemo["forma"];
   if (typeof b.instrucciones === "string") bot.instrucciones = b.instrucciones.trim();
   bot.actualizadoEn = new Date().toISOString();
   return botVista(ctx, bot);
+});
+
+/** Tanda 3 (8 nov): prestar un bot a otra área (lo usa sin editarlo) o darle una copia, con o sin sus chats. */
+ruta("POST", "/jarvis/bots/:id/compartir", async (ctx, p, _q, req) => {
+  const bot = botDeMiArea(ctx, p.id);
+  if (ctx.esServicio || !botVista(ctx, bot).puedeEditar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo comparte");
+  const b = await cuerpo<{ espacio?: unknown; modo?: unknown; conChats?: unknown }>(req);
+  const destinos: EspacioJarvis[] = [...AREAS, ...(ctx.usuario.esSuperUsuario ? ["GERENCIA" as const] : [])];
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (typeof b.espacio !== "string" || !destinos.includes(b.espacio as EspacioJarvis) || b.espacio === espacioDeBot(bot)) errores.push({ campo: "espacio", mensaje: "Elige otra área" });
+  if (b.modo !== "PRESTAR" && b.modo !== "COPIAR") errores.push({ campo: "modo", mensaje: "Elige prestarlo o darle una copia" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const espacio = b.espacio as EspacioJarvis;
+  const conChats = b.conChats === true;
+  if (b.modo === "PRESTAR") {
+    bot.prestamos = [...(bot.prestamos ?? []).filter((x) => x.espacio !== espacio), { espacio, conChats }].sort((x, y) => x.espacio.localeCompare(y.espacio));
+    return botVista(ctx, bot);
+  }
+  const ahora = new Date().toISOString();
+  const copia: D.BotJarvisDemo = {
+    ...bot, id: nuevoId(36), area: areaDelEspacio(espacio), seccion: espacio === "GERENCIA" ? "GERENCIA" : "AREA", prestamos: [], creadoPorId: ctx.usuario.id, creadoEn: ahora, actualizadoEn: ahora, ultimoUso: null,
+  };
+  E.botsJarvis.push(copia);
+  if (conChats) {
+    for (const [id, x] of Object.entries(E.sesionesJarvis)) {
+      if (x.botId !== bot.id || x.archivada || x.espacio || esSesionConfiguracion(id)) continue;
+      E.sesionesJarvis[crypto.randomUUID()] = { ...x, botId: copia.id, area: copia.area, espacio: null, mensajes: (x.mensajes ?? []).map((m) => ({ ...m })) };
+    }
+  }
+  return { __status: 201, ...botVista(ctx, copia, espacio) };
+});
+ruta("DELETE", "/jarvis/bots/:id/compartir/:espacio", (ctx, p) => {
+  const bot = botDeMiArea(ctx, p.id);
+  if (ctx.esServicio || !botVista(ctx, bot).puedeEditar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo comparte");
+  bot.prestamos = (bot.prestamos ?? []).filter((x) => x.espacio !== p.espacio);
+  return null;
 });
 
 ruta("DELETE", "/jarvis/bots/:id", (ctx, p) => {
@@ -3394,24 +3461,29 @@ const imagenNoLeida = (e: unknown): never => {
   throw e;
 };
 
-ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
+ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, q, req) => {
   const bot = botDeMiArea(ctx, p.id);
   const b = validarChat(await cuerpo<{ mensaje?: unknown; sesionId?: unknown; archivos?: unknown }>(req));
   if ("campo" in b) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [b]);
-  const consumo = consumoAreaMock(bot.area);
+  // 8 nov: un bot prestado lo paga y lo atiende el área que lo usa.
+  const espacio = espacioDeUso(ctx, bot, q.get("area"))!;
+  const prestado = espacio !== espacioDeBot(bot);
+  const areaUso = areaDelEspacio(espacio);
+  const consumo = consumoAreaMock(areaUso);
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
-  const hermes = hermesDelArea(bot.area);
+  const hermes = hermesDelArea(areaUso);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
   // 8 nov: solo la conversación de configuración (cfg-<bot>) cambia el trabajo del bot, y solo para quien puede editarlo.
   const configurar = b.sesionId === sesionConfiguracion(bot.id);
   if (esSesionConfiguracion(b.sesionId) && !configurar) throw new ErrorApi(409, "SESION_AJENA", "Esa configuración es de otro bot");
-  if (configurar && !puedeEditarBot(ctx, bot)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo configura", "Para pedirle algo, abre un chat nuevo debajo de su nombre.");
+  if (configurar && (prestado || !puedeEditarBot(ctx, bot))) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo configura", "Para pedirle algo, abre un chat nuevo debajo de su nombre.");
   // 6 nov: la conversación es del área. Se sigue con el mismo bot y queda a nombre de quien escribe ahora (a esa
   // persona le cobra la pasarela y con sus permisos lee Jarvis el portal).
   const previa = E.sesionesJarvis[b.sesionId];
   if (previa?.botId && previa.botId !== bot.id) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otro bot", "Empieza una conversación nueva.");
+  if (previa?.botId && !chatVisible(bot, espacio, previa.espacio)) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otra área", "Empieza una conversación nueva.");
   const ahora = new Date().toISOString();
-  const conv = (E.sesionesJarvis[b.sesionId] ??= { usuarioId: ctx.usuario.id, area: bot.area, botId: bot.id, creadoEn: ahora, mensajes: [] });
+  const conv = (E.sesionesJarvis[b.sesionId] ??= { usuarioId: ctx.usuario.id, area: areaUso, botId: bot.id, creadoEn: ahora, mensajes: [], espacio: prestado ? espacio : null });
   conv.usuarioId = ctx.usuario.id;
   // 6 nov: el chat no se pierde. El mensaje se guarda ya; la respuesta, cuando el bot termina.
   const adjuntos = b.archivos.map((a) => a.nombre).slice(0, 5);
@@ -3428,7 +3500,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
         return { anterior };
       }
     : undefined;
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area, configurar ? "CONFIGURAR" : "TRABAJAR"), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR"), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
 });
 
 // ───────────────────────────── conversaciones guardadas (6 nov)
@@ -3442,13 +3514,18 @@ function miConversacion(ctx: Ctx, id: string) {
   soloEquipo(ctx);
   const x = E.sesionesJarvis[id];
   if (!x?.botId) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
-  botDeMiArea(ctx, x.botId);
+  const bot = botDeMiArea(ctx, x.botId);
+  const mios = espaciosMock(ctx);
+  if (![espacioDeBot(bot), ...(bot.prestamos ?? []).map((y) => y.espacio)].some((e) => mios.includes(e) && chatVisible(bot, e, x.espacio))) {
+    throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  }
   return x;
 }
-ruta("GET", "/jarvis/bots/:id/conversaciones", (ctx, p) => {
+ruta("GET", "/jarvis/bots/:id/conversaciones", (ctx, p, q) => {
   const bot = botDeMiArea(ctx, p.id);
+  const espacio = espacioDeUso(ctx, bot, q.get("area"))!;
   const datos = Object.entries(E.sesionesJarvis)
-    .filter(([id, x]) => x.botId === bot.id && !x.archivada && !esSesionConfiguracion(id) && (x.mensajes?.length ?? 0) > 0)
+    .filter(([id, x]) => x.botId === bot.id && !x.archivada && !esSesionConfiguracion(id) && (x.mensajes?.length ?? 0) > 0 && chatVisible(bot, espacio, x.espacio))
     .map(([id, x]) => conversacionVistaMock(id, x))
     .sort((a, b) => b.ultimoUso.localeCompare(a.ultimoUso));
   return { datos };
@@ -3729,9 +3806,9 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
     servicioContratadoId: s.id, titulo: tituloDe(s), clienteNombre: E.clientes.find((c) => c.id === s.clienteId)!.nombre,
     avance: avanceDe(s), columna: proyectoPipeline(s).columna, kpis: kpisDe(s),
   }));
-  const lidera = quien === ctx.usuario.id && !!ctx.usuario.area && (!!ctx.usuario.esLead || nivelDe(ctx.usuario) === "ADMIN");
-  const miArea = lidera
-    ? E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.area === ctx.usuario.area && u.id !== ctx.usuario.id).map((u) => {
+  const lideradas = quien !== ctx.usuario.id ? [] : nivelDe(ctx.usuario) === "ADMIN" && ctx.usuario.area ? [...new Set([ctx.usuario.area, ...areasQueLidera(ctx.usuario)])] : areasQueLidera(ctx.usuario);
+  const miArea = lideradas.length
+    ? E.usuarios.filter((u) => u.tipo === "EQUIPO" && !!u.area && lideradas.includes(u.area) && u.id !== ctx.usuario.id).map((u) => {
         const suyas = E.tareas.filter((t) => t.responsableId === u.id && t.estado !== "HECHA");
         return { persona: equipoVista(u), tareasAbiertas: suyas.length, tareasVencidas: suyas.filter((t) => tareaVencida(t, D.HOY)).length, proyectos: new Set(proyectosDePersona(u.id)).size };
       })

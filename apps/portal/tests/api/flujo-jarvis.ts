@@ -90,6 +90,87 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal((await llamar("DELETE", `/jarvis/bots/${deCrm}`, DIEGO)).status, 204);
     });
 
+    test("8 nov: el super usuario ve todas las áreas y Gerencia; los bots tienen personaje", async () => {
+      await reiniciar();
+      const mio = (await llamar("GET", "/jarvis/bots", ADMIN)).json;
+      assert.deepEqual(mio.espacios.map((e: any) => e.clave), ["ADMINISTRACION", "CRM", "AUDIOVISUAL", "DISENO", "COMERCIAL", "MARKETING", "GERENCIA"]);
+      assert.equal(mio.espacio, "ADMINISTRACION");
+      const crm = (await llamar("GET", "/jarvis/bots?area=CRM", ADMIN)).json;
+      assert.deepEqual([crm.espacio, crm.area, crm.bots.length, crm.bots.every((b: any) => b.puedeEditar)], ["CRM", "CRM", 2, true]);
+
+      assert.deepEqual((await llamar("POST", "/jarvis/bots", ADMIN, { nombre: "Ojo", color: "#5554d9", forma: "CIRCULO", personaje: "DRAGON" })).json.errores.map((e: any) => e.campo), ["personaje"]);
+      const g = await llamar("POST", "/jarvis/bots", ADMIN, { nombre: "Resumen de gerencia", color: "#475467", forma: "CIRCULO", personaje: "BUHO", espacio: "GERENCIA" });
+      assert.equal(g.status, 201);
+      assert.equal(g.json.personaje, "BUHO");
+      const gerencia = (await llamar("GET", "/jarvis/bots?area=GERENCIA", ADMIN)).json;
+      assert.deepEqual([gerencia.espacio, gerencia.area, gerencia.bots.map((b: any) => b.nombre)], ["GERENCIA", "ADMINISTRACION", ["Resumen de gerencia"]], "el gasto de Gerencia va a Administración");
+      assert.ok(!(await llamar("GET", "/jarvis/bots", ADMIN)).json.bots.some((b: any) => b.nombre === "Resumen de gerencia"), "no se mezcla con los de Administración");
+      assert.equal((await llamar("PATCH", `/jarvis/bots/${g.json.id}`, ADMIN, { personaje: null })).json.personaje, null);
+
+      // Un lead ve solo su área: ni Gerencia ni las demás.
+      const diego = (await llamar("GET", "/jarvis/bots?area=GERENCIA", DIEGO)).json;
+      assert.deepEqual([diego.espacio, diego.espacios.map((e: any) => e.clave)], ["CRM", ["CRM"]]);
+      assert.equal((await llamar("POST", "/jarvis/bots", DIEGO, { nombre: "Colado", color: "#5554d9", forma: "CIRCULO", espacio: "GERENCIA" })).status, 403);
+      assert.equal((await llamar("PATCH", `/jarvis/bots/${g.json.id}`, DIEGO, { nombre: "Mío" })).status, 404);
+      assert.equal((await llamar("POST", `/jarvis/bots/${g.json.id}/chat`, CAMILA, { mensaje: "hola", sesionId: "sesion-prueba-2" })).status, 404);
+    });
+
+    test("8 nov: prestar un bot a otra área (con o sin sus chats) o darle una copia", async () => {
+      await reiniciar();
+      const antesHermes = process.env.JARVIS_HERMES;
+      const fetchPrevio = globalThis.fetch;
+      const atendio: string[] = [];
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (!String(url).startsWith("http://hermes-")) return fetchPrevio(url, init);
+        atendio.push(new URL(String(url)).host);
+        return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: "Listo" } }] })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+      }) as typeof fetch;
+      process.env.JARVIS_HERMES = JSON.stringify({ CRM: { url: "http://hermes-crm", clave: "a" }, DISENO: { url: "http://hermes-diseno", clave: "b" } });
+      try {
+        const bot = (await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.nombre === "Seguimiento de clientes");
+        const chats = async (token: string) => (await llamar("GET", `/jarvis/bots/${bot.id}/conversaciones`, token)).json.datos?.map((c: any) => c.id);
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "¿Qué cliente está atrasado?", sesionId: "sesion-crm-01" });
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/compartir`, CAMILA, { espacio: "DISENO", modo: "PRESTAR" })).status, 404, "Diseño aún no lo ve");
+        assert.deepEqual((await llamar("POST", `/jarvis/bots/${bot.id}/compartir`, DIEGO, { espacio: "CRM", modo: "REGALAR" })).json.errores.map((e: any) => e.campo), ["espacio", "modo"]);
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/compartir`, DIEGO, { espacio: "GERENCIA", modo: "PRESTAR" })).status, 422, "a Gerencia solo comparte un super usuario");
+        const prestado = await llamar("POST", `/jarvis/bots/${bot.id}/compartir`, DIEGO, { espacio: "DISENO", modo: "PRESTAR" });
+        assert.deepEqual(prestado.json.prestamos, [{ clave: "DISENO", nombre: "Diseño", conChats: false }]);
+
+        const enDiseno = (await llamar("GET", "/jarvis/bots", CAMILA)).json.bots.find((b: any) => b.id === bot.id);
+        assert.deepEqual([enDiseno.prestadoDe, enDiseno.puedeEditar, enDiseno.prestamos], [{ clave: "CRM", nombre: "CRM", conChats: false }, false, []]);
+        assert.equal((await llamar("PATCH", `/jarvis/bots/${bot.id}`, CAMILA, { nombre: "Mío" })).status, 403, "lo usa, no lo edita");
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "hola", sesionId: `cfg-${bot.id}` })).status, 403, "ni lo configura");
+        assert.deepEqual(await chats(CAMILA), [], "sin chats: no ve los de CRM");
+        assert.equal((await llamar("GET", "/jarvis/conversaciones/sesion-crm-01", CAMILA)).status, 404);
+        assert.equal((await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "sigo", sesionId: "sesion-crm-01" })).status, 409);
+
+        atendio.length = 0;
+        await llamar("POST", `/jarvis/bots/${bot.id}/chat`, CAMILA, { mensaje: "Resume el brief de Casa Oliva", sesionId: "sesion-dis-01" });
+        assert.deepEqual(atendio, ["hermes-diseno"], "lo atiende (y lo paga) Diseño");
+        assert.deepEqual([await chats(CAMILA), await chats(DIEGO)], [["sesion-dis-01"], ["sesion-crm-01"]], "cada área ve sus chats");
+
+        await llamar("POST", `/jarvis/bots/${bot.id}/compartir`, DIEGO, { espacio: "DISENO", modo: "PRESTAR", conChats: true });
+        assert.deepEqual((await chats(CAMILA))!.sort(), ["sesion-crm-01", "sesion-dis-01"], "con chats: también ve los de CRM");
+        assert.equal((await llamar("GET", "/jarvis/conversaciones/sesion-crm-01", CAMILA)).status, 200);
+
+        const copia = await llamar("POST", `/jarvis/bots/${bot.id}/compartir`, DIEGO, { espacio: "MARKETING", modo: "COPIAR", conChats: true });
+        assert.equal(copia.status, 201);
+        assert.deepEqual([copia.json.nombre, copia.json.prestadoDe, copia.json.creadoPor.nombre], ["Seguimiento de clientes", null, "Diego Castro"]);
+        const deMarketing = (await llamar("GET", "/jarvis/bots?area=MARKETING", ADMIN)).json.bots;
+        assert.deepEqual(deMarketing.map((b: any) => b.id), [copia.json.id]);
+        const copiados = (await llamar("GET", `/jarvis/bots/${copia.json.id}/conversaciones`, ADMIN)).json.datos;
+        assert.deepEqual([copiados.length, copiados[0].titulo, copiados[0].mensajes], [1, "¿Qué cliente está atrasado?", 2], "copia el chat de CRM (no el de Diseño)");
+
+        assert.equal((await llamar("DELETE", `/jarvis/bots/${bot.id}/compartir/DISENO`, DIEGO)).status, 204);
+        assert.ok(!(await llamar("GET", "/jarvis/bots", CAMILA)).json.bots.some((b: any) => b.id === bot.id));
+        assert.equal((await llamar("GET", "/jarvis/conversaciones/sesion-dis-01", CAMILA)).status, 404);
+      } finally {
+        globalThis.fetch = fetchPrevio;
+        if (antesHermes === undefined) delete process.env.JARVIS_HERMES;
+        else process.env.JARVIS_HERMES = antesHermes;
+      }
+    });
+
     test("chat con un bot: el portal le escribe al Hermes del área con el trabajo del bot y devuelve el streaming", async () => {
       await reiniciar();
       const antesHermes = process.env.JARVIS_HERMES;

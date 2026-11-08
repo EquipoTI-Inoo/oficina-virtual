@@ -97,9 +97,15 @@ export function validarTopes(b: { topeDiarioUsd?: unknown; topeMensualUsd?: unkn
 
 export const COLORES_BOT = ["#5554d9", "#1f9d74", "#d9822b", "#d64545", "#2b7bd9", "#9b51e0", "#475467"] as const;
 export const FORMAS_BOT = ["CIRCULO", "CUADRADO", "ROMBO"] as const;
+/** Personajes (8 nov): una mascota amigable sobre el color del bot. */
+export const PERSONAJES_BOT = {
+  ROBOT: "🤖", BUHO: "🦉", ZORRO: "🦊", PANDA: "🐼", GATO: "🐱", PERRO: "🐶", LEON: "🦁", PULPO: "🐙",
+  ABEJA: "🐝", PINGUINO: "🐧", TORTUGA: "🐢", RANA: "🐸", UNICORNIO: "🦄", DELFIN: "🐬", KOALA: "🐨", COHETE: "🚀",
+} as const;
+export type PersonajeBot = keyof typeof PERSONAJES_BOT;
 
 /** Valida lo que se manda al crear (todo) o editar (solo lo que venga) un bot. */
-export function validarBot(b: { nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown }, parcial = false) {
+export function validarBot(b: { nombre?: unknown; color?: unknown; forma?: unknown; instrucciones?: unknown; personaje?: unknown }, parcial = false) {
   const errores: { campo: string; mensaje: string }[] = [];
   const falta = (v: unknown) => v === undefined && !parcial;
   if (falta(b.nombre) || (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 2 && b.nombre.trim().length <= 60))) {
@@ -107,6 +113,7 @@ export function validarBot(b: { nombre?: unknown; color?: unknown; forma?: unkno
   }
   if (falta(b.color) || (b.color !== undefined && !(COLORES_BOT as readonly unknown[]).includes(b.color))) errores.push({ campo: "color", mensaje: "Elige uno de los colores" });
   if (falta(b.forma) || (b.forma !== undefined && !(FORMAS_BOT as readonly unknown[]).includes(b.forma))) errores.push({ campo: "forma", mensaje: "Elige una de las formas" });
+  if (b.personaje !== undefined && b.personaje !== null && !(typeof b.personaje === "string" && b.personaje in PERSONAJES_BOT)) errores.push({ campo: "personaje", mensaje: "Elige uno de los personajes" });
   if (b.instrucciones !== undefined && !(typeof b.instrucciones === "string" && b.instrucciones.length <= 4000)) {
     errores.push({ campo: "instrucciones", mensaje: "Hasta 4000 caracteres" });
   }
@@ -180,3 +187,20 @@ Esta es tu conversación de configuración: aquí la persona define y ajusta par
 /** Llave personal de Jarvis: «jv_» + 40 hex. Se guarda solo su sha256; los primeros 11 caracteres la ubican. */
 export const PREFIJO_LLAVE = 11;
 export const esLlaveJarvis = (v: string) => /^jv_[0-9a-f]{40}$/.test(v);
+
+// ───────────────────────────── espacios de Jarvis (8 nov): áreas y Gerencia
+
+export type EspacioJarvis = Area | "GERENCIA";
+/** El gasto de los bots de Gerencia va a Administración (y usan su Hermes). */
+export const AREA_DE_GERENCIA: Area = "ADMINISTRACION";
+export const nombreEspacio = (e: EspacioJarvis) => (e === "GERENCIA" ? "Gerencia" : NOMBRE_AREA[e]);
+/**
+ * Qué bots ve cada quien: los super usuarios, todas las áreas y Gerencia; un lead, su área y las que lidera; el
+ * resto, solo su área.
+ */
+export function espaciosJarvis(p: { area: Area | null; esSuperUsuario?: boolean; lidera: Area[] }): EspacioJarvis[] {
+  if (p.esSuperUsuario) return [...(p.area ? [p.area] : []), ...AREAS.filter((a) => a !== p.area), "GERENCIA"];
+  return [...new Set([...(p.area ? [p.area] : []), ...p.lidera])];
+}
+/** El área de un espacio, para su gasto y su Hermes. */
+export const areaDelEspacio = (e: EspacioJarvis): Area => (e === "GERENCIA" ? AREA_DE_GERENCIA : e);

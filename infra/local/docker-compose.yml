@@ -66,6 +66,7 @@ services:
       - ../../database/migraciones/0045_subir_contenido.sql:/docker-entrypoint-initdb.d/01zs_subir_contenido.sql:ro
       - ../../database/migraciones/0046_entorno_de_pruebas.sql:/docker-entrypoint-initdb.d/01zt_entorno_de_pruebas.sql:ro
       - ../../database/migraciones/0047_chats_jarvis.sql:/docker-entrypoint-initdb.d/01zu_chats_jarvis.sql:ro
+      - ../../database/migraciones/0048_leads_y_gerencia.sql:/docker-entrypoint-initdb.d/01zv_leads_y_gerencia.sql:ro
       - ../../database/semillas/0001_casa_oliva.sql:/docker-entrypoint-initdb.d/02_semillas.sql:ro
       - ../../database/semillas/0002_integraciones_demo.sql:/docker-entrypoint-initdb.d/02b_integraciones_demo.sql:ro
       - datos-postgres:/var/lib/postgresql/data

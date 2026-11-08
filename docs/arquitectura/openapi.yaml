@@ -3149,6 +3149,7 @@ paths:
       operationId: listarConversacionesBot
       summary: 'Las conversaciones del área con un bot (6 nov: se guardan y las ve toda el área), de la más reciente a la más antigua'
       x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, required: false, schema: { $ref: '#/components/schemas/EspacioJarvis' }, description: 'Desde qué área lo uso, si me lo prestaron (por defecto, la primera que veo)' } ]
       responses:
         '200':
           description: OK
@@ -3317,8 +3318,9 @@ paths:
     get:
       tags: [Jarvis del equipo]
       operationId: botsDeMiArea
-      summary: 'Sección «Jarvis»: los bots de mi área (solo los de mi área), cómo va el área contra sus topes y si su Hermes está conectado'
+      summary: 'Sección «Jarvis»: los bots de un espacio que veo (mi área, las que lidero o, si soy super usuario, cualquiera y Gerencia), cómo va el área contra sus topes y si su Hermes está conectado'
       x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, required: false, schema: { $ref: '#/components/schemas/EspacioJarvis' }, description: 'Por defecto, mi área' } ]
       responses:
         '200':
           description: OK
@@ -3349,6 +3351,53 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problema' }
         '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/bots/{botId}/compartir:
+    post:
+      tags: [Jarvis del equipo]
+      operationId: compartirBot
+      summary: 'Comparte el bot con otra área o con Gerencia: PRESTAR (la usa sin editarla y paga su gasto; con chats, ve los del dueño) o COPIAR (un bot igual que es suyo; con chats, copia el historial)'
+      x-roles: [EQUIPO]
+      parameters: [ { name: botId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [espacio, modo]
+              properties:
+                espacio: { $ref: '#/components/schemas/EspacioJarvis' }
+                modo: { type: string, enum: [PRESTAR, COPIAR] }
+                conChats: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 'Prestado: el bot con sus préstamos'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BotJarvis' }
+        '201':
+          description: 'Copiado: el bot nuevo'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BotJarvis' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/bots/{botId}/compartir/{espacio}:
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: dejarDePrestarBot
+      summary: Deja de prestar el bot a esa área (sus chats quedan guardados, pero ya no los ve)
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: botId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: espacio, in: path, required: true, schema: { $ref: '#/components/schemas/EspacioJarvis' } }
+      responses:
+        '204': { description: Listo }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /jarvis/bots/{botId}:
     patch:
@@ -3389,7 +3438,7 @@ paths:
       summary: Le escribe a un bot de mi área y devuelve su respuesta en streaming (SSE en formato OpenAI)
       description: 'El portal reenvía el mensaje, desde el servidor, al Hermes del área (JARVIS_HERMES), con el trabajo del bot como sistema, X-Hermes-Session-Id (la conversación) y X-Hermes-Session-Key (la memoria del bot). El navegador nunca ve la clave de Hermes. Antes revisa el tope del área; el gasto lo cobra la pasarela /ia-equipo. Mientras trabaja, el stream trae eventos «event: hermes.tool.progress» (tool, label, toolCallId y status running o completed), que la pantalla muestra como pasos. Si quien llama corta la conexión («Detener»), el portal corta la de Hermes, que interrumpe al bot.'
       x-roles: [EQUIPO]
-      parameters: [ { name: botId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      parameters: [ { name: botId, in: path, required: true, schema: { type: string, format: uuid } }, { name: area, in: query, required: false, schema: { $ref: '#/components/schemas/EspacioJarvis' }, description: 'Desde qué área lo uso, si me lo prestaron (por defecto, la primera que veo)' } ]
       requestBody:
         required: true
         content:
@@ -5737,7 +5786,9 @@ components:
         nombre: { type: string, minLength: 2, maxLength: 60, examples: [Seguimiento de clientes] }
         color: { type: string, enum: ['#5554d9', '#1f9d74', '#d9822b', '#d64545', '#2b7bd9', '#9b51e0', '#475467'] }
         forma: { type: string, enum: [CIRCULO, CUADRADO, ROMBO] }
+        personaje: { type: [string, 'null'], enum: [ROBOT, BUHO, ZORRO, PANDA, GATO, PERRO, LEON, PULPO, ABEJA, PINGUINO, TORTUGA, RANA, UNICORNIO, DELFIN, KOALA, COHETE, null], description: 'Mascota sobre el color; null = su inicial' }
         instrucciones: { type: string, maxLength: 4000, description: 'Su trabajo: qué hace, con qué fuentes y qué no debe hacer' }
+        espacio: { $ref: '#/components/schemas/EspacioJarvis', description: 'Solo al crear: dónde va (por defecto, mi área)' }
     ConversacionJarvis:
       type: object
       required: [id, titulo, creadaEn, ultimoUso, mensajes]
@@ -5763,23 +5814,46 @@ components:
         decididoEn: { type: [string, 'null'], format: date-time }
     BotJarvis:
       type: object
-      required: [id, nombre, color, forma, instrucciones, creadoPor, creadoEn, actualizadoEn, ultimoUso, puedeEditar]
+      required: [id, nombre, color, forma, personaje, instrucciones, creadoPor, creadoEn, actualizadoEn, ultimoUso, puedeEditar, prestadoDe, prestamos]
       properties:
         id: { type: string, format: uuid }
         nombre: { type: string }
         color: { type: string }
         forma: { type: string, enum: [CIRCULO, CUADRADO, ROMBO] }
+        personaje: { type: [string, 'null'], enum: [ROBOT, BUHO, ZORRO, PANDA, GATO, PERRO, LEON, PULPO, ABEJA, PINGUINO, TORTUGA, RANA, UNICORNIO, DELFIN, KOALA, COHETE, null] }
         instrucciones: { type: string }
         creadoPor: { $ref: '#/components/schemas/PersonaMini' }
         creadoEn: { type: string, format: date-time }
         actualizadoEn: { type: string, format: date-time }
         ultimoUso: { type: [string, 'null'], format: date-time }
-        puedeEditar: { type: boolean, description: 'Quien lo creó o un ADMIN' }
+        puedeEditar: { type: boolean, description: 'Quien lo creó, un ADMIN o quien lidera su área (nunca en un bot prestado)' }
+        prestadoDe:
+          description: 'Si se ve aquí porque otra área lo prestó: de quién y si se ven sus chats'
+          oneOf:
+            - { $ref: '#/components/schemas/PrestamoBot' }
+            - { type: 'null' }
+        prestamos: { type: array, description: 'A quién lo presta (solo en su área dueña)', items: { $ref: '#/components/schemas/PrestamoBot' } }
+    PrestamoBot:
+      type: object
+      required: [clave, nombre, conChats]
+      properties:
+        clave: { $ref: '#/components/schemas/EspacioJarvis' }
+        nombre: { type: string }
+        conChats: { type: boolean }
+    EspacioJarvis:
+      type: string
+      description: 'Un área o GERENCIA (los bots de los super usuarios; su gasto va a Administración)'
+      enum: [ADMINISTRACION, CRM, COMERCIAL, AUDIOVISUAL, DISENO, MARKETING, GERENCIA]
     BotsDelArea:
       type: object
-      required: [area, consumo, conectado, bots]
+      required: [area, espacio, espacios, consumo, conectado, bots]
       properties:
-        area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ], description: 'Sin área no hay bots' }
+        area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ], description: 'El área que paga (sin área no hay bots)' }
+        espacio: { oneOf: [ { $ref: '#/components/schemas/EspacioJarvis' }, { type: 'null' } ], description: 'El espacio que se muestra' }
+        espacios:
+          type: array
+          description: 'Los espacios que ve: su área, las que lidera y, si es super usuario, todas y Gerencia'
+          items: { type: object, required: [clave, nombre], properties: { clave: { $ref: '#/components/schemas/EspacioJarvis' }, nombre: { type: string } } }
         consumo: { oneOf: [ { $ref: '#/components/schemas/ConsumoArea' }, { type: 'null' } ] }
         conectado: { type: boolean, description: 'El Hermes del área está registrado en el portal' }
         bots: { type: array, items: { $ref: '#/components/schemas/BotJarvis' } }

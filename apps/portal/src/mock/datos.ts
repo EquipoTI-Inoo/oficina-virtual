@@ -38,6 +38,8 @@ export interface UsuarioDemo {
   nivelAcceso?: Nivel | null;
   /** Lead de su área: asigna a su gente y ve su carga y calendario. */
   esLead?: boolean;
+  /** Áreas que lidera aparte de la suya (8 nov). */
+  areasLideradas?: Area[];
   /** Por encima de ADMIN (5 nov): cambia niveles, permisos y quién es ADMIN. */
   esSuperUsuario?: boolean;
   /** Permisos concedidos (true) o quitados (false) sobre lo que da su nivel. */
@@ -756,6 +758,11 @@ export interface BotJarvisDemo {
   nombre: string;
   color: string;
   forma: "CIRCULO" | "CUADRADO" | "ROMBO";
+  /** 8 nov: GERENCIA = bots de los super usuarios (su gasto va a Administración). */
+  seccion?: "AREA" | "GERENCIA";
+  personaje?: string | null;
+  /** Tanda 3 (8 nov): a qué espacios lo presta y si con sus chats. */
+  prestamos?: { espacio: "ADMINISTRACION" | "CRM" | "COMERCIAL" | "AUDIOVISUAL" | "DISENO" | "MARKETING" | "GERENCIA"; conChats: boolean }[];
   instrucciones: string;
   creadoPorId: string;
   creadoEn: string;

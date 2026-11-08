@@ -28,6 +28,8 @@ export interface Usuario extends SesionDb {
   area?: Area | null;
   nivelAcceso?: Nivel | null;
   esLead?: boolean;
+  /** Solo equipo (8 nov): áreas que lidera aparte de la suya. */
+  areasLideradas?: Area[];
   /** Solo equipo (5 nov): super usuario y permisos efectivos. */
   esSuperUsuario?: boolean;
   permisos?: Permiso[];
@@ -146,8 +148,8 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   }
 
   // usuario y miembro_cliente no tienen RLS: se leen antes de activar la sesión restringida.
-  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados; sesiones_desde: Date | null; es_prueba: boolean; es_cuenta_pruebas: boolean }>(
-    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados, sesiones_desde, es_prueba, es_cuenta_pruebas FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
+  const { rows } = await c.query<{ id: string; nombre: string; email: string; cargo: string | null; tipo: Usuario["tipo"]; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; permisos_personalizados: PermisosPersonalizados; sesiones_desde: Date | null; es_prueba: boolean; es_cuenta_pruebas: boolean; areas_lideradas: Area[] | string | null }>(
+    `SELECT id, nombre, email::text, cargo, tipo, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, permisos_personalizados, sesiones_desde, es_prueba, es_cuenta_pruebas, areas_lideradas::text[] AS areas_lideradas FROM usuario WHERE ${filtro.columna} = $1 AND activo`,
     [filtro.valor],
   );
   const u = rows[0];
@@ -168,7 +170,7 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     rolEquipo: u.rol_equipo,
     ...(u.tipo === "EQUIPO" ? (() => {
       const acceso = { rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso, esSuperUsuario: u.es_super_usuario, permisosPersonalizados: u.permisos_personalizados };
-      return { area: u.area, nivelAcceso: nivelDe(acceso), esLead: u.es_lead, esSuperUsuario: u.es_super_usuario, permisos: permisosDe(acceso) };
+      return { area: u.area, nivelAcceso: nivelDe(acceso), esLead: u.es_lead, areasLideradas: (Array.isArray(u.areas_lideradas) ? u.areas_lideradas : []) as Area[], esSuperUsuario: u.es_super_usuario, permisos: permisosDe(acceso) };
     })() : {}),
     clienteIds: m.rows.map((r) => r.cliente_id),
     roles: Object.fromEntries(m.rows.map((r) => [r.cliente_id, r.rol])),

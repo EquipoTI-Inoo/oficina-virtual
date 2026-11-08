@@ -70,6 +70,8 @@ export function permisosDe(p: PersonaConPermisos): Permiso[] {
 interface Persona extends PersonaConPermisos {
   id: string;
   esLead?: boolean;
+  /** Áreas que lidera aparte de la suya (8 nov). */
+  areasLideradas?: Area[] | null;
   /** Efectivos, si ya vienen calculados (la sesión); si no, se calculan. */
   permisos?: readonly Permiso[];
 }
@@ -102,16 +104,26 @@ export function calcularAlcance(
 export const veCuenta = (a: Alcance, clienteId: string) => a.todo || a.cuentas.has(clienteId);
 export const veProyecto = (a: Alcance, scId: string) => a.todo || a.proyectos.has(scId);
 
-/** ¿`actor` puede asignar accesos a `objetivo`? Con el permiso, a cualquiera; un lead, a la gente de su área. */
+/**
+ * ¿Lidera esa área? La suya si es lead, y las que lidera aparte (8 nov: Omar lidera Administración y Ernesto,
+ * Comercial, aunque InooWork diga otra área).
+ */
+export const lideraArea = (p: { esLead?: boolean; area: Area | null; areasLideradas?: Area[] | null }, area: Area | null) =>
+  !!area && ((!!p.esLead && p.area === area) || !!p.areasLideradas?.includes(area));
+/** Las áreas que lidera, sin repetir. */
+export const areasQueLidera = (p: { esLead?: boolean; area: Area | null; areasLideradas?: Area[] | null }): Area[] =>
+  [...new Set([...(p.esLead && p.area ? [p.area] : []), ...(p.areasLideradas ?? [])])];
+
+/** ¿`actor` puede asignar accesos a `objetivo`? Con el permiso, a cualquiera; un lead, a la gente de las áreas que lidera. */
 export function puedeAsignar(actor: Persona, objetivo: { area: Area | null; tipo?: string }) {
   if (objetivo.tipo && objetivo.tipo !== "EQUIPO") return false;
   if ((actor.permisos ?? permisosDe(actor)).includes("ASIGNAR_ACCESOS")) return true;
-  return !!actor.esLead && !!actor.area && actor.area === objetivo.area;
+  return lideraArea(actor, objetivo.area);
 }
 
-/** ¿`actor` puede ver la carga y el calendario de `objetivo`? Él mismo, el nivel ADMIN o un lead de su área. */
+/** ¿`actor` puede ver la carga y el calendario de `objetivo`? Él mismo, el nivel ADMIN o quien lidera su área. */
 export function puedeSupervisar(actor: Persona, objetivo: { id: string; area: Area | null }) {
-  return actor.id === objetivo.id || nivelDe(actor) === "ADMIN" || (!!actor.esLead && !!actor.area && actor.area === objetivo.area);
+  return actor.id === objetivo.id || nivelDe(actor) === "ADMIN" || lideraArea(actor, objetivo.area);
 }
 
 // ───────────────────────────────────────────── super usuario (pedido de Ernesto, 2 nov; hecho el 5 nov)

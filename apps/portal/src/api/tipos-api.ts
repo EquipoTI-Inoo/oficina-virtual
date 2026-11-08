@@ -2261,12 +2261,46 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Sección «Jarvis»: los bots de mi área (solo los de mi área), cómo va el área contra sus topes y si su Hermes está conectado */
+        /** Sección «Jarvis»: los bots de un espacio que veo (mi área, las que lidero o, si soy super usuario, cualquiera y Gerencia), cómo va el área contra sus topes y si su Hermes está conectado */
         get: operations["botsDeMiArea"];
         put?: never;
         /** Crea un bot en mi área (nombre, apariencia y su trabajo). Lo ve toda el área */
         post: operations["crearBot"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/bots/{botId}/compartir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Comparte el bot con otra área o con Gerencia: PRESTAR (la usa sin editarla y paga su gasto; con chats, ve los del dueño) o COPIAR (un bot igual que es suyo; con chats, copia el historial) */
+        post: operations["compartirBot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/bots/{botId}/compartir/{espacio}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deja de prestar el bot a esa área (sus chats quedan guardados, pero ya no los ve) */
+        delete: operations["dejarDePrestarBot"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4274,8 +4308,15 @@ export interface components {
             color?: "#5554d9" | "#1f9d74" | "#d9822b" | "#d64545" | "#2b7bd9" | "#9b51e0" | "#475467";
             /** @enum {string} */
             forma?: "CIRCULO" | "CUADRADO" | "ROMBO";
+            /**
+             * @description Mascota sobre el color; null = su inicial
+             * @enum {string|null}
+             */
+            personaje?: "ROBOT" | "BUHO" | "ZORRO" | "PANDA" | "GATO" | "PERRO" | "LEON" | "PULPO" | "ABEJA" | "PINGUINO" | "TORTUGA" | "RANA" | "UNICORNIO" | "DELFIN" | "KOALA" | "COHETE" | null;
             /** @description Su trabajo: qué hace, con qué fuentes y qué no debe hacer */
             instrucciones?: string;
+            /** @description Solo al crear: dónde va (por defecto, mi área) */
+            espacio?: components["schemas"]["EspacioJarvis"];
         };
         ConversacionJarvis: {
             /** @description El código de la conversación (sesionId del chat) */
@@ -4315,6 +4356,8 @@ export interface components {
             color: string;
             /** @enum {string} */
             forma: "CIRCULO" | "CUADRADO" | "ROMBO";
+            /** @enum {string|null} */
+            personaje: "ROBOT" | "BUHO" | "ZORRO" | "PANDA" | "GATO" | "PERRO" | "LEON" | "PULPO" | "ABEJA" | "PINGUINO" | "TORTUGA" | "RANA" | "UNICORNIO" | "DELFIN" | "KOALA" | "COHETE" | null;
             instrucciones: string;
             creadoPor: components["schemas"]["PersonaMini"];
             /** Format: date-time */
@@ -4323,12 +4366,33 @@ export interface components {
             actualizadoEn: string;
             /** Format: date-time */
             ultimoUso: string | null;
-            /** @description Quien lo creó o un ADMIN */
+            /** @description Quien lo creó, un ADMIN o quien lidera su área (nunca en un bot prestado) */
             puedeEditar: boolean;
+            /** @description Si se ve aquí porque otra área lo prestó: de quién y si se ven sus chats */
+            prestadoDe: components["schemas"]["PrestamoBot"] | null;
+            /** @description A quién lo presta (solo en su área dueña) */
+            prestamos: components["schemas"]["PrestamoBot"][];
         };
+        PrestamoBot: {
+            clave: components["schemas"]["EspacioJarvis"];
+            nombre: string;
+            conChats: boolean;
+        };
+        /**
+         * @description Un área o GERENCIA (los bots de los super usuarios; su gasto va a Administración)
+         * @enum {string}
+         */
+        EspacioJarvis: "ADMINISTRACION" | "CRM" | "COMERCIAL" | "AUDIOVISUAL" | "DISENO" | "MARKETING" | "GERENCIA";
         BotsDelArea: {
-            /** @description Sin área no hay bots */
+            /** @description El área que paga (sin área no hay bots) */
             area: components["schemas"]["AreaEquipo"] | null;
+            /** @description El espacio que se muestra */
+            espacio: components["schemas"]["EspacioJarvis"] | null;
+            /** @description Los espacios que ve: su área, las que lidera y, si es super usuario, todas y Gerencia */
+            espacios: {
+                clave: components["schemas"]["EspacioJarvis"];
+                nombre: string;
+            }[];
             consumo: components["schemas"]["ConsumoArea"] | null;
             /** @description El Hermes del área está registrado en el portal */
             conectado: boolean;
@@ -10618,7 +10682,10 @@ export interface operations {
     };
     listarConversacionesBot: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Desde qué área lo uso, si me lo prestaron (por defecto, la primera que veo) */
+                area?: components["schemas"]["EspacioJarvis"];
+            };
             header?: never;
             path: {
                 botId: string;
@@ -10836,7 +10903,10 @@ export interface operations {
     };
     botsDeMiArea: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Por defecto, mi área */
+                area?: components["schemas"]["EspacioJarvis"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10888,6 +10958,73 @@ export interface operations {
                 };
             };
             422: components["responses"]["Validacion"];
+        };
+    };
+    compartirBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    espacio: components["schemas"]["EspacioJarvis"];
+                    /** @enum {string} */
+                    modo: "PRESTAR" | "COPIAR";
+                    /** @default false */
+                    conChats?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Prestado: el bot con sus préstamos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotJarvis"];
+                };
+            };
+            /** @description Copiado: el bot nuevo */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BotJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    dejarDePrestarBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+                espacio: components["schemas"]["EspacioJarvis"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Listo */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     eliminarBot: {
@@ -10943,7 +11080,10 @@ export interface operations {
     };
     chatConBot: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Desde qué área lo uso, si me lo prestaron (por defecto, la primera que veo) */
+                area?: components["schemas"]["EspacioJarvis"];
+            };
             header?: never;
             path: {
                 botId: string;

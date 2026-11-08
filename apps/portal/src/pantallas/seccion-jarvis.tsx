@@ -6,10 +6,10 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
+import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuShare2, LuSquare, LuTrash2, LuX } from "react-icons/lu";
 import { api, BASE, Enlace, fDiaHora, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
-import { COLORES_BOT, FORMAS_BOT, saludoInicial, sesionConfiguracion, sinBloqueTrabajo } from "../dominio/ia-equipo";
+import { AREAS, NOMBRE_AREA, COLORES_BOT, FORMAS_BOT, PERSONAJES_BOT, saludoInicial, sesionConfiguracion, sinBloqueTrabajo, type PersonajeBot } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
 import { ACEPTA_ADJUNTOS, leerAdjunto, type Adjunto } from "./leer-archivos";
 
@@ -23,7 +23,16 @@ export function PantallaJarvis() {
   );
 }
 
-export function AvatarBot({ bot, tam = 30 }: { bot: Pick<Bot, "nombre" | "color" | "forma">; tam?: number }) {
+export function AvatarBot({ bot, tam = 30 }: { bot: Pick<Bot, "nombre" | "color" | "forma"> & { personaje?: Bot["personaje"] }; tam?: number }) {
+  // 8 nov: con personaje, la mascota sobre un círculo de su color (más amigable que la inicial).
+  const mascota = bot.personaje ? PERSONAJES_BOT[bot.personaje as PersonajeBot] : null;
+  if (mascota) {
+    return (
+      <span className="avatar-bot avatar-bot--personaje" aria-hidden style={{ width: tam, height: tam, background: `${bot.color}26`, boxShadow: `inset 0 0 0 2px ${bot.color}`, borderRadius: "50%", fontSize: Math.round(tam * 0.58) }}>
+        {mascota}
+      </span>
+    );
+  }
   const radio = bot.forma === "CIRCULO" ? "50%" : bot.forma === "CUADRADO" ? "8px" : "4px";
   return (
     <span className="avatar-bot" aria-hidden style={{ width: tam, height: tam, background: bot.color, borderRadius: radio, transform: bot.forma === "ROMBO" ? "rotate(45deg) scale(0.8)" : undefined }}>
@@ -33,17 +42,23 @@ export function AvatarBot({ bot, tam = 30 }: { bot: Pick<Bot, "nombre" | "color"
 }
 
 function SeccionJarvis() {
-  const r = useConsulta<S<"BotsDelArea">>("/jarvis/bots");
+  // 8 nov: los super usuarios ven todas las áreas y Gerencia; los leads, también las áreas que lideran.
+  const [espacio, setEspacio] = useState<string | null>(null);
+  const r = useConsulta<S<"BotsDelArea">>(espacio ? `/jarvis/bots?area=${espacio}` : "/jarvis/bots");
   // 8 nov: el bot elegido y qué conversación está abierta (su configuración o uno de sus chats).
   const [elegido, setElegido] = useState<{ botId: string; sesion: string } | null>(null);
   const [abiertos, setAbiertos] = useState<string[]>([]);
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<Bot | "nuevo" | null>(null);
+  const [compartiendo, setCompartiendo] = useState<Bot | null>(null);
+  // Un bot prestado no se configura aquí: al elegirlo se abre un chat nuevo.
+  const [chatSuelto] = useState(() => crypto.randomUUID());
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const d = r.datos;
   const bot = d.bots.find((b) => b.id === elegido?.botId) ?? d.bots[0] ?? null;
-  const sesion = bot ? (elegido?.botId === bot.id ? elegido.sesion : sesionConfiguracion(bot.id)) : "";
+  const inicioDe = (b: Bot) => (b.prestadoDe ? chatSuelto : sesionConfiguracion(b.id));
+  const sesion = bot ? (elegido?.botId === bot.id ? elegido.sesion : inicioDe(bot)) : "";
   const abrir = (botId: string, s: string) => {
     setElegido({ botId, sesion: s });
     setAbiertos((xs) => (xs.includes(botId) ? xs : [...xs, botId]));
@@ -56,31 +71,50 @@ function SeccionJarvis() {
       </div>
     );
   }
+  const nombreEspacio = d.espacios.find((e) => e.clave === d.espacio)?.nombre ?? d.consumo?.nombre;
+  const cambiarEspacio = (e: string) => {
+    if (e === d.espacio) return;
+    setEspacio(e);
+    setElegido(null);
+    setAbiertos([]);
+  };
   return (
+    <div className="pila" style={{ gap: 12 }}>
+    {d.espacios.length > 1 && (
+      <div className="pestanas" role="tablist" aria-label="Áreas de Jarvis">
+        {d.espacios.map((e) => (
+          <button key={e.clave} role="tab" type="button" aria-selected={e.clave === d.espacio} className={`pestana${e.clave === d.espacio ? " activa" : ""}`} onClick={() => cambiarEspacio(e.clave)}>
+            {e.nombre}
+          </button>
+        ))}
+      </div>
+    )}
     <div className="jarvis">
-      <aside className="jarvis-lista" aria-label={`Bots de ${d.consumo?.nombre}`}>
+      <aside className="jarvis-lista" aria-label={`Bots de ${nombreEspacio}`}>
         <div className="fila entre" style={{ padding: "4px 6px 10px" }}>
-          <span className="jarvis-lista-titulo">Bots de {d.consumo?.nombre}</span>
+          <span className="jarvis-lista-titulo">Bots de {nombreEspacio}</span>
           <button className="boton-icono" aria-label="Crear un bot" title="Crear un bot" onClick={() => setEditor("nuevo")}>
             <LuPlus size={16} />
           </button>
         </div>
-        {d.bots.length === 0 && <p className="texto-xs texto-muted" style={{ padding: "0 6px" }}>Tu área aún no tiene bots. Crea el primero con «+».</p>}
+        {d.bots.length === 0 && <p className="texto-xs texto-muted" style={{ padding: "0 6px" }}>{d.espacio === "GERENCIA" ? "Gerencia" : "Esta área"} aún no tiene bots. Crea el primero con «+».</p>}
         {d.bots.map((b) => {
           const abierto = abiertos.includes(b.id);
           return (
             <div key={b.id} className="jarvis-grupo">
               <span className="fila" style={{ gap: 2 }}>
-                <button className="jarvis-item" style={{ flex: 1 }} aria-current={bot?.id === b.id && sesion === sesionConfiguracion(b.id) ? "true" : undefined} onClick={() => abrir(b.id, sesionConfiguracion(b.id))} title="Configurar el bot">
+                <button className="jarvis-item" style={{ flex: 1 }} aria-current={bot?.id === b.id && sesion === inicioDe(b) ? "true" : undefined}
+                  onClick={() => abrir(b.id, b.prestadoDe ? crypto.randomUUID() : sesionConfiguracion(b.id))} title={b.prestadoDe ? `Prestado por ${b.prestadoDe.nombre}: abre un chat` : "Configurar el bot"}>
                   <AvatarBot bot={b} tam={26} />
                   <span className="jarvis-item-nombre">{b.nombre}</span>
+                  {b.prestadoDe && <span className="etiqueta etiqueta--gris" style={{ fontSize: 10.5, padding: "1px 6px" }}>de {b.prestadoDe.nombre}</span>}
                 </button>
                 <button className="boton-icono" aria-expanded={abierto} aria-label={`${abierto ? "Ocultar" : "Ver"} los chats de ${b.nombre}`}
                   onClick={() => setAbiertos((xs) => (abierto ? xs.filter((x) => x !== b.id) : [...xs, b.id]))}>
                   <LuChevronDown size={15} style={{ transform: abierto ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
                 </button>
               </span>
-              {abierto && <ChatsDelBot bot={b} activa={bot?.id === b.id ? sesion : null} version={version} alAbrir={(x) => abrir(b.id, x)} alNuevo={() => abrir(b.id, crypto.randomUUID())} />}
+              {abierto && <ChatsDelBot bot={b} espacio={d.espacio} activa={bot?.id === b.id ? sesion : null} version={version} alAbrir={(x) => abrir(b.id, x)} alNuevo={() => abrir(b.id, crypto.randomUUID())} />}
             </div>
           );
         })}
@@ -96,21 +130,25 @@ function SeccionJarvis() {
       <section className="jarvis-chat">
         {bot ? (
           <ChatBot
-            key={`${bot.id}:${sesion}`} bot={bot} conectado={d.conectado} sesion={sesion} configurar={sesion === sesionConfiguracion(bot.id)}
-            alEditar={() => setEditor(bot)} alCambiar={() => void r.recargar()} alNuevoChat={() => abrir(bot.id, crypto.randomUUID())} alTerminar={() => setVersion((n) => n + 1)}
+            key={`${bot.id}:${sesion}`} bot={bot} espacio={d.espacio} conectado={d.conectado} sesion={sesion} configurar={sesion === sesionConfiguracion(bot.id)}
+            alCompartir={() => setCompartiendo(bot)} alEditar={() => setEditor(bot)} alCambiar={() => void r.recargar()} alNuevoChat={() => abrir(bot.id, crypto.randomUUID())} alTerminar={() => setVersion((n) => n + 1)}
           />
         ) : (
           <div className="jarvis-vacio">
-            <p className="texto-sm texto-muted">Crea un bot para tu área: dale un nombre y cuéntale cuál es su trabajo.</p>
+            <p className="texto-sm texto-muted">Crea un bot para {d.espacio === "GERENCIA" ? "Gerencia" : nombreEspacio}: dale un nombre y cuéntale cuál es su trabajo.</p>
             <button className="boton boton--primario" onClick={() => setEditor("nuevo")}>
               <LuPlus size={14} /> Crear un bot
             </button>
           </div>
         )}
       </section>
+      {compartiendo && (
+        <CompartirBot bot={compartiendo} conGerencia={d.espacios.some((e) => e.clave === "GERENCIA")} alCerrar={() => setCompartiendo(null)} alCambiar={() => void r.recargar()} />
+      )}
       {editor && (
         <EditorBot
           bot={editor === "nuevo" ? null : editor}
+          espacio={d.espacio}
           alCerrar={() => setEditor(null)}
           alGuardar={(b) => {
             setEditor(null);
@@ -120,12 +158,13 @@ function SeccionJarvis() {
         />
       )}
     </div>
+    </div>
   );
 }
 
 /** Los chats de trabajo de un bot, debajo de su nombre (8 nov). Son del área: cualquiera los abre y los sigue. */
-function ChatsDelBot({ bot, activa, version, alAbrir, alNuevo }: { bot: Bot; activa: string | null; version: number; alAbrir: (sesion: string) => void; alNuevo: () => void }) {
-  const lista = useConsulta<{ datos: S<"ConversacionJarvis">[] }>(`/jarvis/bots/${bot.id}/conversaciones`);
+function ChatsDelBot({ bot, espacio, activa, version, alAbrir, alNuevo }: { bot: Bot; espacio: string | null; activa: string | null; version: number; alAbrir: (sesion: string) => void; alNuevo: () => void }) {
+  const lista = useConsulta<{ datos: S<"ConversacionJarvis">[] }>(`/jarvis/bots/${bot.id}/conversaciones${espacio ? `?area=${espacio}` : ""}`);
   const avisar = useAviso();
   const { recargar } = lista;
   useEffect(() => {
@@ -164,10 +203,96 @@ function ChatsDelBot({ bot, activa, version, alAbrir, alNuevo }: { bot: Bot; act
   );
 }
 
-function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: () => void; alGuardar: (b: Bot) => void }) {
+/**
+ * Tanda 3 (8 nov): compartir el bot con otra área. Prestarlo: la usa sin editarla y paga su gasto (con chats, ve
+ * también los de esta área). Copiarlo: le da un bot igual que ya es suyo (con chats, copia el historial).
+ */
+function CompartirBot({ bot, conGerencia, alCerrar, alCambiar }: { bot: Bot; conGerencia: boolean; alCerrar: () => void; alCambiar: () => void }) {
+  const opciones = [...AREAS.map((a) => ({ clave: a as string, nombre: NOMBRE_AREA[a] })), ...(conGerencia ? [{ clave: "GERENCIA", nombre: "Gerencia" }] : [])];
+  const [espacio, setEspacio] = useState("");
+  const [modo, setModo] = useState<"PRESTAR" | "COPIAR">("PRESTAR");
+  const [conChats, setConChats] = useState(false);
+  const [prestamos, setPrestamos] = useState(bot.prestamos);
+  const [err, setErr] = useState<string | null>(null);
+  const avisar = useAviso();
+  const compartir = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    try {
+      const r = await api<Bot>(`/jarvis/bots/${bot.id}/compartir`, { metodo: "POST", cuerpo: { espacio, modo, conChats } });
+      const destino = opciones.find((o) => o.clave === espacio)?.nombre;
+      avisar({ titulo: modo === "PRESTAR" ? `${bot.nombre} quedó prestado a ${destino}` : `${destino} ya tiene su copia de ${bot.nombre}` });
+      if (modo === "PRESTAR") setPrestamos(r.prestamos);
+      alCambiar();
+      if (modo === "COPIAR") alCerrar();
+    } catch (e2) {
+      setErr(e2 instanceof ProblemaApi ? e2.errores[0]?.mensaje ?? e2.titulo : "No pudimos compartirlo");
+    }
+  };
+  const quitar = async (clave: string) => {
+    try {
+      await api(`/jarvis/bots/${bot.id}/compartir/${clave}`, { metodo: "DELETE" });
+      setPrestamos((xs) => xs.filter((x) => x.clave !== clave));
+      alCambiar();
+    } catch (e2) {
+      avisar({ titulo: "No pudimos dejar de prestarlo", texto: e2 instanceof ProblemaApi ? e2.titulo : undefined });
+    }
+  };
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta={`Compartir ${bot.nombre}`}>
+      <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void compartir(e)}>
+        <div className="fila" style={{ gap: 12 }}>
+          <AvatarBot bot={bot} tam={40} />
+          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Compartir {bot.nombre}</h2>
+        </div>
+        <div className="campo">
+          <label htmlFor="compartir-area">¿Con qué área?</label>
+          <select id="compartir-area" className="input" value={espacio} onChange={(e) => setEspacio(e.target.value)}>
+            <option value="">Elige un área…</option>
+            {opciones.map((o) => <option key={o.clave} value={o.clave}>{o.nombre}</option>)}
+          </select>
+        </div>
+        <fieldset className="campo" style={{ border: 0, padding: 0, display: "grid", gap: 8 }}>
+          <legend>Cómo</legend>
+          <label className="fila" style={{ gap: 8, alignItems: "flex-start" }}>
+            <input type="radio" name="modo" checked={modo === "PRESTAR"} onChange={() => setModo("PRESTAR")} />
+            <span><span className="negrita">Prestarlo</span><br /><span className="texto-xs texto-muted">Lo usan tal cual, sin poder cambiarlo. Si lo ajustas, el cambio les llega. Su gasto va a su área.</span></span>
+          </label>
+          <label className="fila" style={{ gap: 8, alignItems: "flex-start" }}>
+            <input type="radio" name="modo" checked={modo === "COPIAR"} onChange={() => setModo("COPIAR")} />
+            <span><span className="negrita">Darles una copia</span><br /><span className="texto-xs texto-muted">Un bot igual que pasa a ser suyo: lo pueden cambiar sin tocar el tuyo.</span></span>
+          </label>
+        </fieldset>
+        <label className="fila" style={{ gap: 8 }}>
+          <input type="checkbox" checked={conChats} onChange={(e) => setConChats(e.target.checked)} />
+          <span className="texto-sm">{modo === "PRESTAR" ? "Que vean también los chats de tu área con el bot" : "Copiar también los chats (como historial)"}</span>
+        </label>
+        {err && <p className="texto-xs" role="alert" style={{ color: "var(--c-alerta)" }}>{err}</p>}
+        <button className="boton boton--primario boton--bloque" type="submit" disabled={!espacio}>
+          <LuShare2 size={14} /> {modo === "PRESTAR" ? "Prestar" : "Copiar"}
+        </button>
+        {prestamos.length > 0 && (
+          <div className="pila" style={{ gap: 6 }}>
+            <p className="texto-xs texto-muted negrita">Prestado a</p>
+            {prestamos.map((x) => (
+              <span key={x.clave} className="fila entre" style={{ gap: 8 }}>
+                <span className="texto-sm">{x.nombre}{x.conChats ? " · con chats" : ""}</span>
+                <button type="button" className="boton boton--chico" onClick={() => void quitar(x.clave)}>Dejar de prestar</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </form>
+    </Modal>
+  );
+}
+
+function EditorBot({ bot, espacio, alCerrar, alGuardar }: { bot: Bot | null; espacio?: string | null; alCerrar: () => void; alGuardar: (b: Bot) => void }) {
   const [nombre, setNombre] = useState(bot?.nombre ?? "");
   const [color, setColor] = useState<string>(bot?.color ?? COLORES_BOT[0]);
   const [forma, setForma] = useState<Bot["forma"]>(bot?.forma ?? "CIRCULO");
+  // 8 nov: los bots nuevos nacen con una mascota (se puede cambiar o quitar).
+  const [personaje, setPersonaje] = useState<Bot["personaje"]>(bot ? bot.personaje ?? null : "ROBOT");
   const [instrucciones, setInstrucciones] = useState(bot?.instrucciones ?? "");
   const [err, setErr] = useState<Record<string, string>>({});
   const avisar = useAviso();
@@ -175,8 +300,8 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
     e.preventDefault();
     setErr({});
     try {
-      const cuerpo = { nombre, color, forma, instrucciones };
-      const b = bot ? await api<Bot>(`/jarvis/bots/${bot.id}`, { metodo: "PATCH", cuerpo }) : await api<Bot>("/jarvis/bots", { metodo: "POST", cuerpo });
+      const cuerpo = { nombre, color, forma, personaje, instrucciones };
+      const b = bot ? await api<Bot>(`/jarvis/bots/${bot.id}`, { metodo: "PATCH", cuerpo }) : await api<Bot>("/jarvis/bots", { metodo: "POST", cuerpo: { ...cuerpo, ...(espacio ? { espacio } : {}) } });
       avisar({ titulo: bot ? "Bot actualizado" : `${b.nombre} está listo para configurarse` });
       alGuardar(b);
     } catch (e2) {
@@ -188,7 +313,7 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
     <Modal abierto alCerrar={alCerrar} etiqueta={bot ? "Editar bot" : "Crear un bot"}>
       <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void guardar(e)}>
         <div className="fila" style={{ gap: 12 }}>
-          <AvatarBot bot={{ nombre: nombre || "?", color, forma }} tam={44} />
+          <AvatarBot bot={{ nombre: nombre || "?", color, forma, personaje }} tam={44} />
           <h2 style={{ fontSize: 18, fontWeight: 600 }}>{bot ? "Editar bot" : "Crear un bot"}</h2>
         </div>
         <div className="campo">
@@ -207,6 +332,7 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
               ))}
             </div>
           </fieldset>
+          {!personaje && (
           <fieldset className="campo" style={{ border: 0, padding: 0 }}>
             <legend>Forma</legend>
             <div className="fila" style={{ gap: 6 }}>
@@ -217,7 +343,21 @@ function EditorBot({ bot, alCerrar, alGuardar }: { bot: Bot | null; alCerrar: ()
               ))}
             </div>
           </fieldset>
+          )}
         </div>
+        <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+          <legend>Personaje</legend>
+          <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+            <button type="button" aria-label="Sin personaje (su inicial)" aria-pressed={!personaje} className="boton boton--chico" style={!personaje ? { borderColor: color } : undefined} onClick={() => setPersonaje(null)}>
+              <AvatarBot bot={{ nombre: nombre || "A", color, forma }} tam={20} />
+            </button>
+            {(Object.keys(PERSONAJES_BOT) as PersonajeBot[]).map((k) => (
+              <button key={k} type="button" aria-label={`Personaje ${k.toLowerCase()}`} aria-pressed={personaje === k} className="boton boton--chico" style={personaje === k ? { borderColor: color } : undefined} onClick={() => setPersonaje(k)}>
+                <span aria-hidden style={{ fontSize: 17, lineHeight: 1 }}>{PERSONAJES_BOT[k]}</span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
         {!bot && (
           <p className="texto-xs texto-muted">
             Al crearlo, te hará unas preguntas para entender en qué te ayuda y con eso arma su trabajo. Después lo puedes cambiar aquí o pedírselo en el chat.
@@ -385,8 +525,8 @@ function PropuestasJarvis({ sesion, version }: { sesion: string; version: number
  * 8 nov: la conversación de configuración (al pulsar el bot) es donde se define para qué está programado; los chats
  * de trabajo (debajo del bot, en la lista) son para los pedidos y ahí el bot no se cambia a sí mismo.
  */
-function ChatBot({ bot, conectado, sesion, configurar, alEditar, alCambiar, alNuevoChat, alTerminar }: {
-  bot: Bot; conectado: boolean; sesion: string; configurar: boolean; alEditar: () => void; alCambiar: () => void; alNuevoChat: () => void; alTerminar: () => void;
+function ChatBot({ bot, espacio, conectado, sesion, configurar, alCompartir, alEditar, alCambiar, alNuevoChat, alTerminar }: {
+  bot: Bot; espacio: string | null; conectado: boolean; sesion: string; configurar: boolean; alCompartir: () => void; alEditar: () => void; alCambiar: () => void; alNuevoChat: () => void; alTerminar: () => void;
 }) {
   // Bot recién creado (sin trabajo): en su configuración saluda y empieza a preguntar, como Grok.
   const inicio = (): MensajeChat[] => (configurar && !bot.instrucciones.trim() ? [{ rol: "bot", texto: saludoInicial(bot.nombre) }] : []);
@@ -475,7 +615,7 @@ function ChatBot({ bot, conectado, sesion, configurar, alEditar, alCambiar, alNu
     corte.current = control;
     try {
       const s = leerSesion();
-      const r = await fetch(`${BASE}/jarvis/bots/${bot.id}/chat`, {
+      const r = await fetch(`${BASE}/jarvis/bots/${bot.id}/chat${espacio ? `?area=${espacio}` : ""}`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
         body: JSON.stringify({ mensaje, sesionId: sesion, archivos: van.map((a) => ("imagen" in a ? { nombre: a.nombre, imagen: a.imagen } : a)) }),
@@ -544,6 +684,11 @@ function ChatBot({ bot, conectado, sesion, configurar, alEditar, alCambiar, alNu
                 </button>
               )}
               {bot.puedeEditar && (
+                <button role="menuitem" onClick={() => { setMenu(false); alCompartir(); }}>
+                  <LuShare2 size={14} /> Compartir con otra área
+                </button>
+              )}
+              {bot.puedeEditar && (
                 <button role="menuitem" className="jarvis-menu-peligro" onClick={() => void eliminar()}>
                   <LuTrash2 size={14} /> Eliminar bot
                 </button>
@@ -553,7 +698,7 @@ function ChatBot({ bot, conectado, sesion, configurar, alEditar, alCambiar, alNu
         </div>
         <span className="fila" style={{ gap: 10 }}>
           <span className={`etiqueta ${configurar ? "etiqueta--violeta" : "etiqueta--gris"}`}>{configurar ? "Configuración" : "Chat"}</span>
-          <span className="texto-xs texto-muted">Creado por {bot.creadoPor.nombre}</span>
+          <span className="texto-xs texto-muted">{bot.prestadoDe ? `Prestado por ${bot.prestadoDe.nombre} · ` : ""}Creado por {bot.creadoPor.nombre}</span>
         </span>
       </header>
       <div className="jarvis-mensajes" aria-live="polite">
