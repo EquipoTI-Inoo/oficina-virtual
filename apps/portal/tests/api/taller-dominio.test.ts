@@ -65,13 +65,15 @@ describe("taller web · dominio", () => {
     assert.equal(conNoindex(ni), ni, "no la duplica");
   });
 
-  test("el informe no menciona la IA y trae score card y flujograma", () => {
+  test("el informe no menciona la IA, no trae puntajes (8 nov) y sí el comentario, el branding y el flujograma", () => {
     const html = limpiarHtml(informeHtml({
       marca: "Casa Oliva", dominio: "casaoliva.pe", dimensiones: dimensionesPara("ECOMMERCE"), fecha: "2026-10-24",
+      insumos: { ...INSUMOS, logoUrl: "https://casaoliva.pe/logo.svg", manualUrl: "https://drive.google.com/manual-casa-oliva" },
       referencias: [{ id: "1", nombre: "Aesop", url: "https://www.aesop.com/", origen: "BRIEF", capturas: [], puntajes: [{ dimension: "FICHA_PRODUCTO", puntaje: 5, comentario: "Fotos, precio y confianza" }], resumen: "Tomar sus fichas.", analizadaEn: null, srcEscritorio: null, srcMovil: null }],
       hallazgos: [{ titulo: "Compra por WhatsApp", texto: "Casi nadie tiene carrito." }], recomendaciones: [{ titulo: "Checkout corto", texto: "Tres clics." }], flujograma: flujogramaSimulado(INSUMOS),
     }));
-    for (const x of ["Score card", "5/5", "Fotos, precio y confianza", "Hallazgos clave", "Checkout corto", "Nivel 0 — Entrada", "Ficha de producto", "casaoliva.pe"]) assert.ok(html.includes(x), x);
+    for (const x of ["Tomar sus fichas.", "Hallazgos clave", "Checkout corto", "Nivel 0 — Entrada", "Ficha de producto", "casaoliva.pe", "https://casaoliva.pe/logo.svg", "Manual de marca"]) assert.ok(html.includes(x), x);
+    for (const x of ["Score card", "5/5", "Puntaje global"]) assert.ok(!html.includes(x), x);
     assert.doesNotMatch(html, /\bIA\b|inteligencia artificial|claude|gemini|stitch/i);
   });
 

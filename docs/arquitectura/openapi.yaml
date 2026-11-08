@@ -4390,6 +4390,7 @@ paths:
               properties:
                 paginaId: { type: string }
                 dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
+                prompt: { type: [string, 'null'], maxLength: 30000, description: 'Rehacer con este prompt (8 nov); sin él, el estándar' }
       responses:
         '201':
           description: Captura agregada
@@ -5392,7 +5393,7 @@ components:
     TallerWeb:
       type: object
       description: 'Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables'
-      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
+      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, insumosEditados, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
       properties:
         servicioContratadoId: { type: string, format: uuid }
         servicioTitulo: { type: string }
@@ -5413,6 +5414,9 @@ components:
             resumenReunion: { type: [string, 'null'] }
             alcance: { type: [string, 'null'] }
             cms: { type: [string, 'null'] }
+            logoUrl: { type: [string, 'null'], description: 'Enlace al logo (8 nov: branding en todo el flujo)' }
+            manualUrl: { type: [string, 'null'], description: Enlace al manual de marca }
+        insumosEditados: { type: array, items: { type: string }, description: 'Los campos de insumos que el equipo corrigió (el resto sale del brief)' }
         dimensiones:
           type: array
           items:
@@ -5454,6 +5458,24 @@ components:
       required: [version]
       properties:
         version: { type: integer }
+        ajustes:
+          description: 'Lo que el equipo corrige de lo que se sacó del brief y la marca (8 nov). Cada campo presente reemplaza al del brief; null vuelve todo al brief'
+          oneOf:
+            - type: object
+              properties:
+                objetivo: { type: [string, 'null'], maxLength: 600 }
+                publico: { type: [string, 'null'], maxLength: 600 }
+                alcance: { type: [string, 'null'], maxLength: 600 }
+                cms: { type: [string, 'null'], maxLength: 600 }
+                mensajeCentral: { type: [string, 'null'], maxLength: 600 }
+                tono: { type: [string, 'null'], maxLength: 600 }
+                resumenReunion: { type: [string, 'null'], maxLength: 600 }
+                secciones: { type: array, maxItems: 20, items: { type: string, maxLength: 60 } }
+                tipografias: { type: array, maxItems: 4, items: { type: string, maxLength: 60 } }
+                paleta: { type: array, maxItems: 8, items: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' } }
+                logoUrl: { type: [string, 'null'] }
+                manualUrl: { type: [string, 'null'] }
+            - { type: 'null' }
         referencias:
           type: array
           maxItems: 8
@@ -5492,6 +5514,7 @@ components:
         aprobado: { type: boolean, description: Solo las aprobadas van al PDF }
         simulada: { type: boolean }
         creadaEn: { type: string, format: date-time }
+        prompt: { type: [string, 'null'], description: 'El prompt corregido con que se rehízo (null = el estándar)' }
     ResultadoTallerWeb:
       type: object
       required: [taller, avisos, simulado]

@@ -3900,7 +3900,13 @@ export interface components {
                 resumenReunion: string | null;
                 alcance: string | null;
                 cms: string | null;
+                /** @description Enlace al logo (8 nov: branding en todo el flujo) */
+                logoUrl?: string | null;
+                /** @description Enlace al manual de marca */
+                manualUrl?: string | null;
             };
+            /** @description Los campos de insumos que el equipo corrigió (el resto sale del brief) */
+            insumosEditados: string[];
             dimensiones: {
                 codigo: components["schemas"]["DimensionBenchmark"];
                 nombre: string;
@@ -3941,6 +3947,21 @@ export interface components {
         };
         TallerWebEdicion: {
             version: number;
+            /** @description Lo que el equipo corrige de lo que se sacó del brief y la marca (8 nov). Cada campo presente reemplaza al del brief; null vuelve todo al brief */
+            ajustes?: {
+                objetivo?: string | null;
+                publico?: string | null;
+                alcance?: string | null;
+                cms?: string | null;
+                mensajeCentral?: string | null;
+                tono?: string | null;
+                resumenReunion?: string | null;
+                secciones?: string[];
+                tipografias?: string[];
+                paleta?: string[];
+                logoUrl?: string | null;
+                manualUrl?: string | null;
+            } | null;
             referencias?: {
                 /** @description Sin id = referencia nueva */
                 id?: string | null;
@@ -3975,6 +3996,8 @@ export interface components {
             simulada: boolean;
             /** Format: date-time */
             creadaEn: string;
+            /** @description El prompt corregido con que se rehízo (null = el estándar) */
+            prompt?: string | null;
         };
         ResultadoTallerWeb: {
             taller: components["schemas"]["TallerWeb"];
@@ -12563,6 +12586,8 @@ export interface operations {
                 "application/json": {
                     paginaId: string;
                     dispositivo?: components["schemas"]["DispositivoWeb"];
+                    /** @description Rehacer con este prompt (8 nov); sin él, el estándar */
+                    prompt?: string | null;
                 };
             };
         };

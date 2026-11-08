@@ -10,10 +10,10 @@
  * contenido del PDF como DESIGN.md, el prompt y la plantilla) → Figma, que lo pasa una persona · 5. Demo.
  */
 import { useEffect, useRef, useState } from "react";
-import { LuCamera, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPlus, LuSave, LuSparkles, LuTrash2, LuWandSparkles } from "react-icons/lu";
+import { LuCamera, LuChevronDown, LuChevronUp, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPause, LuPencil, LuPlay, LuPlus, LuRotateCcw, LuSave, LuSparkles, LuTrash2, LuWandSparkles, LuX } from "react-icons/lu";
 import { api, Enlace, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso } from "../componentes";
-import { type Insumos, LIMITES_TALLER, paginaParaPrompt, type Plantilla, promptStitch, promptStitchSitio } from "../dominio/taller-web";
+import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso } from "../componentes";
+import { type AjustesTaller, conAjustes, type Insumos, LIMITES_TALLER, mensajeBoceto, paginaParaPrompt, type Plantilla, promptStitch, promptStitchSitio } from "../dominio/taller-web";
 
 type Taller = S<"TallerWeb">;
 type Resultado = S<"ResultadoTallerWeb">;
@@ -39,7 +39,12 @@ interface Borrador {
   plantilla: Plantilla | null;
   /** Las capturas que van al PDF. */
   bocetosAprobados: string[];
+  /** 8 nov: lo que el equipo corrigió del brief y la marca (null = todo del brief). */
+  ajustes: AjustesTaller | null;
 }
+/** Los ajustes guardados: los campos corregidos, con su valor (ya viene aplicado en t.insumos). */
+const ajustesDe = (t: Taller): AjustesTaller | null =>
+  t.insumosEditados.length ? (Object.fromEntries(t.insumosEditados.map((k) => [k, (t.insumos as Record<string, unknown>)[k]])) as AjustesTaller) : null;
 const borradorDe = (t: Taller): Borrador => ({
   referencias: t.referencias.map((r) => ({ id: r.id, nombre: r.nombre, url: r.url, puntajes: r.puntajes, resumen: r.resumen })),
   hallazgos: t.hallazgos,
@@ -48,6 +53,7 @@ const borradorDe = (t: Taller): Borrador => ({
   promptPrototipo: t.prototipo.prompt,
   plantilla: t.plantilla,
   bocetosAprobados: t.bocetos.filter((x) => x.aprobado).map((x) => x.id),
+  ajustes: ajustesDe(t),
 });
 
 export function PantallaTallerWeb() {
@@ -69,7 +75,14 @@ function TallerWeb() {
   const sucioRef = useRef(sucio);
   sucioRef.current = sucio;
   const [ocupado, setOcupado] = useState<string | null>(null);
+  // 8 nov: pausa en todo lo que usa IA. Corta la espera del paso en curso y detiene los encadenados.
+  const control = useRef<AbortController | null>(null);
+  const pausa = useRef(false);
+  const [auto, setAuto] = useState<string | null>(null);
   const t = consulta.datos;
+  // El taller más reciente, para los pasos encadenados (cada paso lo cambia).
+  const ultimo = useRef<Taller | null>(null);
+  ultimo.current = t;
 
   useEffect(() => {
     if (t && !sucio) setB(borradorDe(t));
@@ -84,6 +97,7 @@ function TallerWeb() {
   };
   const ruta = `/servicios-contratados/${t.servicioContratadoId}/taller-web`;
   const aplicar = (nuevo: Taller) => {
+    ultimo.current = nuevo;
     consulta.setDatos(nuevo);
     setB(borradorDe(nuevo));
     setSucio(false);
@@ -100,24 +114,79 @@ function TallerWeb() {
     }
   };
 
-  /** Corre un paso (capturas, análisis…). Si hay cambios sin guardar, se guardan antes. */
-  /** Corre un paso del taller; devuelve si salió bien (el lote de pantallas se detiene en el primer error). */
-  const paso = async (clave: string, camino: string, cuerpo: Record<string, unknown> = {}, exito?: (r: Resultado) => string) => {
-    if (sucioRef.current && !(await guardar(true))) return false;
+  /**
+   * Corre un paso del taller (capturas, análisis…); si hay cambios sin guardar, los guarda antes. Devuelve el
+   * resultado, o null si falló o se pausó (los pasos encadenados se detienen ahí).
+   */
+  const paso = async (clave: string, camino: string, cuerpo: Record<string, unknown> = {}, exito?: (r: Resultado) => string): Promise<Resultado | null> => {
+    if (sucioRef.current && !(await guardar(true))) return null;
     setOcupado(clave);
+    const c = new AbortController();
+    control.current = c;
     try {
-      const r = await api<Resultado>(`${ruta}${camino}`, { metodo: "POST", cuerpo, idempotente: true });
+      const r = await api<Resultado>(`${ruta}${camino}`, { metodo: "POST", cuerpo, idempotente: true, senal: c.signal });
       aplicar(r.taller);
       if (r.avisos.length) avisar({ titulo: "Listo, con observaciones", texto: r.avisos.map((a) => a.mensaje).join(" · ") });
       else if (exito) avisar({ titulo: exito(r), texto: r.simulado ? "Modo de prueba: es contenido de relleno." : undefined });
-      return true;
+      return r;
     } catch (e) {
-      avisar({ titulo: "No se pudo completar", texto: errorDe(e) });
-      return false;
+      if (c.signal.aborted) avisar({ titulo: "En pausa", texto: "Lo que estaba en curso puede terminar de guardarse: recarga en un rato para verlo." });
+      else avisar({ titulo: "No se pudo completar", texto: errorDe(e) });
+      return null;
     } finally {
+      control.current = null;
       setOcupado(null);
     }
   };
+  const pausar = () => {
+    pausa.current = true;
+    control.current?.abort();
+  };
+
+  /**
+   * 8 nov (reunión del 6): los pasos 1 a 3 van solos y el equipo solo edita el de web. Hace lo que falta, en
+   * orden: capturas de las referencias, análisis, flujograma, una captura de escritorio por página (todas van al
+   * PDF) y el PDF. Se puede pausar y retomar: vuelve a empezar desde lo que falta.
+   */
+  const armarSolo = async () => {
+    pausa.current = false;
+    const sigue = () => !pausa.current;
+    try {
+      let x = ultimo.current!;
+      const sinCaptura = x.referencias.filter((r) => !r.capturas.length).map((r) => r.id);
+      if (sinCaptura.length) {
+        setAuto("Sacando capturas de las referencias");
+        if (!(await paso("capturas", "/capturas", { referenciaIds: sinCaptura })) || !sigue()) return;
+      }
+      x = ultimo.current!;
+      if (x.referencias.some((r) => !r.analizadaEn)) {
+        setAuto("Analizando las referencias");
+        if (!(await paso("analisis", "/analisis")) || !sigue()) return;
+      }
+      x = ultimo.current!;
+      if (!x.flujograma.length) {
+        setAuto("Proponiendo el flujograma");
+        if (!(await paso("flujograma", "/flujograma")) || !sigue()) return;
+      }
+      x = ultimo.current!;
+      const faltan = x.flujograma.filter((p) => !x.bocetos.some((y) => y.paginaId === p.id && y.dispositivo === "ESCRITORIO"));
+      for (const [i, p] of faltan.entries()) {
+        setAuto(`Diseñando ${i + 1} de ${faltan.length}: ${p.titulo}`);
+        if (!(await paso("boceto", "/bocetos", { paginaId: p.id, dispositivo: "ESCRITORIO" })) || !sigue()) return;
+      }
+      x = ultimo.current!;
+      setAuto("Armando el PDF");
+      if (x.bocetos.some((y) => !y.aprobado)) aplicar(await api<Taller>(ruta, { metodo: "PUT", cuerpo: { version: x.version, bocetosAprobados: x.bocetos.map((y) => y.id) } }));
+      if (!(await paso("documento", "/documento")) || !sigue()) return;
+      avisar({ titulo: "Pasos 1 a 3 listos", texto: "El PDF quedó en su entregable para revisarlo. Sigue con la web." });
+      setPestana("PROTOTIPO");
+    } catch (e) {
+      avisar({ titulo: "No se pudo completar", texto: errorDe(e) });
+    } finally {
+      setAuto(null);
+    }
+  };
+  const nada = !t.referencias.some((r) => r.analizadaEn) && !t.flujograma.length && !t.bocetos.length;
 
   const modos = [
     t.modos.ia === "SIMULADO" && "IA simulada",
@@ -137,6 +206,14 @@ function TallerWeb() {
         accion={
           <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
             {modos.length > 0 && <Etiqueta tono="ambar">Modo de prueba: {modos.join(", ")}</Etiqueta>}
+            {auto && <Etiqueta tono="violeta">{auto}…</Etiqueta>}
+            {ocupado || auto ? (
+              <button className="boton boton--chico" onClick={pausar}><LuPause size={14} /> Pausar</button>
+            ) : (
+              <button className={`boton boton--chico${nada ? " boton--primario" : ""}`} onClick={() => void armarSolo()} title="Capturas, análisis, flujograma, capturas de cada página y el PDF: hace lo que falte">
+                <LuPlay size={14} /> Armar los pasos 1 a 3
+              </button>
+            )}
             <button className="boton boton--chico boton--primario" disabled={!sucio || !!ocupado} onClick={() => void guardar()}>
               <LuSave size={14} /> Guardar cambios
             </button>
@@ -154,12 +231,12 @@ function TallerWeb() {
         <div className="pila">
           {pestana === "BRIEF" && (
             <>
-              <DelBrief t={t} />
+              <DelBrief t={t} b={b} editar={editar} />
               <Benchmark t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />
             </>
           )}
           {pestana === "FLUJOGRAMA" && <Flujograma b={b} editar={editar} paso={paso} ocupado={ocupado} />}
-          {pestana === "CAPTURAS" && <Capturas t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
+          {pestana === "CAPTURAS" && <Capturas t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} pausa={pausa} />}
           {pestana === "PROTOTIPO" && <Prototipo t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "DEMO" && <Demos t={t} paso={paso} ocupado={ocupado} alCambiar={aplicar} />}
         </div>
@@ -169,7 +246,7 @@ function TallerWeb() {
   );
 }
 
-type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, exito?: (r: Resultado) => string) => Promise<boolean>;
+type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, exito?: (r: Resultado) => string) => Promise<Resultado | null>;
 
 // ───────────────────────────── lateral: insumos y entregables
 
@@ -210,43 +287,81 @@ function Lateral({ t }: { t: Taller }) {
 
 // ───────────────────────────── 1. brief y benchmark
 
-/** Lo que se sacó del brief web, la reunión de brief, el proyecto y la ficha de marca. */
-function DelBrief({ t }: { t: Taller }) {
-  const i = t.insumos;
-  const filas: [string, string | null][] = [
-    ["Objetivo", i.objetivo],
-    ["Público", i.publico],
-    ["Secciones pedidas", i.secciones.join(", ") || null],
-    ["Alcance", i.alcance],
-    ["CMS", i.cms],
-    ["Mensaje central", i.mensajeCentral],
-    ["Tono", i.tono],
-    ["Tipografías", i.tipografias.join(", ") || null],
-    ["Reunión de brief", i.resumenReunion],
+/** Lo que se sacó del brief web, la reunión de brief, el proyecto y la ficha de marca. 8 nov: se puede corregir. */
+function DelBrief({ t, b, editar }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void }) {
+  const [editando, setEditando] = useState(false);
+  const i = conAjustes(insumosDe(t), b.ajustes);
+  const editados = new Set(Object.keys(b.ajustes ?? {}));
+  const set = (k: keyof AjustesTaller, v: unknown) => editar({ ajustes: { ...(b.ajustes ?? {}), [k]: v } as AjustesTaller });
+  const textos: [keyof AjustesTaller, string, string | null][] = [
+    ["objetivo", "Objetivo", i.objetivo], ["publico", "Público", i.publico], ["alcance", "Alcance", i.alcance], ["cms", "CMS", i.cms],
+    ["mensajeCentral", "Mensaje central", i.mensajeCentral], ["tono", "Tono", i.tono], ["resumenReunion", "Reunión de brief", i.resumenReunion],
   ];
+  const listas: [keyof AjustesTaller, string, string[]][] = [["secciones", "Secciones pedidas", i.secciones], ["tipografias", "Tipografías", i.tipografias ?? []]];
+  const marcaEditada = (k: string) => (editados.has(k) ? <span className="texto-xs texto-primario"> · corregido</span> : null);
+  const paleta = i.paleta ?? [];
   return (
     <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
-      <div>
-        <h2 className="tarjeta-titulo">Lo que sacamos del brief</h2>
-        <p className="texto-sm texto-muted" style={{ margin: 0 }}>Del brief web, la reunión de brief, los detalles del proyecto y la ficha de marca. Es la base del flujograma, las capturas, el PDF y Stitch.</p>
+      <div className="fila entre" style={{ gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <h2 className="tarjeta-titulo">Lo que sacamos del brief</h2>
+          <p className="texto-sm texto-muted" style={{ margin: 0 }}>Del brief web, la reunión de brief, los detalles del proyecto y la ficha de marca. Es la base de todo el taller: flujograma, capturas, PDF, prototipo y demo.</p>
+        </div>
+        <span className="fila" style={{ gap: 8 }}>
+          {editados.size > 0 && <button type="button" className="boton boton--chico" onClick={() => editar({ ajustes: null })} title="Al guardar, todo vuelve a salir del brief"><LuRotateCcw size={13} /> Volver al brief</button>}
+          <button type="button" className="boton boton--chico" aria-pressed={editando} onClick={() => setEditando(!editando)}><LuPencil size={13} /> {editando ? "Listo" : "Corregir"}</button>
+        </span>
       </div>
       <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 } as React.CSSProperties}>
-        {filas.map(([k, v]) => (
+        {textos.map(([k, n, v]) => (
           <div key={k} style={{ display: "grid", gap: 2, alignContent: "start" }}>
-            <span className="texto-xs texto-muted">{k}</span>
-            <span className="texto-sm">{v ?? "—"}</span>
+            <label className="texto-xs texto-muted" htmlFor={`brief-${k}`}>{n}{marcaEditada(k)}</label>
+            {editando ? (
+              <div className="entrada"><textarea id={`brief-${k}`} value={v ?? ""} maxLength={600} onChange={(e) => set(k, e.target.value)} style={{ minHeight: 54 }} /></div>
+            ) : <span className="texto-sm">{v ?? "—"}</span>}
+          </div>
+        ))}
+        {listas.map(([k, n, v]) => (
+          <div key={k} style={{ display: "grid", gap: 2, alignContent: "start" }}>
+            <label className="texto-xs texto-muted" htmlFor={`brief-${k}`}>{n}{marcaEditada(k)}</label>
+            {editando ? (
+              <div className="entrada"><textarea id={`brief-${k}`} value={v.join("\n")} placeholder="Una por línea" onChange={(e) => set(k, e.target.value.split("\n"))} style={{ minHeight: 54 }} /></div>
+            ) : <span className="texto-sm">{v.filter(Boolean).join(", ") || "—"}</span>}
           </div>
         ))}
       </div>
-      {i.paleta.length > 0 && (
-        <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-          {i.paleta.map((c) => (
-            <span key={c} className="fila texto-xs" style={{ gap: 6 }}>
-              <span style={{ width: 22, height: 22, borderRadius: 6, background: c, border: "1px solid var(--c-borde)" }} /> {c}
-            </span>
-          ))}
+      <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--c-borde)", paddingTop: 12 }}>
+        <h3 className="texto-sm negrita" style={{ margin: 0 }}>Branding</h3>
+        <div className="fila" style={{ gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ display: "grid", gap: 6, minWidth: 180 }}>
+            <span className="texto-xs texto-muted">Logo{marcaEditada("logoUrl")}</span>
+            {i.logoUrl ? <img src={i.logoUrl} alt={`Logo de ${i.marca}`} style={{ maxHeight: 56, maxWidth: 180, objectFit: "contain" }} /> : <span className="texto-sm texto-muted">Sin logo</span>}
+            {editando && <input className="input" aria-label="Enlace del logo" placeholder="https://… (png, svg o jpg)" value={i.logoUrl ?? ""} onChange={(e) => set("logoUrl", e.target.value || null)} style={{ height: 34 }} />}
+          </div>
+          <div style={{ display: "grid", gap: 6, minWidth: 220 }}>
+            <span className="texto-xs texto-muted">Manual de marca{marcaEditada("manualUrl")}</span>
+            {i.manualUrl ? <a className="enlace texto-sm" href={i.manualUrl} target="_blank" rel="noreferrer">Abrir el manual <LuExternalLink size={12} /></a> : <span className="texto-sm texto-muted">Sin manual</span>}
+            {editando && <input className="input" aria-label="Enlace del manual de marca" placeholder="https://… (Drive, PDF)" value={i.manualUrl ?? ""} onChange={(e) => set("manualUrl", e.target.value || null)} style={{ height: 34 }} />}
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <span className="texto-xs texto-muted">Colores{marcaEditada("paleta")}</span>
+            <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+              {paleta.map((c, j) => (
+                <span key={j} className="fila texto-xs" style={{ gap: 4 }}>
+                  {editando
+                    ? <input type="color" aria-label={`Color ${j + 1}`} value={c} onChange={(e) => set("paleta", paleta.map((x, k) => (k === j ? e.target.value : x)))} style={{ width: 30, height: 26, padding: 0, border: 0, background: "none" }} />
+                    : <span style={{ width: 22, height: 22, borderRadius: 6, background: c, border: "1px solid var(--c-borde)" }} />}
+                  {c}
+                  {editando && <button type="button" className="boton-icono" aria-label={`Quitar el color ${c}`} onClick={() => set("paleta", paleta.filter((_, k) => k !== j))} style={{ width: 22, height: 22 }}><LuX size={12} /></button>}
+                </span>
+              ))}
+              {!paleta.length && !editando && <span className="texto-sm texto-muted">Sin colores</span>}
+              {editando && paleta.length < 8 && <button type="button" className="boton boton--chico" onClick={() => set("paleta", [...paleta, "#5554d9"])}><LuPlus size={12} /> Color</button>}
+            </div>
+          </div>
         </div>
-      )}
+        <span className="ayuda-campo">El logo, el manual, los colores y las tipografías van en el flujograma, las capturas, el PDF, el prompt de Stitch y la demo.{editados.size ? " Lo corregido se guarda con «Guardar cambios»." : ""}</span>
+      </div>
     </section>
   );
 }
@@ -255,12 +370,6 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
   const [nueva, setNueva] = useState("");
   const original = (id: string | null) => t.referencias.find((r) => r.id === id);
   const setRef = (i: number, cambio: Partial<Borrador["referencias"][number]>) => editar({ referencias: b.referencias.map((r, j) => (j === i ? { ...r, ...cambio } : r)) });
-  const puntuar = (i: number, dimension: string, campo: "puntaje" | "comentario", valor: string) => {
-    const r = b.referencias[i];
-    const previo = r.puntajes.find((p) => p.dimension === dimension) ?? { dimension: dimension as Referencia["puntajes"][number]["dimension"], puntaje: 3, comentario: "" };
-    const nuevo = { ...previo, [campo]: campo === "puntaje" ? Number(valor) : valor };
-    setRef(i, { puntajes: [...r.puntajes.filter((p) => p.dimension !== dimension), nuevo] });
-  };
   const agregar = () => {
     if (!nueva.trim()) return;
     editar({ referencias: [...b.referencias, { id: null, nombre: "", url: nueva.trim(), puntajes: [], resumen: null }] });
@@ -278,8 +387,8 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
             <button className="boton boton--chico" disabled={!!ocupado || !b.referencias.length} onClick={() => void paso("capturas", "/capturas", {}, () => "Capturas listas")}>
               <LuCamera size={14} /> {ocupado === "capturas" ? "Capturando…" : "Sacar capturas"}
             </button>
-            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !b.referencias.length} onClick={() => void paso("analisis", "/analisis", {}, () => "Benchmark calificado")}>
-              <LuSparkles size={14} /> {ocupado === "analisis" ? "Analizando…" : "Calificar con IA"}
+            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !b.referencias.length} onClick={() => void paso("analisis", "/analisis", {}, () => "Benchmark analizado")}>
+              <LuSparkles size={14} /> {ocupado === "analisis" ? "Analizando…" : "Analizar con IA"}
             </button>
           </span>
         </div>
@@ -297,7 +406,6 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
                   {o?.origen === "BRIEF" && <Etiqueta>Del brief</Etiqueta>}
                 </span>
                 <span className="fila" style={{ gap: 8 }}>
-                  {o?.puntajeGlobal != null && <Etiqueta tono="violeta" sinPunto>{o.puntajeGlobal.toFixed(1)} / 5</Etiqueta>}
                   <button className="boton boton--chico" aria-label={`Quitar ${r.nombre || r.url}`} onClick={() => editar({ referencias: b.referencias.filter((_, j) => j !== i) })}>
                     <LuTrash2 size={14} />
                   </button>
@@ -312,40 +420,11 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
                   ))}
                 </div>
               )}
-              <div className="tabla-envoltura">
-                <table className="tabla" style={{ fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      <th>Dimensión</th>
-                      <th style={{ width: 90 }}>Puntaje</th>
-                      <th>Comentario</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {t.dimensiones.map((d) => {
-                      const p = r.puntajes.find((x) => x.dimension === d.codigo);
-                      return (
-                        <tr key={d.codigo} style={{ cursor: "default" }}>
-                          <td title={d.pregunta}>{d.nombre}</td>
-                          <td>
-                            <select className="input" aria-label={`Puntaje de ${d.nombre}`} value={p?.puntaje ?? ""} onChange={(e) => puntuar(i, d.codigo, "puntaje", e.target.value)} style={{ height: 32, padding: "0 8px" }}>
-                              <option value="" disabled>—</option>
-                              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-                            </select>
-                          </td>
-                          <td>
-                            <input className="input" aria-label={`Comentario de ${d.nombre}`} value={p?.comentario ?? ""} maxLength={160} disabled={!p} onChange={(e) => puntuar(i, d.codigo, "comentario", e.target.value)} style={{ height: 32 }} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              {/* 8 nov (reunión del 6): sin puntajes; cada referencia con un comentario corto. */}
               <div className="campo">
-                <label htmlFor={`resumen-${i}`}>Qué tomar y qué evitar</label>
+                <label htmlFor={`resumen-${i}`}>Comentario</label>
                 <div className="entrada">
-                  <textarea id={`resumen-${i}`} value={r.resumen ?? ""} maxLength={600} onChange={(e) => setRef(i, { resumen: e.target.value || null })} style={{ minHeight: 60 }} />
+                  <textarea id={`resumen-${i}`} value={r.resumen ?? ""} maxLength={600} placeholder="Qué tomar de este sitio y qué evitar, en una o dos frases" onChange={(e) => setRef(i, { resumen: e.target.value || null })} style={{ minHeight: 60 }} />
                 </div>
               </div>
             </article>
@@ -375,7 +454,7 @@ function ListaPuntos({ titulo, ayuda, puntos, alCambiar }: { titulo: string; ayu
         <h2 className="tarjeta-titulo">{titulo}</h2>
         <p className="texto-sm texto-muted" style={{ margin: 0 }}>{ayuda}</p>
       </div>
-      {puntos.length === 0 && <div className="vacio">Aparecen al calificar el benchmark, o agrégalos a mano.</div>}
+      {puntos.length === 0 && <div className="vacio">Aparecen al analizar el benchmark, o agrégalos a mano.</div>}
       {puntos.map((p, i) => (
         <div key={i} className="fila" style={{ gap: 8, alignItems: "flex-start" }}>
           <input className="input" aria-label={`Título ${i + 1}`} value={p.titulo} maxLength={80} onChange={(e) => set(i, { titulo: e.target.value })} style={{ width: 220, height: 38 }} />
@@ -403,14 +482,7 @@ function ListaPuntos({ titulo, ayuda, puntos, alCambiar }: { titulo: string; ayu
 function Flujograma({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
   const [vista, setVista] = useState<"NAVEGACION" | "ESTRUCTURAL" | "EDITAR">("NAVEGACION");
   const ps = b.flujograma;
-  const set = (i: number, c: Partial<Pagina>) => editar({ flujograma: ps.map((p, j) => (j === i ? { ...p, ...c } : p)) });
   const niveles = [0, 1, 2, 3].map((n) => ps.filter((p) => p.nivel === n)).filter((xs) => xs.length);
-  const nuevaPagina = () => {
-    const padre = ps.find((p) => p.nivel === 0);
-    let n = ps.length + 1;
-    while (ps.some((p) => p.id === `pagina-${n}`)) n++;
-    editar({ flujograma: [...ps, { id: `pagina-${n}`, titulo: "Nueva página", descripcion: "", nivel: padre ? 1 : 0, padreId: padre?.id ?? null, secciones: [] }] });
-  };
   return (
     <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
       <div className="fila entre" style={{ flexWrap: "wrap", gap: 10 }}>
@@ -465,48 +537,119 @@ function Flujograma({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Par
         </div>
       )}
 
-      {vista === "EDITAR" && (
-        <div style={{ display: "grid", gap: 10 }}>
-          {ps.map((p, i) => (
-            <div key={i} className="tarjeta tarjeta--compacta" style={{ boxShadow: "none", display: "grid", gap: 8 }}>
-              <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-                <input className="input" aria-label="Nombre de la página" value={p.titulo} maxLength={60} onChange={(e) => set(i, { titulo: e.target.value })} style={{ width: 180, height: 36 }} />
-                <select className="input" aria-label="Nivel" value={p.nivel} onChange={(e) => set(i, { nivel: Number(e.target.value), padreId: Number(e.target.value) === 0 ? null : p.padreId })} style={{ width: 150, height: 36 }}>
-                  {NIVELES.map((n, k) => <option key={k} value={k}>Nivel {k} · {n}</option>)}
-                </select>
-                {p.nivel > 0 && (
-                  <select className="input" aria-label="Página padre" value={p.padreId ?? ""} onChange={(e) => set(i, { padreId: e.target.value || null })} style={{ width: 180, height: 36 }}>
-                    <option value="">¿Desde qué página?</option>
-                    {ps.filter((x) => x.nivel === p.nivel - 1).map((x) => <option key={x.id} value={x.id}>{x.titulo}</option>)}
-                  </select>
-                )}
-                <button className="boton boton--chico" aria-label={`Quitar ${p.titulo}`} onClick={() => editar({ flujograma: ps.filter((_, j) => j !== i).map((x) => (x.padreId === p.id ? { ...x, padreId: null } : x)) })}>
-                  <LuTrash2 size={14} />
-                </button>
-              </div>
-              <input className="input" aria-label="Descripción" placeholder="Para qué sirve (una línea)" value={p.descripcion} maxLength={200} onChange={(e) => set(i, { descripcion: e.target.value })} style={{ height: 36 }} />
-              <div className="entrada">
-                <textarea aria-label={`Secciones de ${p.titulo}`} placeholder="Una sección por línea, de arriba hacia abajo" value={p.secciones.join("\n")} onChange={(e) => set(i, { secciones: e.target.value.split("\n").slice(0, 12) })} style={{ minHeight: 70 }} />
-              </div>
-            </div>
+      {vista === "EDITAR" && <EditorArbol ps={ps} alCambiar={(flujograma) => editar({ flujograma })} />}
+    </section>
+  );
+}
+
+/**
+ * 8 nov (reunión del 6): el flujograma se edita como un árbol. Cada página con su nombre, su descripción y sus
+ * secciones; se le cuelgan subpáginas con «+», se ordena entre hermanas con las flechas y se quita con todo lo
+ * que cuelga de ella.
+ */
+function EditorArbol({ ps, alCambiar }: { ps: Pagina[]; alCambiar: (ps: Pagina[]) => void }) {
+  const set = (id: string, c: Partial<Pagina>) => alCambiar(ps.map((p) => (p.id === id ? { ...p, ...c } : p)));
+  const nuevoId = () => {
+    let n = ps.length + 1;
+    while (ps.some((p) => p.id === `pagina-${n}`)) n++;
+    return `pagina-${n}`;
+  };
+  const agregar = (padre: Pagina | null) =>
+    alCambiar([...ps, { id: nuevoId(), titulo: padre ? "Nueva página" : "Inicio", descripcion: "", nivel: padre ? padre.nivel + 1 : 0, padreId: padre?.id ?? null, secciones: [] }]);
+  const descendientes = (id: string): string[] => ps.filter((p) => p.padreId === id).flatMap((p) => [p.id, ...descendientes(p.id)]);
+  const quitar = (p: Pagina) => {
+    const fuera = new Set([p.id, ...descendientes(p.id)]);
+    alCambiar(ps.filter((x) => !fuera.has(x.id)));
+  };
+  const mover = (p: Pagina, d: -1 | 1) => {
+    const hermanas = ps.filter((x) => x.padreId === p.padreId && x.nivel === p.nivel);
+    const otra = hermanas[hermanas.indexOf(p) + d];
+    if (!otra) return;
+    const xs = [...ps];
+    const a = xs.indexOf(p);
+    const b = xs.indexOf(otra);
+    [xs[a], xs[b]] = [xs[b], xs[a]];
+    alCambiar(xs);
+  };
+  const ids = new Set(ps.map((p) => p.id));
+  const sueltas = ps.filter((p) => p.nivel > 0 && (!p.padreId || !ids.has(p.padreId)));
+  const fila = (p: Pagina) => {
+    const hermanas = ps.filter((x) => x.padreId === p.padreId && x.nivel === p.nivel);
+    const i = hermanas.indexOf(p);
+    const hijas = ps.filter((x) => x.padreId === p.id);
+    return (
+      <li key={p.id} style={{ display: "grid", gap: 8 }}>
+        <div className="tarjeta tarjeta--compacta" style={{ boxShadow: "none", display: "grid", gap: 8, padding: "10px 12px", borderLeft: `4px solid ${p.nivel === 0 ? "var(--c-primario)" : "var(--c-borde)"}` }}>
+          <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+            <span className="etiqueta etiqueta--gris" style={{ flexShrink: 0 }}>{NIVELES[p.nivel]}</span>
+            <input className="input" aria-label="Nombre de la página" value={p.titulo} maxLength={60} onChange={(e) => set(p.id, { titulo: e.target.value })} style={{ flex: 1, minWidth: 160, height: 34, fontWeight: 600 }} />
+            <button type="button" className="boton-icono" aria-label={`Subir ${p.titulo}`} disabled={i <= 0} onClick={() => mover(p, -1)}><LuChevronUp size={15} /></button>
+            <button type="button" className="boton-icono" aria-label={`Bajar ${p.titulo}`} disabled={i < 0 || i >= hermanas.length - 1} onClick={() => mover(p, 1)}><LuChevronDown size={15} /></button>
+            {p.nivel < 3 && (
+              <button type="button" className="boton boton--chico" onClick={() => agregar(p)} disabled={ps.length >= LIMITES_TALLER.paginas}>
+                <LuPlus size={13} /> Subpágina
+              </button>
+            )}
+            {p.nivel > 0 && (
+              <button type="button" className="boton-icono" aria-label={`Quitar ${p.titulo}`} title={hijas.length ? "Quita también sus subpáginas" : "Quitar"} onClick={() => quitar(p)}><LuTrash2 size={14} /></button>
+            )}
+          </div>
+          <input className="input" aria-label={`Descripción de ${p.titulo}`} placeholder="Para qué sirve (una línea)" value={p.descripcion} maxLength={200} onChange={(e) => set(p.id, { descripcion: e.target.value })} style={{ height: 32, fontSize: 13 }} />
+          <div className="fila" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label={`Secciones de ${p.titulo}`}>
+            {p.secciones.map((s, j) => (
+              <span key={j} className="fila" style={{ gap: 2, border: "1px solid var(--c-borde)", borderRadius: 999, padding: "2px 4px 2px 10px", background: "var(--c-fondo)" }}>
+                <input aria-label={`Sección ${j + 1} de ${p.titulo}`} value={s} maxLength={60} onChange={(e) => set(p.id, { secciones: p.secciones.map((x, k) => (k === j ? e.target.value : x)) })}
+                  style={{ border: 0, background: "none", font: "inherit", fontSize: 12.5, width: `${Math.max(8, s.length + 1)}ch`, outline: "none" }} />
+                <button type="button" className="boton-icono" aria-label={`Quitar la sección ${s || j + 1}`} onClick={() => set(p.id, { secciones: p.secciones.filter((_, k) => k !== j) })} style={{ width: 22, height: 22 }}><LuX size={12} /></button>
+              </span>
+            ))}
+            {p.secciones.length < LIMITES_TALLER.seccionesPorPagina && (
+              <button type="button" className="boton boton--chico" onClick={() => set(p.id, { secciones: [...p.secciones, ""] })}><LuPlus size={12} /> Sección</button>
+            )}
+          </div>
+        </div>
+        {hijas.length > 0 && <ul style={{ listStyle: "none", margin: 0, paddingLeft: 22, borderLeft: "2px dashed var(--c-borde)", display: "grid", gap: 8 }}>{hijas.map(fila)}</ul>}
+      </li>
+    );
+  };
+  const raiz = ps.filter((p) => p.nivel === 0);
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {raiz.length === 0 && (
+        <span><button type="button" className="boton boton--chico" onClick={() => agregar(null)}><LuPlus size={14} /> Crear la página de inicio</button></span>
+      )}
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>{raiz.map(fila)}</ul>
+      {sueltas.length > 0 && (
+        <div className="tarjeta tarjeta--compacta" style={{ boxShadow: "none", display: "grid", gap: 8 }}>
+          <span className="texto-sm negrita">Páginas sin lugar en el árbol</span>
+          {sueltas.map((p) => (
+            <span key={p.id} className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+              <span className="texto-sm">{p.titulo}</span>
+              <select className="input" aria-label={`Desde qué página se llega a ${p.titulo}`} value="" onChange={(e) => {
+                const padre = ps.find((x) => x.id === e.target.value);
+                if (padre) set(p.id, { padreId: padre.id, nivel: padre.nivel + 1 });
+              }} style={{ width: 200, height: 32 }}>
+                <option value="">¿Desde qué página?</option>
+                {ps.filter((x) => x.nivel < 3 && x.id !== p.id).map((x) => <option key={x.id} value={x.id}>{x.titulo}</option>)}
+              </select>
+              <button type="button" className="boton-icono" aria-label={`Quitar ${p.titulo}`} onClick={() => quitar(p)}><LuTrash2 size={14} /></button>
+            </span>
           ))}
-          <span>
-            <button className="boton boton--chico" onClick={nuevaPagina} disabled={ps.length >= 40}>
-              <LuPlus size={14} /> Agregar página
-            </button>
-          </span>
-          <p className="texto-xs texto-muted" style={{ margin: 0 }}>Al guardar, las secciones vacías se descartan.</p>
         </div>
       )}
-    </section>
+      <p className="texto-xs texto-muted" style={{ margin: 0 }}>Se guarda con «Guardar cambios». Las secciones vacías se descartan.</p>
+    </div>
   );
 }
 
 // ───────────────────────────── 3. capturas y PDF
 
-function Capturas({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
+function Capturas({ t, b, editar, paso, ocupado, pausa }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null; pausa: React.MutableRefObject<boolean> }) {
   const [dispositivo, setDispositivo] = useState<"ESCRITORIO" | "MOVIL">("ESCRITORIO");
   const [progreso, setProgreso] = useState<string | null>(null);
+  // 8 nov: rehacer una captura corrigiendo su prompt.
+  const [conPrompt, setConPrompt] = useState<{ pagina: Pagina; texto: string } | null>(null);
+  const promptDe = (p: Pagina) => de(p.id)?.prompt ?? mensajeBoceto(conAjustes(insumosDe(t), b.ajustes), b.flujograma, b.recomendaciones, p.id, dispositivo, b.plantilla);
   const sinFlujo = b.flujograma.length === 0;
   const plantilla = b.plantilla ?? { url: null, prompt: "" };
   const setPlantilla = (c: Partial<Plantilla>) => {
@@ -519,7 +662,9 @@ function Capturas({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; edi
   const uno = (paginaId: string, exito?: () => string) => paso("boceto", "/bocetos", { paginaId, dispositivo }, exito);
   // Todas: una llamada por página (cada una tarda), en el orden del flujograma; se detiene en el primer error.
   const todas = async () => {
+    pausa.current = false;
     for (const [i, p] of b.flujograma.entries()) {
+      if (pausa.current) break;
       setProgreso(`${i + 1} de ${b.flujograma.length}: ${p.titulo}`);
       const ultima = i === b.flujograma.length - 1;
       if (!(await uno(p.id, ultima ? () => `${b.flujograma.length} capturas listas: revísalas y aprueba las que van al PDF` : undefined))) break;
@@ -528,7 +673,7 @@ function Capturas({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; edi
   };
   const aprobadas = t.bocetos.filter(aprobada).length;
   const sinGuardar = b.bocetosAprobados.length !== t.bocetos.filter((x) => x.aprobado).length || b.bocetosAprobados.some((id) => !t.bocetos.find((x) => x.id === id)?.aprobado);
-  const listo = b.referencias.some((r) => r.puntajes.length) || b.flujograma.length > 0;
+  const listo = b.referencias.some((r) => r.puntajes.length || r.resumen) || b.flujograma.length > 0;
   return (
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
@@ -591,9 +736,14 @@ function Capturas({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; edi
                       <input type="checkbox" checked={aprobada(x)} onChange={(e) => aprobar(x, e.target.checked)} /> Va al PDF
                     </label>
                   ) : <span />}
-                  <button className="boton boton--chico" disabled={!!ocupado} onClick={() => void uno(p.id, () => "Captura lista")}>
-                    <LuWandSparkles size={14} /> {x ? "Rehacer" : "Generar"}
-                  </button>
+                  <span className="fila" style={{ gap: 6 }}>
+                    <button className="boton boton--chico" disabled={!!ocupado} onClick={() => setConPrompt({ pagina: p, texto: promptDe(p) })} title="Corrige el prompt y rehazla" aria-label={`Rehacer ${p.titulo} con otro prompt`}>
+                      <LuPencil size={13} />
+                    </button>
+                    <button className="boton boton--chico" disabled={!!ocupado} onClick={() => void uno(p.id, () => "Captura lista")}>
+                      <LuWandSparkles size={14} /> {x ? "Rehacer" : "Generar"}
+                    </button>
+                  </span>
                 </span>
               </div>
             );
@@ -601,10 +751,33 @@ function Capturas({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; edi
         </div>
       </section>
 
+      {conPrompt && (
+        <Modal abierto alCerrar={() => setConPrompt(null)} etiqueta={`Prompt de ${conPrompt.pagina.titulo}`}>
+          <div className="pila" style={{ gap: 12 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 600 }}>Rehacer {conPrompt.pagina.titulo} ({dispositivo === "MOVIL" ? "móvil" : "escritorio"})</h2>
+            <p className="texto-sm texto-muted" style={{ margin: 0 }}>Es lo que recibe Claude para diseñar la página. Corrígelo (por ejemplo «hero más corto, foto a la derecha») y rehaz la captura.</p>
+            <div className="entrada">
+              <textarea aria-label="Prompt de la captura" value={conPrompt.texto} maxLength={LIMITES_TALLER.promptPrototipo} onChange={(e) => setConPrompt({ ...conPrompt, texto: e.target.value })} style={{ minHeight: 320, fontFamily: "monospace", fontSize: 12 }} />
+            </div>
+            <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button className="boton boton--primario" disabled={!!ocupado || !conPrompt.texto.trim()} onClick={() => {
+                const { pagina, texto } = conPrompt;
+                setConPrompt(null);
+                void paso("boceto", "/bocetos", { paginaId: pagina.id, dispositivo, prompt: texto }, () => "Captura rehecha");
+              }}>
+                <LuWandSparkles size={14} /> Rehacer la captura
+              </button>
+              <button className="boton" onClick={() => setConPrompt({ ...conPrompt, texto: mensajeBoceto(conAjustes(insumosDe(t), b.ajustes), b.flujograma, b.recomendaciones, conPrompt.pagina.id, dispositivo, b.plantilla) })}>
+                <LuRotateCcw size={14} /> Volver al estándar
+              </button>
+            </span>
+          </div>
+        </Modal>
+      )}
       <Aviso icono={<LuFileText size={18} />} titulo="PDF para el cliente">
         <div style={{ display: "grid", gap: 10 }}>
           <span>
-            Alcance, benchmark (referencias calificadas, score card, hallazgos y recomendaciones), flujograma y las capturas aprobadas ({aprobadas}), con la línea de Inoo. Queda como entregable de «Arquitectura y benchmark» en preparación: revísalo y envíalo desde ahí.
+            Alcance y branding, benchmark (cada referencia con sus capturas y su comentario, hallazgos y recomendaciones), flujograma y las capturas aprobadas ({aprobadas}), con la línea de Inoo. Queda como entregable de «Arquitectura y benchmark» en preparación: revísalo y envíalo desde ahí.
             {sinGuardar && " Al generarlo se guardan antes las capturas que marcaste."}
           </span>
           <span className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
@@ -626,6 +799,8 @@ const SITIO = "__sitio";
 
 /** Los insumos del proyecto tal como los devuelve la API, para armar el prompt en pantalla. */
 const insumosDe = (t: Taller): Insumos => ({ ...t.insumos, variante: t.variante });
+/** Con lo corregido del brief que todavía no se guardó. */
+const insumosVivos = (t: Taller, b: Borrador): Insumos => conAjustes(insumosDe(t), b.ajustes);
 
 function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
   const [dispositivo, setDispositivo] = useState<"ESCRITORIO" | "MOVIL">("ESCRITORIO");
@@ -638,8 +813,8 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
   const pagina = sinFlujo || sitio ? null : paginaParaPrompt(b.flujograma, paginaId);
   // El estándar se arma con lo que hay en pantalla (también lo que todavía no se guardó).
   const estandar = sinFlujo ? "" : sitio
-    ? promptStitchSitio(insumosDe(t), b.flujograma, b.recomendaciones, { dispositivo, plantilla: b.plantilla })
-    : promptStitch(insumosDe(t), b.flujograma, b.recomendaciones, { paginaId: pagina?.id, dispositivo, plantilla: b.plantilla });
+    ? promptStitchSitio(insumosVivos(t, b), b.flujograma, b.recomendaciones, { dispositivo, plantilla: b.plantilla })
+    : promptStitch(insumosVivos(t, b), b.flujograma, b.recomendaciones, { paginaId: pagina?.id, dispositivo, plantilla: b.plantilla });
   const prompt = b.promptPrototipo ?? estandar;
   const libres = Math.max(0, LIMITES_TALLER.pantallas - t.prototipo.pantallas.length);
   // Con Claude, el estándar se arma por página en el servidor: solo viaja el prompt editado a mano.

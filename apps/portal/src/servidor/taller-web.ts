@@ -10,7 +10,7 @@ import {
   analisisSimulado, capturaSimulada, conNoindex, demoSimulada, DIMENSIONES, dimensionesPara, ESQUEMA_FLUJOGRAMA, ESQUEMA_SINTESIS, esquemaAnalisis, flujogramaSimulado,
   informeHtml, interpretarJson, LIMITES_TALLER, limpiarHtml, mencionaIa, mensajeAnalisis, mensajeDemo, mensajeFlujograma, mensajeSintesis, paginaParaPrompt, pantallaSimulada, promptStitch, promptStitchSitio, puntajeGlobal,
   SISTEMA_ANALISIS, SISTEMA_BOCETO, SISTEMA_PROTOTIPO, GENERADORES_PROTOTIPO, type GeneradorPrototipo, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
-  designMdStitch, huella, mensajeBoceto,
+  designMdStitch, huella, mensajeBoceto, conAjustes, type AjustesTaller,
   type Boceto, type Captura, type Dimension, type Plantilla, type Dispositivo, type Insumos, type PaginaFlujo, type PantallaPrototipo, type Puntaje, type Punto, type Referencia,
 } from "../dominio/taller-web";
 import { ErrorIa, generar, motivoSimulado, type ImagenIa } from "./ia-modelos";
@@ -215,15 +215,18 @@ export async function armarDocumento(p: {
  */
 export async function generarBoceto(p: {
   insumos: Insumos; flujograma: PaginaFlujo[]; recomendaciones: Punto[]; pagina: PaginaFlujo; dispositivo: Dispositivo; plantilla: Plantilla | null;
+  /** 8 nov: rehacer la captura con un prompt corregido por el equipo (si no, el estándar). */
+  prompt?: string | null;
 }, almacen: AlmacenArchivos): Promise<{ boceto: Boceto; costoUsd: number }> {
   const nombre = `${p.pagina.titulo} · ${p.dispositivo === "MOVIL" ? "móvil" : "escritorio"}`;
-  const base = { id: crypto.randomUUID(), paginaId: p.pagina.id, nombre, dispositivo: p.dispositivo, aprobado: false, creadaEn: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") };
+  const prompt = p.prompt?.trim() || mensajeBoceto(p.insumos, p.flujograma, p.recomendaciones, p.pagina.id, p.dispositivo, p.plantilla);
+  const base = { id: crypto.randomUUID(), paginaId: p.pagina.id, nombre, dispositivo: p.dispositivo, aprobado: false, creadaEn: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), prompt: p.prompt?.trim() ? prompt : null };
   const relleno = () => ({ ...base, imagenUrl: dataUri("image/svg+xml", utf8(pantallaSimulada(p.pagina, p.insumos.marca, p.dispositivo))), htmlUrl: null, simulada: true });
   if (!navegadorReal() || motivoSimulado("CLAUDE_SONNET")) return { boceto: relleno(), costoUsd: 0 };
   const r = await generar({
     modelo: "CLAUDE_SONNET",
     sistema: SISTEMA_BOCETO,
-    mensajes: [{ rol: "user", texto: mensajeBoceto(p.insumos, p.flujograma, p.recomendaciones, p.pagina.id, p.dispositivo, p.plantilla) }],
+    mensajes: [{ rol: "user", texto: prompt }],
     maxTokens: LIMITES_TALLER.tokensBoceto,
     simulado: () => "",
   });
@@ -386,6 +389,8 @@ export interface EstadoTaller {
   prototipo: {
     prompt: string | null; proyectoStitch: string | null; pantallas: PantallaPrototipo[]; htmlGuia: string | null;
     plantilla: Plantilla | null; bocetos: Boceto[]; sistemaStitch: { asset: string; huella: string } | null;
+    /** 8 nov: lo que el equipo corrigió del brief y la marca (va en la misma columna). */
+    ajustes?: AjustesTaller | null;
   };
   documentoEntregableId: string | null;
   demoEntregableId: string | null;
@@ -445,6 +450,9 @@ async function cargar(repo: RepoTaller): Promise<EstadoTaller> {
   return inicial;
 }
 
+/** Los insumos del proyecto con lo que corrigió el equipo: es lo que usan todos los pasos. */
+const insumosDe = async (repo: RepoTaller, e: EstadoTaller) => conAjustes(await repo.insumos(), e.prototipo.ajustes);
+
 async function guardar(repo: RepoTaller, e: EstadoTaller, cambios: Partial<EstadoTaller>): Promise<EstadoTaller> {
   const nuevo = { ...e, ...cambios, version: e.version + 1, actualizadoEn: ahoraIso() };
   await repo.guardar(nuevo);
@@ -452,7 +460,7 @@ async function guardar(repo: RepoTaller, e: EstadoTaller, cambios: Partial<Estad
 }
 
 export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
-  const insumos = await repo.insumos();
+  const insumos = await insumosDe(repo, e);
   const resumen = async (id: string | null) => (id ? await repo.entregable(id) : null);
   return {
     servicioContratadoId: repo.servicio.id,
@@ -462,7 +470,9 @@ export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
     insumos: {
       marca: insumos.marca, objetivo: insumos.objetivo, publico: insumos.publico, secciones: insumos.secciones, resumenReunion: insumos.resumenReunion, alcance: insumos.alcance, cms: insumos.cms,
       mensajeCentral: insumos.mensajeCentral, tono: insumos.tono, paleta: insumos.paleta ?? [], tipografias: insumos.tipografias ?? [],
+      logoUrl: insumos.logoUrl ?? null, manualUrl: insumos.manualUrl ?? null,
     },
+    insumosEditados: Object.keys(e.prototipo.ajustes ?? {}),
     dimensiones: nombresDimensiones(dimensionesPara(repo.servicio.variante)),
     referencias: e.referencias.map((r) => ({ ...r, puntajeGlobal: puntajeGlobal(r.puntajes) })),
     hallazgos: e.hallazgos,
@@ -562,6 +572,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         if (b.promptPrototipo !== undefined) prototipo = { ...prototipo, prompt: datos.promptPrototipo };
         if (b.plantilla !== undefined) prototipo = { ...prototipo, plantilla: datos.plantilla };
         if (b.bocetosAprobados !== undefined) prototipo = { ...prototipo, bocetos: prototipo.bocetos.map((x) => ({ ...x, aprobado: datos.bocetosAprobados.includes(x.id) })) };
+        if (datos.ajustes !== undefined) prototipo = { ...prototipo, ajustes: datos.ajustes };
         if (prototipo !== e.prototipo) cambios.prototipo = prototipo;
         return vistaTaller(repo, await guardar(repo, e, cambios));
       }
@@ -576,14 +587,14 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
 
       case "ANALISIS": {
         if (!e.referencias.length) throw new ErrorTaller(409, "TALLER_SIN_REFERENCIAS", "Agrega al menos un sitio de referencia");
-        const r = await analizarBenchmark(e.referencias, dimensionesPara(repo.servicio.variante), await repo.insumos(), repo.almacen);
+        const r = await analizarBenchmark(e.referencias, dimensionesPara(repo.servicio.variante), await insumosDe(repo, e), repo.almacen);
         const sinCapturas = r.referencias.filter((x) => !x.capturas.some((c) => !c.simulada)).map((x) => ({ referenciaId: x.id, mensaje: `${x.nombre} se calificó sin capturas reales: revisa sus puntajes` }));
         e = await guardar(repo, e, { referencias: r.referencias, hallazgos: r.hallazgos, recomendaciones: r.recomendaciones });
         return resultado(e, { avisos: r.simulado ? [] : sinCapturas, simulado: r.simulado });
       }
 
       case "FLUJOGRAMA": {
-        const r = await generarFlujograma(await repo.insumos(), e.recomendaciones);
+        const r = await generarFlujograma(await insumosDe(repo, e), e.recomendaciones);
         e = await guardar(repo, e, { flujograma: r.paginas });
         return resultado(e, { simulado: r.simulado });
       }
@@ -593,10 +604,13 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const pagina = e.flujograma.find((p) => p.id === b.paginaId);
         if (!pagina) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "paginaId", mensaje: "Esa página no está en el flujograma" }]);
         const dispositivo: Dispositivo = b.dispositivo === "MOVIL" ? "MOVIL" : "ESCRITORIO";
+        if (b.prompt !== undefined && b.prompt !== null && (typeof b.prompt !== "string" || b.prompt.length > LIMITES_TALLER.promptPrototipo)) {
+          throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "prompt", mensaje: `Hasta ${LIMITES_TALLER.promptPrototipo} caracteres` }]);
+        }
         // Rehacer una página reemplaza su captura anterior (y vuelve a quedar sin aprobar).
         const otras = e.prototipo.bocetos.filter((x) => !(x.paginaId === pagina.id && x.dispositivo === dispositivo));
         if (otras.length >= LIMITES_TALLER.bocetos) throw new ErrorTaller(409, "LIMITE_BOCETOS", `Hasta ${LIMITES_TALLER.bocetos} capturas por proyecto`);
-        const r = await generarBoceto({ insumos: await repo.insumos(), flujograma: e.flujograma, recomendaciones: e.recomendaciones, pagina, dispositivo, plantilla: e.prototipo.plantilla }, repo.almacen);
+        const r = await generarBoceto({ insumos: await insumosDe(repo, e), flujograma: e.flujograma, recomendaciones: e.recomendaciones, pagina, dispositivo, plantilla: e.prototipo.plantilla, prompt: typeof b.prompt === "string" ? b.prompt : null }, repo.almacen);
         // En el orden del flujograma.
         const orden = (x: Boceto) => e.flujograma.findIndex((p) => p.id === x.paginaId) * 2 + (x.dispositivo === "MOVIL" ? 1 : 0);
         const bocetos = [...otras, r.boceto].sort((a, c) => orden(a) - orden(c));
@@ -606,12 +620,14 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
 
       case "DOCUMENTO": {
         const notaCliente = nota(b.nota);
-        if (!e.referencias.some((r) => r.puntajes.length) && !e.flujograma.length) {
-          throw new ErrorTaller(409, "TALLER_INCOMPLETO", "Todavía no hay nada que entregar", "Califica las referencias o arma el flujograma antes de generar el documento.");
+        // 8 nov: sin puntajes, una referencia entra al PDF si se analizó o si el equipo le escribió su comentario.
+        const conComentario = (r: Referencia) => r.puntajes.length > 0 || !!r.resumen;
+        if (!e.referencias.some(conComentario) && !e.flujograma.length) {
+          throw new ErrorTaller(409, "TALLER_INCOMPLETO", "Todavía no hay nada que entregar", "Analiza las referencias o arma el flujograma antes de generar el documento.");
         }
         const doc = await armarDocumento({
-          insumos: await repo.insumos(), dominio: null, dimensiones: dimensionesPara(repo.servicio.variante),
-          referencias: e.referencias.filter((r) => r.puntajes.length), hallazgos: e.hallazgos, recomendaciones: e.recomendaciones, flujograma: e.flujograma,
+          insumos: await insumosDe(repo, e), dominio: null, dimensiones: dimensionesPara(repo.servicio.variante),
+          referencias: e.referencias.filter(conComentario), hallazgos: e.hallazgos, recomendaciones: e.recomendaciones, flujograma: e.flujograma,
           bocetos: e.prototipo.bocetos.filter((x) => x.aprobado),
         }, repo.almacen);
         const archivo = await repo.almacen.guardar({ tipo: "DOCUMENTO", mime: doc.mime, nombre: doc.nombre, bytes: doc.bytes });
@@ -626,7 +642,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
       case "PROTOTIPO": {
         if (!e.flujograma.length) throw new ErrorTaller(409, "TALLER_SIN_FLUJOGRAMA", "Primero arma el flujograma: el prototipo sale de ahí");
         if (e.prototipo.pantallas.length >= MAX_PANTALLAS) throw new ErrorTaller(409, "LIMITE_PANTALLAS", `Hasta ${MAX_PANTALLAS} pantallas por proyecto`);
-        const ins = await repo.insumos();
+        const ins = await insumosDe(repo, e);
         const dispositivo: Dispositivo = b.dispositivo === "MOVIL" ? "MOVIL" : "ESCRITORIO";
         // SITIO: todas las páginas en un solo prompt (26 oct); PAGINA: la elegida.
         const sitio = b.alcance === "SITIO";
@@ -666,7 +682,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const v = validarDemo(b);
         if (v.errores.length) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, v.errores);
         if (v.origen === "GENERAR" && !e.flujograma.length) throw new ErrorTaller(409, "TALLER_SIN_FLUJOGRAMA", "Primero arma el flujograma: la demo sale de ahí");
-        const r = await armarDemo({ insumos: await repo.insumos(), flujograma: e.flujograma, recomendaciones: e.recomendaciones, origen: v.origen, html: v.html, htmlStitchUrl: e.prototipo.htmlGuia }, repo.almacen);
+        const r = await armarDemo({ insumos: await insumosDe(repo, e), flujograma: e.flujograma, recomendaciones: e.recomendaciones, origen: v.origen, html: v.html, htmlStitchUrl: e.prototipo.htmlGuia }, repo.almacen);
         const demo = await repo.guardarDemo({ html: r.html, venceEn: venceEn(v.dias), simulada: r.simulado });
         const id = await entregar(repo, e.demoEntregableId, {
           etapa: /^prototipo/i, titulo: "Demo navegable del sitio", patron: /prototipo|demo/i, formato: "PROTOTIPO",

@@ -106,7 +106,7 @@ export interface Plantilla { url: string | null; prompt: string }
  * Captura de la propuesta visual (paso 3, 26 oct): Claude escribe el HTML de la página siguiendo la plantilla
  * de 21st.dev y el navegador la fotografía. El equipo la revisa; solo las aprobadas van al PDF.
  */
-export interface Boceto { id: string; paginaId: string; nombre: string; dispositivo: Dispositivo; imagenUrl: string; htmlUrl: string | null; aprobado: boolean; simulada: boolean; creadaEn: string }
+export interface Boceto { id: string; paginaId: string; nombre: string; dispositivo: Dispositivo; imagenUrl: string; htmlUrl: string | null; aprobado: boolean; simulada: boolean; creadaEn: string; prompt?: string | null }
 
 /** Lo que el taller sabe del proyecto: brief web, resumen de la reunión de brief, alcance y marca. */
 export interface Insumos {
@@ -123,6 +123,69 @@ export interface Insumos {
   /** Del manual de marca del cliente (cliente.marca), si los tiene cargados. */
   paleta?: string[];
   tipografias?: string[];
+  /** 8 nov: el logo y el manual de marca (enlaces), para todo el flujo del taller. */
+  logoUrl?: string | null;
+  manualUrl?: string | null;
+}
+
+/**
+ * Lo que el equipo corrige de lo que se sacó del brief y la marca (reunión del 6 nov). Cada campo presente
+ * reemplaza al del brief; los que no están siguen saliendo del brief. Se usa en todos los pasos del taller.
+ */
+export type AjustesTaller = Partial<Pick<Insumos, "objetivo" | "publico" | "alcance" | "cms" | "mensajeCentral" | "tono" | "resumenReunion" | "logoUrl" | "manualUrl">> & {
+  secciones?: string[];
+  paleta?: string[];
+  tipografias?: string[];
+};
+const AJUSTES_TEXTO = ["objetivo", "publico", "alcance", "cms", "mensajeCentral", "tono", "resumenReunion"] as const;
+
+/** Los insumos con los ajustes del equipo encima. */
+export function conAjustes(base: Insumos, a: AjustesTaller | null | undefined): Insumos {
+  if (!a) return base;
+  const x: Insumos = { ...base };
+  for (const k of AJUSTES_TEXTO) if (a[k] !== undefined) x[k] = a[k] ?? null;
+  if (a.secciones) x.secciones = a.secciones;
+  if (a.paleta) x.paleta = a.paleta;
+  if (a.tipografias) x.tipografias = a.tipografias;
+  if (a.logoUrl !== undefined) x.logoUrl = a.logoUrl;
+  if (a.manualUrl !== undefined) x.manualUrl = a.manualUrl;
+  return x;
+}
+
+/** Valida los ajustes: textos de hasta 600 caracteres, listas cortas, colores #RRGGBB y enlaces públicos. */
+export function validarAjustes(v: unknown, errores: { campo: string; mensaje: string }[]): AjustesTaller | null {
+  if (v === null) return null;
+  if (typeof v !== "object" || Array.isArray(v)) {
+    errores.push({ campo: "ajustes", mensaje: "Los datos del brief que corregiste" });
+    return null;
+  }
+  const b = v as Record<string, unknown>;
+  const a: AjustesTaller = {};
+  for (const k of AJUSTES_TEXTO) {
+    if (b[k] === undefined) continue;
+    const t = typeof b[k] === "string" ? (b[k] as string).trim() : b[k] === null ? "" : null;
+    if (t === null || t.length > 600) errores.push({ campo: `ajustes.${k}`, mensaje: "Hasta 600 caracteres" });
+    else a[k] = t || null;
+  }
+  const lista = (k: "secciones" | "tipografias" | "paleta", max: number, largo: number, patron?: RegExp, mensaje?: string) => {
+    if (b[k] === undefined) return;
+    const xs = Array.isArray(b[k]) ? (b[k] as unknown[]).map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean) : null;
+    if (!xs || xs.length > max || xs.some((x) => x.length > largo || (patron && !patron.test(x)))) errores.push({ campo: `ajustes.${k}`, mensaje: mensaje ?? `Hasta ${max} de ${largo} caracteres` });
+    else a[k] = xs;
+  };
+  lista("secciones", 20, 60);
+  lista("tipografias", 4, 60);
+  lista("paleta", 8, 7, /^#[0-9A-Fa-f]{6}$/, "Hasta 8 colores en formato #RRGGBB");
+  for (const k of ["logoUrl", "manualUrl"] as const) {
+    if (b[k] === undefined) continue;
+    if (b[k] === null || b[k] === "") a[k] = null;
+    else {
+      const u = normalizarUrl(b[k]);
+      if (!u) errores.push({ campo: `ajustes.${k}`, mensaje: "Pega un enlace público (https://…)" });
+      else a[k] = u;
+    }
+  }
+  return Object.keys(a).length ? a : null;
 }
 
 type Errores = { campo: string; mensaje: string }[];
@@ -199,6 +262,8 @@ export interface EdicionTaller {
   promptPrototipo: string | null;
   plantilla: Plantilla | null;
   bocetosAprobados: string[];
+  /** undefined = no se mandó. */
+  ajustes?: AjustesTaller | null;
 }
 
 const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -295,6 +360,7 @@ export function validarEdicion(b: Record<string, unknown>, dimensiones: Dimensio
       promptPrototipo: prompt || null,
       plantilla,
       bocetosAprobados: Array.isArray(aprobados) ? (aprobados as string[]) : [],
+      ...(b.ajustes !== undefined ? { ajustes: validarAjustes(b.ajustes, errores) } : {}),
     },
   };
 }
@@ -334,6 +400,10 @@ export function textoInsumos(i: Insumos): string {
     i.secciones.length ? `Secciones que imagina el cliente: ${i.secciones.join(", ")}` : null,
     i.mensajeCentral && `Mensaje central de la marca: ${i.mensajeCentral}`,
     i.tono && `Tono: ${i.tono}`,
+    i.paleta?.length ? `Colores de la marca: ${i.paleta.join(", ")}` : null,
+    i.tipografias?.length ? `Tipografías de la marca: ${i.tipografias.join(", ")}` : null,
+    i.logoUrl && `Logo: ${i.logoUrl}`,
+    i.manualUrl && `Manual de marca: ${i.manualUrl}`,
     i.resumenReunion && `Resumen de la reunión de brief: ${i.resumenReunion}`,
   ];
   return l.filter(Boolean).join("\n");
@@ -508,6 +578,8 @@ function armarPrompt(insumos: Insumos, flujograma: PaginaFlujo[], recomendacione
       insumos.tono && `Tono: ${insumos.tono}`,
       insumos.paleta?.length ? `Paleta: ${insumos.paleta.join(", ")}` : null,
       insumos.tipografias?.length ? `Tipografías: ${insumos.tipografias.join(", ")}` : null,
+      insumos.logoUrl && `Logo (úsalo en el encabezado): ${insumos.logoUrl}`,
+      insumos.manualUrl && `Manual de marca: ${insumos.manualUrl}`,
     ]),
     bloque("Navegación del sitio", [
       menu.length ? `Menú principal: ${menu.map((p) => p.titulo).join(", ")}.` : null,
@@ -568,6 +640,7 @@ export function designMdStitch(insumos: Insumos, flujograma: PaginaFlujo[], reco
     "## Marca",
     ...filas([
       ["Mensaje central", insumos.mensajeCentral], ["Tono", insumos.tono], ["Paleta", insumos.paleta?.join(", ")], ["Tipografías", insumos.tipografias?.join(", ")],
+      ["Logo", insumos.logoUrl], ["Manual de marca", insumos.manualUrl],
     ]),
     "## Flujograma",
     ...flujograma.map((p) => `${"  ".repeat(p.nivel)}- **${p.titulo}**${p.descripcion ? ` — ${p.descripcion}` : ""}${p.secciones.length ? `: ${p.secciones.join(" · ")}` : ""}`),
@@ -759,22 +832,11 @@ export function informeHtml(d: DatosInforme): string {
   // Sin referencias calificadas ni hallazgos, el documento es solo el flujograma (sin portada de benchmark vacía).
   const conBenchmark = d.referencias.length > 0 || d.hallazgos.length > 0 || d.recomendaciones.length > 0;
   const portada = (n: string, t: string) => `<section class="hoja portada"><span class="num">${n}</span><h1>${t}</h1>${pie}</section>`;
-  const fichas = d.referencias.map((r, i) => {
-    const g = puntajeGlobal(r.puntajes);
-    const filas = d.dimensiones.map((dim) => {
-      const p = r.puntajes.find((x) => x.dimension === dim);
-      return `<li><span class="dim">${esc(DIMENSIONES[dim].nombre)}</span><span class="pts">${p ? `${p.puntaje}/5` : "—"}</span><span class="com">${esc(p?.comentario ?? "")}</span></li>`;
-    }).join("");
-    return `<section class="hoja ficha"><header><span class="et">Benchmark · ${i + 1}</span><h2>${esc(r.nombre)}</h2><span class="url">${esc(r.url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</span>${g !== null ? `<span class="global">${g.toFixed(1)} / 5</span>` : ""}</header>
+  // 8 nov (reunión del 6): sin puntajes. Cada referencia va con sus capturas y un comentario corto.
+  const fichas = d.referencias.map((r, i) => `<section class="hoja ficha"><header><span class="et">Benchmark · ${i + 1}</span><h2>${esc(r.nombre)}</h2><span class="url">${esc(r.url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</span></header>
 <div class="capturas">${r.srcEscritorio ? `<figure class="esc"><img src="${r.srcEscritorio}" alt=""><figcaption>Escritorio</figcaption></figure>` : ""}${r.srcMovil ? `<figure class="mov"><img src="${r.srcMovil}" alt=""><figcaption>Móvil</figcaption></figure>` : ""}</div>
-<ul class="puntajes">${filas}</ul>${r.resumen ? `<p class="resumen">${esc(r.resumen)}</p>` : ""}${pie}</section>`;
-  }).join("");
-  const scorecard = d.referencias.length
-    ? `<section class="hoja"><span class="et">Score card</span><h2>${d.referencias.length} referencias × ${d.dimensiones.length} dimensiones</h2><table><thead><tr><th>Dimensión</th>${d.referencias.map((r) => `<th>${esc(r.nombre)}</th>`).join("")}</tr></thead><tbody>${d.dimensiones.map((dim) => `<tr><td>${esc(DIMENSIONES[dim].nombre)}</td>${d.referencias.map((r) => {
-      const p = r.puntajes.find((x) => x.dimension === dim)?.puntaje;
-      return `<td class="c${p ?? 0}">${p ?? "—"}</td>`;
-    }).join("")}</tr>`).join("")}<tr class="total"><td>Puntaje global UX/UI</td>${d.referencias.map((r) => `<td>${puntajeGlobal(r.puntajes)?.toFixed(1) ?? "—"}</td>`).join("")}</tr></tbody></table>${pie}</section>`
-    : "";
+${r.resumen ? `<p class="resumen">${esc(r.resumen)}</p>` : ""}${pie}</section>`).join("");
+  const scorecard = "";
   const puntos = (et: string, titulo: string, xs: Punto[]) => (xs.length ? `<section class="hoja"><span class="et">${et}</span><h2>${titulo}</h2><div class="puntos">${xs.map((x) => `<article><h3>${esc(x.titulo)}</h3><p>${esc(x.texto)}</p></article>`).join("")}</div>${pie}</section>` : "");
   const niveles = [0, 1, 2, 3].map((n) => d.flujograma.filter((p) => p.nivel === n)).filter((xs) => xs.length);
   const nombresNivel = ["Entrada", "Secciones", "Subsecciones", "Detalle"];
@@ -789,7 +851,8 @@ export function informeHtml(d: DatosInforme): string {
       datoAlcance("Tipo de sitio", TIPO_WEB[i.variante ?? ""] ?? "Sitio web"), datoAlcance("Objetivo", i.objetivo), datoAlcance("Público", i.publico), datoAlcance("Alcance", i.alcance),
       datoAlcance("Plataforma", i.cms ? `${i.cms.charAt(0)}${i.cms.slice(1).toLowerCase()}` : null), datoAlcance("Secciones pedidas", i.secciones.join(", ") || null),
       datoAlcance("Mensaje central", i.mensajeCentral), datoAlcance("Tono", i.tono), datoAlcance("Tipografías", i.tipografias?.join(", ") || null),
-    ].join("")}</div>${i.paleta?.length ? `<div class="paleta">${i.paleta.map((c) => `<span style="background:${esc(c)}"><em>${esc(c)}</em></span>`).join("")}</div>` : ""}${pie}</section>`
+      datoAlcance("Manual de marca", i.manualUrl),
+    ].join("")}${i.logoUrl ? `<div class="dato"><span>Logo</span><p><img src="${esc(i.logoUrl)}" alt="" style="max-height:18mm;max-width:60mm"></p></div>` : ""}</div>${i.paleta?.length ? `<div class="paleta">${i.paleta.map((c) => `<span style="background:${esc(c)}"><em>${esc(c)}</em></span>`).join("")}</div>` : ""}${pie}</section>`
     : "";
   const bocetos = (d.bocetos ?? []).map((x, n) => `<section class="hoja boceto"><span class="et">Propuesta visual · ${n + 1}</span><h2>${esc(x.titulo)}</h2><div class="lienzo ${x.dispositivo === "MOVIL" ? "movil" : ""}"><img src="${x.src}" alt=""></div>${x.secciones.length ? `<p class="secs">${x.secciones.map(esc).join(" · ")}</p>` : ""}${pie}</section>`).join("");
   const numero = (() => {
@@ -805,7 +868,7 @@ h2{font-size:30px;margin:4px 0 14px}.intro{font-size:16px;line-height:1.6;max-wi
 .ficha header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}.ficha h2{margin:0}.url{color:#64748b;font-size:13px}.global{margin-left:auto;background:#14213d;color:#fff;border-radius:20px;padding:4px 12px;font-weight:700}
 .capturas{display:flex;gap:10mm;margin:8mm 0 6mm;height:88mm}.capturas figure{margin:0;display:flex;flex-direction:column;gap:4px}.capturas img{height:82mm;border:1px solid #e2e8f0;border-radius:6px;object-fit:cover;object-position:top}.esc img{width:146mm}.mov img{width:40mm}figcaption{font-size:10px;color:#64748b}
 .puntajes{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 14px}.puntajes li{display:grid;grid-template-columns:1fr auto;font-size:12px;border-top:1px solid #e2e8f0;padding-top:4px}.dim{font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.06em}.pts{font-weight:700;color:#e76f51}.com{grid-column:1/-1;color:#475569}
-.resumen{font-size:12px;color:#334155;margin-top:8px}
+.resumen{font-size:14px;line-height:1.55;color:#334155;margin-top:8px;max-width:200mm}
 table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #e2e8f0;padding:6px 8px;text-align:center}th:first-child,td:first-child{text-align:left}thead th{background:#14213d;color:#fff}.c1,.c2{background:#fde2e1}.c3{background:#fff4d6}.c4,.c5{background:#dcfce7}.total td{font-weight:700;background:#f1f5f9}
 .puntos{display:grid;grid-template-columns:1fr 1fr;gap:8mm}.puntos h3{margin:0 0 4px;font-size:16px;color:#14213d}.puntos p{margin:0;font-size:13px;line-height:1.5;color:#334155}
 .nivel{margin-bottom:6mm}.nn{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase}.cajas{display:flex;flex-wrap:wrap;gap:4mm;margin-top:2mm}.caja{border-radius:8px;padding:6px 10px;min-width:40mm;max-width:62mm;display:flex;flex-direction:column;gap:2px;font-size:11px;border:1px solid #cbd5e1}.caja strong{font-size:13px}.caja em{color:#94a3b8;font-size:10px}.n0{background:#14213d;color:#fff;border:0}.n1{background:#e76f51;color:#fff;border:0}.n2{background:#fff4ec}.n3{background:#f8fafc}

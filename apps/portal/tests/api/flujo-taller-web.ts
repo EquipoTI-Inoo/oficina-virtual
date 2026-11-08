@@ -125,7 +125,8 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.match(pub.tipo, /text\/html/);
       assert.equal(pub.headers.get("x-robots-tag"), "noindex, nofollow");
       const html = String(pub.json);
-      for (const x of ["Benchmark", "Score card", "Hallazgos clave", "Recomendaciones UX prioritarias", "Flujograma de navegación", "Ficha de producto", "Aesop"]) assert.ok(html.includes(x), x);
+      assert.ok(!html.includes("Score card"), "8 nov: sin puntajes");
+      for (const x of ["Benchmark", "Hallazgos clave", "Recomendaciones UX prioritarias", "Flujograma de navegación", "Ficha de producto", "Aesop"]) assert.ok(html.includes(x), x);
       assert.doesNotMatch(html.replace(/data:image\/[^"]+/g, ""), RASTROS_IA);
 
       assert.equal((await llamar("GET", `/entregables/${FLUJOGRAMA}`, VALERIA)).json.version, 1, "el cliente sigue viendo la versión enviada");
@@ -245,6 +246,36 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       // Sin plantilla, el prompt no la menciona.
       t = (await llamar("PUT", RUTA, DIEGO, { version: p.json.taller.version, plantilla: null })).json;
       assert.doesNotMatch(t.prototipo.promptSugerido, /21st/);
+    });
+
+    test("8 nov: el equipo corrige lo del brief y el branding; todo el taller lo usa", async () => {
+      await reiniciar();
+      let t = (await llamar("GET", RUTA, DIEGO)).json;
+      assert.deepEqual(t.insumosEditados, []);
+      const malo = await llamar("PUT", RUTA, DIEGO, { version: t.version, ajustes: { paleta: ["rojo"], logoUrl: "http://localhost/logo.png" } });
+      assert.deepEqual(malo.json.errores.map((e: any) => e.campo), ["ajustes.paleta", "ajustes.logoUrl"]);
+      const ajustes = { objetivo: "Vender aceites y cremas en línea", paleta: ["#2F4F3A", "#E9DCC9"], tipografias: ["Fraunces", "Inter"], logoUrl: "https://casaoliva.pe/logo.svg", manualUrl: "https://drive.google.com/manual" };
+      t = (await llamar("PUT", RUTA, DIEGO, { version: t.version, ajustes })).json;
+      assert.equal(t.insumos.objetivo, "Vender aceites y cremas en línea");
+      assert.deepEqual([t.insumos.paleta, t.insumos.logoUrl], [["#2F4F3A", "#E9DCC9"], "https://casaoliva.pe/logo.svg"]);
+      assert.deepEqual(t.insumosEditados.sort(), ["logoUrl", "manualUrl", "objetivo", "paleta", "tipografias"]);
+      assert.match(t.prototipo.designMd, /Vender aceites y cremas en línea/);
+      assert.match(t.prototipo.designMd, /\*\*Logo:\*\* https:\/\/casaoliva\.pe\/logo\.svg/);
+      assert.match(t.prototipo.promptSugerido, /Logo \(úsalo en el encabezado\): https:\/\/casaoliva\.pe\/logo\.svg/);
+      assert.match(t.prototipo.promptSugerido, /Paleta: #2F4F3A, #E9DCC9/);
+
+      // Rehacer una captura con el prompt corregido: queda guardado para la próxima.
+      await llamar("POST", `${RUTA}/flujograma`, DIEGO);
+      t = (await llamar("GET", RUTA, DIEGO)).json;
+      const inicio = t.flujograma[0].id;
+      assert.equal((await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: inicio, prompt: "x".repeat(30001) })).status, 422);
+      const r = (await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: inicio, prompt: "Hero corto con la foto a la derecha" })).json;
+      assert.equal(r.taller.bocetos.find((x: any) => x.paginaId === inicio).prompt, "Hero corto con la foto a la derecha");
+      const estandar = (await llamar("POST", `${RUTA}/bocetos`, DIEGO, { paginaId: inicio })).json;
+      assert.equal(estandar.taller.bocetos.find((x: any) => x.paginaId === inicio).prompt, null, "sin prompt vuelve al estándar");
+
+      t = (await llamar("PUT", RUTA, DIEGO, { version: estandar.taller.version, ajustes: null })).json;
+      assert.deepEqual([t.insumosEditados, t.insumos.objetivo, t.insumos.logoUrl], [[], "Web e-commerce", null], "«Volver al brief»");
     });
 
     test("demo: link que vence, sin indexar, aislada, limpia, con vistas y baja", async () => {

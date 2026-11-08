@@ -172,7 +172,7 @@ async function renovarSesion(s: SesionLocal): Promise<boolean> {
 
 export async function api<T = unknown>(
   camino: string,
-  opciones: { metodo?: string; cuerpo?: unknown; idempotente?: boolean } = {},
+  opciones: { metodo?: string; cuerpo?: unknown; idempotente?: boolean; /** Para pausar lo que tarda (IA). */ senal?: AbortSignal } = {},
   reintento = false,
 ): Promise<T> {
   const sesion = leerSesion();
@@ -186,6 +186,7 @@ export async function api<T = unknown>(
     method: opciones.metodo ?? "GET",
     headers,
     body: opciones.cuerpo === undefined ? undefined : JSON.stringify(opciones.cuerpo),
+    signal: opciones.senal,
   });
   if (res.status === 204) return undefined as T;
   const tipo = res.headers.get("content-type") ?? "";
