@@ -5,11 +5,15 @@
  * sus etapas y sus tareas. Monday sirve solo de referencia visual: el tablero vive aquí.
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { LuClipboardList, LuListTodo, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
+import { NuevoServicio } from "./proyecto-equipo";
+
+type TipoNuevo = "CATALOGO" | "TABLERO";
+const INOO_INTERNO = "Inoo (interno)";
 
 type Pipeline = { columnas: { clave: S<"ColumnaProyecto">; titulo: string }[]; datos: S<"ProyectoPipeline">[] };
 
@@ -34,7 +38,26 @@ export function PantallaPipeline() {
 
 const iniciales = (nombre: string) => nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
+/** Encabezado común de los dos formularios de «Nuevo proyecto», con el cambio de tipo. */
+function CabeceraNuevo({ tipo, cambiar, tablero }: { tipo: TipoNuevo; cambiar: (t: TipoNuevo) => void; tablero: boolean }) {
+  return (
+    <div className="pila" style={{ gap: 10 }}>
+      <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
+      <div className="chips" role="radiogroup" aria-label="Tipo de proyecto">
+        <button type="button" role="radio" className="chip" aria-checked={tipo === "CATALOGO"} aria-pressed={tipo === "CATALOGO"} onClick={() => cambiar("CATALOGO")}>Predeterminado</button>
+        {tablero && <button type="button" role="radio" className="chip" aria-checked={tipo === "TABLERO"} aria-pressed={tipo === "TABLERO"} onClick={() => cambiar("TABLERO")}>Personalizado</button>}
+      </div>
+      <p className="texto-sm texto-muted">
+        {tipo === "CATALOGO"
+          ? "Un servicio del catálogo con las etapas de su plantilla. El cliente lo ve en su portal y se le piden los requerimientos."
+          : "Un tablero libre en InooWork (tabla, línea de tiempo y kanban). Tú quedas como líder."}
+      </p>
+    </div>
+  );
+}
+
 function PipelineProyectos() {
+  const { ir: irA } = useNavegacion();
   const { sesion } = usePortal();
   const [mios, setMios] = useState(false);
   const [texto, setTexto] = useState("");
@@ -44,8 +67,11 @@ function PipelineProyectos() {
   const { datos: d, error, recargar } = useConsulta<Pipeline>(`/panel/proyectos${params.toString() ? `?${params}` : ""}`);
   // Si InooWork no responde, los proyectos de clientes se siguen viendo y solo faltan los tableros.
   const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null }[] }>("/tableros");
-  const [creando, setCreando] = useState(false);
-  const clientes = [...new Set((r.datos?.datos ?? []).map((t) => t.cliente).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "es"));
+  // 8 nov (reunión del 6): al crear se elige entre un proyecto predeterminado (del catálogo) o personalizado (tablero).
+  const [creando, setCreando] = useState<TipoNuevo | null>(null);
+  const cl = useConsulta<{ datos: S<"ClienteResumen">[] }>(creando ? "/clientes?limite=100" : null);
+  const delPortal = (cl.datos?.datos ?? []).filter((c) => c.estado !== "BAJA").map((c) => ({ id: c.id, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  const clientes = [...new Set([...delPortal.map((c) => c.nombre), ...(r.datos?.datos ?? []).map((t) => t.cliente).filter((c): c is string => !!c)])].sort((a, b) => a.localeCompare(b, "es"));
   const q = texto.trim().toLowerCase();
   const yoId = sesion?.usuario.id;
   // ¿Hay algo en «Todos» que no sea suyo? Con los datos sin filtro por persona.
@@ -70,13 +96,15 @@ function PipelineProyectos() {
             <LuSearch size={16} />
           </span>
         </div>
-        {r.datos && (
-          <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando(true)}>
-            <LuPlus size={16} /> Nuevo proyecto
-          </button>
-        )}
+        <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando("CATALOGO")}>
+          <LuPlus size={16} /> Nuevo proyecto
+        </button>
       </div>
-      {creando && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} alCerrar={() => setCreando(false)} />}
+      {creando === "CATALOGO" && (
+        <NuevoServicio abierto clientes={delPortal} cabecera={<CabeceraNuevo tipo="CATALOGO" cambiar={setCreando} tablero={!!r.datos} />}
+          alCerrar={() => setCreando(null)} alCrear={(s) => { void recargar(); if (s.servicioContratadoId) irA(`/equipo/proyectos/${s.servicioContratadoId}`); }} />
+      )}
+      {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} cabecera={<CabeceraNuevo tipo="TABLERO" cambiar={setCreando} tablero />} alCerrar={() => setCreando(null)} />}
       {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
       {error ? (
         <ErrorCarga error={error} reintentar={recargar} />
@@ -113,12 +141,15 @@ function PipelineProyectos() {
 }
 
 /** Crea el proyecto en InooWork con su plantilla y abre el tablero (6 nov). */
-function NuevoTablero({ equipo, clientes, alCerrar }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; alCerrar: () => void }) {
+function NuevoTablero({ equipo, clientes, cabecera, alCerrar }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; cabecera: ReactNode; alCerrar: () => void }) {
   const { ir } = useNavegacion();
   const avisar = useAviso();
   const yo = usePortal().sesion?.usuario.id;
   const [nombre, setNombre] = useState("");
   const [cliente, setCliente] = useState("");
+  const [otro, setOtro] = useState(false);
+  // Inoo como cliente interno (27 oct): si InooWork ya lo tiene como «Inoo», se usa ese nombre.
+  const opciones = clientes.some((c) => /^inoo\b/i.test(c)) ? clientes : [INOO_INTERNO, ...clientes];
   const [descripcion, setDescripcion] = useState("");
   const [color, setColor] = useState<string>(COLORES_GRUPO[0]);
   const [miembros, setMiembros] = useState<string[]>([]);
@@ -144,8 +175,7 @@ function NuevoTablero({ equipo, clientes, alCerrar }: { equipo: { id: string; no
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Nuevo proyecto" ancho={520}>
       <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void crear(e)}>
-        <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
-        <p className="texto-sm texto-muted">Se crea en InooWork con tabla, línea de tiempo y kanban. Tú quedas como líder.</p>
+        {cabecera}
         <div className="campo">
           <label htmlFor="tab-nombre">Nombre del proyecto</label>
           <div className="entrada"><input id="tab-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={120} placeholder="Ej.: Web institucional 2027" autoFocus /></div>
@@ -153,8 +183,16 @@ function NuevoTablero({ equipo, clientes, alCerrar }: { equipo: { id: string; no
         </div>
         <div className="campo">
           <label htmlFor="tab-cliente">Cliente</label>
-          <div className="entrada"><input id="tab-cliente" list="tab-clientes" value={cliente} onChange={(e) => setCliente(e.target.value)} maxLength={120} placeholder="Escribe o elige un cliente" /></div>
-          <datalist id="tab-clientes">{clientes.map((c) => <option key={c} value={c} />)}</datalist>
+          <select id="tab-cliente" className="input" value={otro ? "__otro" : cliente} onChange={(e) => {
+            const v = e.target.value;
+            setOtro(v === "__otro");
+            setCliente(v === "__otro" ? "" : v);
+          }}>
+            <option value="">Elige el cliente</option>
+            {opciones.map((c) => <option key={c} value={c}>{c}</option>)}
+            <option value="__otro">Otro (todavía no está en el portal)…</option>
+          </select>
+          {otro && <div className="entrada" style={{ marginTop: 6 }}><input aria-label="Nombre del cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} maxLength={120} placeholder="Nombre del cliente" autoFocus /></div>}
           {error("cliente")}
         </div>
         <div className="campo">

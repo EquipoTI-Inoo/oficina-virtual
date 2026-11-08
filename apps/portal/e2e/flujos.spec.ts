@@ -648,10 +648,12 @@ test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su t
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos");
   await page.getByRole("button", { name: "Nuevo proyecto" }).click({ timeout: 30_000 });
+  // 8 nov: se elige entre predeterminado (catálogo) y personalizado (tablero); el cliente sale de una lista.
+  await page.getByRole("radio", { name: "Personalizado" }).click();
   await page.getByRole("button", { name: "Crear proyecto" }).click();
   await expect(page.getByText("Escribe el nombre del cliente")).toBeVisible();
   await page.getByLabel("Nombre del proyecto").fill("Web institucional 2027");
-  await page.getByLabel("Cliente", { exact: true }).fill("Casa Oliva");
+  await page.getByLabel("Cliente", { exact: true }).selectOption("Casa Oliva");
   await page.getByRole("group", { name: "Miembros" }).getByText("Camila Paredes").click();
   await expect(page.getByLabel("Camila Paredes")).toBeChecked();
   await page.getByRole("button", { name: "Crear proyecto" }).click();

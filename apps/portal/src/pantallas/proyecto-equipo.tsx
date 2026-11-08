@@ -6,7 +6,7 @@
  * nuevos a partir de su plantilla.
  */
 import { EquipoAsignado } from "./accesos";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
 import { FormulariosDelProyecto } from "./requerimientos";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
@@ -808,8 +808,15 @@ function ComentariosEquipo({ servicioId }: { servicioId: string }) {
 
 // ═════════════════════════════════════════════ Ficha: contratar un servicio desde su plantilla
 
-export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clienteId: string; abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
+/**
+ * Contrata un servicio del catálogo (proyecto predeterminado, con las etapas de su plantilla). Desde la ficha del
+ * cliente llega `clienteId`; desde «Proyectos → Nuevo proyecto» (8 nov) llega `clientes` y se elige de la lista.
+ */
+export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar, alCrear }: {
+  clienteId?: string; clientes?: { id: string; nombre: string }[]; cabecera?: ReactNode; abierto: boolean; alCerrar: () => void; alCrear: (s: S<"ServicioCliente">) => void;
+}) {
   const avisar = useAviso();
+  const [cid, setCid] = useState(clienteId ?? "");
   const catalogo = useConsulta<{ datos: S<"ServicioCatalogo">[] }>(abierto ? "/servicios" : null);
   const vacio = { servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "", tamano: "MEDIANO", responsableId: "", alcance: "" };
   const [f, setF] = useState(vacio);
@@ -826,13 +833,17 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
   const esProyecto = cat?.modalidad === "PROYECTO";
   const contratar = async () => {
     setErrores({});
+    if (!cid) {
+      setErrores({ cliente: "Elige el cliente" });
+      return;
+    }
     const detalle: Record<string, unknown> = {};
     if (esCrm && f.crm) detalle.crm = f.crm;
     if (esCrm && f.licencias) detalle.licencias = Number(f.licencias);
     if (esCrm && f.usuarios) detalle.usuarios = Number(f.usuarios);
     if (esProyecto && !personalizado) detalle.tamano = f.tamano;
     try {
-      await api(`/clientes/${clienteId}/servicios`, {
+      const creado = await api<S<"ServicioCliente">>(`/clientes/${cid}/servicios`, {
         metodo: "POST",
         cuerpo: {
           servicioCodigo: f.servicio || undefined, variante: f.variante || null, fechaInicio: f.fechaInicio || undefined, marca: f.marca || null, detalle,
@@ -844,7 +855,7 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
       avisar({ titulo: "Servicio contratado", texto: aPedir.length ? `Se le pidió al cliente: ${aPedir.join(", ")}.` : "El cliente ya lo ve en su portal." });
       setF(vacio);
       setPersonalizado(false);
-      alCrear();
+      alCrear(creado);
       alCerrar();
     } catch (e) {
       const p = e as ProblemaApi;
@@ -869,7 +880,21 @@ export function NuevoServicio({ clienteId, abierto, alCerrar, alCrear }: { clien
   );
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo servicio">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nuevo servicio</h2>
+      {cabecera ?? <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nuevo servicio</h2>}
+      {clientes && (
+        <div className="campo">
+          <label htmlFor="ns-cliente">Cliente</label>
+          <select id="ns-cliente" className="input" value={cid} onChange={(e) => setCid(e.target.value)}>
+            <option value="">Elige el cliente</option>
+            {clientes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+          {err("cliente")}
+        </div>
+      )}
       <div className="campo">
         <label htmlFor="ns-servicio">Servicio</label>
         <select id="ns-servicio" className="input" value={f.servicio} onChange={(e) => setF({ ...f, servicio: e.target.value, variante: "" })}>
