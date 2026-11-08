@@ -38,7 +38,7 @@ import { autenticar, type Usuario } from "./auth";
 import type { EnviarCorreo } from "./correo-smtp";
 import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideClave, type Pool, renovar, restablecerClave, type Tokens } from "./cognito";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
-import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, validarBot, validarTopes, type Area } from "../dominio/ia-equipo";
+import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, validarBot, validarTopes, type Area } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
@@ -2704,6 +2704,11 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
+  // 8 nov: la conversación de configuración (cfg-<bot>) es la única que cambia el trabajo del bot, y solo para quien
+  // puede editarlo. En los chats de trabajo el bot no se reescribe.
+  const configurar = b.sesionId === sesionConfiguracion(bot.id);
+  if (esSesionConfiguracion(b.sesionId) && !configurar) throw new ErrorApi(409, "SESION_AJENA", "Esa configuración es de otro bot");
+  if (configurar && !puedeEditarBotDb(ctx, bot)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo configura", "Para pedirle algo, abre un chat nuevo debajo de su nombre.");
   // 6 nov: la conversación es del área. Se sigue con el mismo bot, y queda a nombre de quien escribe ahora: a esa
   // persona le cobra la pasarela y con sus permisos lee Jarvis el portal.
   const previa = (await ctx.c.query<{ bot_id: string | null }>("SELECT bot_id FROM sesion_jarvis WHERE sesion_id = $1", [b.sesionId])).rows[0];
@@ -2721,7 +2726,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
   const alTerminar = (texto: string) => comoSistema((c) => c.query("INSERT INTO mensaje_jarvis (sesion_id, rol, texto) VALUES ($1, 'BOT', $2)", [b.sesionId, texto]));
   // El bot puede reescribir su trabajo (solo si quien chatea podría editarlo). Se guarda al terminar el
   // streaming, cuando la transacción de esta solicitud ya cerró: por eso va aparte.
-  const alActualizarTrabajo = puedeEditarBotDb(ctx, bot)
+  const alActualizarTrabajo = configurar
     ? (nuevo: string) => comoSistema(async (c) => {
         const anterior = (await c.query<{ instrucciones: string }>("SELECT instrucciones FROM bot_jarvis WHERE id = $1", [bot.id])).rows[0]?.instrucciones;
         if (anterior === undefined) return null;
@@ -2730,7 +2735,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, cuerpo) => {
       })
     : undefined;
   // Con la señal de la solicitud, «Detener» en el chat corta la conexión con Hermes, que interrumpe al bot.
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, ctx.senal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area, configurar ? "CONFIGURAR" : "TRABAJAR"), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, ctx.senal);
 });
 
 // ───────────────────────────── conversaciones guardadas (6 nov)
@@ -2752,7 +2757,7 @@ async function miConversacionDb(ctx: Ctx, sesion: string) {
 ruta("GET", "/jarvis/bots/:id/conversaciones", async (ctx, p) => {
   const bot = await botDeMiAreaDb(ctx, p.id);
   const { rows } = await ctx.c.query<FilaConversacion>(
-    `SELECT ${COLUMNAS_CONVERSACION} FROM sesion_jarvis s WHERE s.bot_id = $1 AND NOT s.archivada ORDER BY s.ultimo_uso DESC LIMIT 100`, [bot.id],
+    `SELECT ${COLUMNAS_CONVERSACION} FROM sesion_jarvis s WHERE s.bot_id = $1 AND NOT s.archivada AND s.sesion_id NOT LIKE 'cfg-%' ORDER BY s.ultimo_uso DESC LIMIT 100`, [bot.id],
   );
   return { datos: rows.filter((x) => x.mensajes > 0).map(conversacionVista) };
 });

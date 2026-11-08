@@ -24,7 +24,7 @@ import {
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
-import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
+import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, TOPES_INICIALES, validarBot, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
 import { leerPaseInooWork } from "../servidor/sesion-inoowork";
 import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
@@ -3402,6 +3402,10 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
   if (consumo.pausado) throw new ErrorApi(429, "TOPE_AREA", `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}`, "Pídele al ADMIN que lo amplíe en «Costos de IA».");
   const hermes = hermesDelArea(bot.area);
   if (!hermes) throw new ErrorApi(409, "JARVIS_NO_CONECTADO", "El área todavía no tiene su Jarvis conectado", "El equipo de TI tiene que encender el Hermes del área y registrarlo en el portal.");
+  // 8 nov: solo la conversación de configuración (cfg-<bot>) cambia el trabajo del bot, y solo para quien puede editarlo.
+  const configurar = b.sesionId === sesionConfiguracion(bot.id);
+  if (esSesionConfiguracion(b.sesionId) && !configurar) throw new ErrorApi(409, "SESION_AJENA", "Esa configuración es de otro bot");
+  if (configurar && !puedeEditarBot(ctx, bot)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo configura", "Para pedirle algo, abre un chat nuevo debajo de su nombre.");
   // 6 nov: la conversación es del área. Se sigue con el mismo bot y queda a nombre de quien escribe ahora (a esa
   // persona le cobra la pasarela y con sus permisos lee Jarvis el portal).
   const previa = E.sesionesJarvis[b.sesionId];
@@ -3416,7 +3420,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
   const alTerminar = async (texto: string) => conv.mensajes!.push({ rol: "BOT", texto, adjuntos: [], creadoEn: new Date().toISOString(), autor: null });
   bot.ultimoUso = ahora;
   // El bot puede reescribir su trabajo (solo si quien chatea podría editarlo).
-  const alActualizarTrabajo = puedeEditarBot(ctx, bot)
+  const alActualizarTrabajo = configurar
     ? async (nuevo: string) => {
         const anterior = bot.instrucciones;
         bot.instrucciones = nuevo;
@@ -3424,7 +3428,7 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, _q, req) => {
         return { anterior };
       }
     : undefined;
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, bot.area, configurar ? "CONFIGURAR" : "TRABAJAR"), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
 });
 
 // ───────────────────────────── conversaciones guardadas (6 nov)
@@ -3444,7 +3448,7 @@ function miConversacion(ctx: Ctx, id: string) {
 ruta("GET", "/jarvis/bots/:id/conversaciones", (ctx, p) => {
   const bot = botDeMiArea(ctx, p.id);
   const datos = Object.entries(E.sesionesJarvis)
-    .filter(([, x]) => x.botId === bot.id && !x.archivada && (x.mensajes?.length ?? 0) > 0)
+    .filter(([id, x]) => x.botId === bot.id && !x.archivada && !esSesionConfiguracion(id) && (x.mensajes?.length ?? 0) > 0)
     .map(([id, x]) => conversacionVistaMock(id, x))
     .sort((a, b) => b.ultimoUso.localeCompare(a.ultimoUso));
   return { datos };

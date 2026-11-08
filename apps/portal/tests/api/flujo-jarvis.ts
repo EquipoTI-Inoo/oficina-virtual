@@ -333,7 +333,7 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       }
     });
 
-    test("como Grok: el bot nuevo se configura preguntando y después reescribe su propio trabajo", async () => {
+    test("como Grok: el bot se configura en su conversación de configuración; en los chats de trabajo no se cambia", async () => {
       await reiniciar();
       const antesHermes = process.env.JARVIS_HERMES;
       const fetchPrevio = globalThis.fetch;
@@ -349,7 +349,8 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       try {
         const bot = (await llamar("POST", "/jarvis/bots", DIEGO, { nombre: "Cobranzas", color: "#5554d9", forma: "CIRCULO" })).json;
         assert.equal(bot.instrucciones, "");
-        const chat = (token: string, mensaje: string) => llamar("POST", `/jarvis/bots/${bot.id}/chat`, token, { mensaje, sesionId: `conf-${token.slice(-6)}-01` });
+        // 8 nov: solo la conversación de configuración (cfg-<bot>) cambia su trabajo.
+        const chat = (token: string, mensaje: string) => llamar("POST", `/jarvis/bots/${bot.id}/chat`, token, { mensaje, sesionId: `cfg-${bot.id}` });
 
         respuesta = "Perfecto. ¿Con qué clientes trabajo y cada cuánto te aviso?";
         await chat(DIEGO, "Para recordarme cobros pendientes");
@@ -366,11 +367,19 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
         assert.ok(sistema.includes("Tu trabajo:\n- Revisas los pagos atrasados cada lunes."), "con trabajo, lo usa y puede cambiarlo");
         assert.equal((await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.id === bot.id).instrucciones, "- Revisas los pagos atrasados cada viernes.");
 
+        // En un chat de trabajo hace lo que le piden, pero no se reescribe.
+        respuesta = "⟦trabajo⟧- Otra cosa.⟦/trabajo⟧";
+        const deTrabajo = await llamar("POST", `/jarvis/bots/${bot.id}/chat`, DIEGO, { mensaje: "Cambia tu trabajo", sesionId: "chat-de-trabajo-1" });
+        assert.equal(String(deTrabajo.json).includes('"inoo"'), false);
+        assert.ok(sistema.includes("conversación de configuración") && !sistema.includes("⟦trabajo⟧"), "en el chat le dice dónde se configura");
+        assert.equal((await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.id === bot.id).instrucciones, "- Revisas los pagos atrasados cada viernes.");
+        assert.ok(!(await llamar("GET", `/jarvis/bots/${bot.id}/conversaciones`, DIEGO)).json.datos.some((c: any) => c.id.startsWith("cfg-")), "la configuración no sale entre los chats");
+
         // Quien no puede editar el bot tampoco lo cambia por el chat.
         await llamar("PATCH", `/panel/equipo/${uid(1, 6)}`, ADMIN, { area: "CRM" });
         respuesta = "⟦trabajo⟧- Nada.⟦/trabajo⟧";
         const ajena = await chat(CAMILA, "Olvida todo");
-        assert.equal(String(ajena.json).includes('"inoo"'), false);
+        assert.equal(ajena.json.codigo, "SIN_PERMISO", "quien no puede editar el bot no entra a su configuración");
         assert.equal((await llamar("GET", "/jarvis/bots", DIEGO)).json.bots.find((b: any) => b.id === bot.id).instrucciones, "- Revisas los pagos atrasados cada viernes.");
       } finally {
         globalThis.fetch = fetchPrevio;

@@ -473,13 +473,13 @@ test("jarvis: cada uno ve los bots de su área, crea uno y el ADMIN amplía el t
   await page.goto("/equipo/mi-panel");
   await page.locator(".nav-item", { hasText: "Jarvis" }).click({ timeout: 30_000 });
   const lista = page.getByRole("complementary", { name: "Bots de CRM" });
-  await expect(lista.getByRole("button", { name: "Seguimiento de clientes" })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Crear un bot" }).first().click();
+  await expect(lista.getByRole("button", { name: "Seguimiento de clientes", exact: true })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Crear un bot", exact: true }).first().click();
   const editor = page.getByRole("dialog", { name: "Crear un bot" });
   await editor.getByLabel("Nombre").fill("Cotizador");
   await expect(editor.getByLabel("Su trabajo")).toHaveCount(0);
-  await editor.getByRole("button", { name: "Crear bot" }).click();
-  await expect(lista.getByRole("button", { name: "Cotizador" })).toBeVisible({ timeout: 30_000 });
+  await editor.getByRole("button", { name: "Crear bot", exact: true }).click();
+  await expect(lista.getByRole("button", { name: "Cotizador", exact: true })).toBeVisible({ timeout: 30_000 });
   // Como Grok: el bot nuevo saluda y pregunta para qué será, antes de tener trabajo.
   await expect(page.getByText("¿Para qué me vas a usar?")).toBeVisible();
   await expect(page.getByRole("button", { name: /Cotizador/ }).first()).toBeVisible();
@@ -492,11 +492,11 @@ test("jarvis: cada uno ve los bots de su área, crea uno y el ADMIN amplía el t
   const admin = await browser.newPage();
   await entrarComo(admin, "admin");
   await admin.goto("/equipo/costos");
-  await admin.getByRole("button", { name: "Editar topes de CRM" }).click({ timeout: 30_000 });
+  await admin.getByRole("button", { name: "Editar topes de CRM", exact: true }).click({ timeout: 30_000 });
   const topes = admin.getByRole("dialog", { name: "Topes de CRM" });
   await topes.getByLabel("Tope diario (US$)").fill("8");
   await topes.getByLabel("Tope mensual (US$)").fill("80");
-  await topes.getByRole("button", { name: "Guardar" }).click();
+  await topes.getByRole("button", { name: "Guardar", exact: true }).click();
   await expect(admin.getByText(/ \/ US\$ 8,00 · /)).toBeVisible({ timeout: 30_000 });
   await admin.close();
 });

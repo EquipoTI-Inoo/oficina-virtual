@@ -139,10 +139,31 @@ export const saludoInicial = (nombre: string) =>
  * el bot entrevista a la persona y lo arma (como la primera configuración de Grok); con trabajo, puede
  * reescribirlo si la persona le cambia algo de forma duradera.
  */
-export function sistemaDelBot(bot: { nombre: string; instrucciones: string }, area: Area) {
+/**
+ * 8 nov: cada bot tiene una sola conversación de configuración (se abre al pulsar su nombre). Solo ahí cambia su
+ * trabajo; en los chats de trabajo hace lo que le piden y no se reescribe.
+ */
+export const sesionConfiguracion = (botId: string) => `cfg-${botId}`;
+export const esSesionConfiguracion = (sesionId: string) => sesionId.startsWith("cfg-");
+export type ModoBot = "CONFIGURAR" | "TRABAJAR";
+
+export function sistemaDelBot(bot: { nombre: string; instrucciones: string }, area: Area, modo: ModoBot = "CONFIGURAR") {
   const base = `Eres «${bot.nombre}», un bot del área ${NOMBRE_AREA[area]} de Inoo, una agencia de marketing en Perú. Respondes en español, claro y breve. Para datos de proyectos, tareas y clientes usa las herramientas del portal y no inventes nada.`;
   const formato = `escribe tu trabajo completo entre ${TRABAJO_ABRE} y ${TRABAJO_CIERRA}, en segunda persona («Revisas…», «Avisas…»), en viñetas cortas: para qué sirves, tareas concretas, con qué información trabajas, tono y formato de tus respuestas, y qué no debes hacer. Ese bloque no lo ve la persona: fuera de él, dile en una línea qué cambió.`;
   const trabajo = bot.instrucciones.trim();
+  if (modo === "TRABAJAR") {
+    const sinCambios = "Si te piden cambiar cómo trabajas, diles que lo hagan en tu conversación de configuración (al pulsar tu nombre en la lista de bots). Aquí no cambias tu trabajo; los datos o preferencias puntuales guárdalos en tu memoria.";
+    return trabajo
+      ? `${base}
+
+Tu trabajo:
+${trabajo}
+
+${sinCambios}`
+      : `${base}
+
+Todavía no tienes trabajo definido: ayuda con lo que te pidan y sugiere configurarte en tu conversación de configuración (al pulsar tu nombre). ${sinCambios}`;
+  }
   if (!trabajo) {
     return `${base}
 
@@ -153,7 +174,7 @@ Acabas de ser creado y todavía no tienes trabajo definido. Ya le preguntaste a 
 Tu trabajo:
 ${trabajo}
 
-Si la persona te pide un cambio duradero en cómo trabajas (una tarea nueva de siempre, otro tono, algo que ya no debes hacer), ${formato} Para datos o preferencias puntuales no cambies tu trabajo: guárdalos en tu memoria.`;
+Esta es tu conversación de configuración: aquí la persona define y ajusta para qué estás programado. Cuando te pida un cambio en cómo trabajas (una tarea nueva de siempre, otro tono, algo que ya no debes hacer), ${formato} Si te pide un trabajo puntual, recuérdale que los pedidos van en un chat nuevo (debajo de tu nombre).`;
 }
 
 /** Llave personal de Jarvis: «jv_» + 40 hex. Se guarda solo su sha256; los primeros 11 caracteres la ubican. */

@@ -2488,3 +2488,12 @@ button.cuenta { cursor: pointer; }
 .jarvis-conversacion { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
 .jarvis-conversacion.activa { background: var(--c-primario-suave); }
 .jarvis-conversacion-abrir { flex: 1; min-width: 0; text-align: left; }
+
+/* Bots desplegables con sus chats debajo (8 nov). */
+.jarvis-chats { display: grid; gap: 1px; margin: 2px 0 6px 18px; padding-left: 8px; border-left: 1px solid var(--c-borde); }
+.jarvis-chat-item { display: flex; align-items: center; gap: 2px; border-radius: 8px; font-size: 13px; }
+.jarvis-chat-item.activa { background: var(--c-primario-suave); }
+.jarvis-chat-abrir, .jarvis-chat-nuevo { flex: 1; min-width: 0; text-align: left; padding: 6px 8px; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 8px; }
+.jarvis-chat-nuevo { display: flex; align-items: center; gap: 6px; color: var(--c-primario); font-weight: 600; }
+.jarvis-chat-item .boton-icono { opacity: 0; }
+.jarvis-chat-item:hover .boton-icono, .jarvis-chat-item.activa .boton-icono { opacity: 1; }

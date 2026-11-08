@@ -6,10 +6,10 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuHistory, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
+import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuSquare, LuTrash2, LuX } from "react-icons/lu";
 import { api, BASE, Enlace, fDiaHora, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
-import { COLORES_BOT, FORMAS_BOT, saludoInicial, sinBloqueTrabajo } from "../dominio/ia-equipo";
+import { COLORES_BOT, FORMAS_BOT, saludoInicial, sesionConfiguracion, sinBloqueTrabajo } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
 import { ACEPTA_ADJUNTOS, leerAdjunto, type Adjunto } from "./leer-archivos";
 
@@ -34,12 +34,20 @@ export function AvatarBot({ bot, tam = 30 }: { bot: Pick<Bot, "nombre" | "color"
 
 function SeccionJarvis() {
   const r = useConsulta<S<"BotsDelArea">>("/jarvis/bots");
-  const [elegido, setElegido] = useState<string | null>(null);
+  // 8 nov: el bot elegido y qué conversación está abierta (su configuración o uno de sus chats).
+  const [elegido, setElegido] = useState<{ botId: string; sesion: string } | null>(null);
+  const [abiertos, setAbiertos] = useState<string[]>([]);
+  const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<Bot | "nuevo" | null>(null);
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const d = r.datos;
-  const bot = d.bots.find((b) => b.id === elegido) ?? d.bots[0] ?? null;
+  const bot = d.bots.find((b) => b.id === elegido?.botId) ?? d.bots[0] ?? null;
+  const sesion = bot ? (elegido?.botId === bot.id ? elegido.sesion : sesionConfiguracion(bot.id)) : "";
+  const abrir = (botId: string, s: string) => {
+    setElegido({ botId, sesion: s });
+    setAbiertos((xs) => (xs.includes(botId) ? xs : [...xs, botId]));
+  };
 
   if (!d.area) {
     return (
@@ -58,12 +66,24 @@ function SeccionJarvis() {
           </button>
         </div>
         {d.bots.length === 0 && <p className="texto-xs texto-muted" style={{ padding: "0 6px" }}>Tu área aún no tiene bots. Crea el primero con «+».</p>}
-        {d.bots.map((b) => (
-          <button key={b.id} className="jarvis-item" aria-current={bot?.id === b.id ? "true" : undefined} onClick={() => setElegido(b.id)}>
-            <AvatarBot bot={b} tam={26} />
-            <span className="jarvis-item-nombre">{b.nombre}</span>
-          </button>
-        ))}
+        {d.bots.map((b) => {
+          const abierto = abiertos.includes(b.id);
+          return (
+            <div key={b.id} className="jarvis-grupo">
+              <span className="fila" style={{ gap: 2 }}>
+                <button className="jarvis-item" style={{ flex: 1 }} aria-current={bot?.id === b.id && sesion === sesionConfiguracion(b.id) ? "true" : undefined} onClick={() => abrir(b.id, sesionConfiguracion(b.id))} title="Configurar el bot">
+                  <AvatarBot bot={b} tam={26} />
+                  <span className="jarvis-item-nombre">{b.nombre}</span>
+                </button>
+                <button className="boton-icono" aria-expanded={abierto} aria-label={`${abierto ? "Ocultar" : "Ver"} los chats de ${b.nombre}`}
+                  onClick={() => setAbiertos((xs) => (abierto ? xs.filter((x) => x !== b.id) : [...xs, b.id]))}>
+                  <LuChevronDown size={15} style={{ transform: abierto ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+                </button>
+              </span>
+              {abierto && <ChatsDelBot bot={b} activa={bot?.id === b.id ? sesion : null} version={version} alAbrir={(x) => abrir(b.id, x)} alNuevo={() => abrir(b.id, crypto.randomUUID())} />}
+            </div>
+          );
+        })}
         {d.consumo && (
           <div className="jarvis-consumo">
             <EstadoArea a={d.consumo} />
@@ -75,7 +95,10 @@ function SeccionJarvis() {
       </aside>
       <section className="jarvis-chat">
         {bot ? (
-          <ChatBot key={bot.id} bot={bot} conectado={d.conectado} alEditar={() => setEditor(bot)} alCambiar={() => void r.recargar()} />
+          <ChatBot
+            key={`${bot.id}:${sesion}`} bot={bot} conectado={d.conectado} sesion={sesion} configurar={sesion === sesionConfiguracion(bot.id)}
+            alEditar={() => setEditor(bot)} alCambiar={() => void r.recargar()} alNuevoChat={() => abrir(bot.id, crypto.randomUUID())} alTerminar={() => setVersion((n) => n + 1)}
+          />
         ) : (
           <div className="jarvis-vacio">
             <p className="texto-sm texto-muted">Crea un bot para tu área: dale un nombre y cuéntale cuál es su trabajo.</p>
@@ -91,11 +114,52 @@ function SeccionJarvis() {
           alCerrar={() => setEditor(null)}
           alGuardar={(b) => {
             setEditor(null);
-            setElegido(b.id);
+            abrir(b.id, sesionConfiguracion(b.id));
             void r.recargar();
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Los chats de trabajo de un bot, debajo de su nombre (8 nov). Son del área: cualquiera los abre y los sigue. */
+function ChatsDelBot({ bot, activa, version, alAbrir, alNuevo }: { bot: Bot; activa: string | null; version: number; alAbrir: (sesion: string) => void; alNuevo: () => void }) {
+  const lista = useConsulta<{ datos: S<"ConversacionJarvis">[] }>(`/jarvis/bots/${bot.id}/conversaciones`);
+  const avisar = useAviso();
+  const { recargar } = lista;
+  useEffect(() => {
+    if (version) void recargar();
+  }, [version, recargar]);
+  const renombrar = async (c: S<"ConversacionJarvis">) => {
+    const titulo = window.prompt("Nombre del chat", c.titulo)?.trim();
+    if (!titulo || titulo === c.titulo) return;
+    try {
+      await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "PATCH", cuerpo: { titulo } });
+      void recargar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos renombrarlo", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+  const borrar = async (c: S<"ConversacionJarvis">) => {
+    try {
+      await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "DELETE" });
+      if (c.id === activa) alNuevo();
+      void recargar();
+    } catch (e) {
+      avisar({ titulo: "No pudimos borrarlo", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+  return (
+    <div className="jarvis-chats" role="group" aria-label={`Chats de ${bot.nombre}`}>
+      <button className="jarvis-chat-item jarvis-chat-nuevo" onClick={alNuevo}><LuMessageSquarePlus size={13} /> Nuevo chat</button>
+      {lista.datos?.datos.map((c) => (
+        <span key={c.id} className={`jarvis-chat-item${c.id === activa ? " activa" : ""}`}>
+          <button className="jarvis-chat-abrir" onClick={() => alAbrir(c.id)} title={`${c.titulo} · ${fDiaHora(c.ultimoUso)}${c.ultimaPersona ? ` · ${c.ultimaPersona}` : ""}`}>{c.titulo}</button>
+          <button className="boton-icono" aria-label={`Renombrar ${c.titulo}`} onClick={() => void renombrar(c)}><LuPencil size={12} /></button>
+          <button className="boton-icono" aria-label={`Borrar ${c.titulo}`} onClick={() => void borrar(c)}><LuTrash2 size={12} /></button>
+        </span>
+      ))}
     </div>
   );
 }
@@ -220,19 +284,6 @@ const PASOS: [RegExp, string][] = [
 ];
 const etiquetaPaso = (e: EventoPaso) => PASOS.find(([r]) => r.test(e.tool ?? ""))?.[1] ?? "Usando una herramienta";
 
-const claveSesion = (botId: string) => `inoo.jarvis.sesion.${botId}`;
-function sesionDe(botId: string) {
-  try {
-    const s = window.localStorage.getItem(claveSesion(botId));
-    if (s) return s;
-    const n = crypto.randomUUID();
-    window.localStorage.setItem(claveSesion(botId), n);
-    return n;
-  } catch {
-    return crypto.randomUUID();
-  }
-}
-
 /** Lee el SSE de Hermes (formato OpenAI) y entrega cada pedazo de texto. */
 type TrabajoNuevo = { anterior: string; nuevo: string };
 
@@ -330,10 +381,15 @@ function PropuestasJarvis({ sesion, version }: { sesion: string; version: number
   );
 }
 
-function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado: boolean; alEditar: () => void; alCambiar: () => void }) {
-  const [sesion, setSesion] = useState(() => (typeof window === "undefined" ? crypto.randomUUID() : sesionDe(bot.id)));
-  // Bot recién creado (sin trabajo): saluda y empieza a preguntar para configurarse, como Grok.
-  const inicio = (): MensajeChat[] => (bot.instrucciones.trim() ? [] : [{ rol: "bot", texto: saludoInicial(bot.nombre) }]);
+/**
+ * 8 nov: la conversación de configuración (al pulsar el bot) es donde se define para qué está programado; los chats
+ * de trabajo (debajo del bot, en la lista) son para los pedidos y ahí el bot no se cambia a sí mismo.
+ */
+function ChatBot({ bot, conectado, sesion, configurar, alEditar, alCambiar, alNuevoChat, alTerminar }: {
+  bot: Bot; conectado: boolean; sesion: string; configurar: boolean; alEditar: () => void; alCambiar: () => void; alNuevoChat: () => void; alTerminar: () => void;
+}) {
+  // Bot recién creado (sin trabajo): en su configuración saluda y empieza a preguntar, como Grok.
+  const inicio = (): MensajeChat[] => (configurar && !bot.instrucciones.trim() ? [{ rol: "bot", texto: saludoInicial(bot.nombre) }] : []);
   const [mensajes, setMensajes] = useState<MensajeChat[]>(inicio);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -346,10 +402,9 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
   const [menu, setMenu] = useState(false);
   // Sube al terminar cada respuesta: Jarvis pudo haber dejado una propuesta.
   const [vuelta, setVuelta] = useState(0);
-  // 6 nov: las conversaciones se guardan. La lista de este bot y los mensajes de la que está abierta.
-  const conversaciones = useConsulta<{ datos: S<"ConversacionJarvis">[] }>(`/jarvis/bots/${bot.id}/conversaciones`);
+  // 6 nov: las conversaciones se guardan. Los mensajes de la que está abierta.
   const miNombre = usePortal().sesion?.usuario.nombre;
-  const [verLista, setVerLista] = useState(false);
+  const soloLectura = configurar && !bot.puedeEditar;
   useEffect(() => {
     let vigente = true;
     api<{ datos: { rol: "PERSONA" | "BOT"; texto: string; adjuntos: string[]; autor?: string | null }[] }>(`/jarvis/conversaciones/${encodeURIComponent(sesion)}`)
@@ -365,40 +420,6 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
       vigente = false;
     };
   }, [sesion, miNombre]);
-  const { recargar: recargarConversaciones } = conversaciones;
-  useEffect(() => {
-    if (vuelta) void recargarConversaciones();
-  }, [vuelta, recargarConversaciones]);
-  const abrirConversacion = (id: string) => {
-    try {
-      window.localStorage.setItem(claveSesion(bot.id), id);
-    } catch {
-      /* sin almacenamiento */
-    }
-    setMensajes(inicio());
-    setSesion(id);
-    setVerLista(false);
-  };
-  const renombrar = async (c: S<"ConversacionJarvis">) => {
-    const titulo = window.prompt("Nombre de la conversación", c.titulo)?.trim();
-    if (!titulo || titulo === c.titulo) return;
-    try {
-      await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "PATCH", cuerpo: { titulo } });
-      void conversaciones.recargar();
-    } catch (e) {
-      avisar({ titulo: "No pudimos renombrarla", texto: e instanceof ProblemaApi ? e.titulo : undefined });
-    }
-  };
-  const borrarConversacion = async (c: S<"ConversacionJarvis">) => {
-    try {
-      await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "DELETE" });
-      if (c.id === sesion) nuevaConversacion();
-      void conversaciones.recargar();
-      avisar({ titulo: "Conversación borrada" });
-    } catch (e) {
-      avisar({ titulo: "No pudimos borrarla", texto: e instanceof ProblemaApi ? e.titulo : undefined });
-    }
-  };
   const avisar = useAviso();
   const fin = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -484,18 +505,12 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
       setPasos([]);
       setEnviando(false);
       setVuelta((n) => n + 1);
+      alTerminar();
     }
   };
   const nuevaConversacion = () => {
-    const n = crypto.randomUUID();
-    try {
-      window.localStorage.setItem(claveSesion(bot.id), n);
-    } catch {
-      /* sin almacenamiento: la conversación dura mientras la pantalla esté abierta */
-    }
-    setSesion(n);
-    setMensajes(inicio());
     setMenu(false);
+    alNuevoChat();
   };
   const eliminar = async () => {
     setMenu(false);
@@ -521,7 +536,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
           {menu && (
             <div className="jarvis-menu" role="menu">
               <button role="menuitem" onClick={nuevaConversacion}>
-                <LuMessageSquarePlus size={14} /> Nueva conversación
+                <LuMessageSquarePlus size={14} /> Nuevo chat
               </button>
               {bot.puedeEditar && (
                 <button role="menuitem" onClick={() => { setMenu(false); alEditar(); }}>
@@ -537,27 +552,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
           )}
         </div>
         <span className="fila" style={{ gap: 10 }}>
-          <span style={{ position: "relative" }}>
-            <button className="boton boton--chico" aria-expanded={verLista} onClick={() => setVerLista(!verLista)}>
-              <LuHistory size={14} /> Conversaciones{conversaciones.datos?.datos.length ? ` (${conversaciones.datos.datos.length})` : ""}
-            </button>
-            {verLista && (
-              <div className="jarvis-menu jarvis-conversaciones" role="menu" aria-label="Conversaciones">
-                <button role="menuitem" onClick={nuevaConversacion}><LuMessageSquarePlus size={14} /> Nueva conversación</button>
-                {!conversaciones.datos?.datos.length && <span className="texto-xs texto-muted" style={{ padding: "6px 10px" }}>Todavía no hay conversaciones guardadas.</span>}
-                {conversaciones.datos?.datos.map((c) => (
-                  <span key={c.id} className={`jarvis-conversacion${c.id === sesion ? " activa" : ""}`}>
-                    <button role="menuitem" className="jarvis-conversacion-abrir" onClick={() => abrirConversacion(c.id)} title={c.titulo}>
-                      <span className="negrita" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.titulo}</span>
-                      <span className="texto-xs texto-muted">{fDiaHora(c.ultimoUso)} · {c.mensajes} mensajes{c.ultimaPersona ? ` · ${c.ultimaPersona}` : ""}</span>
-                    </button>
-                    <button className="boton-icono" aria-label={`Renombrar ${c.titulo}`} onClick={() => void renombrar(c)}><LuPencil size={13} /></button>
-                    <button className="boton-icono" aria-label={`Borrar ${c.titulo}`} onClick={() => void borrarConversacion(c)}><LuTrash2 size={13} /></button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </span>
+          <span className={`etiqueta ${configurar ? "etiqueta--violeta" : "etiqueta--gris"}`}>{configurar ? "Configuración" : "Chat"}</span>
           <span className="texto-xs texto-muted">Creado por {bot.creadoPor.nombre}</span>
         </span>
       </header>
@@ -566,7 +561,12 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
           <div className="jarvis-bienvenida">
             <AvatarBot bot={bot} tam={48} />
             <p className="negrita">{bot.nombre}</p>
-            <p className="texto-sm texto-muted" style={{ whiteSpace: "pre-wrap" }}>{bot.instrucciones || "Responde sus preguntas y se configura solo."}</p>
+            <p className="texto-sm texto-muted" style={{ whiteSpace: "pre-wrap" }}>
+              {configurar
+                ? bot.instrucciones || "Aquí defines para qué está programado: respóndele y se configura solo."
+                : "Pídele lo que necesites. Para cambiar cómo trabaja, pulsa su nombre en la lista."}
+            </p>
+            {soloLectura && <p className="texto-xs texto-muted">Solo quien creó el bot (o su lead) lo configura. Para pedirle algo, abre un chat nuevo debajo de su nombre.</p>}
             {!conectado && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>El Jarvis de tu área todavía no está conectado: los bots no pueden responder aún.</p>}
           </div>
         )}
@@ -637,7 +637,7 @@ function ChatBot({ bot, conectado, alEditar, alCambiar }: { bot: Bot; conectado:
           <LuPaperclip size={14} />
         </button>
         <div className="entrada" style={{ flex: 1 }}>
-          <input aria-label={`Mensaje para ${bot.nombre}`} placeholder={`Escríbele a ${bot.nombre}…`} value={texto} onChange={(e) => setTexto(e.target.value)} disabled={enviando} />
+          <input aria-label={`Mensaje para ${bot.nombre}`} placeholder={soloLectura ? "Solo quien creó el bot lo configura" : configurar ? `Cuéntale a ${bot.nombre} cómo debe trabajar…` : `Pídele algo a ${bot.nombre}…`} value={texto} onChange={(e) => setTexto(e.target.value)} disabled={enviando || soloLectura} />
         </div>
         {enviando ? (
           <button className="boton" type="button" onClick={detener} aria-label="Detener respuesta" title="Detener">
