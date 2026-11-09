@@ -9,6 +9,7 @@
  *   comentario obligatorio al pedir cambios, Idempotency-Key, cupo de ideas, derechos de uso.
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
+import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
 import { contextoDeEvento, EVENTOS_JARVIS, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { components } from "../api/tipos-api";
@@ -143,6 +144,9 @@ interface Estado {
   /** Conexiones personales (9 nov): «usuario:proveedor» → cuenta; y los «state» de OAuth pendientes. */
   conexiones: Record<string, { cuenta: string; creadoEn: string; ultimoUso: string | null }>;
   estadosConexion: Record<string, { usuarioId: string; ruta: string }>;
+  /** Bóveda personal (9 nov): lo que se guardaría (opaco: la contraseña llega cifrada desde el navegador). */
+  bovedas: Record<string, { sal: string; iteraciones: number; llaveEnvuelta: string }>;
+  accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
@@ -230,7 +234,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {},
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -4144,6 +4148,136 @@ function vueltaConexionMock(req: Request, ruta: string): Response {
   E.conexiones[llaveConexion(e.usuarioId, ruta)] = { cuenta: u?.email ?? "demo@gmail.com", creadoEn: new Date().toISOString(), ultimoUso: null };
   return ir(true);
 }
+
+// ───────────────────────────── bóveda personal (9 nov). En la demo no hay Jarvis que la lea.
+
+const bovedasAbiertasMock = new Map<string, number>();
+function duena(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "La bóveda es de cada persona");
+}
+function bovedaMock(ctx: Ctx) {
+  const b = E.bovedas[ctx.usuario.id];
+  if (!b) throw new ErrorApi(404, "SIN_BOVEDA", "Todavía no tienes bóveda", "Créala en Mi bóveda.");
+  return b;
+}
+const bovedaVista = (ctx: Ctx): S<"BovedaPersonal"> => {
+  const b = E.bovedas[ctx.usuario.id];
+  return {
+    configurada: !!b, sal: b?.sal ?? null, iteraciones: b?.iteraciones ?? null, llaveEnvuelta: b?.llaveEnvuelta ?? null,
+    accesos: E.accesosBoveda.filter((a) => a.usuarioId === ctx.usuario.id).length, abierta: (bovedasAbiertasMock.get(ctx.usuario.id) ?? 0) > Date.now(),
+  };
+};
+const accesoVista = (a: Estado["accesosBoveda"][number]): S<"AccesoBoveda"> => {
+  const c = a.clienteId ? E.clientes.find((x) => x.id === a.clienteId) : undefined;
+  return { id: a.id, nombre: a.nombre, usuario: a.usuario, url: a.url, cliente: c ? { id: c.id, nombre: c.nombre } : null, actualizadoEn: a.actualizadoEn };
+};
+function accesoMock(ctx: Ctx, id: string) {
+  const a = E.accesosBoveda.find((x) => x.id === id && x.usuarioId === ctx.usuario.id);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese acceso en tu bóveda");
+  return a;
+}
+const textoOpcional = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+function clienteDeAcceso(ctx: Ctx, v: unknown) {
+  if (v === undefined || v === null) return null;
+  if (!veCliente(ctx, v as string)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "clienteId", mensaje: "Elige un cliente con el que trabajes" }]);
+  return v as string;
+}
+const validar = (e: { campo: string; mensaje: string }[]) => {
+  if (e.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, e);
+};
+
+ruta("GET", "/me/boveda", (ctx) => {
+  duena(ctx);
+  return bovedaVista(ctx);
+});
+ruta("POST", "/me/boveda", async (ctx, _p, _q, req) => {
+  duena(ctx);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar(validarBovedaGuardada(b));
+  if (E.bovedas[ctx.usuario.id]) throw new ErrorApi(409, "YA_EXISTE", "Ya tienes una bóveda", "Si olvidaste tu clave, puedes borrarla y empezar de nuevo.");
+  E.bovedas[ctx.usuario.id] = { sal: b.sal as string, iteraciones: b.iteraciones as number, llaveEnvuelta: b.llaveEnvuelta as string };
+  return { __status: 201, ...bovedaVista(ctx) };
+});
+ruta("PUT", "/me/boveda", async (ctx, _p, _q, req) => {
+  duena(ctx);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar(validarBovedaGuardada(b));
+  bovedaMock(ctx);
+  E.bovedas[ctx.usuario.id] = { sal: b.sal as string, iteraciones: b.iteraciones as number, llaveEnvuelta: b.llaveEnvuelta as string };
+  return bovedaVista(ctx);
+});
+ruta("POST", "/me/boveda/borrar", async (ctx, _p, _q, req) => {
+  duena(ctx);
+  const b = await cuerpo<{ confirmacion?: unknown }>(req);
+  if (b.confirmacion !== "BORRAR") validar([{ campo: "confirmacion", mensaje: "Escribe BORRAR para confirmar" }]);
+  bovedaMock(ctx);
+  delete E.bovedas[ctx.usuario.id];
+  E.accesosBoveda = E.accesosBoveda.filter((a) => a.usuarioId !== ctx.usuario.id);
+  bovedasAbiertasMock.delete(ctx.usuario.id);
+  return null;
+});
+ruta("POST", "/me/boveda/sesion", async (ctx, _p, _q, req) => {
+  duena(ctx);
+  bovedaMock(ctx);
+  const b = await cuerpo<{ llave?: unknown }>(req);
+  if (!(typeof b.llave === "string" && /^[A-Za-z0-9_-]{43}$/.test(b.llave))) validar([{ campo: "llave", mensaje: "Llave inválida" }]);
+  bovedasAbiertasMock.set(ctx.usuario.id, Date.now() + 30 * 60_000);
+  return null;
+});
+ruta("DELETE", "/me/boveda/sesion", (ctx) => {
+  duena(ctx);
+  bovedasAbiertasMock.delete(ctx.usuario.id);
+  return null;
+});
+ruta("GET", "/me/boveda/accesos", (ctx, _p, q) => {
+  duena(ctx);
+  bovedaMock(ctx);
+  const texto = (q.get("q") ?? "").trim().toLowerCase();
+  const cliente = q.get("clienteId");
+  return {
+    datos: E.accesosBoveda.filter((a) => a.usuarioId === ctx.usuario.id && (!cliente || a.clienteId === cliente)).map(accesoVista)
+      .filter((a) => !texto || [a.nombre, a.usuario ?? "", a.url ?? "", a.cliente?.nombre ?? ""].some((x) => x.toLowerCase().includes(texto)))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre)),
+  };
+});
+ruta("POST", "/me/boveda/accesos", async (ctx, _p, _q, req) => {
+  duena(ctx);
+  bovedaMock(ctx);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar(validarAccesoBoveda(b));
+  const a = { id: nuevoId(46), usuarioId: ctx.usuario.id, clienteId: clienteDeAcceso(ctx, b.clienteId), nombre: (b.nombre as string).trim(), usuario: textoOpcional(b.usuario), url: textoOpcional(b.url), secretoCifrado: b.secretoCifrado as string, actualizadoEn: new Date().toISOString() };
+  E.accesosBoveda.push(a);
+  return { __status: 201, ...accesoVista(a) };
+});
+ruta("GET", "/me/boveda/accesos/:id", (ctx, p) => {
+  duena(ctx);
+  const a = accesoMock(ctx, p.id);
+  return { ...accesoVista(a), secretoCifrado: a.secretoCifrado };
+});
+ruta("PATCH", "/me/boveda/accesos/:id", async (ctx, p, _q, req) => {
+  duena(ctx);
+  const a = accesoMock(ctx, p.id);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar(validarAccesoBoveda(b, true));
+  if (typeof b.nombre === "string") a.nombre = b.nombre.trim();
+  if (b.usuario !== undefined) a.usuario = textoOpcional(b.usuario);
+  if (b.url !== undefined) a.url = textoOpcional(b.url);
+  if (b.clienteId !== undefined) a.clienteId = clienteDeAcceso(ctx, b.clienteId);
+  if (typeof b.secretoCifrado === "string") a.secretoCifrado = b.secretoCifrado;
+  a.actualizadoEn = new Date().toISOString();
+  return accesoVista(a);
+});
+ruta("DELETE", "/me/boveda/accesos/:id", (ctx, p) => {
+  duena(ctx);
+  const a = accesoMock(ctx, p.id);
+  E.accesosBoveda = E.accesosBoveda.filter((x) => x !== a);
+  return null;
+});
+ruta("GET", "/me/boveda/accesos/:id/secreto", (ctx) => {
+  duena(ctx);
+  throw new ErrorApi(403, "SIN_PERMISO", "Tú ves tus contraseñas en tu bóveda, en el portal");
+});
 
 // ───────────────────────────── conversaciones guardadas (6 nov)
 

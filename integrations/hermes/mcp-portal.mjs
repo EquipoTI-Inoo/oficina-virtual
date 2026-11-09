@@ -2,7 +2,8 @@
 /**
  * MCP del portal para Hermes («Mi Jarvis»). Lee el portal y, desde el 6 nov, propone acciones: crear una tarea,
  * un comentario interno o un pendiente del calendario. Nada se hace hasta que la persona lo aprueba en el chat.
- * Desde el 9 nov (0.3.0) también busca y lee en el Google Drive que la persona conectó en Mi cuenta → Conexiones.
+ * Desde el 9 nov (0.3.0) también busca y lee en el Google Drive que la persona conectó en Mi cuenta → Conexiones,
+ * y (0.4.0) lista y lee su bóveda personal mientras ella la tiene abierta.
  *
  * Hermes lo lanza como servidor stdio (ver config.example.yaml). Habla JSON-RPC por líneas en
  * stdin/stdout (Model Context Protocol) y llama a la API del portal como la persona que está chateando
@@ -109,6 +110,23 @@ const HERRAMIENTAS = [
     run: ({ archivoId, conversacion }) => api(`/me/conexiones/google-drive/archivos/${enc(archivoId)}`, conversacion),
   },
   {
+    name: "boveda_accesos",
+    description:
+      "Lista los accesos guardados en la bóveda personal de la persona que chatea (nombre, usuario, web y cliente; sin contraseñas). " +
+      "Opcional: texto para filtrar. Solo funciona si la persona creó su bóveda.",
+    inputSchema: { type: "object", properties: { q: { type: "string", description: "Texto a buscar (por ejemplo, el cliente o la red social)" } } },
+    run: ({ q, conversacion }) => api(`/me/boveda/accesos${q ? `?q=${enc(q)}` : ""}`, conversacion),
+  },
+  {
+    name: "boveda_leer",
+    description:
+      "Lee la contraseña y las notas de un acceso de la bóveda de la persona. Solo funciona mientras ella tiene su bóveda abierta en el portal (30 minutos); " +
+      "si está cerrada, pídele que la abra en Mi bóveda. Este chat pasa a ser privado. Úsala solo si te lo pide, no repitas la contraseña si no hace falta " +
+      "y NUNCA la guardes en tu memoria.",
+    inputSchema: { type: "object", properties: { accesoId: id("Id del acceso (de boveda_accesos)") }, required: ["accesoId"] },
+    run: ({ accesoId, conversacion }) => api(`/me/boveda/accesos/${enc(accesoId)}/secreto`, conversacion),
+  },
+  {
     name: "proponer_accion",
     description:
       "Propone hacer algo en el portal. NO lo hace: la persona lo ve en el chat y lo aprueba o lo rechaza. Úsalo solo cuando te lo pidan. " +
@@ -142,7 +160,7 @@ async function atender(msg) {
       return responder(idMsg, {
         protocolVersion: params?.protocolVersion ?? VERSION_PROTOCOLO,
         capabilities: { tools: {} },
-        serverInfo: { name: "inoo-portal", version: "0.3.0" },
+        serverInfo: { name: "inoo-portal", version: "0.4.0" },
       });
     case "ping":
       return responder(idMsg, {});

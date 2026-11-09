@@ -481,7 +481,7 @@ test("jarvis: cada uno ve los bots de su área, crea uno y el ADMIN amplía el t
   await editor.getByRole("button", { name: "Crear bot", exact: true }).click();
   await expect(lista.getByRole("button", { name: "Cotizador", exact: true })).toBeVisible({ timeout: 30_000 });
   // Como Grok: el bot nuevo saluda y pregunta para qué será, antes de tener trabajo.
-  await expect(page.getByText("¿Para qué me vas a usar?")).toBeVisible();
+  await expect(page.getByText("¿Qué tareas te gustaría que haga?")).toBeVisible();
   await expect(page.getByRole("button", { name: /Cotizador/ }).first()).toBeVisible();
   const otra = await browser.newPage();
   await entrarComo(otra, "operativo");

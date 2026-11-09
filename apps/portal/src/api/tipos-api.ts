@@ -2705,6 +2705,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/boveda": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Si la persona tiene bóveda, lo necesario para abrirla en el navegador (sal, vueltas y llave envuelta) y si está abierta para Jarvis */
+        get: operations["miBoveda"];
+        /** Cambia la clave personal: la misma llave de la bóveda, envuelta de nuevo. Los accesos no cambian */
+        put: operations["cambiarClaveBoveda"];
+        /** Crea la bóveda con la llave envuelta por la clave personal (que nunca llega al servidor) */
+        post: operations["crearBoveda"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/boveda/borrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Olvidé mi clave: borra la bóveda y todos sus accesos para empezar de nuevo. No se puede deshacer */
+        post: operations["borrarBoveda"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/boveda/sesion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Al abrir la bóveda, el navegador deja la llave de la bóveda (no la clave personal) en la memoria del servidor por 30 minutos, para que Jarvis pueda leerla. Nunca se guarda en la base */
+        post: operations["abrirBovedaParaJarvis"];
+        /** Cierra la bóveda: borra la llave de la memoria del servidor */
+        delete: operations["cerrarBovedaParaJarvis"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/boveda/accesos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Los accesos de la bóveda, sin la contraseña: nombre, usuario, web y cliente. También para Jarvis */
+        get: operations["listarAccesosBoveda"];
+        put?: never;
+        /** Guarda un acceso. La contraseña y las notas llegan cifradas desde el navegador */
+        post: operations["crearAccesoBoveda"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/boveda/accesos/{accesoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accesoId: string;
+            };
+            cookie?: never;
+        };
+        /** Un acceso con su contraseña cifrada, para descifrarla en el navegador. Jarvis no usa esta ruta */
+        get: operations["verAccesoBoveda"];
+        put?: never;
+        post?: never;
+        /** Borra un acceso */
+        delete: operations["borrarAccesoBoveda"];
+        options?: never;
+        head?: never;
+        /** Cambia un acceso */
+        patch: operations["cambiarAccesoBoveda"];
+        trace?: never;
+    };
+    "/me/boveda/accesos/{accesoId}/secreto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accesoId: string;
+            };
+            cookie?: never;
+        };
+        /** Solo Jarvis, con la bóveda abierta: la contraseña y las notas en claro (pasan por el modelo de IA). El chat donde se lee pasa a ser privado de su dueña */
+        get: operations["leerSecretoBovedaJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jarvis/bots": {
         parameters: {
             query?: never;
@@ -4903,6 +5015,45 @@ export interface components {
             /** Format: date-time */
             modificado: string | null;
             enlace: string | null;
+        };
+        BovedaGuardada: {
+            sal: string;
+            iteraciones: number;
+            /** @description v1.<iv>.<llave de la bóveda cifrada con la clave personal> */
+            llaveEnvuelta: string;
+        };
+        BovedaPersonal: {
+            configurada: boolean;
+            sal: string | null;
+            iteraciones: number | null;
+            /** @description null para Jarvis */
+            llaveEnvuelta: string | null;
+            accesos: number;
+            /** @description Si Jarvis la puede leer ahora (la llave está en la memoria del servidor) */
+            abierta: boolean;
+        };
+        AccesoBoveda: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+            usuario: string | null;
+            url: string | null;
+            cliente: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+            } | null;
+            /** Format: date-time */
+            actualizadoEn: string;
+        };
+        AccesoBovedaEntrada: {
+            nombre?: string;
+            usuario?: string | null;
+            url?: string | null;
+            /** Format: uuid */
+            clienteId?: string | null;
+            /** @description v1.<iv>.<contraseña y notas cifradas en el navegador> */
+            secretoCifrado?: string;
         };
         EmpresaResumen: {
             /** @description «inoo» o el id del cliente */
@@ -12606,6 +12757,306 @@ export interface operations {
                     };
                 };
             };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    miBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BovedaPersonal"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    cambiarClaveBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BovedaGuardada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BovedaPersonal"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    crearBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BovedaGuardada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BovedaPersonal"];
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    confirmacion: "BORRAR";
+                };
+            };
+        };
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    abrirBovedaParaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Llave AES-256 cruda en base64url (43 caracteres) */
+                    llave: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Abierta para Jarvis */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    cerrarBovedaParaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cerrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listarAccesosBoveda: {
+        parameters: {
+            query?: {
+                q?: string;
+                clienteId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["AccesoBoveda"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearAccesoBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccesoBovedaEntrada"];
+            };
+        };
+        responses: {
+            /** @description Guardado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesoBoveda"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    verAccesoBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accesoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesoBoveda"] & {
+                        secretoCifrado: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    borrarAccesoBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accesoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarAccesoBoveda: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accesoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccesoBovedaEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesoBoveda"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    leerSecretoBovedaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accesoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        clave: string;
+                        notas: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             409: components["responses"]["Conflicto"];
         };

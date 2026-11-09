@@ -82,6 +82,13 @@ flowchart LR
   PKCE desde Mi cuenta. El portal guarda solo el refresh token, cifrado con AES-256-GCM, y nunca lo muestra; los
   access tokens viven en memoria. El MCP (`drive_buscar`, `drive_leer`) llama al portal como la persona dueña de
   la conversación, así que cada bot usa solo la cuenta de quien chatea.
+- **Bóveda personal (0051):** los accesos de los clientes de cada persona. La contraseña se cifra en el navegador
+  (AES-256-GCM) con una llave aleatoria envuelta por la clave personal (PBKDF2-SHA256, 600 000 vueltas); el
+  servidor nunca ve la clave personal. Nombre, usuario y web van cifrados con `BOVEDA_SECRETO` para que Jarvis
+  sepa qué hay. RLS deja ver cada bóveda solo a su dueña (sin excepción para ADMIN, super usuario ni servicio).
+  Al abrirla, el navegador deja la llave de la bóveda 30 minutos en la memoria del servidor: mientras tanto
+  Jarvis puede leer contraseñas (`boveda_leer`), que pasan por el modelo de IA, y ese chat queda privado
+  (`sesion_jarvis.privada_de`). Sin la clave no hay recuperación: «Olvidé mi clave» borra la bóveda.
 
 ### Migraciones posteriores a la v1.1
 

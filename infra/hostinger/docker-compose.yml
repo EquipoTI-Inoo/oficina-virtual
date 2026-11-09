@@ -77,6 +77,7 @@ services:
       - ../../database/migraciones/0048_leads_y_gerencia.sql:/docker-entrypoint-initdb.d/01zv_leads_y_gerencia.sql:ro
       - ../../database/migraciones/0049_jarvis_avanzado.sql:/docker-entrypoint-initdb.d/01zw_jarvis_avanzado.sql:ro
       - ../../database/migraciones/0050_conexiones_personales.sql:/docker-entrypoint-initdb.d/01zx_conexiones_personales.sql:ro
+      - ../../database/migraciones/0051_boveda_personal.sql:/docker-entrypoint-initdb.d/01zy_boveda_personal.sql:ro
       # Base de NocoDB y esquema de n8n, en el mismo Postgres.
       - ./iniciar-otros.sql:/docker-entrypoint-initdb.d/09_otros.sql:ro
       - postgres-datos:/var/lib/postgresql/data

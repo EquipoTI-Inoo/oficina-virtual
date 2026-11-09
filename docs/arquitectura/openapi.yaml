@@ -3827,6 +3827,157 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '409': { $ref: '#/components/responses/Conflicto' }
 
+  # ───────────── Bóveda personal (9 nov): solo la dueña y su Jarvis. Las contraseñas llegan ya cifradas desde el navegador.
+  /me/boveda:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: miBoveda
+      summary: 'Si la persona tiene bóveda, lo necesario para abrirla en el navegador (sal, vueltas y llave envuelta) y si está abierta para Jarvis'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/BovedaPersonal' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearBoveda
+      summary: 'Crea la bóveda con la llave envuelta por la clave personal (que nunca llega al servidor)'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BovedaGuardada' } } } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/BovedaPersonal' } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    put:
+      tags: [Jarvis del equipo]
+      operationId: cambiarClaveBoveda
+      summary: 'Cambia la clave personal: la misma llave de la bóveda, envuelta de nuevo. Los accesos no cambian'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BovedaGuardada' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/BovedaPersonal' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/boveda/borrar:
+    post:
+      tags: [Jarvis del equipo]
+      operationId: borrarBoveda
+      summary: 'Olvidé mi clave: borra la bóveda y todos sus accesos para empezar de nuevo. No se puede deshacer'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [confirmacion], properties: { confirmacion: { type: string, enum: [BORRAR] } } }
+      responses:
+        '204': { description: Borrada }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/boveda/sesion:
+    post:
+      tags: [Jarvis del equipo]
+      operationId: abrirBovedaParaJarvis
+      summary: 'Al abrir la bóveda, el navegador deja la llave de la bóveda (no la clave personal) en la memoria del servidor por 30 minutos, para que Jarvis pueda leerla. Nunca se guarda en la base'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [llave], properties: { llave: { type: string, description: 'Llave AES-256 cruda en base64url (43 caracteres)' } } }
+      responses:
+        '204': { description: Abierta para Jarvis }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: cerrarBovedaParaJarvis
+      summary: 'Cierra la bóveda: borra la llave de la memoria del servidor'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Cerrada }
+
+  /me/boveda/accesos:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarAccesosBoveda
+      summary: 'Los accesos de la bóveda, sin la contraseña: nombre, usuario, web y cliente. También para Jarvis'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: clienteId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/AccesoBoveda' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearAccesoBoveda
+      summary: 'Guarda un acceso. La contraseña y las notas llegan cifradas desde el navegador'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccesoBovedaEntrada' } } } }
+      responses:
+        '201': { description: Guardado, content: { application/json: { schema: { $ref: '#/components/schemas/AccesoBoveda' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/boveda/accesos/{accesoId}:
+    parameters: [ { name: accesoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: verAccesoBoveda
+      summary: 'Un acceso con su contraseña cifrada, para descifrarla en el navegador. Jarvis no usa esta ruta'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AccesoBoveda'
+                  - { type: object, required: [secretoCifrado], properties: { secretoCifrado: { type: string } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Jarvis del equipo]
+      operationId: cambiarAccesoBoveda
+      summary: Cambia un acceso
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccesoBovedaEntrada' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AccesoBoveda' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarAccesoBoveda
+      summary: Borra un acceso
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /me/boveda/accesos/{accesoId}/secreto:
+    parameters: [ { name: accesoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: leerSecretoBovedaJarvis
+      summary: 'Solo Jarvis, con la bóveda abierta: la contraseña y las notas en claro (pasan por el modelo de IA). El chat donde se lee pasa a ser privado de su dueña'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [clave, notas], properties: { clave: { type: string }, notas: { type: string } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
   /jarvis/bots:
     get:
       tags: [Jarvis del equipo]
@@ -6450,6 +6601,45 @@ components:
         tipo: { type: string, description: 'Tipo MIME' }
         modificado: { type: [string, 'null'], format: date-time }
         enlace: { type: [string, 'null'] }
+
+    BovedaGuardada:
+      type: object
+      required: [sal, iteraciones, llaveEnvuelta]
+      properties:
+        sal: { type: string }
+        iteraciones: { type: integer, minimum: 300000, maximum: 5000000 }
+        llaveEnvuelta: { type: string, description: 'v1.<iv>.<llave de la bóveda cifrada con la clave personal>' }
+
+    BovedaPersonal:
+      type: object
+      required: [configurada, sal, iteraciones, llaveEnvuelta, accesos, abierta]
+      properties:
+        configurada: { type: boolean }
+        sal: { type: [string, 'null'] }
+        iteraciones: { type: [integer, 'null'] }
+        llaveEnvuelta: { type: [string, 'null'], description: 'null para Jarvis' }
+        accesos: { type: integer }
+        abierta: { type: boolean, description: 'Si Jarvis la puede leer ahora (la llave está en la memoria del servidor)' }
+
+    AccesoBoveda:
+      type: object
+      required: [id, nombre, usuario, url, cliente, actualizadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        usuario: { type: [string, 'null'] }
+        url: { type: [string, 'null'] }
+        cliente: { oneOf: [ { type: object, required: [id, nombre], properties: { id: { type: string, format: uuid }, nombre: { type: string } } }, { type: 'null' } ] }
+        actualizadoEn: { type: string, format: date-time }
+
+    AccesoBovedaEntrada:
+      type: object
+      properties:
+        nombre: { type: string, maxLength: 120 }
+        usuario: { type: [string, 'null'], maxLength: 200 }
+        url: { type: [string, 'null'] }
+        clienteId: { type: [string, 'null'], format: uuid }
+        secretoCifrado: { type: string, description: 'v1.<iv>.<contraseña y notas cifradas en el navegador>' }
 
     EmpresaResumen:
       type: object

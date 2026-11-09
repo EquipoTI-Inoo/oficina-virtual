@@ -3,7 +3,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuBuilding2, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard,
+  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard,
 } from "react-icons/lu";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
@@ -626,6 +626,7 @@ function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | nul
     { a: "/equipo/mi-cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
     { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuLayoutDashboard size={16} /> },
     { a: "/equipo/calendario", texto: "Mi calendario", icono: <LuCalendarDays size={16} /> },
+    { a: "/equipo/boveda", texto: "Mi bóveda", icono: <LuVault size={16} /> },
     { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot size={16} /> },
   ] : [
     { a: "/cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },

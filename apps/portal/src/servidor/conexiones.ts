@@ -45,21 +45,22 @@ export const urlVuelta = (p: Proveedor) => `${(env("PORTAL_URL") ?? "http://loca
 
 // ── cifrado de los tokens
 
-function clave() {
-  const base = env("CONEXIONES_SECRETO") ?? env("SESION_SECRETO");
-  if (!base || base.length < 32) throw new Error("Falta CONEXIONES_SECRETO (o SESION_SECRETO) de 32 caracteres o más");
-  return createHash("sha256").update(`inoo-conexiones:${base}`).digest();
+/** Llave del servidor para cifrar en reposo: una por uso (conexiones, bóveda), derivada de su secreto o de SESION_SECRETO. */
+function clave(uso: "conexiones" | "boveda" = "conexiones") {
+  const base = env(uso === "boveda" ? "BOVEDA_SECRETO" : "CONEXIONES_SECRETO") ?? env("SESION_SECRETO");
+  if (!base || base.length < 32) throw new Error("Falta el secreto de cifrado (o SESION_SECRETO) de 32 caracteres o más");
+  return createHash("sha256").update(`inoo-${uso}:${base}`).digest();
 }
-export function cifrar(texto: string) {
+export function cifrar(texto: string, uso: "conexiones" | "boveda" = "conexiones") {
   const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", clave(), iv);
+  const c = createCipheriv("aes-256-gcm", clave(uso), iv);
   const datos = Buffer.concat([c.update(texto, "utf8"), c.final()]);
   return `v1.${iv.toString("base64url")}.${c.getAuthTag().toString("base64url")}.${datos.toString("base64url")}`;
 }
-export function descifrar(cifrado: string) {
+export function descifrar(cifrado: string, uso: "conexiones" | "boveda" = "conexiones") {
   const [v, iv, tag, datos] = cifrado.split(".");
   if (v !== "v1") throw new Error("Formato de token desconocido");
-  const d = createDecipheriv("aes-256-gcm", clave(), Buffer.from(iv, "base64url"));
+  const d = createDecipheriv("aes-256-gcm", clave(uso), Buffer.from(iv, "base64url"));
   d.setAuthTag(Buffer.from(tag, "base64url"));
   return Buffer.concat([d.update(Buffer.from(datos, "base64url")), d.final()]).toString("utf8");
 }

@@ -49,6 +49,7 @@ import { enviadorSmtp } from "./correo-smtp";
 import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
 import { fotoDeEmpleado, inooworkConectado, leerEmpleados, sincronizarPersona } from "./inoowork";
+import { descifrarConLlaveCruda, validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
 import { accesoDe, buscarEnDrive, canjearCodigo, cifrar, descifrar, leerDeDrive, nuevoInicio, PROVEEDORES, proveedorPorRuta, revocar, SinPermisoConexion } from "./conexiones";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
@@ -2924,7 +2925,8 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, q, cuerpo) => {
   if (configurar && (prestado || !puedeEditarBotDb(ctx, bot))) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó el bot (o el lead o el ADMIN) lo configura", "Para pedirle algo, abre un chat nuevo debajo de su nombre.");
   // 6 nov: la conversación es del área. Se sigue con el mismo bot, y queda a nombre de quien escribe ahora: a esa
   // persona le cobra la pasarela y con sus permisos lee Jarvis el portal.
-  const previa = (await ctx.c.query<{ bot_id: string | null; espacio: string | null }>("SELECT bot_id, espacio FROM sesion_jarvis WHERE sesion_id = $1", [b.sesionId])).rows[0];
+  const previa = (await ctx.c.query<{ bot_id: string | null; espacio: string | null; privada_de: string | null }>("SELECT bot_id, espacio, privada_de FROM sesion_jarvis WHERE sesion_id = $1", [b.sesionId])).rows[0];
+  if (previa?.privada_de && previa.privada_de !== ctx.u.usuarioId) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es privada", "Empieza una conversación nueva.");
   if (previa && previa.bot_id !== bot.id) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otro bot", "Empieza una conversación nueva.");
   if (previa && !chatVisibleDb(bot, espacio, previa.espacio)) throw new ErrorApi(409, "SESION_AJENA", "Esa conversación es de otra área", "Empieza una conversación nueva.");
   await ctx.c.query(
@@ -3657,6 +3659,193 @@ export async function vueltaConexionDb(req: Request, ruta: string): Promise<Resp
   }
 }
 
+// ───────────────────────────── bóveda personal (9 nov): solo la dueña y su Jarvis
+
+/**
+ * La llave de la bóveda que dejó el navegador al abrirla: solo en memoria, 30 minutos. Nunca en la base. Con ella
+ * Jarvis puede leer las contraseñas mientras la bóveda está abierta.
+ */
+const MIN_BOVEDA_ABIERTA = 30;
+const bovedasAbiertas = new Map<string, { llave: string; vence: number }>();
+const llaveAbierta = (usuarioId: string) => {
+  const x = bovedasAbiertas.get(usuarioId);
+  if (!x || x.vence < Date.now()) {
+    bovedasAbiertas.delete(usuarioId);
+    return null;
+  }
+  return x.llave;
+};
+/** Solo pruebas. */
+export const cerrarBovedas = () => bovedasAbiertas.clear();
+
+/** La dueña, desde su sesión (o su Jarvis si `jarvis`). Nadie más: ni servicio, ni «ver como cliente», ni pruebas. */
+function exigirDuena(ctx: Ctx, jarvis: "NO" | "SI" | "SOLO" = "NO") {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "La bóveda es de cada persona");
+  if (ctx.u.esPrueba) throw new ErrorApi(409, "NO_EN_PRUEBAS", "En el entorno de pruebas no hay bóveda");
+  if (jarvis === "NO" && ctx.u.jarvis) throw new ErrorApi(403, "SIN_PERMISO", "Esto lo hace la persona desde el portal");
+  if (jarvis === "SOLO" && !ctx.u.jarvis) throw new ErrorApi(403, "SIN_PERMISO", "Tú ves tus contraseñas en tu bóveda, en el portal");
+}
+const filaBovedaDb = async (ctx: Ctx) =>
+  (await ctx.c.query<{ sal: string; iteraciones: number; llave_envuelta: string; accesos: number }>(
+    "SELECT b.sal, b.iteraciones, b.llave_envuelta, (SELECT count(*)::int FROM acceso_boveda a WHERE a.usuario_id = b.usuario_id) AS accesos FROM boveda b WHERE b.usuario_id = $1",
+    [ctx.u.usuarioId],
+  )).rows[0];
+async function exigirBovedaDb(ctx: Ctx) {
+  const b = await filaBovedaDb(ctx);
+  if (!b) throw new ErrorApi(404, "SIN_BOVEDA", "Todavía no tienes bóveda", "Créala en Mi bóveda.");
+  return b;
+}
+const bovedaVistaDb = (ctx: Ctx, b: Awaited<ReturnType<typeof filaBovedaDb>>): S<"BovedaPersonal"> => ({
+  configurada: !!b, sal: b && !ctx.u.jarvis ? b.sal : null, iteraciones: b && !ctx.u.jarvis ? b.iteraciones : null, llaveEnvuelta: b && !ctx.u.jarvis ? b.llave_envuelta : null,
+  accesos: b?.accesos ?? 0, abierta: !!llaveAbierta(ctx.u.usuarioId),
+});
+
+interface FilaAcceso { id: string; cliente_id: string | null; cliente_nombre: string | null; datos_cifrados: string; secreto_cifrado: string; actualizado_en: Date }
+const SELECT_ACCESO = `SELECT a.id, a.cliente_id, c.nombre AS cliente_nombre, a.datos_cifrados, a.secreto_cifrado, a.actualizado_en
+  FROM acceso_boveda a LEFT JOIN cliente c ON c.id = a.cliente_id`;
+/** Cifrado del servidor para nombre, usuario y web: sin secreto configurado, 503 claro (no un 500). */
+function cifrarBoveda(texto: string) {
+  try {
+    return cifrar(texto, "boveda");
+  } catch {
+    throw new ErrorApi(503, "BOVEDA_NO_CONFIGURADA", "La bóveda todavía no está lista en el servidor", "Falta BOVEDA_SECRETO (o SESION_SECRETO).");
+  }
+}
+function accesoVistaDb(a: FilaAcceso): S<"AccesoBoveda"> {
+  const d = JSON.parse(descifrar(a.datos_cifrados, "boveda")) as { nombre: string; usuario: string | null; url: string | null };
+  return { id: a.id, nombre: d.nombre, usuario: d.usuario, url: d.url, cliente: a.cliente_id ? { id: a.cliente_id, nombre: a.cliente_nombre ?? "" } : null, actualizadoEn: iso(a.actualizado_en)! };
+}
+async function accesoDb(ctx: Ctx, id: string) {
+  const a = esUuid(id) ? (await ctx.c.query<FilaAcceso>(`${SELECT_ACCESO} WHERE a.id = $1 AND a.usuario_id = $2`, [id, ctx.u.usuarioId])).rows[0] : undefined;
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese acceso en tu bóveda");
+  return a;
+}
+const datosAcceso = (b: Record<string, unknown>, previo?: { nombre: string; usuario: string | null; url: string | null }) => JSON.stringify({
+  nombre: typeof b.nombre === "string" ? b.nombre.trim() : previo!.nombre,
+  usuario: b.usuario !== undefined ? (typeof b.usuario === "string" && b.usuario.trim() ? b.usuario.trim() : null) : previo?.usuario ?? null,
+  url: b.url !== undefined ? (typeof b.url === "string" && b.url.trim() ? b.url.trim() : null) : previo?.url ?? null,
+});
+async function clienteDeAccesoDb(ctx: Ctx, clienteId: unknown) {
+  if (clienteId === undefined || clienteId === null) return null;
+  if (!(await veClienteDb(ctx, clienteId as string))) validacion([{ campo: "clienteId", mensaje: "Elige un cliente con el que trabajes" }]);
+  return clienteId as string;
+}
+
+ruta("GET", "/me/boveda", async (ctx) => {
+  exigirDuena(ctx, "SI");
+  return bovedaVistaDb(ctx, await filaBovedaDb(ctx));
+});
+
+ruta("POST", "/me/boveda", async (ctx, _p, _q, cuerpo) => {
+  exigirDuena(ctx);
+  const b = await cuerpo();
+  validacion(validarBovedaGuardada(b));
+  if (await filaBovedaDb(ctx)) throw new ErrorApi(409, "YA_EXISTE", "Ya tienes una bóveda", "Si olvidaste tu clave, puedes borrarla y empezar de nuevo.");
+  await ctx.c.query("INSERT INTO boveda (usuario_id, sal, iteraciones, llave_envuelta) VALUES ($1, $2, $3, $4)", [ctx.u.usuarioId, b.sal, b.iteraciones, b.llaveEnvuelta]);
+  return { __status: 201, ...bovedaVistaDb(ctx, await filaBovedaDb(ctx)) };
+});
+
+ruta("PUT", "/me/boveda", async (ctx, _p, _q, cuerpo) => {
+  exigirDuena(ctx);
+  const b = await cuerpo();
+  validacion(validarBovedaGuardada(b));
+  await exigirBovedaDb(ctx);
+  await ctx.c.query("UPDATE boveda SET sal = $2, iteraciones = $3, llave_envuelta = $4, actualizado_en = now() WHERE usuario_id = $1", [ctx.u.usuarioId, b.sal, b.iteraciones, b.llaveEnvuelta]);
+  return bovedaVistaDb(ctx, await filaBovedaDb(ctx));
+});
+
+ruta("POST", "/me/boveda/borrar", async (ctx, _p, _q, cuerpo) => {
+  exigirDuena(ctx);
+  const b = await cuerpo();
+  if (b.confirmacion !== "BORRAR") validacion([{ campo: "confirmacion", mensaje: "Escribe BORRAR para confirmar" }]);
+  await exigirBovedaDb(ctx);
+  await ctx.c.query("DELETE FROM boveda WHERE usuario_id = $1", [ctx.u.usuarioId]);
+  bovedasAbiertas.delete(ctx.u.usuarioId);
+  return null;
+});
+
+ruta("POST", "/me/boveda/sesion", async (ctx, _p, _q, cuerpo) => {
+  exigirDuena(ctx);
+  await exigirBovedaDb(ctx);
+  const b = await cuerpo();
+  if (!(typeof b.llave === "string" && /^[A-Za-z0-9_-]{43}$/.test(b.llave))) validacion([{ campo: "llave", mensaje: "Llave inválida" }]);
+  bovedasAbiertas.set(ctx.u.usuarioId, { llave: b.llave as string, vence: Date.now() + MIN_BOVEDA_ABIERTA * 60_000 });
+  return null;
+});
+
+ruta("DELETE", "/me/boveda/sesion", async (ctx) => {
+  exigirDuena(ctx);
+  bovedasAbiertas.delete(ctx.u.usuarioId);
+  return null;
+});
+
+ruta("GET", "/me/boveda/accesos", async (ctx, _p, q) => {
+  exigirDuena(ctx, "SI");
+  await exigirBovedaDb(ctx);
+  const cliente = q.get("clienteId");
+  const { rows } = await ctx.c.query<FilaAcceso>(`${SELECT_ACCESO} WHERE a.usuario_id = $1 AND ($2::uuid IS NULL OR a.cliente_id = $2::uuid)`, [ctx.u.usuarioId, cliente && esUuid(cliente) ? cliente : null]);
+  const texto = (q.get("q") ?? "").trim().toLowerCase();
+  const datos = rows.map(accesoVistaDb)
+    .filter((a) => !texto || [a.nombre, a.usuario ?? "", a.url ?? "", a.cliente?.nombre ?? ""].some((x) => x.toLowerCase().includes(texto)))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return { datos };
+});
+
+ruta("POST", "/me/boveda/accesos", async (ctx, _p, _q, cuerpo) => {
+  exigirDuena(ctx);
+  await exigirBovedaDb(ctx);
+  const b = await cuerpo();
+  validacion(validarAccesoBoveda(b));
+  const cliente = await clienteDeAccesoDb(ctx, b.clienteId);
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO acceso_boveda (usuario_id, cliente_id, datos_cifrados, secreto_cifrado) VALUES ($1, $2, $3, $4) RETURNING id",
+    [ctx.u.usuarioId, cliente, cifrarBoveda(datosAcceso(b)), b.secretoCifrado],
+  );
+  return { __status: 201, ...accesoVistaDb(await accesoDb(ctx, rows[0].id)) };
+});
+
+ruta("GET", "/me/boveda/accesos/:id", async (ctx, p) => {
+  exigirDuena(ctx);
+  const a = await accesoDb(ctx, p.id);
+  return { ...accesoVistaDb(a), secretoCifrado: a.secreto_cifrado };
+});
+
+ruta("PATCH", "/me/boveda/accesos/:id", async (ctx, p, _q, cuerpo) => {
+  exigirDuena(ctx);
+  const a = await accesoDb(ctx, p.id);
+  const b = await cuerpo();
+  validacion(validarAccesoBoveda(b, true));
+  const previo = accesoVistaDb(a);
+  const cliente = b.clienteId !== undefined ? await clienteDeAccesoDb(ctx, b.clienteId) : a.cliente_id;
+  await ctx.c.query(
+    "UPDATE acceso_boveda SET cliente_id = $2, datos_cifrados = $3, secreto_cifrado = coalesce($4, secreto_cifrado), actualizado_en = now() WHERE id = $1",
+    [a.id, cliente, cifrarBoveda(datosAcceso(b, previo)), typeof b.secretoCifrado === "string" ? b.secretoCifrado : null],
+  );
+  return accesoVistaDb(await accesoDb(ctx, a.id));
+});
+
+ruta("DELETE", "/me/boveda/accesos/:id", async (ctx, p) => {
+  exigirDuena(ctx);
+  const a = await accesoDb(ctx, p.id);
+  await ctx.c.query("DELETE FROM acceso_boveda WHERE id = $1", [a.id]);
+  return null;
+});
+
+ruta("GET", "/me/boveda/accesos/:id/secreto", async (ctx, p) => {
+  exigirDuena(ctx, "SOLO");
+  const a = await accesoDb(ctx, p.id);
+  const llave = llaveAbierta(ctx.u.usuarioId);
+  if (!llave) throw new ErrorApi(409, "BOVEDA_CERRADA", "Tu bóveda está cerrada", "Ábrela en el portal (Mi bóveda) y vuelve a pedírmelo: queda abierta 30 minutos.");
+  // Los chats son del área: este pasa a ser solo de la dueña (lo que lee Jarvis puede quedar escrito en él).
+  await ctx.c.query("UPDATE sesion_jarvis SET privada_de = $2 WHERE sesion_id = $1", [ctx.u.jarvis!.sesionId, ctx.u.usuarioId]);
+  try {
+    return await descifrarConLlaveCruda(llave, a.secreto_cifrado);
+  } catch {
+    throw new ErrorApi(409, "BOVEDA_CERRADA", "No pude abrir ese acceso", "Cierra y vuelve a abrir tu bóveda en el portal.");
+  }
+});
+
 // ───────────────────────────── conversaciones guardadas (6 nov)
 
 interface FilaConversacion { sesion_id: string; titulo: string | null; creado_en: Date; ultimo_uso: Date; mensajes: number; ultimo_nombre: string | null }
@@ -3675,8 +3864,9 @@ function chatVisibleDb(b: FilaBot, espacio: EspacioJarvis, deChat: string | null
 /** Una conversación de un bot que la persona ve (6 nov: son del área). 404 si no existe o es de otra área. */
 async function miConversacionDb(ctx: Ctx, sesion: string) {
   soloEquipo(ctx);
-  const x = (await ctx.c.query<FilaConversacion & { bot_id: string | null; espacio: string | null }>(`SELECT ${COLUMNAS_CONVERSACION}, s.espacio FROM sesion_jarvis s WHERE s.sesion_id = $1`, [sesion])).rows[0];
-  if (!x?.bot_id) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
+  const x = (await ctx.c.query<FilaConversacion & { bot_id: string | null; espacio: string | null; privada_de: string | null }>(`SELECT ${COLUMNAS_CONVERSACION}, s.espacio, s.privada_de FROM sesion_jarvis s WHERE s.sesion_id = $1`, [sesion])).rows[0];
+  // 9 nov: un chat donde Jarvis leyó la bóveda es solo de su dueña.
+  if (!x?.bot_id || (x.privada_de && x.privada_de !== ctx.u.usuarioId)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa conversación");
   const bot = await botDeMiAreaDb(ctx, x.bot_id);
   const mios = espaciosDb(ctx);
   if (![espacioDelBot(bot), ...bot.prestamos.map((y) => y.espacio)].some((e) => mios.includes(e) && chatVisibleDb(bot, e, x.espacio))) {
@@ -3689,7 +3879,8 @@ ruta("GET", "/jarvis/bots/:id/conversaciones", async (ctx, p, q) => {
   const bot = await botDeMiAreaDb(ctx, p.id);
   const espacio = espacioDeUsoDb(ctx, bot, q.get("area"))!;
   const { rows } = await ctx.c.query<FilaConversacion & { espacio: string | null }>(
-    `SELECT ${COLUMNAS_CONVERSACION}, s.espacio FROM sesion_jarvis s WHERE s.bot_id = $1 AND NOT s.archivada AND s.sesion_id NOT LIKE 'cfg-%' ORDER BY s.ultimo_uso DESC LIMIT 100`, [bot.id],
+    `SELECT ${COLUMNAS_CONVERSACION}, s.espacio FROM sesion_jarvis s WHERE s.bot_id = $1 AND NOT s.archivada AND s.sesion_id NOT LIKE 'cfg-%'
+       AND (s.privada_de IS NULL OR s.privada_de = $2) ORDER BY s.ultimo_uso DESC LIMIT 100`, [bot.id, ctx.u.usuarioId],
   );
   return { datos: rows.filter((x) => x.mensajes > 0 && chatVisibleDb(bot, espacio, x.espacio)).map(conversacionVista) };
 });

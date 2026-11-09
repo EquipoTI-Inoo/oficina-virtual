@@ -289,14 +289,13 @@ contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas 
 | — | Reunión del 6 nov: nuevo proyecto predeterminado o personalizado, Mi cuenta del equipo | Hecha (8 nov) |
 | — | Empresas (Inoo y cada cliente con su gente, proyectos y accesos) y áreas que lidera cada persona editables | Hecha y publicada (9 nov) |
 | — | Jarvis avanzado: skills, conectores MCP, rutinas, automatizaciones, biblioteca en Drive y actividad | Hecha y publicada (9 nov, migración 0049) |
+| — | Bóveda personal: cada persona guarda los accesos de sus clientes, cifrados con su propia clave; solo ella y su Jarvis (con la bóveda abierta) los leen | Hecha (9 nov, migración 0051), pendiente de publicar |
 | — | Conexiones personales: cada persona conecta su Google Drive con un botón y sus bots lo leen en sus chats | Hecha (9 nov, migración 0050), pendiente de publicar y de crear el cliente OAuth web en Google Cloud |
 
 **Pendientes:**
 - InooWork: publicar el APK nuevo y luego pasar su API a `estricto: true`.
 - Conexiones personales: Figma y Canva cuando Inoo registre una app en cada uno (mismo patrón que Google Drive).
 - Google Calendar real en el calendario del colaborador: en espera, el equipo va a tener cuentas de Gmail propias para conectar cada calendario.
-- **Por decidir — bóveda de contraseñas por cliente:** choca con la decisión de que Jarvis no maneje llaves y
-  necesita un segundo VPS aislado. Hay que decidir quién la ve y si Jarvis puede usarla antes de construirla.
 - **Por decidir — grupo de WhatsApp al crear un proyecto** (pedido de Ernesto, 5 nov): un modal opcional donde la
   persona elige los contactos y el enlace del grupo queda guardado en el proyecto. Empieza sin API: alguien crea
   el grupo, pega el enlace y lo envía. La API de grupos de Meta depende de confirmar si el número de Inoo es

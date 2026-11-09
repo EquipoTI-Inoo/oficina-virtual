@@ -100,6 +100,10 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
   reconstruir el portal; (3) copiar `integrations/hermes/mcp-portal.mjs` a `/home/hermes/inoo/` y reiniciar Hermes.
   Con el público «Interno» solo entran cuentas de `inoo.pe`; para cuentas de Gmail hay que pasar a «Externo» y
   agregarlas como usuarios de prueba (hasta 100) mientras Google no verifique la app.
+- **Bóveda personal (0051):** nada que configurar más allá de `SESION_SECRETO` (o `BOVEDA_SECRETO`). Nadie de TI
+  puede abrir una bóveda: si alguien olvida su clave, la borra desde «Olvidé mi clave». Reiniciar el portal cierra
+  las bóvedas abiertas (Jarvis deja de poder leerlas hasta que la persona la vuelva a abrir). Para que Jarvis la
+  use, el Hermes necesita el MCP 0.4.0 (`integrations/hermes/mcp-portal.mjs`).
 - **Rutinas y automatizaciones:** las corre `inoo-jarvis.timer`. Cada ejecución la paga quien la creó, su
   respuesta queda como un chat del bot (`job-<id>`) y se avisa en la campana. Si el Hermes del área no está
   conectado o el área llegó a su tope, la ejecución queda «Falló» con el motivo.

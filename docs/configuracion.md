@@ -154,6 +154,7 @@ los tableros de InooWork se leen directo de su API. Cada ruta tiene la misma for
 | `PERMITIR_AUTH_DEMO`, `CLAVE_DEMO` | `true`; texto | Solo entornos de prueba: tokens `demo.<id>` y la clave única de los usuarios demo (`demo1234`). Nunca en producción |
 | `NEXT_PUBLIC_FECHA_FIJA` | `AAAA-MM-DD` | Fija «hoy» en la fecha de los datos de prueba (pruebas visuales) |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | | Conexiones personales de Jarvis (9 nov): cliente OAuth de tipo **Aplicación web** (no el de escritorio de Drive) con la URI de redirección `{PORTAL_URL}/api/v1/conexiones/google-drive/vuelta` y el alcance `drive.readonly`. Sin ellas, «Conectar» sale como no disponible |
+| `BOVEDA_SECRETO` | 32 caracteres o más | Opcional: cifra el nombre, el usuario y la web de los accesos de la bóveda (las contraseñas se cifran en el navegador). Si falta, se deriva de `SESION_SECRETO` |
 | `CONEXIONES_SECRETO` | 32 caracteres o más | Opcional: cifra los permisos de las conexiones (AES-256-GCM). Si falta, se deriva de `SESION_SECRETO`; cambiar cualquiera de los dos obliga a reconectar |
 
 **Taller web (fase 19).** `GET|PUT /servicios-contratados/{id}/taller-web` y sus pasos (`capturas`, `analisis`,

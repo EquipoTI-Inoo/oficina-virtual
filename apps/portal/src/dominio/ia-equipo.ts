@@ -139,7 +139,7 @@ export const sinBloqueTrabajo = (texto: string) => texto.replace(/⟦trabajo⟧[
 
 /** Primer mensaje de un bot recién creado (lo muestra el portal; el bot sigue desde ahí). */
 export const saludoInicial = (nombre: string) =>
-  `¡Hola! Soy ${nombre}. Antes de empezar quiero entender bien en qué te voy a ayudar. ¿Para qué me vas a usar?`;
+  `¡Hola! Soy ${nombre}. Antes de empezar quiero entender bien cómo puedo ayudarte. ¿Qué tareas te gustaría que haga?`;
 
 /**
  * Lo que Hermes recibe como sistema en cada mensaje: quién es el bot y cuál es su trabajo. Sin trabajo todavía,
@@ -174,7 +174,7 @@ Todavía no tienes trabajo definido: ayuda con lo que te pidan y sugiere configu
   if (!trabajo) {
     return `${base}
 
-Acabas de ser creado y todavía no tienes trabajo definido. Ya le preguntaste a la persona «¿Para qué me vas a usar?». Entrevístala para configurarte: haz una o dos preguntas por mensaje (qué tareas concretas, con qué clientes o proyectos, cada cuánto, qué tono y formato prefiere, qué no debes hacer). No hagas más de seis preguntas en total. Cuando tengas suficiente, resume en pocas líneas cómo vas a trabajar y pregúntale si está bien. Cuando lo confirme, ${formato}`;
+Acabas de ser creado y todavía no tienes trabajo definido. Ya le preguntaste a la persona «¿Qué tareas te gustaría que haga?». Entrevístala para configurarte: haz una o dos preguntas por mensaje (qué tareas concretas, con qué clientes o proyectos, cada cuánto, qué tono y formato prefiere, qué no debes hacer). No hagas más de seis preguntas en total. Cuando tengas suficiente, resume en pocas líneas cómo vas a trabajar y pregúntale si está bien. Cuando lo confirme, ${formato}`;
   }
   return `${base}
 
