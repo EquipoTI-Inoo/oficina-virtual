@@ -168,11 +168,12 @@ export async function completarEquipo(
   almacen: AlmacenPasarela,
   p: { usuarioId: string; area: Area | null; sistema: string; mensaje: string; maxTokens: number },
 ): Promise<string | null> {
-  if (!p.area) return null;
+  // 9 nov: cada motivo para no usar la IA queda en el registro (antes caía al borrador por reglas sin aviso).
+  if (!p.area) return console.warn("[pasarela-ia] sin IA: la persona no tiene área"), null;
   const clave = claveDeepSeek(p.area);
-  if (!clave) return null;
+  if (!clave) return console.warn("[pasarela-ia] sin IA: falta DEEPSEEK_API_KEY"), null;
   const s = await almacen.situacion(p.area, new Date());
-  if (estadoArea(s.gastoDiaUsd, s.gastoMesUsd, s.topes).pausado) return null;
+  if (estadoArea(s.gastoDiaUsd, s.gastoMesUsd, s.topes).pausado) return console.warn(`[pasarela-ia] sin IA: el área ${p.area} llegó a su tope`), null;
   const modelo = "deepseek-flash";
   try {
     const r = await fetch(`${urlDeepSeek()}/chat/completions`, {
@@ -181,6 +182,9 @@ export async function completarEquipo(
       body: JSON.stringify({
         model: modelo,
         max_tokens: p.maxTokens,
+        // 9 nov: Flash ahora razona antes de responder y se gastaba el límite pensando: devolvía la respuesta vacía.
+        // Para sacar datos de una transcripción no hace falta razonar (más rápido y más barato).
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: p.sistema }, { role: "user", content: p.mensaje }],
       }),
@@ -196,7 +200,9 @@ export async function completarEquipo(
       const fecha = new Date();
       await almacen.registrar({ usuarioId: p.usuarioId, area: p.area, modelo, ...uso, costoUsd: costoLlamada(modelo, uso, fecha), horaPico: esHoraPico(fecha), creadoEn: fecha.toISOString() });
     }
-    return j.choices?.[0]?.message?.content ?? null;
+    const texto = j.choices?.[0]?.message?.content ?? "";
+    if (!texto.trim()) console.warn("[pasarela-ia] DeepSeek devolvió la respuesta vacía", (j.choices?.[0] as { finish_reason?: string } | undefined)?.finish_reason ?? "");
+    return texto.trim() ? texto : null;
   } catch (e) {
     console.error("[pasarela-ia] DeepSeek no respondió", (e as Error).message);
     return null;

@@ -7128,8 +7128,12 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
       return datos === null || datos === undefined ? new Response(null, { status: 204 }) : Response.json(datos, { status });
     });
   } catch (e) {
-    if (e instanceof ErrorApi) return problema(e);
-    const t = traducirErrorDb(e);
+    const t = e instanceof ErrorApi ? e : traducirErrorDb(e);
+    // 9 nov: los rechazos al escribir quedan en el registro (método, ruta, código y campos; nunca los valores), para
+    // saber por qué «no funciona» un botón.
+    if (t && req.method !== "GET" && t.status !== 401) {
+      console.warn(`[api] ${req.method} ${camino.replace(/[0-9a-f-]{36}/gi, ":id")} → ${t.status} ${t.codigo}${t.errores?.length ? ` (${t.errores.map((x) => x.campo).join(", ")})` : ""}`);
+    }
     if (t) return problema(t);
     console.error(e);
     return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));

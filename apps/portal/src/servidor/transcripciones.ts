@@ -11,13 +11,13 @@ import { completarEquipo, type AlmacenPasarela } from "./pasarela-ia";
 export interface QuienPide { usuarioId: string; area: Area | null }
 
 export async function proponerAlta(almacen: AlmacenPasarela, quien: QuienPide, transcripcion: string): Promise<{ propuesta: PropuestaAlta; conIa: boolean }> {
-  const t = await completarEquipo(almacen, { ...quien, sistema: SISTEMA_ALTA, mensaje: transcripcion, maxTokens: 1200 });
+  const t = await completarEquipo(almacen, { ...quien, sistema: SISTEMA_ALTA, mensaje: transcripcion, maxTokens: 4000 });
   const j = t ? jsonDe(t) : null;
   return j ? { propuesta: normalizarAlta(j), conIa: true } : { propuesta: altaPorReglas(transcripcion), conIa: false };
 }
 
 export async function proponerResumen(almacen: AlmacenPasarela, quien: QuienPide, transcripcion: string): Promise<{ propuesta: PropuestaResumen; conIa: boolean }> {
-  const t = await completarEquipo(almacen, { ...quien, sistema: SISTEMA_RESUMEN, mensaje: transcripcion, maxTokens: 1200 });
+  const t = await completarEquipo(almacen, { ...quien, sistema: SISTEMA_RESUMEN, mensaje: transcripcion, maxTokens: 4000 });
   const j = t ? jsonDe(t) : null;
   const p = j ? normalizarResumen(j) : null;
   return p ? { propuesta: p, conIa: true } : { propuesta: resumenPorReglas(transcripcion), conIa: false };

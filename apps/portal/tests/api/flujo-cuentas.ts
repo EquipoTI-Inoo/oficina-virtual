@@ -90,6 +90,18 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
       assert.ok(sinNadie.json.errores?.some((e: any) => e.campo === "responsableId") || sinNadie.status === 404, "sin responsable no se contrata");
     });
 
+    test("alta por un account manager de Administración con nivel ADMIN (9 nov): crea el cliente, su acceso y sus proyectos", async () => {
+      await reiniciar();
+      const ADMIN = `demo.${uid(1, 4)}`;
+      // Como Joaquín: rol de account manager, área Administración y nivel Administrador elegido por un super usuario.
+      assert.equal((await llamar("PATCH", `/panel/equipo/${uid(1, 3)}`, ADMIN, { area: "ADMINISTRACION", nivel: "ADMIN" })).status, 200);
+      const ingreso = { servicios: ["Branding", "Social Media"], objetivos: "Lanzar la marca", fechaReunionBrief: "2026-11-20", paqueteBranding: "Paquete 03 (Rebranding)", paqueteSocial: "Pro óptimo", redes: "https://instagram.com/sol" };
+      const r = await llamar("POST", "/clientes", DIEGO, { nombre: "Ferretería Sol", limiteGastoIaUsd: 25, canales: ["INSTAGRAM"], ingreso, responsableProyectosId: uid(1, 6), contacto: { nombre: "Ana Sol", email: "ana@ferresol.pe" } }, { "idempotency-key": "alta-ferreteria-sol" });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.equal(r.json.proyectosCreados, 2);
+      assert.ok((await llamar("GET", `/clientes/${r.json.id}`, DIEGO)).status === 200, "la ve después de crearla");
+    });
+
     test("alta: solo AM/ADMIN, valida, no duplica y no usa correos del equipo", async () => {
       await reiniciar();
       assert.equal((await llamar("POST", "/clientes", VALERIA, { nombre: "Nueva" })).status, 403);

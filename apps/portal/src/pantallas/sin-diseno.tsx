@@ -467,6 +467,9 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>(abierto ? "/formularios/ingreso-cliente" : null);
   const [ingreso, setIngreso] = useState<Record<string, unknown>>({});
   const [err, setErr] = useState<Record<string, string>>({});
+  // 9 nov: todo lo que impide crear el cliente se ve junto al botón (antes, un error en un campo lejano parecía «no pasa nada»).
+  const [motivos, setMotivos] = useState<string[]>([]);
+  const [creando, setCreando] = useState(false);
   // 6 nov: lo marcado en «Servicios contratados» se crea como proyecto; alguien de Inoo tiene que llevarlo.
   const [responsableProyectos, setResponsableProyectos] = useState("");
   const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(abierto ? "/panel/equipo" : null);
@@ -506,7 +509,10 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const erroresIngreso = Object.fromEntries(Object.entries(err).filter(([k]) => k.startsWith("ingreso.")).map(([k, v]) => [k.slice(8), v]));
   const crear = async (e: FormEvent) => {
     e.preventDefault();
+    if (creando) return;
     setErr({});
+    setMotivos([]);
+    setCreando(true);
     try {
       const c = await api<S<"Cliente">>("/clientes", {
         metodo: "POST",
@@ -533,7 +539,10 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
       alCrear(c.id);
     } catch (x) {
       const p = x as ProblemaApi;
-      setErr(p.errores.length ? errores(x) : { nombre: p.titulo });
+      setErr(p.errores?.length ? errores(x) : { nombre: p.titulo });
+      setMotivos(p.errores?.length ? p.errores.map((y) => y.mensaje) : [[p.titulo, p.detalle].filter(Boolean).join(". ") || "No pudimos crear el cliente"]);
+    } finally {
+      setCreando(false);
     }
   };
   return (
@@ -622,8 +631,14 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
             <Ayuda error={err.responsableProyectosId} texto={`Se crean ${conProyecto.length === 1 ? "el proyecto" : `${conProyecto.length} proyectos`} de ${conProyecto.join(", ")} a su cargo.`} />
           </div>
         )}
-        <button className="boton boton--primario">
-          <LuPlus size={16} /> Crear cliente
+        {motivos.length > 0 && (
+          <div role="alert" style={{ border: "1px solid var(--c-alerta)", borderRadius: 12, padding: "10px 14px", display: "grid", gap: 4 }}>
+            <strong className="texto-sm" style={{ color: "var(--c-alerta)" }}>No se creó el cliente:</strong>
+            {[...new Set(motivos)].map((m) => <span key={m} className="texto-sm">· {m}</span>)}
+          </div>
+        )}
+        <button className="boton boton--primario" disabled={creando}>
+          <LuPlus size={16} /> {creando ? "Creando…" : "Crear cliente"}
         </button>
       </form>
     </Modal>
