@@ -3569,6 +3569,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/estrategia": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fase 1 (9 nov): la IA escribe el copywriting (3 heros, textos por página, botones, microcopys y preguntas frecuentes), la matriz de funcionalidades y los pendientes; y la propuesta de valor y los KPIs si faltan */
+        post: operations["generarEstrategiaWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/taller-web/materiales": {
         parameters: {
             query?: never;
@@ -4443,6 +4462,8 @@ export interface components {
             analizadaEn: string | null;
             /** @description Promedio de los puntajes con un decimal */
             puntajeGlobal: number | null;
+            /** @description 9 nov: puntos numerados sobre las capturas (verde lo que tomamos, rojo lo que evitamos) */
+            marcas?: components["schemas"]["MarcaCaptura"][];
         };
         PuntoTaller: {
             titulo: string;
@@ -4500,6 +4521,68 @@ export interface components {
             version: number;
             formato: components["schemas"]["FormatoEntregable"];
         };
+        MarcaCaptura: {
+            /** @description Número de la marca (primero lo que tomamos) */
+            n: number;
+            /** @enum {string} */
+            tipo: "TOMAR" | "EVITAR";
+            captura: components["schemas"]["DispositivoWeb"];
+            /** @description Porcentaje desde la izquierda (2 a 98) */
+            x: number;
+            /** @description Porcentaje desde arriba (2 a 98) */
+            y: number;
+            texto: string;
+        };
+        /** @description Fase 1 (9 nov): lo que pide el proyecto, el copywriting, la matriz de funcionalidades y los pendientes por validar */
+        EstrategiaWeb: {
+            especificaciones: {
+                catalogo: {
+                    categorias: string[];
+                    atributos: string[];
+                    conPrecio: boolean | null;
+                    cantidad: number | null;
+                };
+                whatsapp: {
+                    numero: string | null;
+                    campos: {
+                        nombre: string;
+                        obligatorio: boolean;
+                    }[];
+                };
+            };
+            copy: {
+                heros: {
+                    titulo: string;
+                    subtitulo: string;
+                    cta: string;
+                }[];
+                paginas: {
+                    pagina: string;
+                    bloques: {
+                        nombre: string;
+                        texto: string;
+                    }[];
+                }[];
+                ctas: string[];
+                microcopys: {
+                    momento: string;
+                    texto: string;
+                }[];
+                faq: {
+                    pregunta: string;
+                    respuesta: string;
+                }[];
+            } | null;
+            funcionalidades: {
+                nombre: string;
+                descripcion: string;
+                /** @enum {string} */
+                prioridad: "IMPRESCINDIBLE" | "DESEABLE";
+            }[];
+            pendientes: string[];
+            /** Format: date-time */
+            generadaEn: string | null;
+        };
         /** @enum {string} */
         TipoMaterialTaller: "LOGO" | "MANUAL" | "TRANSCRIPCION" | "OTRO";
         MaterialTaller: {
@@ -4540,11 +4623,22 @@ export interface components {
                 logoUrl?: string | null;
                 /** @description Enlace al manual de marca */
                 manualUrl?: string | null;
+                /** @description 9 nov (fase 1) */
+                propuestaValor?: string | null;
+                /** @description 9 nov (fase 1): indicadores del sitio con su meta */
+                kpis?: string[];
             };
             /** @description Los campos de insumos que el equipo corrigió (el resto sale del brief) */
             insumosEditados: string[];
             /** @description 9 nov: logo, manual, transcripción y otros archivos del cliente */
             materiales: components["schemas"]["MaterialTaller"][];
+            estrategia: components["schemas"]["EstrategiaWeb"];
+            /** @description La fase 1 se cierra cuando el cliente aprueba su PDF; sin eso, el prototipo y la demo piden sinAprobacion: true */
+            fase1: {
+                /** @enum {string|null} */
+                estadoDocumento: "EN_PREPARACION" | "LISTO_REVISION" | "CAMBIOS_SOLICITADOS" | "APROBADO" | null;
+                aprobada: boolean;
+            };
             dimensiones: {
                 codigo: components["schemas"]["DimensionBenchmark"];
                 nombre: string;
@@ -4584,6 +4678,8 @@ export interface components {
             actualizadoEn: string;
         };
         TallerWebEdicion: {
+            /** @description 9 nov: especificaciones, copy, funcionalidades y pendientes (lo que viene reemplaza; lo que no, sigue igual) */
+            estrategia?: Record<string, never>;
             version: number;
             /** @description Lo que el equipo corrige de lo que se sacó del brief y la marca (8 nov). Cada campo presente reemplaza al del brief; null vuelve todo al brief */
             ajustes?: {
@@ -14891,6 +14987,8 @@ export interface operations {
                      * @enum {string}
                      */
                     alcance?: "PAGINA" | "SITIO";
+                    /** @description 9 nov: generar aunque el cliente no haya aprobado la fase 1 (si no, 409 FASE1_SIN_APROBAR) */
+                    sinAprobacion?: boolean;
                     /**
                      * @description CLAUDE (6 nov): Claude escribe el HTML de cada página con su prompt (con SITIO, una llamada por página) y el navegador lo fotografía
                      * @default STITCH
@@ -14931,6 +15029,29 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+        };
+    };
+    generarEstrategiaWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            409: components["responses"]["Conflicto"];
         };
     };
     subirMaterialTaller: {
@@ -15050,6 +15171,8 @@ export interface operations {
                      * @enum {string}
                      */
                     origen?: "GENERAR" | "HTML";
+                    /** @description 9 nov: generar aunque el cliente no haya aprobado la fase 1 (si no, 409 FASE1_SIN_APROBAR) */
+                    sinAprobacion?: boolean;
                     /** @description Solo con origen HTML (hasta 1,5 MB) */
                     html?: string;
                     /** @default 7 */

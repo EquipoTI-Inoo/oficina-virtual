@@ -614,7 +614,7 @@ describe("taller web: archivos en S3 o en la base · solo backend real", () => {
   test("con S3 la demo va al bucket y se sirve igual, con sus protecciones", async () => {
     await reiniciar();
     await llamar("POST", `${RUTA}/flujograma`, DIEGO);
-    const demo = (await llamar("POST", `${RUTA}/demos`, DIEGO, {})).json.taller.demos[0];
+    const demo = (await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true,})).json.taller.demos[0];
     const fila = await ultimo();
     assert.match(fila.s3_key ?? "", new RegExp(`^taller/${CASA_OLIVA}/${uid(4, 4)}/[0-9a-f]{64}$`));
     assert.equal(fila.en_base, false, "la base guarda solo la clave");
@@ -632,7 +632,7 @@ describe("taller web: archivos en S3 o en la base · solo backend real", () => {
     delete process.env.S3_BUCKET;
     try {
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);
-      const demo = (await llamar("POST", `${RUTA}/demos`, DIEGO, {})).json.taller.demos[0];
+      const demo = (await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true,})).json.taller.demos[0];
       assert.deepEqual(await ultimo(), { s3_key: null, en_base: true });
       assert.equal((await llamar("GET", `/publico/${demo.url.slice(-64)}`)).status, 200);
     } finally {

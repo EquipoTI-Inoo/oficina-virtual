@@ -26,9 +26,9 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       await llamar("POST", `${RUTA}/capturas`, DIEGO);
       await llamar("POST", `${RUTA}/analisis`, DIEGO);
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);
-      await llamar("POST", `${RUTA}/prototipo`, DIEGO);
+      await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true });
       await llamar("POST", `${RUTA}/documento`, DIEGO, { nota: "Sumamos tres referencias y el checkout." });
-      await llamar("POST", `${RUTA}/demos`, DIEGO, { nota: "Primera versión navegable." });
+      await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true, nota: "Primera versión navegable." });
       await llamar("POST", `/entregables/${FLUJOGRAMA}/enviar`, DIEGO);
       await llamar("POST", `/entregables/${PROTOTIPO}/enviar`, DIEGO);
 
@@ -138,9 +138,9 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
 
     test("prototipo: sale del flujograma; pantallas de relleno sin Stitch", async () => {
       await reiniciar();
-      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO)).json.codigo, "TALLER_SIN_FLUJOGRAMA");
+      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true })).json.codigo, "TALLER_SIN_FLUJOGRAMA");
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);
-      const p = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { dispositivo: "MOVIL" });
+      const p = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, dispositivo: "MOVIL" });
       assert.equal(p.status, 201);
       assert.equal(p.json.simulado, true);
       const pantalla = p.json.taller.prototipo.pantallas[0];
@@ -148,16 +148,16 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal(p.json.taller.prototipo.prompt, null, "generar no guarda un prompt propio");
       assert.match(pantalla.prompt, /# Pantalla a diseñar\nPágina: Inicio — Presentación, propuesta de valor y destacados\.\nDispositivo: móvil \(390 px de ancho\)\./, "sin prompt va el estándar");
 
-      const ficha = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { paginaId: "ficha-producto" });
+      const ficha = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, paginaId: "ficha-producto" });
       const p2 = ficha.json.taller.prototipo.pantallas[1];
       assert.deepEqual([p2.nombre, p2.paginaId], ["Ficha de producto · escritorio", "ficha-producto"]);
       assert.match(p2.prompt, /Página: Ficha de producto \(se llega desde Tienda\)/);
       assert.match(p2.prompt, /1\. Galería de fotos\n2\. Precio y variantes/);
 
-      const propio = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { prompt: "Una landing minimalista", paginaId: "contacto" });
+      const propio = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, prompt: "Una landing minimalista", paginaId: "contacto" });
       assert.equal(propio.json.taller.prototipo.pantallas[2].prompt, "Una landing minimalista", "el prompt editado a mano va tal cual");
-      assert.deepEqual((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { paginaId: "no-existe" })).json.errores.map((e: any) => e.campo), ["paginaId"]);
-      const largo = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { prompt: "x".repeat(30_001) });
+      assert.deepEqual((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, paginaId: "no-existe" })).json.errores.map((e: any) => e.campo), ["paginaId"]);
+      const largo = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, prompt: "x".repeat(30_001) });
       assert.equal(largo.status, 422);
     });
 
@@ -165,24 +165,24 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       await reiniciar();
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);
       const flujo = (await llamar("GET", RUTA, DIEGO)).json.flujograma as { id: string; titulo: string }[];
-      assert.deepEqual((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { generador: "FIGMA" })).json.errores.map((e: any) => e.campo), ["generador"]);
-      const una = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { generador: "CLAUDE", paginaId: "contacto", dispositivo: "MOVIL" });
+      assert.deepEqual((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, generador: "FIGMA" })).json.errores.map((e: any) => e.campo), ["generador"]);
+      const una = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, generador: "CLAUDE", paginaId: "contacto", dispositivo: "MOVIL" });
       assert.equal(una.status, 201);
       const p = una.json.taller.prototipo.pantallas[0];
       assert.deepEqual([p.generador, p.paginaId, p.dispositivo, p.simulada], ["CLAUDE", "contacto", "MOVIL", true]);
       assert.match(p.prompt, /Página: Contacto/);
-      const sitio = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { generador: "CLAUDE", alcance: "SITIO" });
+      const sitio = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, generador: "CLAUDE", alcance: "SITIO" });
       const ps = (sitio.json.taller.prototipo.pantallas as any[]).slice(1);
       assert.deepEqual(ps.map((x) => x.paginaId), flujo.map((x) => x.id).slice(0, ps.length));
       assert.equal(new Set(ps.map((x) => x.prompt)).size, ps.length, "cada página con su propio prompt");
-      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { paginaId: "contacto" })).json.taller.prototipo.pantallas.at(-1).generador, "STITCH", "por defecto, Stitch");
+      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, paginaId: "contacto" })).json.taller.prototipo.pantallas.at(-1).generador, "STITCH", "por defecto, Stitch");
     });
 
     test("prototipo de todo el sitio: un solo prompt con todas las páginas y una pantalla por página, hasta el tope", async () => {
       await reiniciar();
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);
       const flujo = (await llamar("GET", RUTA, DIEGO)).json.flujograma as { id: string; titulo: string }[];
-      const r = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO", paginaId: "no-existe" });
+      const r = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, alcance: "SITIO", paginaId: "no-existe" });
       assert.equal(r.status, 201, "con SITIO no se valida la página");
       const ps = r.json.taller.prototipo.pantallas as { nombre: string; paginaId: string; prompt: string }[];
       assert.deepEqual(ps.map((x) => x.paginaId), flujo.map((x) => x.id));
@@ -192,10 +192,10 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       for (const x of flujo) assert.ok(ps[0].prompt.includes(`. ${x.titulo}`), x.titulo);
 
       // Lo que no cabe en el tope no se guarda.
-      while ((await llamar("GET", RUTA, DIEGO)).json.prototipo.pantallas.length < 10) await llamar("POST", `${RUTA}/prototipo`, DIEGO);
-      const tope = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO" });
+      while ((await llamar("GET", RUTA, DIEGO)).json.prototipo.pantallas.length < 10) await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true });
+      const tope = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, alcance: "SITIO" });
       assert.equal(tope.json.taller.prototipo.pantallas.length, 12);
-      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO" })).json.codigo, "LIMITE_PANTALLAS");
+      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, alcance: "SITIO" })).json.codigo, "LIMITE_PANTALLAS");
     });
 
     test("capturas con la plantilla de 21st.dev: se aprueban, van al PDF con el alcance y la plantilla llega a Stitch", async () => {
@@ -237,7 +237,7 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.doesNotMatch(html.replace(/data:image\/[^"]+/g, ""), RASTROS_IA);
 
       // Stitch: el prompt estándar lleva la plantilla y el DESIGN.md, el contenido del PDF.
-      const p = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { alcance: "SITIO" });
+      const p = await llamar("POST", `${RUTA}/prototipo`, DIEGO, { sinAprobacion: true, alcance: "SITIO" });
       assert.match(p.json.taller.prototipo.pantallas[0].prompt, /# Plantilla de referencia \(21st\.dev\)\nEnlace: https:\/\/21st\.dev\/community\/components\/hero/);
       assert.ok(p.json.taller.prototipo.pantallas[0].prompt.includes(PROMPT_21));
       const md = p.json.taller.prototipo.designMd as string;
@@ -280,11 +280,11 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
 
     test("demo: link que vence, sin indexar, aislada, limpia, con vistas y baja", async () => {
       await reiniciar();
-      assert.equal((await llamar("POST", `${RUTA}/demos`, DIEGO, {})).json.codigo, "TALLER_SIN_FLUJOGRAMA");
+      assert.equal((await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true,})).json.codigo, "TALLER_SIN_FLUJOGRAMA");
       await llamar("POST", `${RUTA}/flujograma`, DIEGO);
-      assert.deepEqual((await llamar("POST", `${RUTA}/demos`, DIEGO, { diasVigencia: 0 })).json.errores.map((e: any) => e.campo), ["diasVigencia"]);
+      assert.deepEqual((await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true, diasVigencia: 0 })).json.errores.map((e: any) => e.campo), ["diasVigencia"]);
 
-      const d = await llamar("POST", `${RUTA}/demos`, DIEGO, { diasVigencia: 3 });
+      const d = await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true, diasVigencia: 3 });
       assert.equal(d.status, 201);
       assert.equal(d.json.entregableId, PROTOTIPO, "versiona el prototipo que ya estaba en la etapa");
       const demo = d.json.taller.demos[0];
@@ -303,7 +303,7 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       await llamar("GET", `/publico/${tokenDe(demo.url)}`);
       assert.equal((await llamar("GET", RUTA, DIEGO)).json.demos[0].vistas, 2);
 
-      const propio = await llamar("POST", `${RUTA}/demos`, DIEGO, {
+      const propio = await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true,
         origen: "HTML",
         html: '<!doctype html><html><head><meta name="generator" content="Stitch"><title>Casa Oliva</title></head><body data-stitch-id="a1"><!-- generado con Claude --><main>Hola</main><footer>Made with Stitch</footer></body></html>',
       });
@@ -312,7 +312,7 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.match(html, /<main>Hola<\/main>/);
       assert.equal((await llamar("GET", `/entregables/${PROTOTIPO}`, DIEGO)).json.version, 3, "cada demo es una versión nueva del mismo entregable");
 
-      const notaConIa = await llamar("POST", `${RUTA}/demos`, DIEGO, { nota: "La armamos con Stitch" });
+      const notaConIa = await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true, nota: "La armamos con Stitch" });
       assert.deepEqual([notaConIa.status, notaConIa.json.errores[0].campo], [422, "nota"], "la nota la lee el cliente");
 
       const baja = await llamar("DELETE", `${RUTA}/demos/${demo.id}`, DIEGO);
@@ -396,6 +396,52 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.ok(!sin.json.taller.materiales.some((x: any) => x.id === logoId));
       assert.ok(!sin.json.taller.insumosEditados.includes("logoUrl"), "sin el archivo, el logo vuelve a salir del brief");
       assert.equal((await llamar("DELETE", `${RUTA}/materiales/no-existe`, DIEGO)).status, 404);
+    });
+    test("fase 1 (9 nov): especificaciones, copy, matriz, pendientes y marcas; el prototipo espera la aprobación del cliente", async () => {
+      await reiniciar();
+      const v0 = (await llamar("GET", RUTA, DIEGO)).json;
+      assert.equal(v0.fase1.aprobada, false);
+      assert.deepEqual(v0.estrategia.funcionalidades, []);
+
+      const g = await llamar("PUT", RUTA, DIEGO, {
+        version: v0.version,
+        ajustes: { propuestaValor: "Tu aceite favorito, a un mensaje", kpis: ["Cotizaciones por WhatsApp: 40 al mes"] },
+        estrategia: { especificaciones: { catalogo: { categorias: ["Aceites", "Conservas"], atributos: ["Tamaño"], conPrecio: false, cantidad: 40 }, whatsapp: { numero: "51 999 888 777", campos: [{ nombre: "Nombre", obligatorio: true }, { nombre: "Distrito", obligatorio: false }] } } },
+      });
+      assert.equal(g.status, 200, JSON.stringify(g.json));
+      assert.equal(g.json.insumos.propuestaValor, "Tu aceite favorito, a un mensaje");
+      assert.deepEqual(g.json.estrategia.especificaciones.catalogo.categorias, ["Aceites", "Conservas"]);
+      const malo = await llamar("PUT", RUTA, DIEGO, { version: g.json.version, estrategia: { especificaciones: { whatsapp: { numero: "abc" } } } });
+      assert.equal(malo.status, 422);
+
+      const e = await llamar("POST", `${RUTA}/estrategia`, DIEGO, {});
+      assert.equal(e.status, 200);
+      const est = e.json.taller.estrategia;
+      assert.equal(est.copy.heros.length, 3, "tres opciones de hero");
+      assert.ok(est.funcionalidades.some((f: any) => f.prioridad === "IMPRESCINDIBLE"));
+      assert.ok(est.pendientes.length > 0);
+      assert.deepEqual(est.especificaciones.catalogo.categorias, ["Aceites", "Conservas"], "no pisa lo que pide el proyecto");
+      assert.equal(e.json.taller.insumos.propuestaValor, "Tu aceite favorito, a un mensaje", "no pisa lo que escribió el equipo");
+
+      // Marcas sobre las capturas: se corrigen a mano y se numeran (primero lo que tomamos).
+      const conRefs = (await llamar("GET", RUTA, DIEGO)).json;
+      const ref = conRefs.referencias[0];
+      const m = await llamar("PUT", RUTA, DIEGO, {
+        version: conRefs.version,
+        referencias: conRefs.referencias.map((r: any) => (r.id === ref.id ? { ...r, marcas: [{ tipo: "EVITAR", captura: "ESCRITORIO", x: 150, y: 40, texto: "Banner que tapa el buscador" }, { tipo: "TOMAR", captura: "MOVIL", x: 30, y: 20, texto: "Menú simple" }] } : r)),
+      });
+      const marcas = m.json.referencias.find((r: any) => r.id === ref.id).marcas;
+      assert.deepEqual(marcas.map((x: any) => [x.n, x.tipo, x.x]), [[1, "TOMAR", 30], [2, "EVITAR", 98]]);
+
+      // El prototipo y la demo esperan que el cliente apruebe la fase 1.
+      await llamar("POST", `${RUTA}/flujograma`, DIEGO, {});
+      assert.equal((await llamar("POST", `${RUTA}/prototipo`, DIEGO, {})).json.codigo, "FASE1_SIN_APROBAR");
+      assert.equal((await llamar("POST", `${RUTA}/demos`, DIEGO, {})).json.codigo, "FASE1_SIN_APROBAR");
+      const doc = await llamar("POST", `${RUTA}/documento`, DIEGO, {});
+      assert.equal(doc.status, 201);
+      assert.ok(doc.json.taller.documento, "el PDF queda como entregable");
+      assert.ok(doc.json.taller.fase1.estadoDocumento !== "APROBADO", "hasta que el cliente lo apruebe");
+      assert.equal((await llamar("POST", `${RUTA}/demos`, DIEGO, { sinAprobacion: true })).status, 201, "el equipo puede seguir sin la aprobación");
     });
   });
 }

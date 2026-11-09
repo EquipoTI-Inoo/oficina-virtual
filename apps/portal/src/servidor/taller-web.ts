@@ -6,11 +6,12 @@
  * La IA de estos pasos es de Inoo, no del cliente: se paga como costo interno (solo queda en el log, como
  * el resto de ia-modelos) y nada de lo que llega al cliente la delata (limpiarHtml, PDF sin metadatos de IA).
  */
+import { ESQUEMA_ESTRATEGIA, estrategiaSimulada, estrategiaVacia, marcasSimuladas, normalizarCopy, normalizarFuncionalidades, normalizarMarcas, SISTEMA_ESTRATEGIA, sumarEspecificaciones, textoEspecificaciones, validarEstrategia, type Estrategia } from "../dominio/taller-fases";
 import {
   analisisSimulado, capturaSimulada, conNoindex, demoSimulada, DIMENSIONES, dimensionesPara, ESQUEMA_FLUJOGRAMA, ESQUEMA_SINTESIS, esquemaAnalisis, flujogramaSimulado,
   informeHtml, interpretarJson, LIMITES_TALLER, limpiarHtml, mencionaIa, mensajeAnalisis, mensajeDemo, mensajeFlujograma, mensajeSintesis, paginaParaPrompt, pantallaSimulada, promptStitch, promptStitchSitio, puntajeGlobal,
   SISTEMA_ANALISIS, SISTEMA_BOCETO, SISTEMA_PROTOTIPO, GENERADORES_PROTOTIPO, type GeneradorPrototipo, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
-  designMdStitch, huella, mensajeBoceto, conAjustes, type AjustesTaller, validarMaterial, MAX_MATERIALES, MAX_TEXTO_MATERIAL, SISTEMA_BRIEF_WEB, normalizarBriefWeb, briefPorReglas, type MaterialGuardado,
+  designMdStitch, huella, mensajeBoceto, conAjustes, textoInsumos, type AjustesTaller, validarMaterial, MAX_MATERIALES, MAX_TEXTO_MATERIAL, SISTEMA_BRIEF_WEB, normalizarBriefWeb, briefPorReglas, type MaterialGuardado,
   type Boceto, type Captura, type Dimension, type Plantilla, type Dispositivo, type Insumos, type PaginaFlujo, type PantallaPrototipo, type Puntaje, type Punto, type Referencia,
 } from "../dominio/taller-web";
 import { ErrorIa, generar, motivoSimulado, type ImagenIa } from "./ia-modelos";
@@ -106,7 +107,7 @@ export async function analizarBenchmark(referencias: Referencia[], dimensiones: 
       const b = await bytesDe(c.url, almacen);
       if (b && /^image\/(jpeg|png|webp)$/.test(b.mime)) imagenes.push({ mime: b.mime as ImagenIa["mime"], base64: aBase64(b.bytes) });
     }
-    const sim = analisisSimulado(ref, dimensiones);
+    const sim = { ...analisisSimulado(ref, dimensiones), marcas: marcasSimuladas(ref.nombre) };
     const r = await generar({
       modelo: "CLAUDE_SONNET",
       sistema: SISTEMA_ANALISIS,
@@ -117,13 +118,15 @@ export async function analizarBenchmark(referencias: Referencia[], dimensiones: 
     });
     simulado &&= r.simulado;
     costoUsd += r.costoUsd;
-    const j = interpretarJson<{ puntajes?: Puntaje[]; resumen?: string }>(r.texto);
+    const j = interpretarJson<{ puntajes?: Puntaje[]; resumen?: string; marcas?: unknown }>(r.texto);
     const puntajes = dimensiones.map((d) => {
       const p = j?.puntajes?.find((x) => x.dimension === d);
       const n = Math.round(Number(p?.puntaje));
       return n >= 1 && n <= 5 ? { dimension: d, puntaje: n, comentario: String(p!.comentario ?? "").slice(0, 160) } : sim.puntajes.find((x) => x.dimension === d)!;
     });
-    analizadas.push({ ...ref, puntajes, resumen: (j?.resumen ?? sim.resumen).slice(0, 600), analizadaEn: ahora });
+    // 9 nov: los puntos numerados sobre las capturas; sin capturas reales, no hay dónde marcar.
+    const marcas = imagenes.length ? normalizarMarcas(j?.marcas) : r.simulado ? sim.marcas : [];
+    analizadas.push({ ...ref, puntajes, resumen: (j?.resumen ?? sim.resumen).slice(0, 600), analizadaEn: ahora, marcas });
   }
   const s = await sintetizar(insumos, analizadas);
   return { referencias: analizadas, ...s, simulado: simulado && s.simulado, costoUsd: costoUsd + s.costoUsd };
@@ -182,6 +185,8 @@ export async function armarDocumento(p: {
   insumos: Insumos; dominio: string | null; dimensiones: Dimension[]; referencias: Referencia[]; hallazgos: Punto[]; recomendaciones: Punto[]; flujograma: PaginaFlujo[];
   /** Solo las aprobadas por el equipo. */
   bocetos?: Boceto[];
+  /** 9 nov: la fase 1 completa (copy, matriz, pendientes, catálogo y WhatsApp). */
+  estrategia?: Estrategia | null;
 }, almacen: AlmacenArchivos): Promise<Documento> {
   const src = async (r: Referencia, tipo: "ESCRITORIO" | "MOVIL") => {
     const c = r.capturas.find((x) => x.tipo === tipo);
@@ -197,9 +202,9 @@ export async function armarDocumento(p: {
   }
   const html = limpiarHtml(informeHtml({
     marca: p.insumos.marca, dominio: p.dominio, dimensiones: p.dimensiones, referencias, hallazgos: p.hallazgos, recomendaciones: p.recomendaciones, flujograma: p.flujograma,
-    fecha: new Date().toISOString().slice(0, 10), insumos: p.insumos, bocetos,
+    fecha: new Date().toISOString().slice(0, 10), insumos: p.insumos, bocetos, estrategia: p.estrategia ?? null,
   }));
-  const base = `${bocetos.length ? "propuesta-web" : "benchmark-y-flujograma"}-${p.insumos.marca.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const base = `fase-1-estrategia-y-alcance-${p.insumos.marca.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   if (navegadorReal()) {
     return { bytes: await pdfDesdeHtml(html), mime: "application/pdf", nombre: `${base}.pdf`, formato: "PDF" };
   }
@@ -316,13 +321,15 @@ export async function generarPantallaClaude(p: {
 /** HTML final de la demo: generado (Claude, con el HTML de Stitch como guía) o el que pegó el equipo, siempre limpio. */
 export async function armarDemo(p: {
   insumos: Insumos; flujograma: PaginaFlujo[]; recomendaciones: Punto[]; origen: "GENERAR" | "HTML"; html: string | null; htmlStitchUrl: string | null;
+  /** 9 nov: el copy, el catálogo, el WhatsApp y las funcionalidades de la fase 1. */
+  estrategia?: Estrategia | null;
 }, almacen: AlmacenArchivos): Promise<{ html: string; simulado: boolean; costoUsd: number }> {
   if (p.origen === "HTML") return { html: conNoindex(limpiarHtml(p.html!)), simulado: false, costoUsd: 0 };
   const guia = p.htmlStitchUrl ? await almacen.leer(p.htmlStitchUrl) : null;
   const r = await generar({
     modelo: "CLAUDE_SONNET",
     sistema: SISTEMA_DEMO,
-    mensajes: [{ rol: "user", texto: mensajeDemo(p.insumos, p.flujograma, p.recomendaciones, guia ? new TextDecoder().decode(guia.bytes) : null) }],
+    mensajes: [{ rol: "user", texto: mensajeDemo(p.insumos, p.flujograma, p.recomendaciones, guia ? new TextDecoder().decode(guia.bytes) : null, p.estrategia) }],
     maxTokens: LIMITES_TALLER.tokensDemo,
     simulado: () => demoSimulada(p.insumos, p.flujograma),
   });
@@ -393,6 +400,8 @@ export interface EstadoTaller {
     ajustes?: AjustesTaller | null;
     /** 9 nov: los archivos del cliente que subió el equipo (logo, manual, transcripción y otros). */
     materiales?: MaterialGuardado[];
+    /** 9 nov (fase 1): lo que pide el proyecto, el copywriting, la matriz de funcionalidades y los pendientes. */
+    estrategia?: Estrategia;
   };
   documentoEntregableId: string | null;
   demoEntregableId: string | null;
@@ -456,6 +465,16 @@ async function cargar(repo: RepoTaller): Promise<EstadoTaller> {
   return inicial;
 }
 
+/** 9 nov: la fase 1 está cerrada cuando el cliente aprobó su PDF (el entregable). */
+async function fase1Aprobada(repo: RepoTaller, e: EstadoTaller) {
+  return !!e.documentoEntregableId && (await repo.entregable(e.documentoEntregableId))?.estado === "APROBADO";
+}
+/** No se pasa a la alta fidelidad sin la fase 1 aprobada, salvo que el equipo lo decida (sinAprobacion: true). */
+async function exigirFase1(repo: RepoTaller, e: EstadoTaller, b: Record<string, unknown>) {
+  if (b.sinAprobacion === true || (await fase1Aprobada(repo, e))) return;
+  throw new ErrorTaller(409, "FASE1_SIN_APROBAR", "El cliente todavía no aprueba la fase 1", "Envíale el PDF de Estrategia y alcance y espera su aprobación, o continúa igual si ya lo conversaron.");
+}
+
 /** Los insumos del proyecto con lo que corrigió el equipo: es lo que usan todos los pasos. */
 const insumosDe = async (repo: RepoTaller, e: EstadoTaller) => conAjustes(await repo.insumos(), e.prototipo.ajustes);
 
@@ -477,6 +496,7 @@ export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
       marca: insumos.marca, objetivo: insumos.objetivo, publico: insumos.publico, secciones: insumos.secciones, resumenReunion: insumos.resumenReunion, alcance: insumos.alcance, cms: insumos.cms,
       mensajeCentral: insumos.mensajeCentral, tono: insumos.tono, paleta: insumos.paleta ?? [], tipografias: insumos.tipografias ?? [],
       logoUrl: insumos.logoUrl ?? null, manualUrl: insumos.manualUrl ?? null,
+      propuestaValor: insumos.propuestaValor ?? null, kpis: insumos.kpis ?? [],
     },
     insumosEditados: Object.keys(e.prototipo.ajustes ?? {}),
     dimensiones: nombresDimensiones(dimensionesPara(repo.servicio.variante)),
@@ -491,6 +511,8 @@ export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
     plantilla: e.prototipo.plantilla,
     bocetos: e.prototipo.bocetos,
     materiales: (e.prototipo.materiales ?? []).map(({ texto: _t, ...m }) => m),
+    estrategia: e.prototipo.estrategia ?? estrategiaVacia(),
+    fase1: { estadoDocumento: (await resumen(e.documentoEntregableId))?.estado ?? null, aprobada: await fase1Aprobada(repo, e) },
     documento: await resumen(e.documentoEntregableId),
     demoEntregable: await resumen(e.demoEntregableId),
     demos: await repo.demos(),
@@ -535,7 +557,7 @@ function nota(v: unknown): string | null {
   return t;
 }
 
-export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO" | "MATERIAL" | "QUITAR_MATERIAL" | "BRIEF_TRANSCRIPCION";
+export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO" | "MATERIAL" | "QUITAR_MATERIAL" | "BRIEF_TRANSCRIPCION" | "ESTRATEGIA";
 
 /**
  * Todas las operaciones del taller (rutas /servicios-contratados/{id}/taller-web/*). El backend ya validó
@@ -578,6 +600,33 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         return resultado(e);
       }
 
+      // 9 nov (fase 1): copywriting, matriz de funcionalidades, pendientes, propuesta de valor y KPIs.
+      case "ESTRATEGIA": {
+        const ins = await insumosDe(repo, e);
+        const previa = e.prototipo.estrategia ?? estrategiaVacia();
+        const paginas = e.flujograma.map((p) => `${"  ".repeat(p.nivel)}- ${p.titulo}: ${p.secciones.join(" · ")}`).join("\n");
+        const refs = e.referencias.filter((r) => r.resumen).map((r) => `- ${r.nombre}: ${r.resumen}`).join("\n");
+        const mensaje = [
+          textoInsumos(ins), textoEspecificaciones(previa.especificaciones) && `Lo que necesita el proyecto:\n${textoEspecificaciones(previa.especificaciones)}`,
+          paginas && `Flujograma:\n${paginas}`, e.recomendaciones.length && `Recomendaciones UX:\n${e.recomendaciones.map((r) => `- ${r.titulo}: ${r.texto}`).join("\n")}`,
+          refs && `Benchmark:\n${refs}`, "Responde en JSON.",
+        ].filter(Boolean).join("\n\n");
+        const sim = estrategiaSimulada(ins.marca, e.flujograma.map((p) => p.titulo));
+        const r = await generar({ modelo: "CLAUDE_SONNET", sistema: SISTEMA_ESTRATEGIA, mensajes: [{ rol: "user", texto: mensaje }], maxTokens: 8000, esquema: ESQUEMA_ESTRATEGIA, simulado: () => JSON.stringify(sim) });
+        const j = interpretarJson<Record<string, unknown>>(r.texto) ?? (sim as unknown as Record<string, unknown>);
+        const copy = normalizarCopy(j.copy) ?? sim.copy;
+        const funcionalidades = normalizarFuncionalidades(j.funcionalidades);
+        const pendientes = Array.isArray(j.pendientes) ? (j.pendientes as unknown[]).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim().slice(0, 300)).slice(0, 20) : sim.pendientes;
+        const estrategia: Estrategia = { ...previa, copy, funcionalidades: funcionalidades.length ? funcionalidades : sim.funcionalidades, pendientes, generadaEn: ahoraIso() };
+        // La propuesta de valor y los KPIs solo se llenan si el equipo no los escribió.
+        const ajustes: AjustesTaller = { ...(e.prototipo.ajustes ?? {}) };
+        if (!ins.propuestaValor && typeof j.propuestaValor === "string" && j.propuestaValor.trim()) ajustes.propuestaValor = j.propuestaValor.trim().slice(0, 600);
+        const kpis = Array.isArray(j.kpis) ? (j.kpis as unknown[]).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim().slice(0, 160)).slice(0, 8) : [];
+        if (!ins.kpis?.length && kpis.length) ajustes.kpis = kpis;
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, estrategia, ajustes: Object.keys(ajustes).length ? ajustes : null } });
+        return resultado(e, { simulado: r.simulado });
+      }
+
       case "QUITAR_MATERIAL": {
         const lista = e.prototipo.materiales ?? [];
         const m = lista.find((x) => x.id === demoId);
@@ -615,7 +664,9 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         // Los sitios que se nombraron en la reunión se suman al benchmark, sin repetir.
         const nuevas = propuesta.referencias.filter((r) => !e.referencias.some((x) => x.url === r.url))
           .map((r): Referencia => ({ id: crypto.randomUUID(), nombre: r.nombre || new URL(r.url).hostname, url: r.url, origen: "BRIEF", capturas: [], puntajes: [], resumen: null, analizadaEn: null }));
-        e = await guardar(repo, e, { prototipo: { ...e.prototipo, ajustes }, ...(nuevas.length ? { referencias: [...e.referencias, ...nuevas] } : {}) });
+        const previa = e.prototipo.estrategia ?? estrategiaVacia();
+        const estrategia: Estrategia = conIa && propuesta.especificaciones ? { ...previa, especificaciones: sumarEspecificaciones(previa.especificaciones, propuesta.especificaciones) } : previa;
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, ajustes, estrategia }, ...(nuevas.length ? { referencias: [...e.referencias, ...nuevas] } : {}) });
         return { ...(await resultado(e, { simulado: !conIa })), completados: Object.keys(propuesta.ajustes), referenciasNuevas: nuevas.length };
       }
 
@@ -624,6 +675,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
           throw new ErrorTaller(409, "VERSION_DESACTUALIZADA", "Alguien más guardó el taller mientras lo editabas", `Editabas la versión ${String(b.version)} y la vigente es la ${e.version}. Recarga para ver sus cambios.`);
         }
         const { errores, datos } = validarEdicion(b, dimensionesPara(repo.servicio.variante));
+        const estrategia = validarEstrategia(b.estrategia, e.prototipo.estrategia ?? estrategiaVacia(), errores);
         if (errores.length) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
         const cambios: Partial<EstadoTaller> = {};
         if (b.referencias !== undefined) {
@@ -634,6 +686,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
             return {
               id: previa?.id ?? crypto.randomUUID(), nombre: r.nombre, url: r.url, origen: previa?.origen ?? "EQUIPO",
               capturas: misma ? previa!.capturas : [], puntajes: r.puntajes, resumen: r.resumen, analizadaEn: misma ? previa!.analizadaEn : null,
+              marcas: r.marcas !== undefined ? r.marcas : misma ? previa!.marcas ?? [] : [],
             };
           });
         }
@@ -645,6 +698,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         if (b.plantilla !== undefined) prototipo = { ...prototipo, plantilla: datos.plantilla };
         if (b.bocetosAprobados !== undefined) prototipo = { ...prototipo, bocetos: prototipo.bocetos.map((x) => ({ ...x, aprobado: datos.bocetosAprobados.includes(x.id) })) };
         if (datos.ajustes !== undefined) prototipo = { ...prototipo, ajustes: datos.ajustes };
+        if (estrategia) prototipo = { ...prototipo, estrategia };
         if (prototipo !== e.prototipo) cambios.prototipo = prototipo;
         return vistaTaller(repo, await guardar(repo, e, cambios));
       }
@@ -700,12 +754,12 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const doc = await armarDocumento({
           insumos: await insumosDe(repo, e), dominio: null, dimensiones: dimensionesPara(repo.servicio.variante),
           referencias: e.referencias.filter(conComentario), hallazgos: e.hallazgos, recomendaciones: e.recomendaciones, flujograma: e.flujograma,
-          bocetos: e.prototipo.bocetos.filter((x) => x.aprobado),
+          bocetos: e.prototipo.bocetos.filter((x) => x.aprobado), estrategia: e.prototipo.estrategia ?? null,
         }, repo.almacen);
         const archivo = await repo.almacen.guardar({ tipo: "DOCUMENTO", mime: doc.mime, nombre: doc.nombre, bytes: doc.bytes });
         const id = await entregar(repo, e.documentoEntregableId, {
-          etapa: /arquitectura|benchmark/i, titulo: "Benchmark y flujograma", patron: /benchmark|flujograma/i, formato: doc.formato,
-          descripcion: "Las referencias que analizamos y la estructura de tu sitio. Revísalo antes de que diseñemos.", url: archivo.url, nombreArchivo: doc.nombre, nota: notaCliente,
+          etapa: /arquitectura|benchmark|estrategia/i, titulo: "Fase 1 · Estrategia y alcance", patron: /benchmark|flujograma|estrategia|fase 1/i, formato: doc.formato,
+          descripcion: "La estrategia, la arquitectura, el benchmark, el copy y el alcance de tu sitio. Apruébalo para que pasemos al diseño.", url: archivo.url, nombreArchivo: doc.nombre, nota: notaCliente,
         });
         e = await guardar(repo, e, { documentoEntregableId: id });
         return { __status: 201, ...(await resultado(e, { simulado: doc.formato !== "PDF", entregableId: id })) };
@@ -713,6 +767,7 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
 
       case "PROTOTIPO": {
         if (!e.flujograma.length) throw new ErrorTaller(409, "TALLER_SIN_FLUJOGRAMA", "Primero arma el flujograma: el prototipo sale de ahí");
+        await exigirFase1(repo, e, b);
         if (e.prototipo.pantallas.length >= MAX_PANTALLAS) throw new ErrorTaller(409, "LIMITE_PANTALLAS", `Hasta ${MAX_PANTALLAS} pantallas por proyecto`);
         const ins = await insumosDe(repo, e);
         const dispositivo: Dispositivo = b.dispositivo === "MOVIL" ? "MOVIL" : "ESCRITORIO";
@@ -754,10 +809,11 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const v = validarDemo(b);
         if (v.errores.length) throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, v.errores);
         if (v.origen === "GENERAR" && !e.flujograma.length) throw new ErrorTaller(409, "TALLER_SIN_FLUJOGRAMA", "Primero arma el flujograma: la demo sale de ahí");
-        const r = await armarDemo({ insumos: await insumosDe(repo, e), flujograma: e.flujograma, recomendaciones: e.recomendaciones, origen: v.origen, html: v.html, htmlStitchUrl: e.prototipo.htmlGuia }, repo.almacen);
+        if (v.origen === "GENERAR") await exigirFase1(repo, e, b);
+        const r = await armarDemo({ insumos: await insumosDe(repo, e), flujograma: e.flujograma, recomendaciones: e.recomendaciones, origen: v.origen, html: v.html, htmlStitchUrl: e.prototipo.htmlGuia, estrategia: e.prototipo.estrategia ?? null }, repo.almacen);
         const demo = await repo.guardarDemo({ html: r.html, venceEn: venceEn(v.dias), simulada: r.simulado });
         const id = await entregar(repo, e.demoEntregableId, {
-          etapa: /^prototipo/i, titulo: "Demo navegable del sitio", patron: /prototipo|demo/i, formato: "PROTOTIPO",
+          etapa: /^prototipo|alta fidelidad|dise[ñn]o/i, titulo: "Prototipo en alta fidelidad", patron: /prototipo|demo/i, formato: "PROTOTIPO",
           descripcion: "Recorre tu sitio como si ya estuviera publicado y cuéntanos qué ajustar.", url: demo.url, nombreArchivo: null, nota: notaCliente,
         });
         e = await guardar(repo, e, { demoEntregableId: id });

@@ -10,7 +10,7 @@
  * contenido del PDF como DESIGN.md, el prompt y la plantilla) → Figma, que lo pasa una persona · 5. Demo.
  */
 import { useEffect, useRef, useState } from "react";
-import { LuCamera, LuFileUp, LuImage, LuMic, LuPaperclip, LuChevronDown, LuChevronUp, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPause, LuPencil, LuPlay, LuPlus, LuRotateCcw, LuSave, LuSparkles, LuTrash2, LuWandSparkles, LuX } from "react-icons/lu";
+import { LuCamera, LuCheck, LuFileUp, LuImage, LuMic, LuPaperclip, LuChevronDown, LuChevronUp, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPause, LuPencil, LuPlay, LuPlus, LuRotateCcw, LuSave, LuSparkles, LuTrash2, LuWandSparkles, LuX } from "react-icons/lu";
 import { api, Enlace, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso } from "../componentes";
 import { leerAdjunto } from "./leer-archivos";
@@ -19,19 +19,21 @@ import { MAX_BYTES_MATERIAL, type TipoMaterial, type AjustesTaller, conAjustes, 
 type Taller = S<"TallerWeb">;
 type Resultado = S<"ResultadoTallerWeb">;
 type Referencia = Taller["referencias"][number];
+type Marca = S<"MarcaCaptura">;
+type Estrategia = S<"EstrategiaWeb">;
 type Pagina = S<"PaginaFlujograma">;
 type Punto = S<"PuntoTaller">;
 type Boceto = S<"BocetoWeb">;
-type Pestana = "BRIEF" | "FLUJOGRAMA" | "CAPTURAS" | "PROTOTIPO" | "DEMO";
+type Pestana = "BRIEF" | "FLUJOGRAMA" | "COPY" | "CAPTURAS" | "PROTOTIPO" | "DEMO";
 
-const PESTANAS: [Pestana, string][] = [["BRIEF", "Brief y benchmark"], ["FLUJOGRAMA", "Flujograma"], ["CAPTURAS", "Capturas y PDF"], ["PROTOTIPO", "Prototipo → Figma"], ["DEMO", "Demo"]];
+const PESTANAS: [Pestana, string][] = [["BRIEF", "Brief y benchmark"], ["FLUJOGRAMA", "Arquitectura"], ["COPY", "Copy y alcance"], ["CAPTURAS", "PDF de la fase 1"], ["PROTOTIPO", "Pantallas"], ["DEMO", "Prototipo navegable"]];
 const NIVELES = ["Entrada", "Secciones", "Subsecciones", "Detalle"];
 const ESTADO_ENTREGABLE: Record<string, string> = { EN_PREPARACION: "En preparación", LISTO_REVISION: "Enviado al cliente", CAMBIOS_SOLICITADOS: "Pidió cambios", APROBADO: "Aprobado" };
 const errorDe = (e: unknown) => (e as ProblemaApi).errores?.[0]?.mensaje ?? (e as ProblemaApi).detalle ?? (e as ProblemaApi).titulo;
 
 /** Lo que el equipo edita antes de guardar (PUT). */
 interface Borrador {
-  referencias: { id: string | null; nombre: string; url: string; puntajes: Referencia["puntajes"]; resumen: string | null }[];
+  referencias: { id: string | null; nombre: string; url: string; puntajes: Referencia["puntajes"]; resumen: string | null; marcas: Marca[] }[];
   hallazgos: Punto[];
   recomendaciones: Punto[];
   flujograma: Pagina[];
@@ -42,12 +44,14 @@ interface Borrador {
   bocetosAprobados: string[];
   /** 8 nov: lo que el equipo corrigió del brief y la marca (null = todo del brief). */
   ajustes: AjustesTaller | null;
+  /** 9 nov (fase 1): lo que pide el proyecto, el copy, la matriz y los pendientes. */
+  estrategia: Estrategia;
 }
 /** Los ajustes guardados: los campos corregidos, con su valor (ya viene aplicado en t.insumos). */
 const ajustesDe = (t: Taller): AjustesTaller | null =>
   t.insumosEditados.length ? (Object.fromEntries(t.insumosEditados.map((k) => [k, (t.insumos as Record<string, unknown>)[k]])) as AjustesTaller) : null;
 const borradorDe = (t: Taller): Borrador => ({
-  referencias: t.referencias.map((r) => ({ id: r.id, nombre: r.nombre, url: r.url, puntajes: r.puntajes, resumen: r.resumen })),
+  referencias: t.referencias.map((r) => ({ id: r.id, nombre: r.nombre, url: r.url, puntajes: r.puntajes, resumen: r.resumen, marcas: r.marcas ?? [] })),
   hallazgos: t.hallazgos,
   recomendaciones: t.recomendaciones,
   flujograma: t.flujograma,
@@ -55,6 +59,7 @@ const borradorDe = (t: Taller): Borrador => ({
   plantilla: t.plantilla,
   bocetosAprobados: t.bocetos.filter((x) => x.aprobado).map((x) => x.id),
   ajustes: ajustesDe(t),
+  estrategia: t.estrategia,
 });
 
 export function PantallaTallerWeb() {
@@ -80,6 +85,8 @@ function TallerWeb() {
   const control = useRef<AbortController | null>(null);
   const pausa = useRef(false);
   const [auto, setAuto] = useState<string | null>(null);
+  // 9 nov: sin la fase 1 aprobada por el cliente, el prototipo pide confirmar que se sigue igual.
+  const [sinAprobacion, setSinAprobacion] = useState(false);
   const t = consulta.datos;
   // El taller más reciente, para los pasos encadenados (cada paso lo cambia).
   const ultimo = useRef<Taller | null>(null);
@@ -125,7 +132,8 @@ function TallerWeb() {
     const c = new AbortController();
     control.current = c;
     try {
-      const r = await api<Resultado>(`${ruta}${camino}`, { metodo: "POST", cuerpo, idempotente: true, senal: c.signal });
+      const conAprobacion = sinAprobacion && (camino === "/prototipo" || camino === "/demos") ? { ...cuerpo, sinAprobacion: true } : cuerpo;
+      const r = await api<Resultado>(`${ruta}${camino}`, { metodo: "POST", cuerpo: conAprobacion, idempotente: true, senal: c.signal });
       aplicar(r.taller);
       if (r.avisos.length) avisar({ titulo: "Listo, con observaciones", texto: r.avisos.map((a) => a.mensaje).join(" · ") });
       else if (exito) avisar({ titulo: exito(r), texto: r.simulado ? "Modo de prueba: es contenido de relleno." : undefined });
@@ -174,6 +182,11 @@ function TallerWeb() {
       for (const [i, p] of faltan.entries()) {
         setAuto(`Diseñando ${i + 1} de ${faltan.length}: ${p.titulo}`);
         if (!(await paso("boceto", "/bocetos", { paginaId: p.id, dispositivo: "ESCRITORIO" })) || !sigue()) return;
+      }
+      x = ultimo.current!;
+      if (!x.estrategia.copy) {
+        setAuto("Escribiendo el copy, la matriz y los pendientes");
+        if (!(await paso("estrategia", "/estrategia")) || !sigue()) return;
       }
       x = ultimo.current!;
       setAuto("Armando el PDF");
@@ -238,7 +251,10 @@ function TallerWeb() {
             </>
           )}
           {pestana === "FLUJOGRAMA" && <Flujograma b={b} editar={editar} paso={paso} ocupado={ocupado} />}
+          {pestana === "FLUJOGRAMA" && <Especificaciones b={b} editar={editar} />}
+          {pestana === "COPY" && <CopyYAlcance b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "CAPTURAS" && <Capturas t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} pausa={pausa} />}
+          {(pestana === "PROTOTIPO" || pestana === "DEMO") && <AvisoFase1 t={t} sinAprobacion={sinAprobacion} alCambiar={setSinAprobacion} />}
           {pestana === "PROTOTIPO" && <Prototipo t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "DEMO" && <Demos t={t} paso={paso} ocupado={ocupado} alCambiar={aplicar} />}
         </div>
@@ -274,13 +290,12 @@ function Lateral({ t }: { t: Taller }) {
         <p className="texto-xs texto-muted" style={{ margin: 0 }}>Se revisan y se envían desde el entregable, como cualquier otro.</p>
       </section>
       <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 8 }}>
-        <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>El flujo</h2>
+        <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>Las fases</h2>
         <ol className="texto-xs" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
-          <li>Brief y benchmark</li>
-          <li>Flujograma</li>
-          <li>Capturas con la plantilla de 21st.dev → se aprueban → PDF</li>
-          <li>Stitch recibe el PDF (DESIGN.md), el prompt y la plantilla</li>
-          <li>Figma: «Copy to Figma» desde Stitch</li>
+          <li><strong>Estrategia y alcance:</strong> brief, benchmark con marcas, arquitectura, copy, matriz y pendientes → PDF para que el cliente lo apruebe</li>
+          <li><strong>Prototipado:</strong> opcional (las pantallas sueltas)</li>
+          <li><strong>Alta fidelidad:</strong> el prototipo navegable, con la fase 1 aprobada</li>
+          <li><strong>Desarrollo</strong></li>
         </ol>
       </section>
     </aside>
@@ -402,6 +417,211 @@ function Materiales({ t, ruta, paso, ocupado, alCambiar }: { t: Taller; ruta: st
   );
 }
 
+
+// ───────────────────────────── fase 1: marcas, lo que pide el proyecto, copy y alcance (9 nov)
+
+const COLOR_MARCA = { TOMAR: "#16a34a", EVITAR: "#dc2626" } as const;
+/** Los números como en el PDF: primero lo que tomamos y después lo que evitamos. */
+const numerar = (xs: Marca[]) => {
+  const orden = [...xs.map((m, i) => ({ m, i })).filter((x) => x.m.tipo === "TOMAR"), ...xs.map((m, i) => ({ m, i })).filter((x) => x.m.tipo === "EVITAR")];
+  return new Map(orden.map((x, n) => [x.i, n + 1]));
+};
+
+/** Las capturas de una referencia con sus marcas numeradas. Se elige una marca y se toca la captura para ubicarla. */
+function CapturasMarcadas({ nombre, capturas, marcas, alCambiar }: { nombre: string; capturas: Referencia["capturas"]; marcas: Marca[]; alCambiar: (m: Marca[]) => void }) {
+  const [elegida, setElegida] = useState<number | null>(null);
+  const numeros = numerar(marcas);
+  const set = (i: number, c: Partial<Marca>) => alCambiar(marcas.map((m, j) => (j === i ? { ...m, ...c } : m)));
+  const ubicar = (e: React.MouseEvent<HTMLDivElement>, captura: Marca["captura"]) => {
+    if (elegida === null) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    set(elegida, { captura, x: Math.round(((e.clientX - r.left) / r.width) * 100), y: Math.round(((e.clientY - r.top) / r.height) * 100) });
+  };
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div className="fila" style={{ gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+        {capturas.map((c) => (
+          <div key={c.tipo} onClick={(e) => ubicar(e, c.tipo)} title={elegida !== null ? "Toca donde va la marca" : c.tipo === "MOVIL" ? "Móvil" : "Escritorio"}
+            style={{ position: "relative", width: c.tipo === "MOVIL" ? 96 : 330, maxHeight: 240, overflow: "hidden", borderRadius: 8, border: "1px solid var(--c-borde)", cursor: elegida !== null ? "crosshair" : "default" }}>
+            <img src={c.url} alt={`Captura ${c.tipo === "MOVIL" ? "móvil" : "de escritorio"} de ${nombre}`} style={{ width: "100%", display: "block" }} />
+            {marcas.map((m, i) => m.captura === c.tipo && (
+              <span key={i} aria-hidden style={{ position: "absolute", left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)", width: 20, height: 20, borderRadius: "50%", background: COLOR_MARCA[m.tipo], color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", boxShadow: elegida === i ? "0 0 0 3px #111" : "0 1px 4px #0006" }}>{numeros.get(i)}</span>
+            ))}
+          </div>
+        ))}
+      </div>
+      {marcas.map((m, i) => (
+        <div key={i} className="fila" style={{ gap: 6 }}>
+          <button type="button" className="boton-icono" aria-pressed={elegida === i} title="Elegir y tocar la captura para moverla" onClick={() => setElegida(elegida === i ? null : i)}
+            style={{ background: COLOR_MARCA[m.tipo], color: "#fff", borderRadius: "50%", width: 24, height: 24, fontSize: 11, fontWeight: 700, outline: elegida === i ? "2px solid #111" : undefined }}>{numeros.get(i)}</button>
+          <select className="input" aria-label={`Tipo de la marca ${numeros.get(i)}`} value={m.tipo} onChange={(e) => set(i, { tipo: e.target.value as Marca["tipo"] })} style={{ width: 120, height: 32 }}>
+            <option value="TOMAR">Tomamos</option>
+            <option value="EVITAR">Evitamos</option>
+          </select>
+          <input className="input" aria-label={`Texto de la marca ${numeros.get(i)}`} value={m.texto} maxLength={200} onChange={(e) => set(i, { texto: e.target.value })} style={{ height: 32, flex: 1 }} />
+          <button type="button" className="boton-icono" aria-label={`Quitar la marca ${numeros.get(i)}`} onClick={() => { alCambiar(marcas.filter((_, j) => j !== i)); setElegida(null); }}><LuX size={13} /></button>
+        </div>
+      ))}
+      <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+        {marcas.length < 10 && <button type="button" className="boton boton--chico" onClick={() => { alCambiar([...marcas, { n: marcas.length + 1, tipo: "TOMAR", captura: capturas[0]?.tipo ?? "ESCRITORIO", x: 50, y: 50, texto: "" }]); setElegida(marcas.length); }}><LuPlus size={12} /> Marca</button>}
+        <span className="texto-xs texto-muted">{elegida !== null ? "Toca la captura donde va la marca." : "Verde: lo que tomamos. Rojo: lo que evitamos. Van con su número en el PDF."}</span>
+      </span>
+    </div>
+  );
+}
+
+const lineas = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+
+/** Lo que pide el proyecto: catálogo y cotización por WhatsApp (va en el PDF y en el prototipo). */
+function Especificaciones({ b, editar }: { b: Borrador; editar: (c: Partial<Borrador>) => void }) {
+  const esp = b.estrategia.especificaciones;
+  const set = (e: Partial<Estrategia["especificaciones"]>) => editar({ estrategia: { ...b.estrategia, especificaciones: { ...esp, ...e } } });
+  const cat = esp.catalogo;
+  const wsp = esp.whatsapp;
+  return (
+    <section className="tarjeta" style={{ display: "grid", gap: 12 }} aria-label="Lo que pide el proyecto">
+      <div>
+        <h2 className="tarjeta-titulo">Catálogo y cotización</h2>
+        <p className="texto-sm texto-muted" style={{ margin: 0 }}>Lo que necesita el sitio. Sale de la transcripción y se corrige aquí; va al PDF (con el ejemplo del mensaje de WhatsApp) y al prototipo.</p>
+      </div>
+      <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 } as React.CSSProperties}>
+        <div className="campo"><label htmlFor="esp-cat">Categorías (una por línea)</label><div className="entrada"><textarea id="esp-cat" rows={4} value={cat.categorias.join("\n")} onChange={(e) => set({ catalogo: { ...cat, categorias: lineas(e.target.value) } })} /></div></div>
+        <div className="campo"><label htmlFor="esp-atr">Atributos de cada producto</label><div className="entrada"><textarea id="esp-atr" rows={4} value={cat.atributos.join("\n")} placeholder="Medidas, colores, modelos…" onChange={(e) => set({ catalogo: { ...cat, atributos: lineas(e.target.value) } })} /></div></div>
+        <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
+          <div className="campo"><label htmlFor="esp-precio">¿Precio visible?</label>
+            <div className="entrada"><select id="esp-precio" value={cat.conPrecio === null ? "" : cat.conPrecio ? "SI" : "NO"} onChange={(e) => set({ catalogo: { ...cat, conPrecio: e.target.value === "" ? null : e.target.value === "SI" } })}>
+              <option value="">Sin definir</option><option value="SI">Sí</option><option value="NO">No, se cotiza</option>
+            </select></div></div>
+          <div className="campo"><label htmlFor="esp-cant">Productos aproximados</label><div className="entrada"><input id="esp-cant" type="number" min={1} value={cat.cantidad ?? ""} onChange={(e) => set({ catalogo: { ...cat, cantidad: e.target.value ? Number(e.target.value) : null } })} /></div></div>
+        </div>
+        <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
+          <div className="campo"><label htmlFor="esp-wsp">WhatsApp de destino</label><div className="entrada"><input id="esp-wsp" value={wsp.numero ?? ""} placeholder="51 999 888 777" onChange={(e) => set({ whatsapp: { ...wsp, numero: e.target.value || null } })} /></div></div>
+          <div className="campo"><label htmlFor="esp-campos">Datos del formulario (* = obligatorio)</label>
+            <div className="entrada"><textarea id="esp-campos" rows={4} value={wsp.campos.map((c) => `${c.nombre}${c.obligatorio ? " *" : ""}`).join("\n")} placeholder={"Nombre *\nCelular *\nDistrito"}
+              onChange={(e) => set({ whatsapp: { ...wsp, campos: lineas(e.target.value).map((x) => ({ nombre: x.replace(/\s*\*$/, ""), obligatorio: /\*$/.test(x) })) } })} /></div></div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Fase 1: copywriting, matriz de funcionalidades y pendientes. La IA los escribe; el equipo los corrige. */
+function CopyYAlcance({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
+  const e = b.estrategia;
+  const copy = e.copy ?? { heros: [], paginas: [], ctas: [], microcopys: [], faq: [] };
+  const setE = (c: Partial<Estrategia>) => editar({ estrategia: { ...e, ...c } });
+  const setCopy = (c: Partial<NonNullable<Estrategia["copy"]>>) => setE({ copy: { ...copy, ...c } });
+  const heros = [0, 1, 2].map((n) => copy.heros[n] ?? { titulo: "", subtitulo: "", cta: "" });
+  const setHero = (n: number, c: Partial<(typeof heros)[number]>) => setCopy({ heros: heros.map((h, j) => (j === n ? { ...h, ...c } : h)).filter((h) => h.titulo || h.subtitulo || h.cta) });
+  const generar = () => paso("estrategia", "/estrategia", {}, (r) => (r.simulado ? "Base de ejemplo lista (la IA no estaba disponible): ajústala" : "Copy, matriz y pendientes listos: revísalos"));
+  return (
+    <>
+      <section className="tarjeta" style={{ display: "grid", gap: 10 }}>
+        <div className="fila entre" style={{ gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <h2 className="tarjeta-titulo">Copy y alcance</h2>
+            <p className="texto-sm texto-muted" style={{ margin: 0 }}>Con el brief, lo que pide el proyecto, el benchmark y el flujograma, la IA escribe el copywriting, la matriz de funcionalidades y los pendientes por validar. Todo va al PDF de la fase 1.</p>
+          </div>
+          <button className="boton boton--primario boton--chico" disabled={!!ocupado} onClick={() => void generar()}>
+            <LuWandSparkles size={14} /> {ocupado === "estrategia" ? "Escribiendo…" : e.copy ? "Volver a generar" : "Generar con IA"}
+          </button>
+        </div>
+        {e.generadaEn && <span className="texto-xs texto-muted">Generado el {fDiaHora(e.generadaEn)}. Lo que corrijas se guarda con «Guardar cambios».</span>}
+      </section>
+
+      <section className="tarjeta" style={{ display: "grid", gap: 12 }} aria-label="Opciones de hero">
+        <h2 className="tarjeta-titulo">Opciones de hero</h2>
+        <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 } as React.CSSProperties}>
+          {heros.map((h, n) => (
+            <div key={n} style={{ display: "grid", gap: 6, border: "1px solid var(--c-borde)", borderRadius: 10, padding: 10 }}>
+              <span className="texto-xs negrita texto-muted">Opción {n + 1}</span>
+              <input className="input" aria-label={`Título del hero ${n + 1}`} placeholder="Título" value={h.titulo} onChange={(x) => setHero(n, { titulo: x.target.value })} style={{ height: 34 }} />
+              <textarea className="input" aria-label={`Subtítulo del hero ${n + 1}`} placeholder="Subtítulo" value={h.subtitulo} onChange={(x) => setHero(n, { subtitulo: x.target.value })} style={{ minHeight: 54 }} />
+              <input className="input" aria-label={`Botón del hero ${n + 1}`} placeholder="Texto del botón" value={h.cta} onChange={(x) => setHero(n, { cta: x.target.value })} style={{ height: 34 }} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="tarjeta" style={{ display: "grid", gap: 12 }} aria-label="Textos por página">
+        <h2 className="tarjeta-titulo">Textos por página</h2>
+        {!copy.paginas.length && <p className="texto-sm texto-muted">Se llenan al generar, una tarjeta por página del flujograma.</p>}
+        {copy.paginas.map((pg, i) => (
+          <div key={i} style={{ display: "grid", gap: 6, borderTop: i ? "1px solid var(--c-borde)" : undefined, paddingTop: i ? 10 : 0 }}>
+            <strong className="texto-sm">{pg.pagina}</strong>
+            {pg.bloques.map((bl, j) => (
+              <div key={j} className="fila" style={{ gap: 6, alignItems: "flex-start" }}>
+                <input className="input" aria-label={`Bloque ${j + 1} de ${pg.pagina}`} value={bl.nombre} onChange={(x) => setCopy({ paginas: copy.paginas.map((p, k) => (k === i ? { ...p, bloques: p.bloques.map((q, l) => (l === j ? { ...q, nombre: x.target.value } : q)) } : p)) })} style={{ width: 150, height: 34 }} />
+                <textarea className="input" aria-label={`Texto de ${bl.nombre} en ${pg.pagina}`} value={bl.texto} onChange={(x) => setCopy({ paginas: copy.paginas.map((p, k) => (k === i ? { ...p, bloques: p.bloques.map((q, l) => (l === j ? { ...q, texto: x.target.value } : q)) } : p)) })} style={{ flex: 1, minHeight: 54 }} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </section>
+
+      <section className="tarjeta" style={{ display: "grid", gap: 12 }} aria-label="Botones y microcopys">
+        <h2 className="tarjeta-titulo">Botones, microcopys y preguntas frecuentes</h2>
+        <div className="campo"><label htmlFor="copy-ctas">Botones (uno por línea)</label><div className="entrada"><textarea id="copy-ctas" rows={3} value={copy.ctas.join("\n")} onChange={(x) => setCopy({ ctas: lineas(x.target.value) })} /></div></div>
+        <Pares etiqueta="Microcopys" a="Momento" b="Texto" filas={copy.microcopys.map((m) => [m.momento, m.texto])} alCambiar={(fs) => setCopy({ microcopys: fs.map(([momento, texto]) => ({ momento, texto })) })} />
+        <Pares etiqueta="Preguntas frecuentes" a="Pregunta" b="Respuesta" filas={copy.faq.map((f) => [f.pregunta, f.respuesta])} alCambiar={(fs) => setCopy({ faq: fs.map(([pregunta, respuesta]) => ({ pregunta, respuesta })) })} />
+      </section>
+
+      <section className="tarjeta" style={{ display: "grid", gap: 10 }} aria-label="Matriz de funcionalidades">
+        <h2 className="tarjeta-titulo">Matriz de funcionalidades</h2>
+        <p className="texto-sm texto-muted" style={{ margin: 0 }}>Lo imprescindible define el alcance real; lo deseable queda para después.</p>
+        {e.funcionalidades.map((f, i) => (
+          <div key={i} className="fila" style={{ gap: 6, alignItems: "flex-start" }}>
+            <select className="input" aria-label={`Prioridad de ${f.nombre || "la funcionalidad"}`} value={f.prioridad} onChange={(x) => setE({ funcionalidades: e.funcionalidades.map((g, j) => (j === i ? { ...g, prioridad: x.target.value as typeof f.prioridad } : g)) })} style={{ width: 150, height: 34 }}>
+              <option value="IMPRESCINDIBLE">Imprescindible</option><option value="DESEABLE">Deseable</option>
+            </select>
+            <input className="input" aria-label="Funcionalidad" value={f.nombre} onChange={(x) => setE({ funcionalidades: e.funcionalidades.map((g, j) => (j === i ? { ...g, nombre: x.target.value } : g)) })} style={{ width: 200, height: 34 }} />
+            <input className="input" aria-label={`Descripción de ${f.nombre}`} value={f.descripcion} onChange={(x) => setE({ funcionalidades: e.funcionalidades.map((g, j) => (j === i ? { ...g, descripcion: x.target.value } : g)) })} style={{ flex: 1, height: 34 }} />
+            <button type="button" className="boton-icono" aria-label={`Quitar ${f.nombre}`} onClick={() => setE({ funcionalidades: e.funcionalidades.filter((_, j) => j !== i) })}><LuX size={13} /></button>
+          </div>
+        ))}
+        <button type="button" className="boton boton--chico" style={{ justifySelf: "start" }} onClick={() => setE({ funcionalidades: [...e.funcionalidades, { nombre: "", descripcion: "", prioridad: "IMPRESCINDIBLE" }] })}><LuPlus size={12} /> Funcionalidad</button>
+      </section>
+
+      <section className="tarjeta" style={{ display: "grid", gap: 8 }} aria-label="Pendientes por validar">
+        <h2 className="tarjeta-titulo">Pendientes y supuestos por validar</h2>
+        <div className="entrada"><textarea aria-label="Pendientes por validar (uno por línea)" rows={5} value={e.pendientes.join("\n")} placeholder="Uno por línea" onChange={(x) => setE({ pendientes: lineas(x.target.value) })} /></div>
+      </section>
+    </>
+  );
+}
+
+function Pares({ etiqueta, a, b, filas, alCambiar }: { etiqueta: string; a: string; b: string; filas: [string, string][]; alCambiar: (f: [string, string][]) => void }) {
+  const set = (i: number, k: 0 | 1, v: string) => alCambiar(filas.map((f, j) => (j === i ? ((k === 0 ? [v, f[1]] : [f[0], v]) as [string, string]) : f)));
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <span className="texto-sm negrita">{etiqueta}</span>
+      {filas.map((f, i) => (
+        <div key={i} className="fila" style={{ gap: 6, alignItems: "flex-start" }}>
+          <input className="input" aria-label={`${a} ${i + 1}`} placeholder={a} value={f[0]} onChange={(x) => set(i, 0, x.target.value)} style={{ width: 220, height: 34 }} />
+          <textarea className="input" aria-label={`${b} ${i + 1}`} placeholder={b} value={f[1]} onChange={(x) => set(i, 1, x.target.value)} style={{ flex: 1, minHeight: 34 }} />
+          <button type="button" className="boton-icono" aria-label={`Quitar ${f[0] || etiqueta}`} onClick={() => alCambiar(filas.filter((_, j) => j !== i))}><LuX size={13} /></button>
+        </div>
+      ))}
+      <button type="button" className="boton boton--chico" style={{ justifySelf: "start" }} onClick={() => alCambiar([...filas, ["", ""]])}><LuPlus size={12} /> Agregar</button>
+    </div>
+  );
+}
+
+/** Fase 3: no se diseña en alta fidelidad sin que el cliente apruebe la fase 1, salvo que el equipo lo decida. */
+function AvisoFase1({ t, sinAprobacion, alCambiar }: { t: Taller; sinAprobacion: boolean; alCambiar: (v: boolean) => void }) {
+  if (t.fase1.aprobada) return <Aviso icono={<LuCheck size={16} />} titulo="Fase 1 aprobada por el cliente">Ya se puede diseñar en alta fidelidad.</Aviso>;
+  const estado = t.fase1.estadoDocumento;
+  return (
+    <Aviso icono={<LuPause size={16} />} titulo="El cliente todavía no aprueba la fase 1" tono="alerta">
+      {estado ? `El PDF de la fase 1 está «${ESTADO_ENTREGABLE[estado] ?? estado}».` : "Todavía no se generó el PDF de la fase 1."} Lo recomendable es esperar su aprobación antes de diseñar.
+      <label className="fila texto-sm" style={{ gap: 8, marginTop: 8 }}>
+        <input type="checkbox" checked={sinAprobacion} onChange={(e) => alCambiar(e.target.checked)} />
+        Ya lo conversamos con el cliente: continuar sin la aprobación
+      </label>
+    </Aviso>
+  );
+}
+
 // ───────────────────────────── 1. brief y benchmark
 
 /** Lo que se sacó del brief web, la reunión de brief, el proyecto y la ficha de marca. 8 nov: se puede corregir. */
@@ -412,9 +632,9 @@ function DelBrief({ t, b, editar }: { t: Taller; b: Borrador; editar: (c: Partia
   const set = (k: keyof AjustesTaller, v: unknown) => editar({ ajustes: { ...(b.ajustes ?? {}), [k]: v } as AjustesTaller });
   const textos: [keyof AjustesTaller, string, string | null][] = [
     ["objetivo", "Objetivo", i.objetivo], ["publico", "Público", i.publico], ["alcance", "Alcance", i.alcance], ["cms", "CMS", i.cms],
-    ["mensajeCentral", "Mensaje central", i.mensajeCentral], ["tono", "Tono", i.tono], ["resumenReunion", "Reunión de brief", i.resumenReunion],
+    ["mensajeCentral", "Mensaje central", i.mensajeCentral], ["tono", "Tono", i.tono], ["propuestaValor", "Propuesta de valor", i.propuestaValor ?? null], ["resumenReunion", "Reunión de brief", i.resumenReunion],
   ];
-  const listas: [keyof AjustesTaller, string, string[]][] = [["secciones", "Secciones pedidas", i.secciones], ["tipografias", "Tipografías", i.tipografias ?? []]];
+  const listas: [keyof AjustesTaller, string, string[]][] = [["secciones", "Secciones pedidas", i.secciones], ["tipografias", "Tipografías", i.tipografias ?? []], ["kpis", "KPIs del sitio", i.kpis ?? []]];
   const marcaEditada = (k: string) => (editados.has(k) ? <span className="texto-xs texto-primario"> · corregido</span> : null);
   const paleta = i.paleta ?? [];
   return (
@@ -489,7 +709,7 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
   const setRef = (i: number, cambio: Partial<Borrador["referencias"][number]>) => editar({ referencias: b.referencias.map((r, j) => (j === i ? { ...r, ...cambio } : r)) });
   const agregar = () => {
     if (!nueva.trim()) return;
-    editar({ referencias: [...b.referencias, { id: null, nombre: "", url: nueva.trim(), puntajes: [], resumen: null }] });
+    editar({ referencias: [...b.referencias, { id: null, nombre: "", url: nueva.trim(), puntajes: [], resumen: null, marcas: [] }] });
     setNueva("");
   };
   return (
@@ -528,15 +748,7 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
                   </button>
                 </span>
               </div>
-              {o && o.capturas.length > 0 && (
-                <div className="fila" style={{ gap: 10, alignItems: "flex-start" }}>
-                  {o.capturas.map((c) => (
-                    <a key={c.tipo} href={c.url} target="_blank" rel="noreferrer" title={c.tipo === "MOVIL" ? "Móvil" : "Escritorio"}>
-                      <img src={c.url} alt={`Captura ${c.tipo === "MOVIL" ? "móvil" : "de escritorio"} de ${r.nombre}`} style={{ height: 130, width: c.tipo === "MOVIL" ? 62 : 210, objectFit: "cover", objectPosition: "top", borderRadius: 8, border: "1px solid var(--c-borde)" }} />
-                    </a>
-                  ))}
-                </div>
-              )}
+              {o && o.capturas.length > 0 && <CapturasMarcadas nombre={r.nombre} capturas={o.capturas} marcas={r.marcas} alCambiar={(marcas) => setRef(i, { marcas })} />}
               {/* 8 nov (reunión del 6): sin puntajes; cada referencia con un comentario corto. */}
               <div className="campo">
                 <label htmlFor={`resumen-${i}`}>Comentario</label>
@@ -1079,9 +1291,9 @@ function Demos({ t, paso, ocupado, alCambiar }: { t: Taller; paso: Paso; ocupado
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 14 }}>
         <div>
-          <h2 className="tarjeta-titulo">Publicar la demo</h2>
+          <h2 className="tarjeta-titulo">Prototipo en alta fidelidad</h2>
           <p className="texto-sm texto-muted" style={{ margin: 0 }}>
-            El cliente prueba la demo navegable, no la maqueta. El link vence, no se indexa, tiene límite de visitas por IP y cuenta las vistas. Siempre se limpia de rastros de IA.
+            Fase 3: el sitio navegable con la marca y el copy de la fase 1, en escritorio y celular, y lo que tiene que funcionar (buscador, filtros, carrito de cotización y envío a WhatsApp, si aplica). Abre con una presentación de revisión para el cliente. El link vence, no se indexa, tiene límite de visitas por IP y cuenta las vistas. Siempre se limpia de rastros de IA.
           </p>
         </div>
         <div className="chips" role="radiogroup" aria-label="Origen de la demo">

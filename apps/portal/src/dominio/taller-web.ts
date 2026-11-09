@@ -16,6 +16,8 @@
 
 // ───────────────────────────── dimensiones del benchmark
 
+import { ESQUEMA_MARCAS, REGLA_MARCAS, type Especificaciones, type Estrategia, type MarcaCaptura, mensajeWhatsappEjemplo, normalizarMarcas, textoEspecificaciones } from "./taller-fases";
+
 export type Dimension =
   | "IDENTIDAD_VISUAL" | "JERARQUIA_VISUAL" | "USABILIDAD_MOVIL" | "ARQUITECTURA_INFORMACION"
   | "PROPUESTA_VALOR" | "FICHA_PRODUCTO" | "FLUJO_COMPRA" | "CONVERSION";
@@ -70,7 +72,7 @@ export const LIMITES_TALLER = {
   tokensAnalisis: 900,
   tokensSintesis: 1400,
   tokensFlujograma: 2600,
-  tokensDemo: 14000,
+  tokensDemo: 20000,
   tokensBoceto: 12000,
 };
 
@@ -89,6 +91,8 @@ export interface Referencia {
   puntajes: Puntaje[];
   resumen: string | null;
   analizadaEn: string | null;
+  /** 9 nov: puntos numerados sobre las capturas (verde lo que tomamos, rojo lo que evitamos). */
+  marcas?: MarcaCaptura[];
 }
 export interface Punto { titulo: string; texto: string }
 export interface PaginaFlujo { id: string; titulo: string; descripcion: string; nivel: number; padreId: string | null; secciones: string[] }
@@ -126,18 +130,22 @@ export interface Insumos {
   /** 8 nov: el logo y el manual de marca (enlaces), para todo el flujo del taller. */
   logoUrl?: string | null;
   manualUrl?: string | null;
+  /** 9 nov (fase 1): la propuesta de valor y los KPIs del sitio. */
+  propuestaValor?: string | null;
+  kpis?: string[];
 }
 
 /**
  * Lo que el equipo corrige de lo que se sacó del brief y la marca (reunión del 6 nov). Cada campo presente
  * reemplaza al del brief; los que no están siguen saliendo del brief. Se usa en todos los pasos del taller.
  */
-export type AjustesTaller = Partial<Pick<Insumos, "objetivo" | "publico" | "alcance" | "cms" | "mensajeCentral" | "tono" | "resumenReunion" | "logoUrl" | "manualUrl">> & {
+export type AjustesTaller = Partial<Pick<Insumos, "objetivo" | "publico" | "alcance" | "cms" | "mensajeCentral" | "tono" | "resumenReunion" | "logoUrl" | "manualUrl" | "propuestaValor">> & {
   secciones?: string[];
   paleta?: string[];
   tipografias?: string[];
+  kpis?: string[];
 };
-const AJUSTES_TEXTO = ["objetivo", "publico", "alcance", "cms", "mensajeCentral", "tono", "resumenReunion"] as const;
+const AJUSTES_TEXTO = ["objetivo", "publico", "alcance", "cms", "mensajeCentral", "tono", "resumenReunion", "propuestaValor"] as const;
 
 /** Los insumos con los ajustes del equipo encima. */
 export function conAjustes(base: Insumos, a: AjustesTaller | null | undefined): Insumos {
@@ -147,6 +155,7 @@ export function conAjustes(base: Insumos, a: AjustesTaller | null | undefined): 
   if (a.secciones) x.secciones = a.secciones;
   if (a.paleta) x.paleta = a.paleta;
   if (a.tipografias) x.tipografias = a.tipografias;
+  if (a.kpis) x.kpis = a.kpis;
   if (a.logoUrl !== undefined) x.logoUrl = a.logoUrl;
   if (a.manualUrl !== undefined) x.manualUrl = a.manualUrl;
   return x;
@@ -167,7 +176,7 @@ export function validarAjustes(v: unknown, errores: { campo: string; mensaje: st
     if (t === null || t.length > 600) errores.push({ campo: `ajustes.${k}`, mensaje: "Hasta 600 caracteres" });
     else a[k] = t || null;
   }
-  const lista = (k: "secciones" | "tipografias" | "paleta", max: number, largo: number, patron?: RegExp, mensaje?: string) => {
+  const lista = (k: "secciones" | "tipografias" | "paleta" | "kpis", max: number, largo: number, patron?: RegExp, mensaje?: string) => {
     if (b[k] === undefined) return;
     const xs = Array.isArray(b[k]) ? (b[k] as unknown[]).map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean) : null;
     if (!xs || xs.length > max || xs.some((x) => x.length > largo || (patron && !patron.test(x)))) errores.push({ campo: `ajustes.${k}`, mensaje: mensaje ?? `Hasta ${max} de ${largo} caracteres` });
@@ -175,6 +184,7 @@ export function validarAjustes(v: unknown, errores: { campo: string; mensaje: st
   };
   lista("secciones", 20, 60);
   lista("tipografias", 4, 60);
+  lista("kpis", 8, 160);
   lista("paleta", 8, 7, /^#[0-9A-Fa-f]{6}$/, "Hasta 8 colores en formato #RRGGBB");
   for (const k of ["logoUrl", "manualUrl"] as const) {
     if (b[k] === undefined) continue;
@@ -256,7 +266,7 @@ export function puntajeGlobal(puntajes: Puntaje[]): number | null {
 // ───────────────────────────── edición del equipo
 
 export interface EdicionTaller {
-  referencias: { id: string | null; nombre: string; url: string; puntajes: Puntaje[]; resumen: string | null }[];
+  referencias: { id: string | null; nombre: string; url: string; puntajes: Puntaje[]; resumen: string | null; marcas?: MarcaCaptura[] }[];
   hallazgos: Punto[];
   recomendaciones: Punto[];
   flujograma: PaginaFlujo[];
@@ -335,7 +345,7 @@ export function validarEdicion(b: Record<string, unknown>, dimensiones: Dimensio
     });
     const resumen = texto(x?.resumen);
     if (resumen.length > 600) errores.push({ campo: `referencias.${i}.resumen`, mensaje: "Hasta 600 caracteres" });
-    return { id: texto(x?.id) || null, nombre, url: url ?? "", puntajes: ps, resumen: resumen || null };
+    return { id: texto(x?.id) || null, nombre, url: url ?? "", puntajes: ps, resumen: resumen || null, ...(x?.marcas !== undefined ? { marcas: normalizarMarcas(x.marcas) } : {}) };
   });
   const prompt = b.promptPrototipo === undefined || b.promptPrototipo === null ? null : texto(b.promptPrototipo);
   if (prompt !== null && prompt.length > LIMITES_TALLER.promptPrototipo) errores.push({ campo: "promptPrototipo", mensaje: `Hasta ${LIMITES_TALLER.promptPrototipo} caracteres` });
@@ -401,6 +411,8 @@ export function textoInsumos(i: Insumos): string {
     i.secciones.length ? `Secciones que imagina el cliente: ${i.secciones.join(", ")}` : null,
     i.mensajeCentral && `Mensaje central de la marca: ${i.mensajeCentral}`,
     i.tono && `Tono: ${i.tono}`,
+    i.propuestaValor && `Propuesta de valor: ${i.propuestaValor}`,
+    i.kpis?.length ? `KPIs del sitio: ${i.kpis.join("; ")}` : null,
     i.paleta?.length ? `Colores de la marca: ${i.paleta.join(", ")}` : null,
     i.tipografias?.length ? `Tipografías de la marca: ${i.tipografias.join(", ")}` : null,
     i.logoUrl && `Logo: ${i.logoUrl}`,
@@ -417,14 +429,16 @@ Reglas:
 - Califica cada dimensión de 1 a 5 (5 = referente del mercado, 3 = correcto, 1 = deficiente) mirando SOLO lo que se ve en las capturas.
 - El comentario de cada dimensión es una frase corta y concreta (máximo 60 caracteres), estilo «Menú claro, bien segmentado».
 - El resumen dice en 2 frases qué tomar de este sitio para el proyecto y qué evitar.
+${REGLA_MARCAS}
 - Escribe en español neutro. No menciones que eres una IA ni el nombre de ninguna herramienta.`;
 
 export function esquemaAnalisis(dimensiones: Dimension[]) {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["puntajes", "resumen"],
+    required: ["puntajes", "resumen", "marcas"],
     properties: {
+      marcas: ESQUEMA_MARCAS,
       puntajes: {
         type: "array",
         items: {
@@ -492,19 +506,28 @@ export function mensajeFlujograma(insumos: Insumos, recomendaciones: Punto[]): s
   return `${textoInsumos(insumos)}${rec}\n\nResponde en JSON.`;
 }
 
-export const SISTEMA_DEMO = `Eres desarrollador front-end senior de una agencia digital de Lima. Construyes la demo navegable de un sitio web en UN solo archivo HTML (HTML + CSS + un poco de JS, sin librerías externas salvo Google Fonts).
+export const SISTEMA_DEMO = `Eres diseñador UI y desarrollador front-end senior de una agencia digital de Lima. Construyes el PROTOTIPO EN ALTA FIDELIDAD de un sitio web: navegable y funcional, en UN solo archivo HTML (HTML + CSS + JS sin librerías externas, salvo Google Fonts).
 Reglas:
-- Una sola página con navegación por anclas o pestañas que simula todas las páginas del flujograma, en el orden de sus secciones.
-- Responsive (escritorio y móvil), accesible, con textos de ejemplo realistas en español sobre la marca (nada de lorem ipsum).
-- Imágenes: bloques de color o degradados con texto alternativo; no enlaces a bancos de imágenes.
+- Aplica la identidad de la marca: sus colores, su tipografía y su logo (si hay un enlace, úsalo en un <img>). Diseño profesional y moderno, listo para mostrar al cliente.
+- Cada página del flujograma es una pantalla propia; navega entre ellas con el hash de la URL (#inicio, #catalogo…) y un menú. Usa los textos del copywriting tal cual; si falta alguno, escribe uno realista en español del Perú (nada de lorem ipsum).
+- Lo que el sitio hace debe funcionar de verdad. Si hay catálogo: productos de ejemplo con las categorías y atributos dados, buscador con sugerencias mientras se escribe y aviso cuando no hay resultados, filtros que filtran y pantalla de «sin resultados». Si hay cotización por WhatsApp: botón «agregar» en el listado y la ficha, carrito (editar cantidades, quitar, aviso de carrito vacío), formulario con los campos dados y su validación, vista previa del mensaje que se actualiza mientras se escribe y botón que abre https://wa.me/<número>?text=<mensaje> con el pedido detallado. Si no hay catálogo, haz funcionar lo que pida el alcance (formularios, pestañas, acordeones de preguntas frecuentes…).
+- La primera pantalla (#presentacion) es la guía de revisión para el cliente: el flujo en pasos, un índice con enlaces a cada pantalla, el sistema visual (colores y tipografía), los pendientes por validar y, al pie, «creado por INOO AGENCIA DE MARKETING».
+- Responsive de verdad: en el celular, menú desplegable, filtros en panel y barra fija con el botón principal. Accesible (contraste, etiquetas, foco visible).
+- Imágenes: ilustraciones con CSS, degradados o SVG en línea; no enlaces a bancos de imágenes.
 - Sin comentarios en el código, sin meta generator y sin mencionar IA ni el nombre de ninguna herramienta.
 - Responde SOLO con el HTML, empezando por <!doctype html>.`;
 
-export function mensajeDemo(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], htmlReferencia: string | null): string {
+export function mensajeDemo(insumos: Insumos, flujograma: PaginaFlujo[], recomendaciones: Punto[], htmlReferencia: string | null, estrategia?: Estrategia | null): string {
   const paginas = flujograma.map((p) => `${"  ".repeat(p.nivel)}- ${p.titulo}${p.descripcion ? ` (${p.descripcion})` : ""}: ${p.secciones.join(" · ")}`).join("\n");
   const rec = recomendaciones.length ? `\n\nRecomendaciones UX:\n${recomendaciones.map((r) => `- ${r.titulo}`).join("\n")}` : "";
   const ref = htmlReferencia ? `\n\nDiseño aprobado de la pantalla principal (úsalo como guía visual: colores, tipografía, estilo):\n${htmlReferencia.slice(0, 20_000)}` : "";
-  return `${textoInsumos(insumos)}\n\nFlujograma (páginas y secciones):\n${paginas}${rec}${ref}`;
+  const e = estrategia ?? null;
+  const proyecto = e ? textoEspecificaciones(e.especificaciones) : "";
+  const imprescindibles = e?.funcionalidades.filter((f) => f.prioridad === "IMPRESCINDIBLE") ?? [];
+  const copy = e?.copy
+    ? `\n\nCopywriting aprobado:\n${JSON.stringify({ heros: e.copy.heros.slice(0, 1), paginas: e.copy.paginas, ctas: e.copy.ctas, microcopys: e.copy.microcopys, faq: e.copy.faq }).slice(0, 14_000)}`
+    : "";
+  return `${textoInsumos(insumos)}${proyecto ? `\n\nLo que necesita el proyecto:\n${proyecto}` : ""}\n\nFlujograma (páginas y secciones):\n${paginas}${imprescindibles.length ? `\n\nFuncionalidades imprescindibles (tienen que funcionar):\n${imprescindibles.map((f) => `- ${f.nombre}: ${f.descripcion}`).join("\n")}` : ""}${e?.pendientes.length ? `\n\nPendientes por validar (van en la presentación):\n${e.pendientes.map((x) => `- ${x}`).join("\n")}` : ""}${copy}${rec}${ref}`;
 }
 
 const ANCHO: Record<Dispositivo, string> = { ESCRITORIO: "escritorio (1440 px de ancho)", MOVIL: "móvil (390 px de ancho)" };
@@ -821,6 +844,23 @@ export interface DatosInforme {
   recomendaciones: Punto[];
   flujograma: PaginaFlujo[];
   fecha: string;
+  /** 9 nov (fase 1): copywriting, matriz, pendientes y lo que pide el proyecto. */
+  estrategia?: Estrategia | null;
+}
+
+/** Texto claro u oscuro según el fondo (para la portada con el color de la marca). */
+function textoSobre(hex: string) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16);
+  const l = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return l > 0.62 ? "#1d2433" : "#fff";
+}
+
+/** Una captura con sus marcas numeradas encima (verde lo que tomamos, rojo lo que evitamos). */
+function capturaMarcada(src: string, marcas: MarcaCaptura[], clase: string, pie: string) {
+  const ms = marcas.map((m) => `<span class="marca ${m.tipo === "TOMAR" ? "toma" : "evita"}" style="left:${m.x}%;top:${m.y}%">${m.n}</span>`).join("");
+  return `<figure class="${clase}"><div class="marco"><img src="${src}" alt="">${ms}</div><figcaption>${pie}</figcaption></figure>`;
 }
 
 /**
@@ -834,9 +874,17 @@ export function informeHtml(d: DatosInforme): string {
   const conBenchmark = d.referencias.length > 0 || d.hallazgos.length > 0 || d.recomendaciones.length > 0;
   const portada = (n: string, t: string) => `<section class="hoja portada"><span class="num">${n}</span><h1>${t}</h1>${pie}</section>`;
   // 8 nov (reunión del 6): sin puntajes. Cada referencia va con sus capturas y un comentario corto.
-  const fichas = d.referencias.map((r, i) => `<section class="hoja ficha"><header><span class="et">Benchmark · ${i + 1}</span><h2>${esc(r.nombre)}</h2><span class="url">${esc(r.url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</span></header>
-<div class="capturas">${r.srcEscritorio ? `<figure class="esc"><img src="${r.srcEscritorio}" alt=""><figcaption>Escritorio</figcaption></figure>` : ""}${r.srcMovil ? `<figure class="mov"><img src="${r.srcMovil}" alt=""><figcaption>Móvil</figcaption></figure>` : ""}</div>
-${r.resumen ? `<p class="resumen">${esc(r.resumen)}</p>` : ""}${pie}</section>`).join("");
+  const fichas = d.referencias.map((r, i) => {
+    const marcas = r.marcas ?? [];
+    const de = (c: "ESCRITORIO" | "MOVIL") => marcas.filter((m) => m.captura === c);
+    const lista = (tipo: "TOMAR" | "EVITAR", titulo: string) => {
+      const xs = marcas.filter((m) => m.tipo === tipo);
+      return xs.length ? `<div class="lista ${tipo === "TOMAR" ? "toma" : "evita"}"><h3>${titulo}</h3><ol>${xs.map((m) => `<li><b>${m.n}</b>${esc(m.texto)}</li>`).join("")}</ol></div>` : "";
+    };
+    return `<section class="hoja ficha"><header><span class="et">Benchmark · ${i + 1}</span><h2>${esc(r.nombre)}</h2><span class="url">${esc(r.url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</span>${marcas.length ? `<span class="leyenda"><i class="toma"></i>Tomamos <i class="evita"></i>Evitamos</span>` : ""}</header>
+<div class="capturas">${r.srcEscritorio ? capturaMarcada(r.srcEscritorio, de("ESCRITORIO"), "esc", "Escritorio") : ""}${r.srcMovil ? capturaMarcada(r.srcMovil, de("MOVIL"), "mov", "Móvil") : ""}</div>
+${marcas.length ? `<div class="listas">${lista("TOMAR", "Lo que tomamos")}${lista("EVITAR", "Lo que evitamos")}</div>` : r.resumen ? `<p class="resumen">${esc(r.resumen)}</p>` : ""}${pie}</section>`;
+  }).join("");
   const scorecard = "";
   const puntos = (et: string, titulo: string, xs: Punto[]) => (xs.length ? `<section class="hoja"><span class="et">${et}</span><h2>${titulo}</h2><div class="puntos">${xs.map((x) => `<article><h3>${esc(x.titulo)}</h3><p>${esc(x.texto)}</p></article>`).join("")}</div>${pie}</section>` : "");
   const niveles = [0, 1, 2, 3].map((n) => d.flujograma.filter((p) => p.nivel === n)).filter((xs) => xs.length);
@@ -855,35 +903,87 @@ ${r.resumen ? `<p class="resumen">${esc(r.resumen)}</p>` : ""}${pie}</section>`)
       datoAlcance("Manual de marca", i.manualUrl),
     ].join("")}${i.logoUrl ? `<div class="dato"><span>Logo</span><p><img src="${esc(i.logoUrl)}" alt="" style="max-height:18mm;max-width:60mm"></p></div>` : ""}</div>${i.paleta?.length ? `<div class="paleta">${i.paleta.map((c) => `<span style="background:${esc(c)}"><em>${esc(c)}</em></span>`).join("")}</div>` : ""}${pie}</section>`
     : "";
+  const e = d.estrategia ?? null;
+  const esp = e?.especificaciones ?? null;
+  const estrategia = i && (i.objetivo || i.propuestaValor || i.kpis?.length)
+    ? `<section class="hoja"><span class="et">Estrategia</span><h2>Brief consolidado</h2><div class="datos">${[
+      datoAlcance("Objetivo del negocio", i.objetivo), datoAlcance("Público objetivo", i.publico), datoAlcance("Propuesta de valor", i.propuestaValor ?? null),
+      datoAlcance("Tono de marca", i.tono), datoAlcance("Mensaje central", i.mensajeCentral),
+    ].join("")}</div>${i.kpis?.length ? `<h3 class="sub">KPIs del sitio</h3><ul class="kpis">${i.kpis.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}${pie}</section>`
+    : "";
+  const catalogo = esp && (esp.catalogo.categorias.length || esp.whatsapp.campos.length || esp.whatsapp.numero)
+    ? `<section class="hoja"><span class="et">Arquitectura</span><h2>Catálogo y cotización</h2><div class="dos">
+<div>${esp.catalogo.categorias.length ? `<h3 class="sub">Categorías</h3><div class="chips">${esp.catalogo.categorias.map((c) => `<span>${esc(c)}</span>`).join("")}</div>` : ""}
+${esp.catalogo.atributos.length ? `<h3 class="sub">Atributos de cada producto</h3><div class="chips">${esp.catalogo.atributos.map((c) => `<span>${esc(c)}</span>`).join("")}</div>` : ""}
+<p class="nota">${esp.catalogo.conPrecio === null ? "" : esp.catalogo.conPrecio ? "Con precio visible. " : "Sin precio visible: se cotiza. "}${esp.catalogo.cantidad ? `Alrededor de ${esp.catalogo.cantidad} productos.` : ""}</p>
+${esp.whatsapp.campos.length ? `<h3 class="sub">Datos que se piden en el formulario</h3><ul class="campos">${esp.whatsapp.campos.map((c) => `<li>${esc(c.nombre)}${c.obligatorio ? " <em>obligatorio</em>" : ""}</li>`).join("")}</ul>` : ""}</div>
+<div><h3 class="sub">Así llega la cotización${esp.whatsapp.numero ? ` al ${esc(esp.whatsapp.numero)}` : ""}</h3><pre class="wsp">${esc(mensajeWhatsappEjemplo(d.marca, esp))}</pre></div></div>${pie}</section>`
+    : "";
+  const matriz = e?.funcionalidades.length
+    ? `<section class="hoja"><span class="et">Alcance</span><h2>Matriz de funcionalidades</h2><div class="dos">${(["IMPRESCINDIBLE", "DESEABLE"] as const).map((pr) => {
+      const xs = e.funcionalidades.filter((f) => f.prioridad === pr);
+      return `<div><h3 class="sub">${pr === "IMPRESCINDIBLE" ? "Imprescindibles" : "Deseables"}</h3>${xs.map((f) => `<article class="func ${pr === "IMPRESCINDIBLE" ? "imp" : ""}"><strong>${esc(f.nombre)}</strong>${f.descripcion ? `<p>${esc(f.descripcion)}</p>` : ""}</article>`).join("") || "<p class=\"nota\">—</p>"}</div>`;
+    }).join("")}</div>${pie}</section>`
+    : "";
+  const copy = e?.copy;
+  const copywriting = copy
+    ? `${copy.heros.length ? `<section class="hoja"><span class="et">Copywriting</span><h2>Opciones de hero</h2><div class="heros">${copy.heros.map((h, n) => `<article><span class="et">Opción ${n + 1}</span><h3>${esc(h.titulo)}</h3><p>${esc(h.subtitulo)}</p>${h.cta ? `<span class="cta">${esc(h.cta)}</span>` : ""}</article>`).join("")}</div>${pie}</section>` : ""}
+${copy.paginas.length ? `<section class="hoja"><span class="et">Copywriting</span><h2>Textos por página</h2><div class="estructura">${copy.paginas.map((pg) => `<div class="pag"><strong>${esc(pg.pagina)}</strong>${pg.bloques.map((b) => `<p><b>${esc(b.nombre)}:</b> ${esc(b.texto)}</p>`).join("")}</div>`).join("")}</div>${pie}</section>` : ""}
+${copy.ctas.length || copy.microcopys.length ? `<section class="hoja"><span class="et">Copywriting</span><h2>Botones y microcopys</h2><div class="dos"><div>${copy.ctas.length ? `<h3 class="sub">Botones</h3><div class="chips">${copy.ctas.map((c) => `<span class="cta">${esc(c)}</span>`).join("")}</div>` : ""}</div><div>${copy.microcopys.length ? `<h3 class="sub">Microcopys del flujo</h3><ul class="campos">${copy.microcopys.map((m) => `<li><em>${esc(m.momento)}:</em> ${esc(m.texto)}</li>`).join("")}</ul>` : ""}</div></div>${pie}</section>` : ""}
+${copy.faq.length ? `<section class="hoja"><span class="et">Copywriting</span><h2>Preguntas frecuentes</h2><div class="puntos">${copy.faq.map((f) => `<article><h3>${esc(f.pregunta)}</h3><p>${esc(f.respuesta)}</p></article>`).join("")}</div>${pie}</section>` : ""}`
+    : "";
+  const pendientes = e?.pendientes.length
+    ? `<section class="hoja"><span class="et">Para validar</span><h2>Pendientes y supuestos</h2><p class="intro">Antes de diseñar, confirmemos estos puntos:</p><ol class="pend">${e.pendientes.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>${pie}</section>`
+    : "";
+  const cierre = `<section class="hoja portada cierre"><h1>Gracias</h1><p>${esc(d.marca)} · Fase 1 · Estrategia y alcance</p><span class="firma">creado por INOO AGENCIA DE MARKETING</span></section>`;
   const bocetos = (d.bocetos ?? []).map((x, n) => `<section class="hoja boceto"><span class="et">Propuesta visual · ${n + 1}</span><h2>${esc(x.titulo)}</h2><div class="lienzo ${x.dispositivo === "MOVIL" ? "movil" : ""}"><img src="${x.src}" alt=""></div>${x.secciones.length ? `<p class="secs">${x.secciones.map(esc).join(" · ")}</p>` : ""}${pie}</section>`).join("");
   const numero = (() => {
     let n = 0;
     return () => String(++n).padStart(2, "0");
   })();
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${d.bocetos?.length ? "Propuesta web" : "Benchmark y flujograma"} · ${esc(d.marca)}</title><style>
-@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;font-family:"Helvetica Neue",Arial,sans-serif;color:#1d2433;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  // 9 nov: el PDF lleva la marca del cliente (sus dos primeros colores); sin paleta, los de Inoo.
+  const c1 = i?.paleta?.[0] ?? "#14213d";
+  const c2 = i?.paleta?.[1] ?? "#e76f51";
+  const sobre = textoSobre(c1);
+  const portadaInicial = `<section class="hoja portada inicial">${i?.logoUrl ? `<img class="logo" src="${esc(i.logoUrl)}" alt="">` : ""}<span class="num">Fase 1 · Estrategia y alcance</span><h1>${esc(d.marca)}</h1><p>Propuesta de sitio web</p></section>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Fase 1 · Estrategia y alcance · ${esc(d.marca)}</title>${i?.tipografias?.[0] ? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(i.tipografias[0])}:wght@400;700&display=swap">` : ""}<style>
+@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;font-family:${i?.tipografias?.[0] ? `"${esc(i.tipografias[0])}",` : ""}"Helvetica Neue",Arial,sans-serif;color:#1d2433;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .hoja{width:297mm;height:210mm;padding:16mm 18mm 14mm;position:relative;page-break-after:always;overflow:hidden;background:#fff}
-.portada{background:#14213d;color:#fff;display:flex;flex-direction:column;justify-content:center}.portada h1{font-size:64px;margin:0}.portada .num{font-size:22px;opacity:.6}
-footer{position:absolute;bottom:8mm;right:18mm;font-size:10px;opacity:.55}.et{text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:#e76f51;font-weight:700}
+.portada{background:${c1};color:${sobre};display:flex;flex-direction:column;justify-content:center}.inicial .logo{max-height:28mm;max-width:90mm;object-fit:contain;margin-bottom:10mm;background:#fff;border-radius:8px;padding:4mm}.inicial p,.cierre p{font-size:18px;opacity:.8}.cierre .firma{position:absolute;bottom:14mm;left:18mm;font-size:13px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}.portada h1{font-size:64px;margin:0}.portada .num{font-size:22px;opacity:.6}
+footer{position:absolute;bottom:8mm;right:18mm;font-size:10px;opacity:.55}.et{text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:${c2};font-weight:700}
 h2{font-size:30px;margin:4px 0 14px}.intro{font-size:16px;line-height:1.6;max-width:150mm}
 .ficha header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}.ficha h2{margin:0}.url{color:#64748b;font-size:13px}.global{margin-left:auto;background:#14213d;color:#fff;border-radius:20px;padding:4px 12px;font-weight:700}
 .capturas{display:flex;gap:10mm;margin:8mm 0 6mm;height:88mm}.capturas figure{margin:0;display:flex;flex-direction:column;gap:4px}.capturas img{height:82mm;border:1px solid #e2e8f0;border-radius:6px;object-fit:cover;object-position:top}.esc img{width:146mm}.mov img{width:40mm}figcaption{font-size:10px;color:#64748b}
 .puntajes{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 14px}.puntajes li{display:grid;grid-template-columns:1fr auto;font-size:12px;border-top:1px solid #e2e8f0;padding-top:4px}.dim{font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.06em}.pts{font-weight:700;color:#e76f51}.com{grid-column:1/-1;color:#475569}
 .resumen{font-size:14px;line-height:1.55;color:#334155;margin-top:8px;max-width:200mm}
 table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #e2e8f0;padding:6px 8px;text-align:center}th:first-child,td:first-child{text-align:left}thead th{background:#14213d;color:#fff}.c1,.c2{background:#fde2e1}.c3{background:#fff4d6}.c4,.c5{background:#dcfce7}.total td{font-weight:700;background:#f1f5f9}
-.puntos{display:grid;grid-template-columns:1fr 1fr;gap:8mm}.puntos h3{margin:0 0 4px;font-size:16px;color:#14213d}.puntos p{margin:0;font-size:13px;line-height:1.5;color:#334155}
-.nivel{margin-bottom:6mm}.nn{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase}.cajas{display:flex;flex-wrap:wrap;gap:4mm;margin-top:2mm}.caja{border-radius:8px;padding:6px 10px;min-width:40mm;max-width:62mm;display:flex;flex-direction:column;gap:2px;font-size:11px;border:1px solid #cbd5e1}.caja strong{font-size:13px}.caja em{color:#94a3b8;font-size:10px}.n0{background:#14213d;color:#fff;border:0}.n1{background:#e76f51;color:#fff;border:0}.n2{background:#fff4ec}.n3{background:#f8fafc}
-.estructura{display:grid;grid-template-columns:repeat(4,1fr);gap:5mm}.pag{border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:11px}.pag strong{font-size:13px;color:#14213d}.pag ol{margin:4px 0 0;padding-left:16px}
+.puntos{display:grid;grid-template-columns:1fr 1fr;gap:8mm}.puntos h3{margin:0 0 4px;font-size:16px;color:${c1}}.puntos p{margin:0;font-size:13px;line-height:1.5;color:#334155}
+.nivel{margin-bottom:6mm}.nn{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase}.cajas{display:flex;flex-wrap:wrap;gap:4mm;margin-top:2mm}.caja{border-radius:8px;padding:6px 10px;min-width:40mm;max-width:62mm;display:flex;flex-direction:column;gap:2px;font-size:11px;border:1px solid #cbd5e1}.caja strong{font-size:13px}.caja em{color:#94a3b8;font-size:10px}.n0{background:${c1};color:${sobre};border:0}.n1{background:${c2};color:${textoSobre(c2)};border:0}.n2{background:#fff4ec}.n3{background:#f8fafc}
+.estructura{display:grid;grid-template-columns:repeat(4,1fr);gap:5mm}.pag{border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:11px}.pag strong{font-size:13px;color:${c1}}.pag ol{margin:4px 0 0;padding-left:16px}
 .datos{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6mm 10mm}.dato span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b}.dato p{margin:2px 0 0;font-size:13px;line-height:1.45}
 .paleta{display:flex;gap:4mm;margin-top:8mm}.paleta span{width:28mm;height:18mm;border-radius:6px;border:1px solid #e2e8f0;display:flex;align-items:flex-end;padding:3px 5px}.paleta em{font-size:9px;font-style:normal;background:#fff;border-radius:3px;padding:0 3px}
+.marco{position:relative;display:inline-block}.marco img{display:block}.marca{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px #0005}.marca.toma,.leyenda i.toma{background:#16a34a}.marca.evita,.leyenda i.evita{background:#dc2626}
+.leyenda{margin-left:auto;font-size:11px;display:flex;gap:6px;align-items:center}.leyenda i{display:inline-block;width:10px;height:10px;border-radius:50%}
+.capturas .esc .marco{width:146mm;max-height:82mm;overflow:hidden;border:1px solid #e2e8f0;border-radius:6px}.capturas .mov .marco{width:40mm;max-height:82mm;overflow:hidden;border:1px solid #e2e8f0;border-radius:6px}.capturas .marco img{width:100%;height:auto;border:0;border-radius:0}
+.listas{display:grid;grid-template-columns:1fr 1fr;gap:8mm}.lista h3{margin:0 0 3px;font-size:13px}.lista.toma h3{color:#16a34a}.lista.evita h3{color:#dc2626}.lista ol{list-style:none;margin:0;padding:0;display:grid;gap:3px}.lista li{font-size:11.5px;line-height:1.4;display:flex;gap:6px}.lista li b{flex:none;width:17px;height:17px;border-radius:50%;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center}.lista.toma li b{background:#16a34a}.lista.evita li b{background:#dc2626}
+.sub{font-size:14px;margin:8mm 0 3mm;color:${c1}}.kpis{margin:0;padding-left:18px;font-size:14px;line-height:1.7}.dos{display:grid;grid-template-columns:1fr 1fr;gap:12mm}.chips{display:flex;flex-wrap:wrap;gap:3mm}.chips span{border:1px solid #cbd5e1;border-radius:14px;padding:3px 10px;font-size:12px}.chips .cta,.cta{background:${c2};color:${textoSobre(c2)};border:0;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:700;display:inline-block}
+.nota{font-size:12px;color:#64748b}.campos{margin:0;padding-left:18px;font-size:12.5px;line-height:1.7}.campos em{color:#64748b;font-size:11px}.wsp{background:#e7f8ee;border:1px solid #b7e4c7;border-radius:10px;padding:10px 14px;font-family:inherit;font-size:12.5px;line-height:1.55;white-space:pre-wrap}
+.func{border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;margin-bottom:3mm}.func.imp{border-left:4px solid ${c2}}.func strong{font-size:13px}.func p{margin:2px 0 0;font-size:11.5px;color:#475569}
+.heros{display:grid;grid-template-columns:repeat(3,1fr);gap:6mm}.heros article{border:1px solid #e2e8f0;border-radius:10px;padding:10mm 8mm;background:#f8fafc}.heros h3{font-size:20px;margin:6px 0;color:${c1}}.heros p{font-size:13px;color:#334155;line-height:1.5}
+.pag p{margin:3px 0 0;line-height:1.4}.pend{font-size:15px;line-height:1.9;max-width:220mm}
 .boceto h2{margin-bottom:6mm}.lienzo{height:140mm;display:flex;justify-content:center}.lienzo img{height:100%;max-width:100%;object-fit:cover;object-position:top;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 18px #0001}.lienzo.movil img{width:70mm}.secs{font-size:11px;color:#64748b;margin:4mm 0 0}
 </style></head><body>
-${alcance ? `${portada(numero(), "Alcance")}${alcance}` : ""}
+${portadaInicial}
+${estrategia || alcance ? `${portada(numero(), "Estrategia y alcance")}${estrategia}${alcance}` : ""}
 ${conBenchmark ? `${portada(numero(), "Benchmark")}
 <section class="hoja"><span class="et">Benchmark</span><h2>Competencia y referencias</h2><p class="intro">Este análisis cruza las necesidades del proyecto conversadas en la reunión de brief con lo que hoy ofrecen los sitios de referencia, y evalúa su identidad, su estructura y su experiencia de uso en escritorio y en el celular.</p>${pie}</section>` : ""}
 ${fichas}${scorecard}${puntos("Hallazgos clave", "Lo que el mercado no está haciendo bien", d.hallazgos)}${puntos("Recomendaciones", "Recomendaciones UX prioritarias", d.recomendaciones)}
-${d.flujograma.length ? portada(numero(), "Flujograma") : ""}${navegacion}
+${d.flujograma.length || catalogo ? portada(numero(), "Arquitectura web") : ""}${navegacion}${catalogo}
+${matriz}
+${copywriting ? `${portada(numero(), "Copywriting")}${copywriting}` : ""}
 ${bocetos ? `${portada(numero(), "Propuesta visual")}${bocetos}` : ""}
+${pendientes}
+${cierre}
 </body></html>`;
 }
 
@@ -929,10 +1029,10 @@ export function validarMaterial(b: Record<string, unknown>): { errores: Errores;
 
 /** DeepSeek: de la transcripción de la reunión de brief (y el manual, si se subió) saca los datos del brief web. */
 export const SISTEMA_BRIEF_WEB = `Eres analista de una agencia de marketing en Perú. Te paso la transcripción de la reunión de brief de una página web con el cliente y, si existe, el texto de su manual de marca. Saca solo lo que se dijo o está escrito; no inventes. Responde SOLO un objeto JSON con estas claves (null o [] si no se mencionó):
-{"objetivo": "para qué es la web, en una o dos frases", "publico": "a quién le habla", "alcance": "qué incluye el proyecto (páginas, funciones, integraciones)", "cms": "WordPress, Elementor, Shopify u otro, si se dijo", "mensajeCentral": "la idea principal que debe transmitir", "tono": "cómo debe sonar", "resumenReunion": "resumen de lo acordado, pendientes y fechas, en hasta 6 líneas", "secciones": ["páginas o secciones pedidas"], "tipografias": ["fuentes de la marca"], "paleta": ["colores de la marca en #RRGGBB"], "referencias": [{"nombre": "sitio", "url": "https://…"}]}
+{"objetivo": "para qué es la web, en una o dos frases", "publico": "a quién le habla", "propuestaValor": "por qué elegirlos, en una o dos frases", "kpis": ["indicadores del sitio que se mencionaron"], "catalogo": {"categorias": ["categorías de productos"], "atributos": ["medidas, colores, modelos…"], "conPrecio": true o false o null, "cantidad": número de productos o null}, "whatsapp": {"numero": "número de destino o null", "campos": [{"nombre": "dato que se pide al cliente", "obligatorio": true}]}, "alcance": "qué incluye el proyecto (páginas, funciones, integraciones)", "cms": "WordPress, Elementor, Shopify u otro, si se dijo", "mensajeCentral": "la idea principal que debe transmitir", "tono": "cómo debe sonar", "resumenReunion": "resumen de lo acordado, pendientes y fechas, en hasta 6 líneas", "secciones": ["páginas o secciones pedidas"], "tipografias": ["fuentes de la marca"], "paleta": ["colores de la marca en #RRGGBB"], "referencias": [{"nombre": "sitio", "url": "https://…"}]}
 Cada texto de hasta 550 caracteres. Hasta 20 secciones, 4 tipografías y 8 colores. Escribe en español.`;
 
-export interface PropuestaBriefWeb { ajustes: AjustesTaller; referencias: { nombre: string; url: string }[] }
+export interface PropuestaBriefWeb { ajustes: AjustesTaller; referencias: { nombre: string; url: string }[]; especificaciones?: unknown }
 export function normalizarBriefWeb(j: Record<string, unknown>): PropuestaBriefWeb {
   const t = (v: unknown) => (typeof v === "string" && v.trim() && v.trim().toLowerCase() !== "null" ? v.trim().slice(0, 600) : undefined);
   const l = (v: unknown, max: number, largo: number, patron?: RegExp) =>
@@ -944,6 +1044,8 @@ export function normalizarBriefWeb(j: Record<string, unknown>): PropuestaBriefWe
   }
   const secciones = l(j.secciones, 20, 60);
   const tipografias = l(j.tipografias, 4, 60);
+  const kpis = l(j.kpis, 8, 160);
+  if (kpis.length) a.kpis = kpis;
   const paleta = l((Array.isArray(j.paleta) ? j.paleta : []).map((c) => (typeof c === "string" ? c.trim().toUpperCase() : c)), 8, 7, /^#[0-9A-F]{6}$/);
   if (secciones.length) a.secciones = secciones;
   if (tipografias.length) a.tipografias = tipografias;
@@ -951,7 +1053,7 @@ export function normalizarBriefWeb(j: Record<string, unknown>): PropuestaBriefWe
   const referencias = (Array.isArray(j.referencias) ? j.referencias : [])
     .map((r) => ({ nombre: typeof (r as { nombre?: unknown })?.nombre === "string" ? ((r as { nombre: string }).nombre).trim().slice(0, 80) : "", url: normalizarUrl((r as { url?: unknown })?.url) }))
     .filter((r): r is { nombre: string; url: string } => !!r.url).slice(0, 8);
-  return { ajustes: a, referencias };
+  return { ajustes: a, referencias, especificaciones: { catalogo: j.catalogo, whatsapp: j.whatsapp } };
 }
 /** Sin IA: al menos la reunión queda resumida con su comienzo. */
 export const briefPorReglas = (transcripcion: string): PropuestaBriefWeb => ({ ajustes: { resumenReunion: transcripcion.replace(/\s+/g, " ").trim().slice(0, 600) || null }, referencias: [] });

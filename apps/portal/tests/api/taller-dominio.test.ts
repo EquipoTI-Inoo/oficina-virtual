@@ -158,7 +158,7 @@ describe("taller web · dominio", () => {
       marca: "Casa Oliva", dominio: null, dimensiones: [], referencias: [], hallazgos: [], recomendaciones: [], flujograma: flujo, fecha: "2026-10-26",
       insumos: { ...INSUMOS, paleta: ["#3F5547"] }, bocetos: [{ titulo: "Inicio", secciones: ["Hero"], dispositivo: "ESCRITORIO", src: "data:image/png;base64,AA==" }],
     });
-    for (const x of ["<title>Propuesta web · Casa Oliva</title>", ">Alcance<", "Vender en línea", "#3F5547", ">Propuesta visual<", "Propuesta visual · 1", ">01<", ">02<", ">03<"]) assert.ok(html.includes(x), x);
+    for (const x of ["<title>Fase 1 · Estrategia y alcance · Casa Oliva</title>", ">Alcance<", "creado por INOO AGENCIA DE MARKETING", "Vender en línea", "#3F5547", ">Propuesta visual<", "Propuesta visual · 1", ">01<", ">02<", ">03<"]) assert.ok(html.includes(x), x);
     assert.doesNotMatch(html, /21st|plantilla/i);
   });
 

@@ -5104,6 +5104,7 @@ paths:
               properties:
                 prompt: { type: string, maxLength: 30000, description: 'Sin prompt (o vacío), el estándar armado desde el flujograma y la plantilla de 21st.dev. Con Stitch real, antes se crea el sistema de diseño del proyecto con el DESIGN.md (designMd)' }
                 alcance: { type: string, enum: [PAGINA, SITIO], default: PAGINA, description: 'SITIO: todas las páginas del flujograma en un solo prompt; Stitch puede devolver varias pantallas y se guardan hasta el tope' }
+                sinAprobacion: { type: boolean, description: '9 nov: generar aunque el cliente no haya aprobado la fase 1 (si no, 409 FASE1_SIN_APROBAR)' }
                 generador: { type: string, enum: [STITCH, CLAUDE], default: STITCH, description: 'CLAUDE (6 nov): Claude escribe el HTML de cada página con su prompt (con SITIO, una llamada por página) y el navegador lo fotografía' }
                 paginaId: { type: string, description: 'Página del flujograma a diseñar (con alcance PAGINA); por defecto, la de entrada' }
                 dispositivo: { $ref: '#/components/schemas/DispositivoWeb' }
@@ -5115,6 +5116,17 @@ paths:
               schema: { $ref: '#/components/schemas/ResultadoTallerWeb' }
         '409': { description: 'TALLER_SIN_FLUJOGRAMA o LIMITE_PANTALLAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '502': { description: 'STITCH_NO_DISPONIBLE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/estrategia:
+    parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    post:
+      tags: [Taller web]
+      operationId: generarEstrategiaWeb
+      summary: 'Fase 1 (9 nov): la IA escribe el copywriting (3 heros, textos por página, botones, microcopys y preguntas frecuentes), la matriz de funcionalidades y los pendientes; y la propuesta de valor y los KPIs si faltan'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ResultadoTallerWeb' } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
 
   /servicios-contratados/{servicioContratadoId}/taller-web/materiales:
     parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
@@ -5205,6 +5217,7 @@ paths:
               type: object
               properties:
                 origen: { type: string, enum: [GENERAR, HTML], default: GENERAR }
+                sinAprobacion: { type: boolean, description: '9 nov: generar aunque el cliente no haya aprobado la fase 1 (si no, 409 FASE1_SIN_APROBAR)' }
                 html: { type: string, description: 'Solo con origen HTML (hasta 1,5 MB)' }
                 diasVigencia: { type: integer, minimum: 1, maximum: 30, default: 7 }
                 nota: { type: [string, 'null'], maxLength: 500 }
@@ -6077,6 +6090,7 @@ components:
         resumen: { type: [string, 'null'] }
         analizadaEn: { type: [string, 'null'], format: date-time }
         puntajeGlobal: { type: [number, 'null'], description: Promedio de los puntajes con un decimal }
+        marcas: { type: array, items: { $ref: '#/components/schemas/MarcaCaptura' }, description: '9 nov: puntos numerados sobre las capturas (verde lo que tomamos, rojo lo que evitamos)' }
     PuntoTaller:
       type: object
       required: [titulo, texto]
@@ -6127,6 +6141,53 @@ components:
         estado: { $ref: '#/components/schemas/EstadoEntregable' }
         version: { type: integer }
         formato: { $ref: '#/components/schemas/FormatoEntregable' }
+    MarcaCaptura:
+      type: object
+      required: [n, tipo, captura, x, y, texto]
+      properties:
+        n: { type: integer, description: 'Número de la marca (primero lo que tomamos)' }
+        tipo: { type: string, enum: [TOMAR, EVITAR] }
+        captura: { $ref: '#/components/schemas/DispositivoWeb' }
+        x: { type: number, description: 'Porcentaje desde la izquierda (2 a 98)' }
+        y: { type: number, description: 'Porcentaje desde arriba (2 a 98)' }
+        texto: { type: string, maxLength: 200 }
+    EstrategiaWeb:
+      type: object
+      description: 'Fase 1 (9 nov): lo que pide el proyecto, el copywriting, la matriz de funcionalidades y los pendientes por validar'
+      required: [especificaciones, copy, funcionalidades, pendientes, generadaEn]
+      properties:
+        especificaciones:
+          type: object
+          required: [catalogo, whatsapp]
+          properties:
+            catalogo:
+              type: object
+              required: [categorias, atributos, conPrecio, cantidad]
+              properties:
+                categorias: { type: array, items: { type: string } }
+                atributos: { type: array, items: { type: string } }
+                conPrecio: { type: [boolean, 'null'] }
+                cantidad: { type: [integer, 'null'] }
+            whatsapp:
+              type: object
+              required: [numero, campos]
+              properties:
+                numero: { type: [string, 'null'] }
+                campos: { type: array, items: { type: object, required: [nombre, obligatorio], properties: { nombre: { type: string }, obligatorio: { type: boolean } } } }
+        copy:
+          oneOf:
+            - type: object
+              required: [heros, paginas, ctas, microcopys, faq]
+              properties:
+                heros: { type: array, items: { type: object, required: [titulo, subtitulo, cta], properties: { titulo: { type: string }, subtitulo: { type: string }, cta: { type: string } } } }
+                paginas: { type: array, items: { type: object, required: [pagina, bloques], properties: { pagina: { type: string }, bloques: { type: array, items: { type: object, required: [nombre, texto], properties: { nombre: { type: string }, texto: { type: string } } } } } } }
+                ctas: { type: array, items: { type: string } }
+                microcopys: { type: array, items: { type: object, required: [momento, texto], properties: { momento: { type: string }, texto: { type: string } } } }
+                faq: { type: array, items: { type: object, required: [pregunta, respuesta], properties: { pregunta: { type: string }, respuesta: { type: string } } } }
+            - type: 'null'
+        funcionalidades: { type: array, items: { type: object, required: [nombre, descripcion, prioridad], properties: { nombre: { type: string }, descripcion: { type: string }, prioridad: { type: string, enum: [IMPRESCINDIBLE, DESEABLE] } } } }
+        pendientes: { type: array, items: { type: string } }
+        generadaEn: { type: [string, 'null'], format: date-time }
     TipoMaterialTaller: { type: string, enum: [LOGO, MANUAL, TRANSCRIPCION, OTRO] }
     MaterialTaller:
       type: object
@@ -6144,7 +6205,7 @@ components:
     TallerWeb:
       type: object
       description: 'Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables'
-      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, insumosEditados, materiales, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
+      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, insumosEditados, materiales, estrategia, fase1, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
       properties:
         servicioContratadoId: { type: string, format: uuid }
         servicioTitulo: { type: string }
@@ -6167,8 +6228,18 @@ components:
             cms: { type: [string, 'null'] }
             logoUrl: { type: [string, 'null'], description: 'Enlace al logo (8 nov: branding en todo el flujo)' }
             manualUrl: { type: [string, 'null'], description: Enlace al manual de marca }
+            propuestaValor: { type: [string, 'null'], description: '9 nov (fase 1)' }
+            kpis: { type: array, items: { type: string }, description: '9 nov (fase 1): indicadores del sitio con su meta' }
         insumosEditados: { type: array, items: { type: string }, description: 'Los campos de insumos que el equipo corrigió (el resto sale del brief)' }
         materiales: { type: array, items: { $ref: '#/components/schemas/MaterialTaller' }, description: '9 nov: logo, manual, transcripción y otros archivos del cliente' }
+        estrategia: { $ref: '#/components/schemas/EstrategiaWeb' }
+        fase1:
+          type: object
+          required: [estadoDocumento, aprobada]
+          description: 'La fase 1 se cierra cuando el cliente aprueba su PDF; sin eso, el prototipo y la demo piden sinAprobacion: true'
+          properties:
+            estadoDocumento: { type: [string, 'null'], enum: [EN_PREPARACION, LISTO_REVISION, CAMBIOS_SOLICITADOS, APROBADO, null] }
+            aprobada: { type: boolean }
         dimensiones:
           type: array
           items:
@@ -6209,6 +6280,7 @@ components:
       type: object
       required: [version]
       properties:
+        estrategia: { type: object, description: '9 nov: especificaciones, copy, funcionalidades y pendientes (lo que viene reemplaza; lo que no, sigue igual)' }
         version: { type: integer }
         ajustes:
           description: 'Lo que el equipo corrige de lo que se sacó del brief y la marca (8 nov). Cada campo presente reemplaza al del brief; null vuelve todo al brief'

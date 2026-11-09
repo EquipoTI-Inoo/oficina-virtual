@@ -2063,6 +2063,7 @@ ruta("DELETE", "/servicios-contratados/:id/taller-web/demos/:demoId", (ctx, p) =
 ruta("POST", "/servicios-contratados/:id/taller-web/materiales", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "MATERIAL", cuerpo));
 ruta("DELETE", "/servicios-contratados/:id/taller-web/materiales/:materialId", (ctx, p) => tallerDb(ctx, p.id, "QUITAR_MATERIAL", undefined, p.materialId));
 ruta("POST", "/servicios-contratados/:id/taller-web/brief-desde-transcripcion", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "BRIEF_TRANSCRIPCION", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/estrategia", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "ESTRATEGIA", cuerpo));
 
 /**
  * GET /publico/{token} y /demo/{token}, sin sesión: se busca el archivo por su token con una sesión de
