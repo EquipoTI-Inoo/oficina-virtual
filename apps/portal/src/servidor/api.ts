@@ -2247,6 +2247,125 @@ ruta("GET", "/panel/organigrama", async (ctx) => {
   return { datos: rows.map((u) => ({ ...personaEquipoVista(u), reportaAId: u.reporta_a_id })) };
 });
 
+// ───────────────────────────────────────────── empresas (pedido de Ernesto, 6 nov)
+
+/** Los clientes internos («Inoo (interno)», «Inoo Marketing»…) se juntan con Inoo. */
+const ES_INOO = /^inoo\b/i;
+async function exigirEmpresas(ctx: Ctx) {
+  soloEquipo(ctx);
+  if ((await alcanceDb(ctx)).nivel === "PROYECTO") throw new ErrorApi(403, "SIN_PERMISO", "Empresas es para quienes trabajan por cuenta; tus marcas están en «Mis marcas»");
+}
+type FilaEquipoEmpresa = FilaPersonaEquipo & { email: string };
+const equipoActivoDb = async (ctx: Ctx) =>
+  (await ctx.c.query<FilaEquipoEmpresa>(`SELECT ${COLUMNAS_PERSONA_EQUIPO}, email::text AS email FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre`)).rows;
+const esAdminFila = (u: FilaPersonaEquipo) => nivelDe(accesoDeFila(u)) === "ADMIN";
+
+/** Clientes que ve completos quien pregunta, separados en internos (de Inoo) y externos. */
+async function clientesDeEmpresasDb(ctx: Ctx) {
+  const a = await alcanceDb(ctx);
+  const filas = (await ctx.c.query<{ id: string; nombre: string; estado: S<"EstadoCliente"> }>("SELECT id, nombre, estado::text AS estado FROM cliente ORDER BY nombre")).rows.filter((c) => veCuenta(a, c.id));
+  return { internos: filas.filter((c) => ES_INOO.test(c.nombre)), externos: filas.filter((c) => !ES_INOO.test(c.nombre)) };
+}
+
+/** Quién del equipo entra a estas cuentas: AM, asignados, gente de sus proyectos y los ADMIN (que ven todo). */
+async function accesosEmpresaDb(ctx: Ctx, clienteIds: string[], servicios: FilaServicio[], equipo: FilaEquipoEmpresa[]): Promise<S<"AccesoEmpresa">[]> {
+  const porId = new Map(equipo.map((u) => [u.id, u]));
+  const esAdmin = (id: string) => { const u = porId.get(id); return !!u && esAdminFila(u); };
+  const am = (await ctx.c.query<{ id: string }>("SELECT account_manager_id AS id FROM cliente WHERE id = ANY($1::uuid[]) AND account_manager_id IS NOT NULL", [clienteIds])).rows.map((r) => r.id);
+  const asignados = (await ctx.c.query<{ id: string }>("SELECT usuario_id AS id FROM acceso_cuenta WHERE cliente_id = ANY($1::uuid[])", [clienteIds])).rows.map((r) => r.id);
+  const miembros = (await ctx.c.query<{ sc: string; id: string }>("SELECT servicio_contratado_id AS sc, usuario_id AS id FROM miembro_proyecto WHERE servicio_contratado_id = ANY($1::uuid[])", [servicios.map((s) => s.id)])).rows;
+  const titulo = new Map(servicios.map((s) => [s.id, tituloServicio(s.nombre, s.marca ?? s.cliente_nombre)]));
+  const enProyectos = new Map<string, Set<string>>();
+  for (const x of [...miembros, ...servicios.filter((s) => s.responsable_id).map((s) => ({ sc: s.id, id: s.responsable_id! }))]) {
+    if (!enProyectos.has(x.id)) enProyectos.set(x.id, new Set());
+    enProyectos.get(x.id)!.add(titulo.get(x.sc)!);
+  }
+  const vistos = new Set<string>();
+  const r: S<"AccesoEmpresa">[] = [];
+  const poner = (id: string, motivo: S<"AccesoEmpresa">["motivo"]) => {
+    const u = porId.get(id);
+    if (!u || vistos.has(id)) return;
+    vistos.add(id);
+    const completo = motivo !== "PROYECTO";
+    r.push({ persona: personaEquipoVista(u), acceso: completo ? "COMPLETO" : "PROYECTOS", motivo, proyectos: completo ? [] : [...enProyectos.get(id)!].sort() });
+  };
+  am.forEach((id) => poner(id, esAdmin(id) ? "ADMIN" : "AM"));
+  asignados.forEach((id) => poner(id, esAdmin(id) ? "ADMIN" : "ASIGNADO"));
+  for (const id of enProyectos.keys()) if (!esAdmin(id)) poner(id, "PROYECTO");
+  equipo.filter(esAdminFila).forEach((u) => poner(u.id, "ADMIN"));
+  return r;
+}
+
+async function proyectosEmpresaDb(ctx: Ctx, servicios: FilaServicio[]): Promise<S<"ProyectoEmpresa">[]> {
+  return Promise.all(servicios.map(async (s) => ({
+    servicioContratadoId: s.id, titulo: tituloServicio(s.nombre, s.marca ?? s.cliente_nombre), estado: s.estado,
+    porcentaje: (await servicioVista(ctx, s, PERIODO_ACTUAL())).avance.porcentaje, responsable: responsableServicio(s),
+  })));
+}
+const servicioVigente = (e: S<"EstadoServicio">) => e === "ACTIVO" || e === "STANDBY";
+
+ruta("GET", "/panel/empresas", async (ctx) => {
+  await exigirEmpresas(ctx);
+  const equipo = await equipoActivoDb(ctx);
+  const { internos, externos } = await clientesDeEmpresasDb(ctx);
+  const ids = [...internos, ...externos].map((c) => c.id);
+  const conteo = async (sql: string) => new Map((await ctx.c.query<{ id: string; n: number }>(sql, [ids])).rows.map((r) => [r.id, r.n]));
+  const personas = await conteo("SELECT cliente_id AS id, count(*)::int AS n FROM miembro_cliente WHERE cliente_id = ANY($1::uuid[]) GROUP BY cliente_id");
+  const proyectos = await conteo("SELECT cliente_id AS id, count(*)::int AS n FROM servicio_contratado WHERE cliente_id = ANY($1::uuid[]) AND estado IN ('ACTIVO', 'STANDBY') GROUP BY cliente_id");
+  const admins = new Set(equipo.filter(esAdminFila).map((u) => u.id));
+  const conAcceso = new Map<string, number>();
+  const filas = (await ctx.c.query<{ id: string; u: string }>(
+    `SELECT DISTINCT x.cliente_id AS id, x.u FROM (
+       SELECT id AS cliente_id, account_manager_id AS u FROM cliente
+       UNION ALL SELECT cliente_id, usuario_id FROM acceso_cuenta
+       UNION ALL SELECT cliente_id, responsable_id FROM servicio_contratado
+       UNION ALL SELECT sc.cliente_id, m.usuario_id FROM miembro_proyecto m JOIN servicio_contratado sc ON sc.id = m.servicio_contratado_id
+     ) x JOIN usuario w ON w.id = x.u AND w.activo WHERE x.cliente_id = ANY($1::uuid[])`, [ids],
+  )).rows;
+  for (const f of filas) if (!admins.has(f.u)) conAcceso.set(f.id, (conAcceso.get(f.id) ?? 0) + 1);
+  const inoo: S<"EmpresaResumen"> = {
+    id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length,
+    proyectosActivos: internos.reduce((t, c) => t + (proyectos.get(c.id) ?? 0), 0), equipoConAcceso: admins.size,
+  };
+  return {
+    datos: [inoo, ...externos.map((c): S<"EmpresaResumen"> => ({
+      id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado, personas: personas.get(c.id) ?? 0, proyectosActivos: proyectos.get(c.id) ?? 0, equipoConAcceso: conAcceso.get(c.id) ?? 0,
+    }))],
+  };
+});
+
+ruta("GET", "/panel/empresas/:id", async (ctx, p) => {
+  await exigirEmpresas(ctx);
+  const equipo = await equipoActivoDb(ctx);
+  if (p.id === "inoo") {
+    const { internos } = await clientesDeEmpresasDb(ctx);
+    const servicios = (await Promise.all(internos.map((c) => serviciosDelCliente(ctx, c.id)))).flat();
+    const admins = equipo.filter(esAdminFila);
+    return {
+      empresa: { id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length, proyectosActivos: servicios.filter((s) => servicioVigente(s.estado)).length, equipoConAcceso: admins.length },
+      gente: equipo.map((u) => ({ id: u.id, nombre: u.nombre, email: u.email, cargo: u.cargo, rolCliente: null, area: u.area, nivel: nivelDe(accesoDeFila(u)), esLead: u.es_lead, invitacionPendiente: false })),
+      proyectos: await proyectosEmpresaDb(ctx, servicios),
+      accesos: await accesosEmpresaDb(ctx, internos.map((c) => c.id), servicios, equipo),
+    } satisfies S<"EmpresaDetalle">;
+  }
+  await accesoCliente(ctx, p.id, true);
+  const c = (await ctx.c.query<{ id: string; nombre: string; estado: S<"EstadoCliente"> }>("SELECT id, nombre, estado::text AS estado FROM cliente WHERE id = $1", [p.id])).rows[0];
+  const gente = (await ctx.c.query<{ id: string; nombre: string; email: string | null; cargo: string | null; rol: S<"RolCliente">; pendiente: boolean }>(
+    `SELECT u.id, u.nombre, u.email::text AS email, u.cargo, m.rol, m.invitacion_pendiente AS pendiente FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id WHERE m.cliente_id = $1 ORDER BY m.creado_en, u.nombre`, [c.id],
+  )).rows;
+  const servicios = await serviciosDelCliente(ctx, c.id);
+  const accesos = await accesosEmpresaDb(ctx, [c.id], servicios, equipo);
+  return {
+    empresa: {
+      id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado, personas: gente.length, proyectosActivos: servicios.filter((s) => servicioVigente(s.estado)).length,
+      equipoConAcceso: accesos.filter((x) => x.motivo !== "ADMIN").length,
+    },
+    gente: gente.map((g) => ({ id: g.id, nombre: g.nombre, email: g.email, cargo: g.cargo, rolCliente: g.rol, area: null, nivel: null, esLead: false, invitacionPendiente: !!g.pendiente })),
+    proyectos: await proyectosEmpresaDb(ctx, servicios),
+    accesos,
+  } satisfies S<"EmpresaDetalle">;
+});
+
 const correoEnUso = async (ctx: Ctx, correo: string, salvo: string | null = null) =>
   (await ctx.c.query("SELECT 1 FROM usuario WHERE email = $1 AND id IS DISTINCT FROM $2", [correo, salvo])).rows.length > 0;
 

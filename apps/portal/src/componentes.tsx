@@ -3,7 +3,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard,
+  LuUserCog, LuNetwork, LuBuilding2, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard,
 } from "react-icons/lu";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
@@ -373,6 +373,8 @@ const NAV_EQUIPO = [
   { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot /> },
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
+  // Empresas (6 nov): Inoo y cada cliente con su gente, proyectos y accesos. No es para quien trabaja por proyecto.
+  { a: "/equipo/empresas", texto: "Empresas", icono: <LuBuilding2 />, grupo: "Agencia", porCuenta: true },
   { a: "/equipo/organigrama", texto: "Organigrama", icono: <LuNetwork />, grupo: "Agencia" },
   { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, permiso: "GESTIONAR_EQUIPO" },
   { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone /> },
@@ -519,6 +521,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
   const nivel = sesion?.usuario.nivelAcceso;
   const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO)
     .filter((n) => !("permiso" in n) || sesion?.usuario.permisos?.some((x) => x === n.permiso))
+    .filter((n) => !("porCuenta" in n) || (!!nivel && nivel !== "PROYECTO"))
     .map((n) => (n.a === "/equipo/clientes" && nivel === "PROYECTO" ? { ...n, texto: "Mis marcas" } : n));
   const u = sesion?.usuario;
   const salir = () => {

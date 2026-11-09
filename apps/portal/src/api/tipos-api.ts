@@ -2037,6 +2037,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/panel/empresas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Empresas (pedido de Ernesto, 6 nov): Inoo y cada cuenta que ve quien pregunta, con cuántas personas, proyectos y gente del equipo tiene
+         * @description Inoo va primero (id «inoo»); los clientes internos cuyo nombre empieza con «Inoo» se juntan con ella. Quien trabaja por proyecto no tiene esta sección.
+         */
+        get: operations["listarEmpresas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/empresas/{empresaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Una empresa en un solo lugar: su gente, sus proyectos y quién del equipo tiene acceso */
+        get: operations["verEmpresa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/clave": {
         parameters: {
             query?: never;
@@ -4267,6 +4304,62 @@ export interface components {
             areas: components["schemas"]["ConsumoArea"][];
             /** @description Personas del equipo sin área: no pueden usar Jarvis */
             sinArea: components["schemas"]["PersonaEquipo"][];
+        };
+        EmpresaResumen: {
+            /** @description «inoo» o el id del cliente */
+            id: string;
+            nombre: string;
+            /** @enum {string} */
+            tipo: "AGENCIA" | "CLIENTE";
+            /** @description null en Inoo */
+            estado: components["schemas"]["EstadoCliente"] | null;
+            /** @description Inoo: el equipo activo. Cliente: sus usuarios del portal */
+            personas: number;
+            /** @description Activos o en standby */
+            proyectosActivos: number;
+            /** @description Cliente: personas del equipo con acceso (AM, asignadas y de sus proyectos), sin contar a los ADMIN. Inoo: quienes ven todo */
+            equipoConAcceso: number;
+        };
+        PersonaEmpresa: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+            email: string | null;
+            cargo: string | null;
+            /** @description Solo en clientes */
+            rolCliente: components["schemas"]["RolCliente"] | null;
+            /** @description Solo en Inoo */
+            area: components["schemas"]["AreaEquipo"] | null;
+            /** @description Solo en Inoo */
+            nivel: components["schemas"]["NivelAcceso"] | null;
+            esLead: boolean;
+            invitacionPendiente: boolean;
+        };
+        ProyectoEmpresa: {
+            /** Format: uuid */
+            servicioContratadoId: string;
+            titulo: string;
+            estado: components["schemas"]["EstadoServicio"];
+            porcentaje: number;
+            responsable: components["schemas"]["PersonaMini"] | null;
+        };
+        AccesoEmpresa: {
+            persona: components["schemas"]["PersonaEquipo"];
+            /** @enum {string} */
+            acceso: "COMPLETO" | "PROYECTOS";
+            /**
+             * @description ADMIN: ve todas las cuentas por su nivel
+             * @enum {string}
+             */
+            motivo: "AM" | "ASIGNADO" | "PROYECTO" | "ADMIN";
+            /** @description Con PROYECTOS: los proyectos en los que está */
+            proyectos: string[];
+        };
+        EmpresaDetalle: {
+            empresa: components["schemas"]["EmpresaResumen"];
+            gente: components["schemas"]["PersonaEmpresa"][];
+            proyectos: components["schemas"]["ProyectoEmpresa"][];
+            accesos: components["schemas"]["AccesoEmpresa"][];
         };
         MiCuentaEquipo: {
             perfil: {
@@ -10556,6 +10649,54 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    listarEmpresas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["EmpresaResumen"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    verEmpresa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description «inoo» o el id del cliente */
+                empresaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmpresaDetalle"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     cambiarMiClave: {

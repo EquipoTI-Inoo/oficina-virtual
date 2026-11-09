@@ -19,6 +19,7 @@ import { uid } from "../../src/mock/datos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasCuentas } from "./flujo-cuentas";
+import { pruebasEmpresas } from "./flujo-empresas";
 import { pruebasPanel } from "./flujo-panel";
 import { pruebasArchivos } from "./flujo-archivos";
 import { prefirmar, usarAlmacen, type Almacen } from "../../src/servidor/almacen";
@@ -132,6 +133,7 @@ const eventosOutbox = async () => (await db.query<{ tipo: string; datos: any }>(
 pruebasPlanificacion("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 pruebasServicios("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox, new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10));
 pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
+pruebasEmpresas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasPanel("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasEquipo("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);
 

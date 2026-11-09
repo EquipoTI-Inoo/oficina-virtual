@@ -2693,6 +2693,99 @@ ruta("GET", "/panel/organigrama", (ctx) => {
   return { datos: activos.map((u) => ({ ...equipoVista(u), reportaAId: u.reportaAId && ids.has(u.reportaAId) ? u.reportaAId : null })) };
 });
 
+// ───────────────────────────────────────────── empresas (pedido de Ernesto, 6 nov)
+
+/** Los clientes internos («Inoo (interno)»…) se juntan con Inoo. */
+const ES_INOO = /^inoo\b/i;
+function exigirEmpresas(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (alcance(ctx).nivel === "PROYECTO") throw new ErrorApi(403, "SIN_PERMISO", "Empresas es para quienes trabajan por cuenta; tus marcas están en «Mis marcas»");
+}
+const equipoActivo = () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false).sort((a, b) => a.nombre.localeCompare(b.nombre));
+const esAdminDemo = (u: D.UsuarioDemo) => nivelDe(u) === "ADMIN";
+function clientesDeEmpresas(ctx: Ctx) {
+  const visibles = E.clientes.filter((c) => veCliente(ctx, c.id, true)).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return { internos: visibles.filter((c) => ES_INOO.test(c.nombre)), externos: visibles.filter((c) => !ES_INOO.test(c.nombre)) };
+}
+const vigente = (e: string) => e === "ACTIVO" || e === "STANDBY";
+
+function accesosEmpresa(clientes: D.ClienteDemo[]): S<"AccesoEmpresa">[] {
+  const ids = new Set(clientes.map((c) => c.id));
+  const equipo = equipoActivo();
+  const porId = new Map(equipo.map((u) => [u.id, u]));
+  const esAdmin = (id: string) => { const u = porId.get(id); return !!u && esAdminDemo(u); };
+  const servicios = E.servicios.filter((s) => ids.has(s.clienteId));
+  const enProyectos = new Map<string, Set<string>>();
+  const pares = [
+    ...E.miembrosProyecto.filter((m) => servicios.some((s) => s.id === m.servicioContratadoId)).map((m) => ({ sc: m.servicioContratadoId, id: m.usuarioId })),
+    ...servicios.filter((s) => s.responsableId).map((s) => ({ sc: s.id, id: s.responsableId! })),
+  ];
+  for (const x of pares) {
+    if (!enProyectos.has(x.id)) enProyectos.set(x.id, new Set());
+    enProyectos.get(x.id)!.add(tituloDe(servicios.find((s) => s.id === x.sc)!));
+  }
+  const vistos = new Set<string>();
+  const r: S<"AccesoEmpresa">[] = [];
+  const poner = (id: string | null | undefined, motivo: S<"AccesoEmpresa">["motivo"]) => {
+    const u = id ? porId.get(id) : undefined;
+    if (!u || vistos.has(u.id)) return;
+    vistos.add(u.id);
+    const completo = motivo !== "PROYECTO";
+    r.push({ persona: equipoVista(u), acceso: completo ? "COMPLETO" : "PROYECTOS", motivo, proyectos: completo ? [] : [...enProyectos.get(u.id)!].sort() });
+  };
+  clientes.forEach((c) => { const am = amDe(c); if (am) poner(am, esAdmin(am) ? "ADMIN" : "AM"); });
+  E.accesosCuenta.filter((a) => ids.has(a.clienteId)).forEach((a) => poner(a.usuarioId, esAdmin(a.usuarioId) ? "ADMIN" : "ASIGNADO"));
+  for (const id of enProyectos.keys()) if (!esAdmin(id)) poner(id, "PROYECTO");
+  equipo.filter(esAdminDemo).forEach((u) => poner(u.id, "ADMIN"));
+  return r;
+}
+const proyectosEmpresa = (clientes: D.ClienteDemo[]): S<"ProyectoEmpresa">[] =>
+  clientes.flatMap((c) => ordenados(serviciosDe(c.id))).map((s) => ({
+    servicioContratadoId: s.id, titulo: tituloDe(s), estado: s.estado, porcentaje: servicioVista(s).avance.porcentaje, responsable: s.responsableId ? persona(s.responsableId) : null,
+  }));
+function resumenCliente(c: D.ClienteDemo): S<"EmpresaResumen"> {
+  return {
+    id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado ?? "ACTIVO", personas: E.miembros.filter((m) => m.clienteId === c.id).length,
+    proyectosActivos: serviciosDe(c.id).filter((s) => vigente(s.estado)).length, equipoConAcceso: accesosEmpresa([c]).filter((x) => x.motivo !== "ADMIN").length,
+  };
+}
+function resumenInoo(internos: D.ClienteDemo[]): S<"EmpresaResumen"> {
+  const equipo = equipoActivo();
+  return {
+    id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length,
+    proyectosActivos: internos.reduce((t, c) => t + serviciosDe(c.id).filter((s) => vigente(s.estado)).length, 0), equipoConAcceso: equipo.filter(esAdminDemo).length,
+  };
+}
+
+ruta("GET", "/panel/empresas", (ctx) => {
+  exigirEmpresas(ctx);
+  const { internos, externos } = clientesDeEmpresas(ctx);
+  return { datos: [resumenInoo(internos), ...externos.map(resumenCliente)] };
+});
+
+ruta("GET", "/panel/empresas/:id", (ctx, p) => {
+  exigirEmpresas(ctx);
+  if (p.id === "inoo") {
+    const { internos } = clientesDeEmpresas(ctx);
+    return {
+      empresa: resumenInoo(internos),
+      gente: equipoActivo().map((u) => ({ id: u.id, nombre: u.nombre, email: u.email, cargo: u.cargo ?? null, rolCliente: null, area: u.area ?? null, nivel: nivelDe(u), esLead: !!u.esLead, invitacionPendiente: false })),
+      proyectos: proyectosEmpresa(internos),
+      accesos: accesosEmpresa(internos),
+    } satisfies S<"EmpresaDetalle">;
+  }
+  const c = accesoCliente(ctx, p.id, true);
+  return {
+    empresa: resumenCliente(c),
+    gente: E.miembros.filter((m) => m.clienteId === c.id).map((m) => {
+      const u = E.usuarios.find((x) => x.id === m.usuarioId)!;
+      return { id: u.id, nombre: u.nombre, email: u.email, cargo: u.cargo ?? null, rolCliente: m.rol, area: null, nivel: null, esLead: false, invitacionPendiente: !!m.invitacionPendiente };
+    }),
+    proyectos: proyectosEmpresa([c]),
+    accesos: accesosEmpresa([c]),
+  } satisfies S<"EmpresaDetalle">;
+});
+
 ruta("GET", "/panel/personas/:id/cambios-acceso", (ctx, p) => {
   exigirSuperUsuario(ctx);
   const datos = E.cambiosAcceso.filter((x) => x.usuarioId === p.id).reverse().slice(0, 50).map((x) => {

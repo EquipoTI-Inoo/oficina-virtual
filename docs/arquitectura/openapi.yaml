@@ -2974,6 +2974,42 @@ paths:
                   datos: { type: array, items: { $ref: '#/components/schemas/NodoOrganigrama' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /panel/empresas:
+    get:
+      tags: [Panel interno]
+      operationId: listarEmpresas
+      summary: 'Empresas (pedido de Ernesto, 6 nov): Inoo y cada cuenta que ve quien pregunta, con cuántas personas, proyectos y gente del equipo tiene'
+      description: 'Inoo va primero (id «inoo»); los clientes internos cuyo nombre empieza con «Inoo» se juntan con ella. Quien trabaja por proyecto no tiene esta sección.'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/EmpresaResumen' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/empresas/{empresaId}:
+    get:
+      tags: [Panel interno]
+      operationId: verEmpresa
+      summary: 'Una empresa en un solo lugar: su gente, sus proyectos y quién del equipo tiene acceso'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: empresaId, in: path, required: true, schema: { type: string }, description: '«inoo» o el id del cliente' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmpresaDetalle' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /me/clave:
     post:
       tags: [Sesión]
@@ -5772,6 +5808,60 @@ components:
         totalMesUsd: { type: number }
         areas: { type: array, items: { $ref: '#/components/schemas/ConsumoArea' } }
         sinArea: { type: array, description: 'Personas del equipo sin área: no pueden usar Jarvis', items: { $ref: '#/components/schemas/PersonaEquipo' } }
+    EmpresaResumen:
+      type: object
+      required: [id, nombre, tipo, estado, personas, proyectosActivos, equipoConAcceso]
+      properties:
+        id: { type: string, description: '«inoo» o el id del cliente' }
+        nombre: { type: string }
+        tipo: { type: string, enum: [AGENCIA, CLIENTE] }
+        estado: { oneOf: [ { $ref: '#/components/schemas/EstadoCliente' }, { type: 'null' } ], description: 'null en Inoo' }
+        personas: { type: integer, description: 'Inoo: el equipo activo. Cliente: sus usuarios del portal' }
+        proyectosActivos: { type: integer, description: 'Activos o en standby' }
+        equipoConAcceso: { type: integer, description: 'Cliente: personas del equipo con acceso (AM, asignadas y de sus proyectos), sin contar a los ADMIN. Inoo: quienes ven todo' }
+
+    PersonaEmpresa:
+      type: object
+      required: [id, nombre, email, cargo, rolCliente, area, nivel, esLead, invitacionPendiente]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        email: { type: [string, 'null'] }
+        cargo: { type: [string, 'null'] }
+        rolCliente: { oneOf: [ { $ref: '#/components/schemas/RolCliente' }, { type: 'null' } ], description: 'Solo en clientes' }
+        area: { oneOf: [ { $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' } ], description: 'Solo en Inoo' }
+        nivel: { oneOf: [ { $ref: '#/components/schemas/NivelAcceso' }, { type: 'null' } ], description: 'Solo en Inoo' }
+        esLead: { type: boolean }
+        invitacionPendiente: { type: boolean }
+
+    ProyectoEmpresa:
+      type: object
+      required: [servicioContratadoId, titulo, estado, porcentaje, responsable]
+      properties:
+        servicioContratadoId: { type: string, format: uuid }
+        titulo: { type: string }
+        estado: { $ref: '#/components/schemas/EstadoServicio' }
+        porcentaje: { type: integer }
+        responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
+
+    AccesoEmpresa:
+      type: object
+      required: [persona, acceso, motivo, proyectos]
+      properties:
+        persona: { $ref: '#/components/schemas/PersonaEquipo' }
+        acceso: { type: string, enum: [COMPLETO, PROYECTOS] }
+        motivo: { type: string, enum: [AM, ASIGNADO, PROYECTO, ADMIN], description: 'ADMIN: ve todas las cuentas por su nivel' }
+        proyectos: { type: array, items: { type: string }, description: 'Con PROYECTOS: los proyectos en los que está' }
+
+    EmpresaDetalle:
+      type: object
+      required: [empresa, gente, proyectos, accesos]
+      properties:
+        empresa: { $ref: '#/components/schemas/EmpresaResumen' }
+        gente: { type: array, items: { $ref: '#/components/schemas/PersonaEmpresa' } }
+        proyectos: { type: array, items: { $ref: '#/components/schemas/ProyectoEmpresa' } }
+        accesos: { type: array, items: { $ref: '#/components/schemas/AccesoEmpresa' } }
+
     MiCuentaEquipo:
       type: object
       required: [perfil, accesos, proyectosACargo, jarvis, cambiarClaveUrl, sesionesCerradasEn]
