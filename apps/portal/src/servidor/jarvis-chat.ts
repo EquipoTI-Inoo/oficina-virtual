@@ -16,7 +16,7 @@
  *    con los permisos de esa persona (X-Jarvis-Conversacion), no con los de un usuario fijo.
  */
 import { timingSafeEqual } from "node:crypto";
-import { AREAS, extraerTrabajo, type Area } from "../dominio/ia-equipo";
+import { AREAS, extraerTrabajo, sinBloqueTrabajo, type Area } from "../dominio/ia-equipo";
 import { generar, type ImagenIa } from "./ia-modelos";
 
 export interface HermesDelArea {
@@ -148,6 +148,35 @@ export function leerMarca(mensajes: unknown): string | null {
     }
   }
   return null;
+}
+
+let enviarHermes: typeof fetch = (...a) => fetch(...a);
+/** Solo pruebas: reemplaza fetch para simular al Hermes en las ejecuciones programadas. */
+export function usarFetchHermes(f: typeof fetch | null) {
+  enviarHermes = f ?? ((...a) => fetch(...a));
+}
+
+/**
+ * Jarvis avanzado (9 nov): rutinas y automatizaciones. Le pide algo al bot sin streaming (nadie está mirando) y
+ * devuelve el texto de su respuesta. Lanza un Error con un mensaje legible si Hermes no responde bien.
+ */
+export async function pedirAlBot(hermes: HermesDelArea, p: { botId: string; sistema: string; mensaje: string; sesionId: string }, ms = 110_000): Promise<string> {
+  let r: Response;
+  try {
+    r = await enviarHermes(`${hermes.url.replace(/\/$/, "")}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${hermes.clave}`, "x-hermes-session-id": p.sesionId, "x-hermes-session-key": `bot-${p.botId}` },
+      body: JSON.stringify({ model: "hermes-agent", stream: false, messages: [{ role: "system", content: `${p.sistema}${marcaSesion(p.sesionId)}` }, { role: "user", content: p.mensaje }] }),
+      signal: AbortSignal.timeout(ms),
+    });
+  } catch (e) {
+    throw new Error(`El Hermes del área no respondió (${(e as Error).message})`);
+  }
+  if (!r.ok) throw new Error(`El Hermes del área respondió ${r.status}`);
+  const j = (await r.json().catch(() => null)) as { choices?: { message?: { content?: unknown } }[] } | null;
+  const texto = j?.choices?.[0]?.message?.content;
+  if (typeof texto !== "string" || !texto.trim()) throw new Error("El bot no devolvió texto");
+  return sinBloqueTrabajo(texto) || texto.trim();
 }
 
 /** Lo que el portal hace cuando el bot reescribe su trabajo: lo guarda y devuelve el anterior (null = no se pudo). */

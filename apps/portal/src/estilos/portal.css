@@ -2497,3 +2497,7 @@ button.cuenta { cursor: pointer; }
 .jarvis-chat-nuevo { display: flex; align-items: center; gap: 6px; color: var(--c-primario); font-weight: 600; }
 .jarvis-chat-item .boton-icono { opacity: 0; }
 .jarvis-chat-item:hover .boton-icono, .jarvis-chat-item.activa .boton-icono { opacity: 1; }
+
+/* Jarvis avanzado (9 nov): «Guardar en biblioteca» debajo de cada respuesta. */
+.jarvis-guardar { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; opacity: 0.75; white-space: normal; }
+.jarvis-guardar:hover { opacity: 1; }

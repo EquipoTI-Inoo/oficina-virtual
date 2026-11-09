@@ -1,0 +1,7 @@
+[Unit]
+Description=Rutinas y automatizaciones de Jarvis (portal de Inoo)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/inoo/trabajos/jarvis.sh

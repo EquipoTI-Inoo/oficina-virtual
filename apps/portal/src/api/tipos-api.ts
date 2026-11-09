@@ -2329,6 +2329,286 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jarvis/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Skills del espacio: instrucciones y archivos reutilizables que se le activan a un bot */
+        get: operations["listarSkillsJarvis"];
+        put?: never;
+        /** Crea una skill en un espacio que la persona ve */
+        post: operations["crearSkillJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/skills/{skillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una skill (se desactiva de todos sus bots) */
+        delete: operations["borrarSkillJarvis"];
+        options?: never;
+        head?: never;
+        /** Cambia una skill (quien la creó, el lead del área o un ADMIN) */
+        patch: operations["cambiarSkillJarvis"];
+        trace?: never;
+    };
+    "/jarvis/conectores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Conectores MCP que puede usar el espacio. El super usuario los ve todos. Nunca hay credenciales: las configura TI en el Hermes */
+        get: operations["listarConectoresJarvis"];
+        put?: never;
+        /** Agrega un conector al catálogo (solo super usuario). Rechaza llaves o tokens en los campos */
+        post: operations["crearConectorJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/conectores/{conectorId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conectorId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita un conector del catálogo (solo super usuario) */
+        delete: operations["borrarConectorJarvis"];
+        options?: never;
+        head?: never;
+        /** Cambia un conector; TI lo marca CONECTADO cuando quedó en el Hermes (solo super usuario) */
+        patch: operations["cambiarConectorJarvis"];
+        trace?: never;
+    };
+    "/jarvis/bots/{botId}/herramientas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        /** Las skills y conectores activos de un bot */
+        get: operations["herramientasDelBot"];
+        /** Activa skills y conectores de su espacio en un bot (quien puede editar el bot) */
+        put: operations["cambiarHerramientasDelBot"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/rutinas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rutinas de los bots del espacio: pedidos que hacen solos cada día, semana o mes (hora de Lima) */
+        get: operations["listarRutinasJarvis"];
+        put?: never;
+        /** Programa una rutina en un bot que la persona usa. Cada ejecución la paga quien la creó */
+        post: operations["crearRutinaJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/rutinas/{rutinaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rutinaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una rutina (sus ejecuciones quedan en la actividad) */
+        delete: operations["borrarRutinaJarvis"];
+        options?: never;
+        head?: never;
+        /** Cambia, pausa (activa false) o reanuda una rutina (quien la creó, el lead del área o un ADMIN) */
+        patch: operations["cambiarRutinaJarvis"];
+        trace?: never;
+    };
+    "/jarvis/rutinas/{rutinaId}/ejecutar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rutinaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** La deja en cola para que corra en la próxima pasada (unos minutos), sin esperar su horario */
+        post: operations["ejecutarRutinaJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/eventos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lo que pasa en el portal y puede disparar una automatización */
+        get: operations["eventosJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/automatizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Automatizaciones de los bots del espacio: cuando pasa algo en el portal, el bot hace un pedido */
+        get: operations["listarAutomatizacionesJarvis"];
+        put?: never;
+        /** Crea una automatización en un bot que la persona usa. Al bot solo le llegan los ids del evento; cada ejecución la paga quien la creó */
+        post: operations["crearAutomatizacionJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/automatizaciones/{automatizacionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                automatizacionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una automatización */
+        delete: operations["borrarAutomatizacionJarvis"];
+        options?: never;
+        head?: never;
+        /** Cambia, pausa o reanuda una automatización */
+        patch: operations["cambiarAutomatizacionJarvis"];
+        trace?: never;
+    };
+    "/jarvis/actividad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trazabilidad del espacio: qué corrieron las rutinas y automatizaciones, y cuánto se usó cada skill y en qué bots */
+        get: operations["actividadJarvis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/biblioteca": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lo que guardó el espacio de lo que generó Jarvis */
+        get: operations["listarBibliotecaJarvis"];
+        put?: never;
+        /** Guarda una respuesta de un bot en la biblioteca de su espacio (y su copia .md en Drive, si está conectado) */
+        post: operations["guardarEnBibliotecaJarvis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jarvis/biblioteca/{elementoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                elementoId: string;
+            };
+            cookie?: never;
+        };
+        /** Un elemento con su contenido y, si está en Drive, la descarga */
+        get: operations["verElementoBibliotecaJarvis"];
+        put?: never;
+        post?: never;
+        /** Lo saca de la biblioteca (quien lo guardó, el lead del área o un ADMIN). La copia en Drive se queda */
+        delete: operations["borrarElementoBibliotecaJarvis"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integraciones/jarvis/ejecutar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lo corre el proceso de Jarvis cada 10 minutos (scope jarvis:write): pone en cola las rutinas que tocan y hace hasta 5 ejecuciones pendientes */
+        post: operations["ejecutarJarvisProgramado"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jarvis/bots": {
         parameters: {
             query?: never;
@@ -4306,6 +4586,203 @@ export interface components {
             areas: components["schemas"]["ConsumoArea"][];
             /** @description Personas del equipo sin área: no pueden usar Jarvis */
             sinArea: components["schemas"]["PersonaEquipo"][];
+        };
+        BotMini: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+        };
+        SkillJarvis: {
+            /** Format: uuid */
+            id: string;
+            espacio: string;
+            nombre: string;
+            descripcion: string;
+            instrucciones: string;
+            archivos: {
+                nombre: string;
+                caracteres: number;
+            }[];
+            /** @description Los bots que la tienen activa */
+            bots: components["schemas"]["BotMini"][];
+            /** @description Veces que un bot trabajó con ella */
+            usos: number;
+            /** Format: date-time */
+            ultimoUso: string | null;
+            creadoPor: components["schemas"]["PersonaMini"];
+            puedeEditar: boolean;
+            /** Format: date-time */
+            actualizadoEn: string;
+        };
+        SkillJarvisEntrada: {
+            /** @description Solo al crear; si no, el primero de la persona */
+            espacio?: string;
+            nombre?: string;
+            descripcion?: string | null;
+            instrucciones?: string;
+            /** @description Archivos de texto (txt, md, csv). Al cambiar, se reemplazan todos */
+            archivos?: {
+                nombre: string;
+                texto: string;
+            }[];
+        };
+        /**
+         * @description PENDIENTE: falta configurarlo en el Hermes. Solo los CONECTADO se le ofrecen al bot
+         * @enum {string}
+         */
+        EstadoConector: "PENDIENTE" | "CONECTADO" | "APAGADO";
+        ConectorJarvis: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+            descripcion: string;
+            url: string | null;
+            /** @description Vacío = todas las áreas */
+            espacios: string[];
+            estado: components["schemas"]["EstadoConector"];
+            /** @description Bots del espacio que lo tienen activo */
+            bots: components["schemas"]["BotMini"][];
+            puedeEditar: boolean;
+        };
+        ConectorJarvisEntrada: {
+            nombre?: string;
+            descripcion?: string | null;
+            url?: string | null;
+            espacios?: string[];
+            estado?: components["schemas"]["EstadoConector"];
+        };
+        HerramientasBot: {
+            skillIds: string[];
+            conectorIds: string[];
+            puedeEditar: boolean;
+        };
+        /** @enum {string} */
+        FrecuenciaRutina: "DIARIA" | "LABORABLES" | "SEMANAL" | "MENSUAL";
+        EjecucionJarvis: {
+            /** Format: uuid */
+            id: string;
+            bot: components["schemas"]["BotMini"];
+            /** @enum {string} */
+            origen: "RUTINA" | "AUTOMATIZACION";
+            /** @description De la rutina o automatización */
+            nombre: string;
+            /** @enum {string} */
+            estado: "PENDIENTE" | "EN_CURSO" | "HECHA" | "FALLIDA";
+            /** @description La conversación con la respuesta */
+            sesionId: string | null;
+            error: string | null;
+            /** @description El comienzo de la respuesta */
+            resumen: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            terminadoEn: string | null;
+            pagadoPor: components["schemas"]["PersonaMini"];
+        };
+        RutinaJarvis: {
+            /** Format: uuid */
+            id: string;
+            bot: components["schemas"]["BotMini"];
+            nombre: string;
+            pedido: string;
+            frecuencia: components["schemas"]["FrecuenciaRutina"];
+            /**
+             * @description Hora de Lima
+             * @example 08:30
+             */
+            hora: string;
+            /** @description 1 = lunes … 7 = domingo */
+            diaSemana: number | null;
+            diaMes: number | null;
+            activa: boolean;
+            /** @example De lunes a viernes a las 08:30 */
+            horario: string;
+            /**
+             * Format: date-time
+             * @description null si está pausada
+             */
+            proximaEn: string | null;
+            ultima: components["schemas"]["EjecucionJarvis"] | null;
+            creadoPor: components["schemas"]["PersonaMini"];
+            puedeEditar: boolean;
+        };
+        RutinaJarvisEntrada: {
+            /**
+             * Format: uuid
+             * @description Solo al crear
+             */
+            botId?: string;
+            /** @description Solo al crear: espacio desde el que se usa el bot */
+            area?: string;
+            nombre?: string;
+            pedido?: string;
+            frecuencia?: components["schemas"]["FrecuenciaRutina"];
+            hora?: string;
+            diaSemana?: number | null;
+            diaMes?: number | null;
+            activa?: boolean;
+        };
+        AutomatizacionJarvis: {
+            /** Format: uuid */
+            id: string;
+            bot: components["schemas"]["BotMini"];
+            nombre: string;
+            /** @example ticket.creado */
+            evento: string;
+            eventoNombre: string;
+            pedido: string;
+            activa: boolean;
+            ultima: components["schemas"]["EjecucionJarvis"] | null;
+            creadoPor: components["schemas"]["PersonaMini"];
+            puedeEditar: boolean;
+        };
+        AutomatizacionJarvisEntrada: {
+            /**
+             * Format: uuid
+             * @description Solo al crear
+             */
+            botId?: string;
+            /** @description Solo al crear */
+            area?: string;
+            nombre?: string;
+            evento?: string;
+            pedido?: string;
+            activa?: boolean;
+        };
+        ActividadJarvis: {
+            /** @description Las últimas 50 */
+            ejecuciones: components["schemas"]["EjecucionJarvis"][];
+            skills: {
+                /** Format: uuid */
+                skillId: string;
+                nombre: string;
+                usos: number;
+                /** Format: date-time */
+                ultimoUso: string | null;
+                porBot: {
+                    nombre: string;
+                    usos: number;
+                }[];
+            }[];
+        };
+        ElementoBiblioteca: {
+            /** Format: uuid */
+            id: string;
+            espacio: string;
+            bot: {
+                /** Format: uuid */
+                id: string | null;
+                nombre: string;
+            };
+            titulo: string;
+            /** @description Los primeros 240 caracteres */
+            resumen: string;
+            sesionId: string | null;
+            creadoPor: components["schemas"]["PersonaMini"];
+            /** Format: date-time */
+            creadoEn: string;
+            enDrive: boolean;
+            puedeBorrar: boolean;
         };
         EmpresaResumen: {
             /** @description «inoo» o el id del cliente */
@@ -11193,6 +11670,676 @@ export interface operations {
                 content?: never;
             };
             422: components["responses"]["Validacion"];
+        };
+    };
+    listarSkillsJarvis: {
+        parameters: {
+            query?: {
+                area?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["SkillJarvis"][];
+                    };
+                };
+            };
+        };
+    };
+    crearSkillJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarSkillJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarSkillJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarConectoresJarvis: {
+        parameters: {
+            query?: {
+                area?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ConectorJarvis"][];
+                        puedeCrear: boolean;
+                    };
+                };
+            };
+        };
+    };
+    crearConectorJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConectorJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConectorJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarConectorJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conectorId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarConectorJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conectorId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConectorJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConectorJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    herramientasDelBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerramientasBot"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarHerramientasDelBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                botId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    skillIds?: string[];
+                    conectorIds?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerramientasBot"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarRutinasJarvis: {
+        parameters: {
+            query?: {
+                area?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["RutinaJarvis"][];
+                    };
+                };
+            };
+        };
+    };
+    crearRutinaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RutinaJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RutinaJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarRutinaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rutinaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarRutinaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rutinaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RutinaJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RutinaJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    ejecutarRutinaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rutinaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description En cola */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EjecucionJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    eventosJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: {
+                            clave: string;
+                            nombre: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    listarAutomatizacionesJarvis: {
+        parameters: {
+            query?: {
+                area?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["AutomatizacionJarvis"][];
+                    };
+                };
+            };
+        };
+    };
+    crearAutomatizacionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutomatizacionJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomatizacionJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarAutomatizacionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                automatizacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarAutomatizacionJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                automatizacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutomatizacionJarvisEntrada"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomatizacionJarvis"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    actividadJarvis: {
+        parameters: {
+            query?: {
+                area?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActividadJarvis"];
+                };
+            };
+        };
+    };
+    listarBibliotecaJarvis: {
+        parameters: {
+            query?: {
+                area?: string;
+                /** @description Busca en el título y el contenido */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ElementoBiblioteca"][];
+                        /** @description Si las copias van a Drive */
+                        drive: boolean;
+                    };
+                };
+            };
+        };
+    };
+    guardarEnBibliotecaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    botId: string;
+                    sesionId?: string | null;
+                    titulo: string;
+                    contenido: string;
+                    /** @description Espacio desde el que se usa el bot (si está prestado) */
+                    area?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Guardado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementoBiblioteca"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    verElementoBibliotecaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                elementoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementoBiblioteca"] & {
+                        contenido: string;
+                        descarga: components["schemas"]["UrlFirmada"] | null;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    borrarElementoBibliotecaJarvis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                elementoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    ejecutarJarvisProgramado: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        programadas: number;
+                        hechas: number;
+                        fallidas: number;
+                        pendientes: number;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
         };
     };
     botsDeMiArea: {

@@ -6,12 +6,13 @@
  * Cada bot tiene su trabajo (instrucciones) y su memoria; cada conversación es una sesión de Hermes.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronDown, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuShare2, LuSquare, LuTrash2, LuX } from "react-icons/lu";
+import { LuBookmarkPlus, LuCheck, LuChevronDown, LuWrench, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuShare2, LuSquare, LuTrash2, LuX } from "react-icons/lu";
 import { api, BASE, Enlace, fDiaHora, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
 import { AREAS, NOMBRE_AREA, COLORES_BOT, FORMAS_BOT, PERSONAJES_BOT, saludoInicial, sesionConfiguracion, sinBloqueTrabajo, type PersonajeBot } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
 import { ACEPTA_ADJUNTOS, leerAdjunto, type Adjunto } from "./leer-archivos";
+import { GuardarEnBiblioteca, HerramientasDelBot, PanelJarvisAvanzado, VISTAS_JARVIS, type VistaJarvis } from "./jarvis-avanzado";
 
 type Bot = S<"BotJarvis">;
 
@@ -46,8 +47,14 @@ function SeccionJarvis() {
   const [espacio, setEspacio] = useState<string | null>(null);
   const r = useConsulta<S<"BotsDelArea">>(espacio ? `/jarvis/bots?area=${espacio}` : "/jarvis/bots");
   // 8 nov: el bot elegido y qué conversación está abierta (su configuración o uno de sus chats).
-  const [elegido, setElegido] = useState<{ botId: string; sesion: string } | null>(null);
-  const [abiertos, setAbiertos] = useState<string[]>([]);
+  const [elegido, setElegido] = useState<{ botId: string; sesion: string } | null>(() => {
+    // 9 nov: la notificación de una rutina o automatización abre su chat (?bot=…&chat=…).
+    if (typeof window === "undefined") return null;
+    const q = new URLSearchParams(window.location.search);
+    return q.get("bot") && q.get("chat") ? { botId: q.get("bot")!, sesion: q.get("chat")! } : null;
+  });
+  const [abiertos, setAbiertos] = useState<string[]>(() => (elegido ? [elegido.botId] : []));
+  const [vista, setVista] = useState<VistaJarvis>("CHATS");
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<Bot | "nuevo" | null>(null);
   const [compartiendo, setCompartiendo] = useState<Bot | null>(null);
@@ -78,6 +85,10 @@ function SeccionJarvis() {
     setElegido(null);
     setAbiertos([]);
   };
+  const abrirChat = (botId: string, s: string) => {
+    setVista("CHATS");
+    abrir(botId, s);
+  };
   return (
     <div className="pila" style={{ gap: 12 }}>
     {d.espacios.length > 1 && (
@@ -89,6 +100,16 @@ function SeccionJarvis() {
         ))}
       </div>
     )}
+    <div className="pestanas" role="tablist" aria-label="Secciones de Jarvis">
+      {VISTAS_JARVIS.map((v) => (
+        <button key={v.clave} role="tab" type="button" aria-selected={v.clave === vista} className={`pestana${v.clave === vista ? " activa" : ""}`} onClick={() => setVista(v.clave)}>
+          {v.nombre}
+        </button>
+      ))}
+    </div>
+    {vista !== "CHATS" ? (
+      <PanelJarvisAvanzado vista={vista} espacio={d.espacio} bots={d.bots} alAbrirChat={abrirChat} />
+    ) : (
     <div className="jarvis">
       <aside className="jarvis-lista" aria-label={`Bots de ${nombreEspacio}`}>
         <div className="fila entre" style={{ padding: "4px 6px 10px" }}>
@@ -158,6 +179,7 @@ function SeccionJarvis() {
         />
       )}
     </div>
+    )}
     </div>
   );
 }
@@ -540,6 +562,8 @@ function ChatBot({ bot, espacio, conectado, sesion, configurar, alCompartir, alE
   const selector = useRef<HTMLInputElement>(null);
   const [viendo, setViendo] = useState<number | null>(null);
   const [menu, setMenu] = useState(false);
+  const [herramientas, setHerramientas] = useState(false);
+  const [paraGuardar, setParaGuardar] = useState<string | null>(null);
   // Sube al terminar cada respuesta: Jarvis pudo haber dejado una propuesta.
   const [vuelta, setVuelta] = useState(0);
   // 6 nov: las conversaciones se guardan. Los mensajes de la que está abierta.
@@ -683,6 +707,11 @@ function ChatBot({ bot, espacio, conectado, sesion, configurar, alCompartir, alE
                   <LuPencil size={14} /> Editar bot
                 </button>
               )}
+              {bot.puedeEditar && !bot.prestadoDe && (
+                <button role="menuitem" onClick={() => { setMenu(false); setHerramientas(true); }}>
+                  <LuWrench size={14} /> Skills y conectores
+                </button>
+              )}
               {bot.puedeEditar && (
                 <button role="menuitem" onClick={() => { setMenu(false); alCompartir(); }}>
                   <LuShare2 size={14} /> Compartir con otra área
@@ -754,10 +783,17 @@ function ChatBot({ bot, espacio, conectado, sesion, configurar, alCompartir, alE
               )}
               {(m.rol === "bot" ? sinBloqueTrabajo(m.texto) : m.texto) || (enviando && i === mensajes.length - 1 ? "Pensando…" : "")}
               {m.detenido && <span className="jarvis-detenido">Detuviste la respuesta.</span>}
+              {m.rol === "bot" && !m.error && !configurar && sinBloqueTrabajo(m.texto) && !(enviando && i === mensajes.length - 1) && (
+                <button className="enlace texto-xs jarvis-guardar" onClick={() => setParaGuardar(sinBloqueTrabajo(m.texto))}>
+                  <LuBookmarkPlus size={12} /> Guardar en biblioteca
+                </button>
+              )}
             </div>
           ),
         )}
         <PropuestasJarvis sesion={sesion} version={vuelta} />
+        {herramientas && <HerramientasDelBot bot={bot} espacio={espacio} alCerrar={() => setHerramientas(false)} />}
+        {paraGuardar !== null && <GuardarEnBiblioteca bot={bot} espacio={espacio} sesion={sesion} contenido={paraGuardar} alCerrar={() => setParaGuardar(null)} />}
         <div ref={fin} />
       </div>
       {(adjuntos.length > 0 || leyendo > 0) && (

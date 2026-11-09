@@ -3386,6 +3386,358 @@ paths:
         '409': { description: Ya se decidió }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  # ───────────── Jarvis avanzado (9 nov): skills, conectores, rutinas, automatizaciones, biblioteca y actividad.
+  # Todas las listas toman ?area= como /jarvis/bots: el espacio (un área o GERENCIA) entre los que ve la persona.
+  /jarvis/skills:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarSkillsJarvis
+      summary: 'Skills del espacio: instrucciones y archivos reutilizables que se le activan a un bot'
+      x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/SkillJarvis' } } } }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearSkillJarvis
+      summary: 'Crea una skill en un espacio que la persona ve'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SkillJarvisEntrada' } } } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/SkillJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/skills/{skillId}:
+    parameters: [ { name: skillId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    patch:
+      tags: [Jarvis del equipo]
+      operationId: cambiarSkillJarvis
+      summary: 'Cambia una skill (quien la creó, el lead del área o un ADMIN)'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SkillJarvisEntrada' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SkillJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarSkillJarvis
+      summary: Borra una skill (se desactiva de todos sus bots)
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /jarvis/conectores:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarConectoresJarvis
+      summary: 'Conectores MCP que puede usar el espacio. El super usuario los ve todos. Nunca hay credenciales: las configura TI en el Hermes'
+      x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos, puedeCrear], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ConectorJarvis' } }, puedeCrear: { type: boolean } } }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearConectorJarvis
+      summary: 'Agrega un conector al catálogo (solo super usuario). Rechaza llaves o tokens en los campos'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConectorJarvisEntrada' } } } }
+      responses:
+        '201': { description: Creado, content: { application/json: { schema: { $ref: '#/components/schemas/ConectorJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/conectores/{conectorId}:
+    parameters: [ { name: conectorId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    patch:
+      tags: [Jarvis del equipo]
+      operationId: cambiarConectorJarvis
+      summary: 'Cambia un conector; TI lo marca CONECTADO cuando quedó en el Hermes (solo super usuario)'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConectorJarvisEntrada' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ConectorJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarConectorJarvis
+      summary: Quita un conector del catálogo (solo super usuario)
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /jarvis/bots/{botId}/herramientas:
+    parameters: [ { name: botId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: herramientasDelBot
+      summary: 'Las skills y conectores activos de un bot'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/HerramientasBot' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    put:
+      tags: [Jarvis del equipo]
+      operationId: cambiarHerramientasDelBot
+      summary: 'Activa skills y conectores de su espacio en un bot (quien puede editar el bot)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skillIds: { type: array, items: { type: string, format: uuid } }
+                conectorIds: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/HerramientasBot' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/rutinas:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarRutinasJarvis
+      summary: 'Rutinas de los bots del espacio: pedidos que hacen solos cada día, semana o mes (hora de Lima)'
+      x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/RutinaJarvis' } } } }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearRutinaJarvis
+      summary: 'Programa una rutina en un bot que la persona usa. Cada ejecución la paga quien la creó'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RutinaJarvisEntrada' } } } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/RutinaJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/rutinas/{rutinaId}:
+    parameters: [ { name: rutinaId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    patch:
+      tags: [Jarvis del equipo]
+      operationId: cambiarRutinaJarvis
+      summary: 'Cambia, pausa (activa false) o reanuda una rutina (quien la creó, el lead del área o un ADMIN)'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RutinaJarvisEntrada' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/RutinaJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarRutinaJarvis
+      summary: Borra una rutina (sus ejecuciones quedan en la actividad)
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /jarvis/rutinas/{rutinaId}/ejecutar:
+    parameters: [ { name: rutinaId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    post:
+      tags: [Jarvis del equipo]
+      operationId: ejecutarRutinaJarvis
+      summary: 'La deja en cola para que corra en la próxima pasada (unos minutos), sin esperar su horario'
+      x-roles: [EQUIPO]
+      responses:
+        '201': { description: En cola, content: { application/json: { schema: { $ref: '#/components/schemas/EjecucionJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /jarvis/eventos:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: eventosJarvis
+      summary: 'Lo que pasa en el portal y puede disparar una automatización'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { type: object, required: [clave, nombre], properties: { clave: { type: string }, nombre: { type: string } } } }
+
+  /jarvis/automatizaciones:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarAutomatizacionesJarvis
+      summary: 'Automatizaciones de los bots del espacio: cuando pasa algo en el portal, el bot hace un pedido'
+      x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/AutomatizacionJarvis' } } } }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearAutomatizacionJarvis
+      summary: 'Crea una automatización en un bot que la persona usa. Al bot solo le llegan los ids del evento; cada ejecución la paga quien la creó'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutomatizacionJarvisEntrada' } } } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/AutomatizacionJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/automatizaciones/{automatizacionId}:
+    parameters: [ { name: automatizacionId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    patch:
+      tags: [Jarvis del equipo]
+      operationId: cambiarAutomatizacionJarvis
+      summary: 'Cambia, pausa o reanuda una automatización'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutomatizacionJarvisEntrada' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AutomatizacionJarvis' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarAutomatizacionJarvis
+      summary: Borra una automatización
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /jarvis/actividad:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: actividadJarvis
+      summary: 'Trazabilidad del espacio: qué corrieron las rutinas y automatizaciones, y cuánto se usó cada skill y en qué bots'
+      x-roles: [EQUIPO]
+      parameters: [ { name: area, in: query, schema: { type: string } } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActividadJarvis' } } } }
+
+  /jarvis/biblioteca:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: listarBibliotecaJarvis
+      summary: 'Lo que guardó el espacio de lo que generó Jarvis'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: area, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string }, description: 'Busca en el título y el contenido' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos, drive], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ElementoBiblioteca' } }, drive: { type: boolean, description: 'Si las copias van a Drive' } } }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: guardarEnBibliotecaJarvis
+      summary: 'Guarda una respuesta de un bot en la biblioteca de su espacio (y su copia .md en Drive, si está conectado)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [botId, titulo, contenido]
+              properties:
+                botId: { type: string, format: uuid }
+                sesionId: { type: [string, 'null'] }
+                titulo: { type: string, maxLength: 120 }
+                contenido: { type: string }
+                area: { type: string, description: 'Espacio desde el que se usa el bot (si está prestado)' }
+      responses:
+        '201': { description: Guardado, content: { application/json: { schema: { $ref: '#/components/schemas/ElementoBiblioteca' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /jarvis/biblioteca/{elementoId}:
+    parameters: [ { name: elementoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: verElementoBibliotecaJarvis
+      summary: 'Un elemento con su contenido y, si está en Drive, la descarga'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ElementoBiblioteca'
+                  - type: object
+                    required: [contenido, descarga]
+                    properties:
+                      contenido: { type: string }
+                      descarga: { oneOf: [ { $ref: '#/components/schemas/UrlFirmada' }, { type: 'null' } ] }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarElementoBibliotecaJarvis
+      summary: 'Lo saca de la biblioteca (quien lo guardó, el lead del área o un ADMIN). La copia en Drive se queda'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /integraciones/jarvis/ejecutar:
+    post:
+      tags: [Integraciones]
+      operationId: ejecutarJarvisProgramado
+      summary: 'Lo corre el proceso de Jarvis cada 10 minutos (scope jarvis:write): pone en cola las rutinas que tocan y hace hasta 5 ejecuciones pendientes'
+      x-roles: [SERVICIO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [programadas, hechas, fallidas, pendientes]
+                properties:
+                  programadas: { type: integer }
+                  hechas: { type: integer }
+                  fallidas: { type: integer }
+                  pendientes: { type: integer }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /jarvis/bots:
     get:
       tags: [Jarvis del equipo]
@@ -5810,6 +6162,183 @@ components:
         totalMesUsd: { type: number }
         areas: { type: array, items: { $ref: '#/components/schemas/ConsumoArea' } }
         sinArea: { type: array, description: 'Personas del equipo sin área: no pueden usar Jarvis', items: { $ref: '#/components/schemas/PersonaEquipo' } }
+    # ---------- Jarvis avanzado (9 nov)
+    BotMini:
+      type: object
+      required: [id, nombre]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+
+    SkillJarvis:
+      type: object
+      required: [id, espacio, nombre, descripcion, instrucciones, archivos, bots, usos, ultimoUso, creadoPor, puedeEditar, actualizadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        espacio: { type: string }
+        nombre: { type: string }
+        descripcion: { type: string }
+        instrucciones: { type: string }
+        archivos: { type: array, items: { type: object, required: [nombre, caracteres], properties: { nombre: { type: string }, caracteres: { type: integer } } } }
+        bots: { type: array, items: { $ref: '#/components/schemas/BotMini' }, description: 'Los bots que la tienen activa' }
+        usos: { type: integer, description: 'Veces que un bot trabajó con ella' }
+        ultimoUso: { type: [string, 'null'], format: date-time }
+        creadoPor: { $ref: '#/components/schemas/PersonaMini' }
+        puedeEditar: { type: boolean }
+        actualizadoEn: { type: string, format: date-time }
+
+    SkillJarvisEntrada:
+      type: object
+      properties:
+        espacio: { type: string, description: 'Solo al crear; si no, el primero de la persona' }
+        nombre: { type: string, maxLength: 80 }
+        descripcion: { type: [string, 'null'], maxLength: 300 }
+        instrucciones: { type: string, maxLength: 20000 }
+        archivos:
+          type: array
+          maxItems: 5
+          description: 'Archivos de texto (txt, md, csv). Al cambiar, se reemplazan todos'
+          items: { type: object, required: [nombre, texto], properties: { nombre: { type: string }, texto: { type: string, maxLength: 50000 } } }
+
+    EstadoConector: { type: string, enum: [PENDIENTE, CONECTADO, APAGADO], description: 'PENDIENTE: falta configurarlo en el Hermes. Solo los CONECTADO se le ofrecen al bot' }
+
+    ConectorJarvis:
+      type: object
+      required: [id, nombre, descripcion, url, espacios, estado, bots, puedeEditar]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        descripcion: { type: string }
+        url: { type: [string, 'null'] }
+        espacios: { type: array, items: { type: string }, description: 'Vacío = todas las áreas' }
+        estado: { $ref: '#/components/schemas/EstadoConector' }
+        bots: { type: array, items: { $ref: '#/components/schemas/BotMini' }, description: 'Bots del espacio que lo tienen activo' }
+        puedeEditar: { type: boolean }
+
+    ConectorJarvisEntrada:
+      type: object
+      properties:
+        nombre: { type: string, maxLength: 60 }
+        descripcion: { type: [string, 'null'], maxLength: 300 }
+        url: { type: [string, 'null'] }
+        espacios: { type: array, items: { type: string } }
+        estado: { $ref: '#/components/schemas/EstadoConector' }
+
+    HerramientasBot:
+      type: object
+      required: [skillIds, conectorIds, puedeEditar]
+      properties:
+        skillIds: { type: array, items: { type: string, format: uuid } }
+        conectorIds: { type: array, items: { type: string, format: uuid } }
+        puedeEditar: { type: boolean }
+
+    FrecuenciaRutina: { type: string, enum: [DIARIA, LABORABLES, SEMANAL, MENSUAL] }
+
+    EjecucionJarvis:
+      type: object
+      required: [id, bot, origen, nombre, estado, sesionId, error, resumen, creadoEn, terminadoEn, pagadoPor]
+      properties:
+        id: { type: string, format: uuid }
+        bot: { $ref: '#/components/schemas/BotMini' }
+        origen: { type: string, enum: [RUTINA, AUTOMATIZACION] }
+        nombre: { type: string, description: 'De la rutina o automatización' }
+        estado: { type: string, enum: [PENDIENTE, EN_CURSO, HECHA, FALLIDA] }
+        sesionId: { type: [string, 'null'], description: 'La conversación con la respuesta' }
+        error: { type: [string, 'null'] }
+        resumen: { type: [string, 'null'], description: 'El comienzo de la respuesta' }
+        creadoEn: { type: string, format: date-time }
+        terminadoEn: { type: [string, 'null'], format: date-time }
+        pagadoPor: { $ref: '#/components/schemas/PersonaMini' }
+
+    RutinaJarvis:
+      type: object
+      required: [id, bot, nombre, pedido, frecuencia, hora, diaSemana, diaMes, activa, horario, proximaEn, ultima, creadoPor, puedeEditar]
+      properties:
+        id: { type: string, format: uuid }
+        bot: { $ref: '#/components/schemas/BotMini' }
+        nombre: { type: string }
+        pedido: { type: string }
+        frecuencia: { $ref: '#/components/schemas/FrecuenciaRutina' }
+        hora: { type: string, examples: ['08:30'], description: 'Hora de Lima' }
+        diaSemana: { type: [integer, 'null'], description: '1 = lunes … 7 = domingo' }
+        diaMes: { type: [integer, 'null'] }
+        activa: { type: boolean }
+        horario: { type: string, examples: ['De lunes a viernes a las 08:30'] }
+        proximaEn: { type: [string, 'null'], format: date-time, description: 'null si está pausada' }
+        ultima: { oneOf: [ { $ref: '#/components/schemas/EjecucionJarvis' }, { type: 'null' } ] }
+        creadoPor: { $ref: '#/components/schemas/PersonaMini' }
+        puedeEditar: { type: boolean }
+
+    RutinaJarvisEntrada:
+      type: object
+      properties:
+        botId: { type: string, format: uuid, description: 'Solo al crear' }
+        area: { type: string, description: 'Solo al crear: espacio desde el que se usa el bot' }
+        nombre: { type: string, maxLength: 80 }
+        pedido: { type: string, maxLength: 4000 }
+        frecuencia: { $ref: '#/components/schemas/FrecuenciaRutina' }
+        hora: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+        diaSemana: { type: [integer, 'null'], minimum: 1, maximum: 7 }
+        diaMes: { type: [integer, 'null'], minimum: 1, maximum: 28 }
+        activa: { type: boolean }
+
+    AutomatizacionJarvis:
+      type: object
+      required: [id, bot, nombre, evento, eventoNombre, pedido, activa, ultima, creadoPor, puedeEditar]
+      properties:
+        id: { type: string, format: uuid }
+        bot: { $ref: '#/components/schemas/BotMini' }
+        nombre: { type: string }
+        evento: { type: string, examples: [ticket.creado] }
+        eventoNombre: { type: string }
+        pedido: { type: string }
+        activa: { type: boolean }
+        ultima: { oneOf: [ { $ref: '#/components/schemas/EjecucionJarvis' }, { type: 'null' } ] }
+        creadoPor: { $ref: '#/components/schemas/PersonaMini' }
+        puedeEditar: { type: boolean }
+
+    AutomatizacionJarvisEntrada:
+      type: object
+      properties:
+        botId: { type: string, format: uuid, description: 'Solo al crear' }
+        area: { type: string, description: 'Solo al crear' }
+        nombre: { type: string, maxLength: 80 }
+        evento: { type: string }
+        pedido: { type: string, maxLength: 4000 }
+        activa: { type: boolean }
+
+    ActividadJarvis:
+      type: object
+      required: [ejecuciones, skills]
+      properties:
+        ejecuciones: { type: array, items: { $ref: '#/components/schemas/EjecucionJarvis' }, description: 'Las últimas 50' }
+        skills:
+          type: array
+          items:
+            type: object
+            required: [skillId, nombre, usos, ultimoUso, porBot]
+            properties:
+              skillId: { type: string, format: uuid }
+              nombre: { type: string }
+              usos: { type: integer }
+              ultimoUso: { type: [string, 'null'], format: date-time }
+              porBot: { type: array, items: { type: object, required: [nombre, usos], properties: { nombre: { type: string }, usos: { type: integer } } } }
+
+    ElementoBiblioteca:
+      type: object
+      required: [id, espacio, bot, titulo, resumen, sesionId, creadoPor, creadoEn, enDrive, puedeBorrar]
+      properties:
+        id: { type: string, format: uuid }
+        espacio: { type: string }
+        bot: { type: object, required: [id, nombre], properties: { id: { type: [string, 'null'], format: uuid }, nombre: { type: string } } }
+        titulo: { type: string }
+        resumen: { type: string, description: 'Los primeros 240 caracteres' }
+        sesionId: { type: [string, 'null'] }
+        creadoPor: { $ref: '#/components/schemas/PersonaMini' }
+        creadoEn: { type: string, format: date-time }
+        enDrive: { type: boolean }
+        puedeBorrar: { type: boolean }
+
     EmpresaResumen:
       type: object
       required: [id, nombre, tipo, estado, personas, proyectosActivos, equipoConAcceso]

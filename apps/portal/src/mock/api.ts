@@ -9,6 +9,7 @@
  *   comentario obligatorio al pedir cambios, Idempotency-Key, cupo de ideas, derechos de uso.
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
+import { contextoDeEvento, EVENTOS_JARVIS, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
@@ -129,6 +130,17 @@ interface Estado {
   /** Mi cuenta: cuándo se cerraron todas las sesiones de cada persona. */
   sesionesCerradas: Map<string, string>;
   botsJarvis: D.BotJarvisDemo[];
+  /** Jarvis avanzado (9 nov). */
+  skillsJarvis: { id: string; espacio: string; nombre: string; descripcion: string; instrucciones: string; archivos: ArchivoSkill[]; creadoPorId: string; actualizadoEn: string }[];
+  botSkill: { botId: string; skillId: string }[];
+  usosSkill: { skillId: string; botId: string; sesionId: string; usuarioId: string; origen: "CHAT" | "RUTINA" | "AUTOMATIZACION"; creadoEn: string }[];
+  conectoresJarvis: { id: string; nombre: string; descripcion: string; url: string | null; espacios: string[]; estado: EstadoConector }[];
+  botConector: { botId: string; conectorId: string }[];
+  rutinasJarvis: { id: string; botId: string; nombre: string; pedido: string; frecuencia: Frecuencia; hora: string; diaSemana: number | null; diaMes: number | null; activa: boolean; proximaEn: string; creadoPorId: string }[];
+  automatizacionesJarvis: { id: string; botId: string; nombre: string; evento: string; pedido: string; activa: boolean; creadoPorId: string }[];
+  ejecucionesJarvis: { id: string; botId: string; rutinaId: string | null; automatizacionId: string | null; usuarioId: string; pedido: string; contexto: Record<string, unknown>; esAuto: boolean;
+    estado: "PENDIENTE" | "EN_CURSO" | "HECHA" | "FALLIDA"; sesionId: string | null; error: string | null; creadoEn: string; terminadoEn: string | null }[];
+  bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
   accesosCuenta: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
@@ -215,6 +227,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -381,6 +394,7 @@ const gastoDe = (c: D.ClienteDemo) => Math.round((c.gastoIaUsd + (E.gastoExtra[c
 function emitir(tipo: S<"EventoSaliente">["tipo"], clienteId: string | null, datos: Record<string, unknown>) {
   const evento = { id: E.outbox.length + 1, tipo, ocurridoEn: new Date().toISOString(), clienteId, datos } as S<"EventoSaliente">;
   E.outbox.push(evento);
+  automatizarEvento(tipo, clienteId, datos);
   const destino = env("MOCK_N8N_WEBHOOK_URL");
   if (destino) void despachar(destino, evento);
 }
@@ -3627,7 +3641,433 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, q, req) => {
         return { anterior };
       }
     : undefined;
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR"), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
+  // 9 nov: en los chats de trabajo el bot sabe sus skills y sus conectores.
+  const herramientas = configurar ? null : herramientasActivas(bot.id);
+  if (herramientas) anotarUsoSkills(herramientas.skillIds, bot.id, b.sesionId, ctx.usuario.id, "CHAT");
+  return hablarConBot(hermes, { botId: bot.id, sistema: `${sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR")}${herramientas?.texto ?? ""}`, mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
+});
+
+// ───────────────────────────── Jarvis avanzado (9 nov): skills, conectores, rutinas, automatizaciones, biblioteca
+
+function espacioPedido(ctx: Ctx, pedido: string | null): EspacioJarvis | null {
+  soloEquipo(ctx);
+  const xs = espaciosMock(ctx);
+  return pedido && xs.includes(pedido as EspacioJarvis) ? (pedido as EspacioJarvis) : xs[0] ?? null;
+}
+function puedeEditarEnEspacio(ctx: Ctx, espacio: string, creadoPor: string) {
+  if (ctx.esServicio) return false;
+  return creadoPor === ctx.usuario.id || esNivelAdmin(ctx) || (espacio === "GERENCIA" ? !!ctx.usuario.esSuperUsuario : lideraArea(ctx.usuario, espacio as Area));
+}
+const validar422 = (e: { campo: string; mensaje: string }[]) => {
+  if (e.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, e);
+};
+const botMini = (id: string) => ({ id, nombre: E.botsJarvis.find((b) => b.id === id)?.nombre ?? "Bot borrado" });
+function botPropio(ctx: Ctx, botId: unknown, area?: string | null) {
+  if (typeof botId !== "string") throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
+  const bot = botDeMiArea(ctx, botId);
+  if (espacioDeUso(ctx, bot, area ?? null) !== espacioDeBot(bot)) throw new ErrorApi(403, "SIN_PERMISO", "Un bot prestado no se programa desde otra área", "Pídele a su área que lo programe, o haz una copia del bot.");
+  return bot;
+}
+const ahoraIso = () => new Date().toISOString();
+
+// ── skills
+type SkillMock = Estado["skillsJarvis"][number];
+const skillVista = (ctx: Ctx, s: SkillMock): S<"SkillJarvis"> => {
+  const usos = E.usosSkill.filter((u) => u.skillId === s.id);
+  return {
+    id: s.id, espacio: s.espacio, nombre: s.nombre, descripcion: s.descripcion, instrucciones: s.instrucciones, archivos: s.archivos.map((a) => ({ nombre: a.nombre, caracteres: a.texto.length })),
+    bots: E.botSkill.filter((x) => x.skillId === s.id).map((x) => botMini(x.botId)).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    usos: usos.length, ultimoUso: usos.reduce<string | null>((m, u) => (!m || u.creadoEn > m ? u.creadoEn : m), null),
+    creadoPor: persona(s.creadoPorId)!, puedeEditar: puedeEditarEnEspacio(ctx, s.espacio, s.creadoPorId), actualizadoEn: s.actualizadoEn,
+  };
+};
+function skillMock(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const s = E.skillsJarvis.find((x) => x.id === id);
+  if (!s || !espaciosMock(ctx).includes(s.espacio as EspacioJarvis)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa skill");
+  return s;
+}
+const archivosDe = (v: unknown) => (v as ArchivoSkill[]).map((a) => ({ nombre: a.nombre.trim(), texto: a.texto }));
+
+ruta("GET", "/jarvis/skills", (ctx, _p, q) => {
+  const espacio = espacioPedido(ctx, q.get("area"));
+  return { datos: E.skillsJarvis.filter((s) => s.espacio === espacio).sort((a, b) => a.nombre.localeCompare(b.nombre)).map((s) => skillVista(ctx, s)) };
+});
+ruta("POST", "/jarvis/skills", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las skills las crean personas del equipo");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  const espacio = typeof b.espacio === "string" ? b.espacio : espaciosMock(ctx)[0];
+  if (!espacio || !espaciosMock(ctx).includes(espacio as EspacioJarvis)) throw new ErrorApi(403, "SIN_PERMISO", "No puedes crear skills en esa área");
+  validar422(validarSkill(b));
+  const s: SkillMock = {
+    id: nuevoId(40), espacio, nombre: (b.nombre as string).trim(), descripcion: typeof b.descripcion === "string" ? b.descripcion.trim() : "", instrucciones: (b.instrucciones as string).trim(),
+    archivos: b.archivos ? archivosDe(b.archivos) : [], creadoPorId: ctx.usuario.id, actualizadoEn: ahoraIso(),
+  };
+  E.skillsJarvis.push(s);
+  return { __status: 201, ...skillVista(ctx, s) };
+});
+ruta("PATCH", "/jarvis/skills/:id", async (ctx, p, _q, req) => {
+  const s = skillMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, s.espacio, s.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la skill, el lead del área o un ADMIN la cambia");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarSkill(b, true));
+  if (typeof b.nombre === "string") s.nombre = b.nombre.trim();
+  if (b.descripcion !== undefined) s.descripcion = typeof b.descripcion === "string" ? b.descripcion.trim() : "";
+  if (typeof b.instrucciones === "string") s.instrucciones = b.instrucciones.trim();
+  if (b.archivos !== undefined) s.archivos = archivosDe(b.archivos);
+  s.actualizadoEn = ahoraIso();
+  return skillVista(ctx, s);
+});
+ruta("DELETE", "/jarvis/skills/:id", (ctx, p) => {
+  const s = skillMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, s.espacio, s.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la skill, el lead del área o un ADMIN la borra");
+  E.skillsJarvis = E.skillsJarvis.filter((x) => x !== s);
+  E.botSkill = E.botSkill.filter((x) => x.skillId !== s.id);
+  E.usosSkill = E.usosSkill.filter((x) => x.skillId !== s.id);
+  return null;
+});
+
+// ── conectores
+type ConectorMock = Estado["conectoresJarvis"][number];
+const conectorVista = (ctx: Ctx, c: ConectorMock, espacio: string | null): S<"ConectorJarvis"> => ({
+  id: c.id, nombre: c.nombre, descripcion: c.descripcion, url: c.url, espacios: c.espacios, estado: c.estado,
+  bots: E.botConector.filter((x) => x.conectorId === c.id).map((x) => E.botsJarvis.find((b) => b.id === x.botId)).filter((b): b is D.BotJarvisDemo => !!b)
+    .filter((b) => !espacio || ctx.usuario.esSuperUsuario || espacioDeBot(b) === espacio).map((b) => ({ id: b.id, nombre: b.nombre })),
+  puedeEditar: !!ctx.usuario.esSuperUsuario && !ctx.esServicio,
+});
+const visibleEn = (c: { espacios: string[] }, espacio: string) => c.espacios.length === 0 || c.espacios.includes(espacio);
+function superConectores(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || !ctx.usuario.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Los conectores los administra un super usuario");
+}
+function conectorMock(id: string) {
+  const c = E.conectoresJarvis.find((x) => x.id === id);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese conector");
+  return c;
+}
+const espaciosDeConector = (v: unknown) => [...new Set((v as string[]) ?? [])].sort();
+
+ruta("GET", "/jarvis/conectores", (ctx, _p, q) => {
+  const espacio = espacioPedido(ctx, q.get("area"));
+  const xs = [...E.conectoresJarvis].sort((a, b) => a.nombre.localeCompare(b.nombre)).filter((c) => ctx.usuario.esSuperUsuario || (espacio && visibleEn(c, espacio)));
+  return { datos: xs.map((c) => conectorVista(ctx, c, espacio)), puedeCrear: !!ctx.usuario.esSuperUsuario && !ctx.esServicio };
+});
+ruta("POST", "/jarvis/conectores", async (ctx, _p, _q, req) => {
+  superConectores(ctx);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarConector(b));
+  const c: ConectorMock = {
+    id: nuevoId(41), nombre: (b.nombre as string).trim(), descripcion: typeof b.descripcion === "string" ? b.descripcion.trim() : "", url: typeof b.url === "string" ? b.url.trim() : null,
+    espacios: espaciosDeConector(b.espacios), estado: (b.estado as EstadoConector) ?? "PENDIENTE",
+  };
+  E.conectoresJarvis.push(c);
+  return { __status: 201, ...conectorVista(ctx, c, null) };
+});
+ruta("PATCH", "/jarvis/conectores/:id", async (ctx, p, _q, req) => {
+  superConectores(ctx);
+  const c = conectorMock(p.id);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarConector(b, true));
+  if (typeof b.nombre === "string") c.nombre = b.nombre.trim();
+  if (b.descripcion !== undefined) c.descripcion = typeof b.descripcion === "string" ? b.descripcion.trim() : "";
+  if (b.url !== undefined) c.url = typeof b.url === "string" ? b.url.trim() : null;
+  if (b.estado !== undefined) c.estado = b.estado as EstadoConector;
+  if (b.espacios !== undefined) {
+    c.espacios = espaciosDeConector(b.espacios);
+    if (c.espacios.length) E.botConector = E.botConector.filter((x) => x.conectorId !== c.id || c.espacios.includes(espacioDeBot(E.botsJarvis.find((y) => y.id === x.botId)!)));
+  }
+  return conectorVista(ctx, c, null);
+});
+ruta("DELETE", "/jarvis/conectores/:id", (ctx, p) => {
+  superConectores(ctx);
+  const c = conectorMock(p.id);
+  E.conectoresJarvis = E.conectoresJarvis.filter((x) => x !== c);
+  E.botConector = E.botConector.filter((x) => x.conectorId !== c.id);
+  return null;
+});
+
+// ── herramientas de cada bot
+const herramientasIds = (botId: string) => ({
+  skillIds: E.botSkill.filter((x) => x.botId === botId).map((x) => x.skillId).sort(),
+  conectorIds: E.botConector.filter((x) => x.botId === botId).map((x) => x.conectorId).sort(),
+});
+function herramientasActivas(botId: string) {
+  const skills = E.botSkill.filter((x) => x.botId === botId).map((x) => E.skillsJarvis.find((s) => s.id === x.skillId)!).filter(Boolean).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const conectores = E.botConector.filter((x) => x.botId === botId).map((x) => E.conectoresJarvis.find((c) => c.id === x.conectorId)!).filter(Boolean);
+  return { texto: textoHerramientas(skills, conectores), skillIds: skills.map((s) => s.id) };
+}
+const anotarUsoSkills = (skillIds: string[], botId: string, sesionId: string, usuarioId: string, origen: "CHAT" | "RUTINA" | "AUTOMATIZACION") =>
+  skillIds.forEach((skillId) => E.usosSkill.push({ skillId, botId, sesionId, usuarioId, origen, creadoEn: ahoraIso() }));
+
+ruta("GET", "/jarvis/bots/:id/herramientas", (ctx, p) => {
+  const bot = botDeMiArea(ctx, p.id);
+  return { ...herramientasIds(bot.id), puedeEditar: espacioDeUso(ctx, bot) === espacioDeBot(bot) && puedeEditarBot(ctx, bot) } satisfies S<"HerramientasBot">;
+});
+ruta("PUT", "/jarvis/bots/:id/herramientas", async (ctx, p, _q, req) => {
+  const bot = botDeMiArea(ctx, p.id);
+  if (espacioDeUso(ctx, bot) !== espacioDeBot(bot)) throw new ErrorApi(403, "SIN_PERMISO", "Un bot prestado se configura en su área");
+  exigirEditarBot(ctx, bot);
+  const b = await cuerpo<{ skillIds?: unknown; conectorIds?: unknown }>(req);
+  const espacio = espacioDeBot(bot);
+  const lista = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x === "string") ? [...new Set(v as string[])] : null);
+  const skills = b.skillIds !== undefined ? lista(b.skillIds) : undefined;
+  const conectores = b.conectorIds !== undefined ? lista(b.conectorIds) : undefined;
+  const e: { campo: string; mensaje: string }[] = [];
+  if (skills === null) e.push({ campo: "skillIds", mensaje: "Lista de skills inválida" });
+  if (conectores === null) e.push({ campo: "conectorIds", mensaje: "Lista de conectores inválida" });
+  if (skills && !skills.every((id) => E.skillsJarvis.some((s) => s.id === id && s.espacio === espacio))) e.push({ campo: "skillIds", mensaje: "Solo las skills de su área" });
+  if (conectores && !conectores.every((id) => E.conectoresJarvis.some((c) => c.id === id && visibleEn(c, espacio)))) e.push({ campo: "conectorIds", mensaje: "Solo los conectores que tiene su área" });
+  validar422(e);
+  if (skills) E.botSkill = [...E.botSkill.filter((x) => x.botId !== bot.id), ...skills.map((skillId) => ({ botId: bot.id, skillId }))];
+  if (conectores) E.botConector = [...E.botConector.filter((x) => x.botId !== bot.id), ...conectores.map((conectorId) => ({ botId: bot.id, conectorId }))];
+  bot.actualizadoEn = ahoraIso();
+  return { ...herramientasIds(bot.id), puedeEditar: true } satisfies S<"HerramientasBot">;
+});
+
+// ── ejecuciones
+type EjecucionMock = Estado["ejecucionesJarvis"][number];
+function ejecucionVista(e: EjecucionMock): S<"EjecucionJarvis"> {
+  const nombre = (e.rutinaId && E.rutinasJarvis.find((r) => r.id === e.rutinaId)?.nombre) || (e.automatizacionId && E.automatizacionesJarvis.find((a) => a.id === e.automatizacionId)?.nombre)
+    || (e.esAuto ? "Automatización borrada" : "Rutina borrada");
+  const resumen = e.sesionId ? [...(E.sesionesJarvis[e.sesionId]?.mensajes ?? [])].reverse().find((m) => m.rol === "BOT")?.texto.slice(0, 300) ?? null : null;
+  return {
+    id: e.id, bot: botMini(e.botId), origen: e.esAuto ? "AUTOMATIZACION" : "RUTINA", nombre, estado: e.estado, sesionId: e.sesionId, error: e.error, resumen,
+    creadoEn: e.creadoEn, terminadoEn: e.terminadoEn, pagadoPor: persona(e.usuarioId)!,
+  };
+}
+const ultimaDe = (campo: "rutinaId" | "automatizacionId", id: string) => {
+  const e = E.ejecucionesJarvis.filter((x) => x[campo] === id).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn))[0];
+  return e ? ejecucionVista(e) : null;
+};
+
+// ── rutinas
+type RutinaMock = Estado["rutinasJarvis"][number];
+const espacioDeBotId = (id: string) => { const b = E.botsJarvis.find((x) => x.id === id); return b ? espacioDeBot(b) : null; };
+const horarioMock = (r: RutinaMock): Horario => ({ frecuencia: r.frecuencia, hora: r.hora, diaSemana: r.diaSemana, diaMes: r.diaMes });
+const rutinaVista = (ctx: Ctx, r: RutinaMock): S<"RutinaJarvis"> => ({
+  id: r.id, bot: botMini(r.botId), nombre: r.nombre, pedido: r.pedido, frecuencia: r.frecuencia, hora: r.hora, diaSemana: r.diaSemana, diaMes: r.diaMes, activa: r.activa,
+  horario: textoHorario(horarioMock(r)), proximaEn: r.activa ? r.proximaEn : null, ultima: ultimaDe("rutinaId", r.id),
+  creadoPor: persona(r.creadoPorId)!, puedeEditar: puedeEditarEnEspacio(ctx, espacioDeBotId(r.botId) ?? "", r.creadoPorId),
+});
+function rutinaMock(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const r = E.rutinasJarvis.find((x) => x.id === id);
+  const espacio = r && espacioDeBotId(r.botId);
+  if (!r || !espacio || !espaciosMock(ctx).includes(espacio)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa rutina");
+  return { r, espacio };
+}
+const horarioEntrada = (b: Record<string, unknown>, previo?: Horario): Horario => {
+  const frecuencia = (b.frecuencia ?? previo?.frecuencia) as Frecuencia;
+  return {
+    frecuencia, hora: (b.hora ?? previo?.hora) as string,
+    diaSemana: frecuencia === "SEMANAL" ? ((b.diaSemana ?? previo?.diaSemana) as number) : null,
+    diaMes: frecuencia === "MENSUAL" ? ((b.diaMes ?? previo?.diaMes) as number) : null,
+  };
+};
+
+ruta("GET", "/jarvis/rutinas", (ctx, _p, q) => {
+  const espacio = espacioPedido(ctx, q.get("area"));
+  return { datos: E.rutinasJarvis.filter((r) => espacioDeBotId(r.botId) === espacio).sort((a, b) => `${botMini(a.botId).nombre}${a.nombre}`.localeCompare(`${botMini(b.botId).nombre}${b.nombre}`)).map((r) => rutinaVista(ctx, r)) };
+});
+ruta("POST", "/jarvis/rutinas", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las rutinas las crean personas del equipo");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarRutina(b));
+  const bot = botPropio(ctx, b.botId, typeof b.area === "string" ? b.area : null);
+  const h = horarioEntrada(b);
+  const r: RutinaMock = {
+    id: nuevoId(42), botId: bot.id, nombre: (b.nombre as string).trim(), pedido: (b.pedido as string).trim(), ...h, activa: b.activa !== false,
+    proximaEn: proximaEjecucion(h, new Date()).toISOString(), creadoPorId: ctx.usuario.id,
+  };
+  E.rutinasJarvis.push(r);
+  return { __status: 201, ...rutinaVista(ctx, r) };
+});
+ruta("PATCH", "/jarvis/rutinas/:id", async (ctx, p, _q, req) => {
+  const { r, espacio } = rutinaMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, espacio, r.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la rutina, el lead del área o un ADMIN la cambia");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  const h = horarioEntrada(b, horarioMock(r));
+  validar422(validarRutina({ ...b, frecuencia: h.frecuencia, hora: h.hora, diaSemana: h.diaSemana, diaMes: h.diaMes }, true));
+  if (typeof b.nombre === "string") r.nombre = b.nombre.trim();
+  if (typeof b.pedido === "string") r.pedido = b.pedido.trim();
+  if (typeof b.activa === "boolean") r.activa = b.activa;
+  Object.assign(r, h, { proximaEn: proximaEjecucion(h, new Date()).toISOString() });
+  return rutinaVista(ctx, r);
+});
+ruta("DELETE", "/jarvis/rutinas/:id", (ctx, p) => {
+  const { r, espacio } = rutinaMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, espacio, r.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la rutina, el lead del área o un ADMIN la borra");
+  E.rutinasJarvis = E.rutinasJarvis.filter((x) => x !== r);
+  return null;
+});
+ruta("POST", "/jarvis/rutinas/:id/ejecutar", (ctx, p) => {
+  const { r, espacio } = rutinaMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, espacio, r.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la rutina, el lead del área o un ADMIN la corre");
+  if (E.ejecucionesJarvis.some((x) => x.rutinaId === r.id && (x.estado === "PENDIENTE" || x.estado === "EN_CURSO"))) throw new ErrorApi(409, "YA_EN_COLA", "Esa rutina ya está en cola", "Corre en unos minutos.");
+  const e = nuevaEjecucion({ botId: r.botId, rutinaId: r.id, automatizacionId: null, usuarioId: r.creadoPorId, pedido: r.pedido, contexto: {}, esAuto: false });
+  return { __status: 201, ...ejecucionVista(e) };
+});
+function nuevaEjecucion(x: Pick<EjecucionMock, "botId" | "rutinaId" | "automatizacionId" | "usuarioId" | "pedido" | "contexto" | "esAuto">) {
+  const e: EjecucionMock = { ...x, id: nuevoId(43), estado: "PENDIENTE", sesionId: null, error: null, creadoEn: ahoraIso(), terminadoEn: null };
+  E.ejecucionesJarvis.push(e);
+  return e;
+}
+
+// ── automatizaciones
+type AutomatizacionMock = Estado["automatizacionesJarvis"][number];
+const automatizacionVista = (ctx: Ctx, a: AutomatizacionMock): S<"AutomatizacionJarvis"> => ({
+  id: a.id, bot: botMini(a.botId), nombre: a.nombre, evento: a.evento, eventoNombre: EVENTOS_JARVIS[a.evento] ?? a.evento, pedido: a.pedido, activa: a.activa,
+  ultima: ultimaDe("automatizacionId", a.id), creadoPor: persona(a.creadoPorId)!, puedeEditar: puedeEditarEnEspacio(ctx, espacioDeBotId(a.botId) ?? "", a.creadoPorId),
+});
+function automatizacionMock(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const a = E.automatizacionesJarvis.find((x) => x.id === id);
+  const espacio = a && espacioDeBotId(a.botId);
+  if (!a || !espacio || !espaciosMock(ctx).includes(espacio)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa automatización");
+  return { a, espacio };
+}
+/** Lo que hace el trigger de la base (0049): cada evento crea las ejecuciones de las automatizaciones que lo esperan. */
+function automatizarEvento(tipo: string, clienteId: string | null, datos: Record<string, unknown>) {
+  const xs = E.automatizacionesJarvis.filter((a) => a.activa && a.evento === tipo && E.usuarios.find((u) => u.id === a.creadoPorId)?.activo !== false);
+  for (const a of xs) nuevaEjecucion({ botId: a.botId, rutinaId: null, automatizacionId: a.id, usuarioId: a.creadoPorId, pedido: a.pedido, contexto: contextoDeEvento(tipo, clienteId, datos), esAuto: true });
+}
+
+ruta("GET", "/jarvis/eventos", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: Object.entries(EVENTOS_JARVIS).map(([clave, nombre]) => ({ clave, nombre })) };
+});
+ruta("GET", "/jarvis/automatizaciones", (ctx, _p, q) => {
+  const espacio = espacioPedido(ctx, q.get("area"));
+  return { datos: E.automatizacionesJarvis.filter((a) => espacioDeBotId(a.botId) === espacio).map((a) => automatizacionVista(ctx, a)) };
+});
+ruta("POST", "/jarvis/automatizaciones", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las automatizaciones las crean personas del equipo");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarAutomatizacion(b));
+  const bot = botPropio(ctx, b.botId, typeof b.area === "string" ? b.area : null);
+  const a: AutomatizacionMock = { id: nuevoId(44), botId: bot.id, nombre: (b.nombre as string).trim(), evento: b.evento as string, pedido: (b.pedido as string).trim(), activa: b.activa !== false, creadoPorId: ctx.usuario.id };
+  E.automatizacionesJarvis.push(a);
+  return { __status: 201, ...automatizacionVista(ctx, a) };
+});
+ruta("PATCH", "/jarvis/automatizaciones/:id", async (ctx, p, _q, req) => {
+  const { a, espacio } = automatizacionMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, espacio, a.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la automatización, el lead del área o un ADMIN la cambia");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarAutomatizacion(b, true));
+  if (typeof b.nombre === "string") a.nombre = b.nombre.trim();
+  if (typeof b.evento === "string") a.evento = b.evento;
+  if (typeof b.pedido === "string") a.pedido = b.pedido.trim();
+  if (typeof b.activa === "boolean") a.activa = b.activa;
+  return automatizacionVista(ctx, a);
+});
+ruta("DELETE", "/jarvis/automatizaciones/:id", (ctx, p) => {
+  const { a, espacio } = automatizacionMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, espacio, a.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la automatización, el lead del área o un ADMIN la borra");
+  E.automatizacionesJarvis = E.automatizacionesJarvis.filter((x) => x !== a);
+  return null;
+});
+
+// ── actividad
+ruta("GET", "/jarvis/actividad", (ctx, _p, q) => {
+  const espacio = espacioPedido(ctx, q.get("area"));
+  if (!espacio) return { ejecuciones: [], skills: [] };
+  const ejecuciones = E.ejecucionesJarvis.filter((e) => espacioDeBotId(e.botId) === espacio).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)).slice(0, 50).map(ejecucionVista);
+  const skills = E.skillsJarvis.filter((s) => s.espacio === espacio).sort((a, b) => a.nombre.localeCompare(b.nombre)).map((s) => {
+    const usos = E.usosSkill.filter((u) => u.skillId === s.id);
+    const porBot = new Map<string, number>();
+    for (const u of usos) porBot.set(botMini(u.botId).nombre, (porBot.get(botMini(u.botId).nombre) ?? 0) + 1);
+    return { skillId: s.id, nombre: s.nombre, usos: usos.length, ultimoUso: usos.reduce<string | null>((m, u) => (!m || u.creadoEn > m ? u.creadoEn : m), null), porBot: [...porBot].map(([nombre, n]) => ({ nombre, usos: n })).sort((a, b) => b.usos - a.usos) };
+  });
+  return { ejecuciones, skills } satisfies S<"ActividadJarvis">;
+});
+
+// ── biblioteca (en la demo no hay Drive)
+type ElementoMock = Estado["bibliotecaJarvis"][number];
+const elementoVista = (ctx: Ctx, x: ElementoMock): S<"ElementoBiblioteca"> => ({
+  id: x.id, espacio: x.espacio, bot: { id: E.botsJarvis.some((b) => b.id === x.botId) ? x.botId : null, nombre: x.botNombre }, titulo: x.titulo, resumen: x.contenido.slice(0, 240), sesionId: x.sesionId,
+  creadoPor: persona(x.creadoPorId)!, creadoEn: x.creadoEn, enDrive: false, puedeBorrar: puedeEditarEnEspacio(ctx, x.espacio, x.creadoPorId),
+});
+function elementoMock(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const x = E.bibliotecaJarvis.find((y) => y.id === id);
+  if (!x || !espaciosMock(ctx).includes(x.espacio as EspacioJarvis)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos eso en la biblioteca");
+  return x;
+}
+ruta("GET", "/jarvis/biblioteca", (ctx, _p, q) => {
+  const espacio = espacioPedido(ctx, q.get("area"));
+  const t = q.get("q")?.trim().toLowerCase();
+  return {
+    datos: E.bibliotecaJarvis.filter((x) => x.espacio === espacio && (!t || x.titulo.toLowerCase().includes(t) || x.contenido.toLowerCase().includes(t)))
+      .sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)).map((x) => elementoVista(ctx, x)),
+    drive: false,
+  };
+});
+ruta("POST", "/jarvis/biblioteca", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "La biblioteca es de personas del equipo");
+  const b = await cuerpo<Record<string, unknown>>(req);
+  validar422(validarBiblioteca(b));
+  const bot = botDeMiArea(ctx, b.botId as string);
+  const x: ElementoMock = {
+    id: nuevoId(45), espacio: espacioDeUso(ctx, bot, typeof b.area === "string" ? b.area : null)!, botId: bot.id, botNombre: bot.nombre, sesionId: typeof b.sesionId === "string" ? b.sesionId : null,
+    titulo: (b.titulo as string).trim(), contenido: (b.contenido as string).trim(), creadoPorId: ctx.usuario.id, creadoEn: ahoraIso(),
+  };
+  E.bibliotecaJarvis.push(x);
+  return { __status: 201, ...elementoVista(ctx, x) };
+});
+ruta("GET", "/jarvis/biblioteca/:id", (ctx, p) => {
+  const x = elementoMock(ctx, p.id);
+  return { ...elementoVista(ctx, x), contenido: x.contenido, descarga: null };
+});
+ruta("DELETE", "/jarvis/biblioteca/:id", (ctx, p) => {
+  const x = elementoMock(ctx, p.id);
+  if (!puedeEditarEnEspacio(ctx, x.espacio, x.creadoPorId)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien lo guardó, el lead del área o un ADMIN lo saca");
+  E.bibliotecaJarvis = E.bibliotecaJarvis.filter((y) => y !== x);
+  return null;
+});
+
+// ── proceso de Jarvis. En la demo no hay Hermes: la respuesta es de ejemplo.
+ruta("POST", "/integraciones/jarvis/ejecutar", (ctx) => {
+  soloServicio(ctx);
+  const ahora = new Date();
+  let programadas = 0;
+  for (const r of E.rutinasJarvis.filter((x) => x.activa && new Date(x.proximaEn) <= ahora)) {
+    const creador = E.usuarios.find((u) => u.id === r.creadoPorId);
+    if (creador?.activo !== false && !E.ejecucionesJarvis.some((x) => x.rutinaId === r.id && (x.estado === "PENDIENTE" || x.estado === "EN_CURSO"))) {
+      nuevaEjecucion({ botId: r.botId, rutinaId: r.id, automatizacionId: null, usuarioId: r.creadoPorId, pedido: r.pedido, contexto: {}, esAuto: false });
+      programadas++;
+    }
+    r.proximaEn = proximaEjecucion(horarioMock(r), ahora).toISOString();
+  }
+  const tomadas = E.ejecucionesJarvis.filter((e) => e.estado === "PENDIENTE").sort((a, b) => a.creadoEn.localeCompare(b.creadoEn)).slice(0, 5);
+  let hechas = 0;
+  let fallidas = 0;
+  for (const e of tomadas) {
+    const bot = E.botsJarvis.find((b) => b.id === e.botId);
+    const vista = ejecucionVista(e);
+    if (!bot) {
+      Object.assign(e, { estado: "FALLIDA", error: "El bot ya no existe", terminadoEn: ahoraIso() });
+      fallidas++;
+      continue;
+    }
+    const sesionId = `job-${e.id}`;
+    const area = areaDelEspacio(espacioDeBot(bot));
+    const h = herramientasActivas(bot.id);
+    anotarUsoSkills(h.skillIds, bot.id, sesionId, e.usuarioId, e.esAuto ? "AUTOMATIZACION" : "RUTINA");
+    E.sesionesJarvis[sesionId] = {
+      usuarioId: e.usuarioId, area, botId: bot.id, titulo: vista.nombre.slice(0, 60), creadoEn: ahoraIso(), ultimoUso: ahoraIso(), espacio: null,
+      mensajes: [
+        { rol: "PERSONA", texto: mensajeDeEjecucion(e.pedido, e.esAuto ? "AUTOMATIZACION" : "RUTINA", vista.nombre, e.contexto), adjuntos: [], creadoEn: ahoraIso(), autor: persona(e.usuarioId)?.nombre ?? null },
+        { rol: "BOT", texto: `Respuesta de ejemplo de ${bot.nombre} para «${vista.nombre}». En la demo los bots no están conectados a Hermes.`, adjuntos: [], creadoEn: ahoraIso(), autor: null },
+      ],
+    };
+    Object.assign(e, { estado: "HECHA", sesionId, terminadoEn: ahoraIso() });
+    hechas++;
+  }
+  return { programadas, hechas, fallidas, pendientes: E.ejecucionesJarvis.filter((e) => e.estado === "PENDIENTE").length };
 });
 
 // ───────────────────────────── conversaciones guardadas (6 nov)

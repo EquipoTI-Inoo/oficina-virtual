@@ -87,6 +87,7 @@ jobs:
           psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0046_entorno_de_pruebas.sql
           psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0047_chats_jarvis.sql
           psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0048_leads_y_gerencia.sql
+          psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/migraciones/0049_jarvis_avanzado.sql
       - name: Semillas
         run: psql -h localhost -U inoo -d oficina_virtual -v ON_ERROR_STOP=1 -f database/semillas/0001_casa_oliva.sql
       - name: Comprobaciones

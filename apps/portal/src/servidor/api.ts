@@ -40,7 +40,8 @@ import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideCla
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { AREAS, NOMBRE_AREA, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, validarBot, validarTopes, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, type Area } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
-import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "./jarvis-chat";
+import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, pedirAlBot, validarChat } from "./jarvis-chat";
+import { archivoBiblioteca, EVENTOS_JARVIS, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
 import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, textoAreasLideradas, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
@@ -2947,7 +2948,593 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, q, cuerpo) => {
       })
     : undefined;
   // Con la señal de la solicitud, «Detener» en el chat corta la conexión con Hermes, que interrumpe al bot.
-  return hablarConBot(hermes, { botId: bot.id, sistema: sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR"), mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, ctx.senal);
+  // 9 nov: en los chats de trabajo el bot sabe sus skills y sus conectores; cada skill usada queda en la actividad.
+  const herramientas = configurar ? null : await herramientasActivasDb(ctx.c, bot.id);
+  if (herramientas) await anotarUsoSkillsDb(ctx.c, herramientas.skillIds, bot.id, b.sesionId, ctx.u.usuarioId, "CHAT");
+  const sistema = `${sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR")}${herramientas?.texto ?? ""}`;
+  return hablarConBot(hermes, { botId: bot.id, sistema, mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, ctx.senal);
+});
+
+// ───────────────────────────── Jarvis avanzado (9 nov): skills, conectores, rutinas, automatizaciones, biblioteca
+
+/** El espacio pedido con ?area= si la persona lo ve; si no, el primero suyo. */
+function espacioPedidoDb(ctx: Ctx, pedido: string | null): EspacioJarvis | null {
+  soloEquipo(ctx);
+  const xs = espaciosDb(ctx);
+  return pedido && xs.includes(pedido as EspacioJarvis) ? (pedido as EspacioJarvis) : xs[0] ?? null;
+}
+/** Quien lo creó, un ADMIN, el lead del área o, en Gerencia, un super usuario. */
+function puedeEditarEnEspacioDb(ctx: Ctx, espacio: string, creadoPor: string) {
+  if (ctx.esServicio) return false;
+  return creadoPor === ctx.u.usuarioId || ctx.u.nivelAcceso === "ADMIN" || (espacio === "GERENCIA" ? !!ctx.u.esSuperUsuario : lideraArea(yoDb(ctx), espacio as Area));
+}
+const personaMiniDb = (id: string, nombre: string, cargo: string | null, email: string | null): S<"PersonaMini"> => ({ id, nombre, cargo, email: email ?? undefined });
+const errores422 = (e: { campo: string; mensaje: string }[]) => {
+  if (e.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, e);
+};
+/** Un bot de su propio espacio (no prestado) para programarle cosas. */
+async function botPropioDb(ctx: Ctx, botId: unknown, area?: string | null) {
+  if (typeof botId !== "string") throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese bot");
+  const bot = await botDeMiAreaDb(ctx, botId);
+  if (espacioDeUsoDb(ctx, bot, area ?? null) !== espacioDelBot(bot)) throw new ErrorApi(403, "SIN_PERMISO", "Un bot prestado no se programa desde otra área", "Pídele a su área que lo programe, o haz una copia del bot.");
+  return bot;
+}
+
+// ── skills
+
+interface FilaSkill {
+  id: string; espacio: string; nombre: string; descripcion: string; instrucciones: string; archivos: ArchivoSkill[]; creado_por: string; actualizado_en: Date;
+  cp_nombre: string; cp_cargo: string | null; cp_email: string | null; usos: number; ultimo_uso: Date | null; bots: { id: string; nombre: string }[];
+}
+const SELECT_SKILL = `SELECT s.id, s.espacio, s.nombre, s.descripcion, s.instrucciones, s.archivos, s.creado_por, s.actualizado_en,
+  u.nombre AS cp_nombre, u.cargo AS cp_cargo, u.email::text AS cp_email,
+  (SELECT count(*)::int FROM uso_skill x WHERE x.skill_id = s.id) AS usos, (SELECT max(x.creado_en) FROM uso_skill x WHERE x.skill_id = s.id) AS ultimo_uso,
+  (SELECT coalesce(json_agg(json_build_object('id', b.id, 'nombre', b.nombre) ORDER BY b.nombre), '[]'::json) FROM bot_skill bs JOIN bot_jarvis b ON b.id = bs.bot_id WHERE bs.skill_id = s.id) AS bots
+  FROM skill_jarvis s JOIN usuario u ON u.id = s.creado_por`;
+const skillVistaDb = (ctx: Ctx, s: FilaSkill): S<"SkillJarvis"> => ({
+  id: s.id, espacio: s.espacio, nombre: s.nombre, descripcion: s.descripcion, instrucciones: s.instrucciones,
+  archivos: s.archivos.map((a) => ({ nombre: a.nombre, caracteres: a.texto.length })), bots: s.bots, usos: s.usos, ultimoUso: iso(s.ultimo_uso),
+  creadoPor: personaMiniDb(s.creado_por, s.cp_nombre, s.cp_cargo, s.cp_email), puedeEditar: puedeEditarEnEspacioDb(ctx, s.espacio, s.creado_por), actualizadoEn: iso(s.actualizado_en)!,
+});
+async function skillDb(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const s = esUuid(id) ? (await ctx.c.query<FilaSkill>(`${SELECT_SKILL} WHERE s.id = $1`, [id])).rows[0] : undefined;
+  if (!s || !espaciosDb(ctx).includes(s.espacio as EspacioJarvis)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa skill");
+  return s;
+}
+const archivosSkill = (v: unknown) => (v as ArchivoSkill[]).map((a) => ({ nombre: a.nombre.trim(), texto: a.texto }));
+
+ruta("GET", "/jarvis/skills", async (ctx, _p, q) => {
+  const espacio = espacioPedidoDb(ctx, q.get("area"));
+  if (!espacio) return { datos: [] };
+  const { rows } = await ctx.c.query<FilaSkill>(`${SELECT_SKILL} WHERE s.espacio = $1 ORDER BY s.nombre`, [espacio]);
+  return { datos: rows.map((s) => skillVistaDb(ctx, s)) };
+});
+
+ruta("POST", "/jarvis/skills", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las skills las crean personas del equipo");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  const espacio = typeof b.espacio === "string" ? b.espacio : espaciosDb(ctx)[0];
+  if (!espacio || !espaciosDb(ctx).includes(espacio as EspacioJarvis)) throw new ErrorApi(403, "SIN_PERMISO", "No puedes crear skills en esa área");
+  errores422(validarSkill(b));
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO skill_jarvis (espacio, nombre, descripcion, instrucciones, archivos, creado_por) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    [espacio, (b.nombre as string).trim(), typeof b.descripcion === "string" ? b.descripcion.trim() : "", (b.instrucciones as string).trim(), JSON.stringify(b.archivos ? archivosSkill(b.archivos) : []), ctx.u.usuarioId],
+  );
+  return { __status: 201, ...skillVistaDb(ctx, await skillDb(ctx, rows[0].id)) };
+});
+
+ruta("PATCH", "/jarvis/skills/:id", async (ctx, p, _q, cuerpo) => {
+  const s = await skillDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, s.espacio, s.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la skill, el lead del área o un ADMIN la cambia");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarSkill(b, true));
+  await ctx.c.query(
+    `UPDATE skill_jarvis SET nombre = coalesce($2, nombre), descripcion = coalesce($3, descripcion), instrucciones = coalesce($4, instrucciones),
+       archivos = coalesce($5::jsonb, archivos), actualizado_en = now() WHERE id = $1`,
+    [s.id, typeof b.nombre === "string" ? b.nombre.trim() : null, b.descripcion === undefined ? null : typeof b.descripcion === "string" ? b.descripcion.trim() : "",
+      typeof b.instrucciones === "string" ? b.instrucciones.trim() : null, b.archivos !== undefined ? JSON.stringify(archivosSkill(b.archivos)) : null],
+  );
+  return skillVistaDb(ctx, await skillDb(ctx, s.id));
+});
+
+ruta("DELETE", "/jarvis/skills/:id", async (ctx, p) => {
+  const s = await skillDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, s.espacio, s.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la skill, el lead del área o un ADMIN la borra");
+  await ctx.c.query("DELETE FROM skill_jarvis WHERE id = $1", [s.id]);
+  return null;
+});
+
+// ── conectores (catálogo; las credenciales viven en el Hermes)
+
+interface FilaConector { id: string; nombre: string; descripcion: string; url: string | null; espacios: string[]; estado: EstadoConector; bots: { id: string; nombre: string; espacio: string }[] }
+const SELECT_CONECTOR = `SELECT c.id, c.nombre, c.descripcion, c.url, c.espacios, c.estado,
+  (SELECT coalesce(json_agg(json_build_object('id', b.id, 'nombre', b.nombre, 'espacio', CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) ORDER BY b.nombre), '[]'::json)
+     FROM bot_conector bc JOIN bot_jarvis b ON b.id = bc.bot_id WHERE bc.conector_id = c.id) AS bots
+  FROM conector_jarvis c`;
+const conectorVistaDb = (ctx: Ctx, c: FilaConector, espacio: string | null): S<"ConectorJarvis"> => ({
+  id: c.id, nombre: c.nombre, descripcion: c.descripcion, url: c.url, espacios: c.espacios, estado: c.estado,
+  bots: c.bots.filter((b) => !espacio || ctx.u.esSuperUsuario || b.espacio === espacio).map(({ id, nombre }) => ({ id, nombre })), puedeEditar: !!ctx.u.esSuperUsuario && !ctx.esServicio,
+});
+const conectorVisible = (c: { espacios: string[] }, espacio: string) => c.espacios.length === 0 || c.espacios.includes(espacio);
+function exigirSuperConectores(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || !ctx.u.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Los conectores los administra un super usuario");
+}
+async function conectorDb(ctx: Ctx, id: string) {
+  const c = esUuid(id) ? (await ctx.c.query<FilaConector>(`${SELECT_CONECTOR} WHERE c.id = $1`, [id])).rows[0] : undefined;
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese conector");
+  return c;
+}
+const espaciosConector = (v: unknown) => [...new Set((v as string[]) ?? [])].sort();
+
+ruta("GET", "/jarvis/conectores", async (ctx, _p, q) => {
+  const espacio = espacioPedidoDb(ctx, q.get("area"));
+  const { rows } = await ctx.c.query<FilaConector>(`${SELECT_CONECTOR} ORDER BY c.nombre`);
+  const visibles = ctx.u.esSuperUsuario ? rows : rows.filter((c) => espacio && conectorVisible(c, espacio));
+  return { datos: visibles.map((c) => conectorVistaDb(ctx, c, espacio)), puedeCrear: !!ctx.u.esSuperUsuario && !ctx.esServicio };
+});
+
+ruta("POST", "/jarvis/conectores", async (ctx, _p, _q, cuerpo) => {
+  exigirSuperConectores(ctx);
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarConector(b));
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO conector_jarvis (nombre, descripcion, url, espacios, estado, creado_por) VALUES ($1, $2, $3, string_to_array($4, ',')::text[], $5, $6) RETURNING id",
+    [(b.nombre as string).trim(), typeof b.descripcion === "string" ? b.descripcion.trim() : "", typeof b.url === "string" ? b.url.trim() : null,
+      espaciosConector(b.espacios).join(","), (b.estado as string) ?? "PENDIENTE", ctx.u.usuarioId],
+  );
+  return { __status: 201, ...conectorVistaDb(ctx, await conectorDb(ctx, rows[0].id), null) };
+});
+
+ruta("PATCH", "/jarvis/conectores/:id", async (ctx, p, _q, cuerpo) => {
+  exigirSuperConectores(ctx);
+  const c = await conectorDb(ctx, p.id);
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarConector(b, true));
+  await ctx.c.query(
+    `UPDATE conector_jarvis SET nombre = coalesce($2, nombre), descripcion = coalesce($3, descripcion), url = CASE WHEN $4 THEN $5 ELSE url END,
+       espacios = CASE WHEN $6 THEN string_to_array($7, ',')::text[] ELSE espacios END, estado = coalesce($8, estado), actualizado_en = now() WHERE id = $1`,
+    [c.id, typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.descripcion === "string" ? b.descripcion.trim() : b.descripcion === null ? "" : null,
+      b.url !== undefined, typeof b.url === "string" ? b.url.trim() : null, b.espacios !== undefined, espaciosConector(b.espacios).join(","), (b.estado as string) ?? null],
+  );
+  // Si deja de ofrecerse a un área, sus bots lo pierden.
+  if (b.espacios !== undefined && espaciosConector(b.espacios).length) {
+    await ctx.c.query(
+      `DELETE FROM bot_conector bc USING bot_jarvis b WHERE bc.bot_id = b.id AND bc.conector_id = $1
+         AND NOT ((CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) = ANY(string_to_array($2, ',')))`,
+      [c.id, espaciosConector(b.espacios).join(",")],
+    );
+  }
+  return conectorVistaDb(ctx, await conectorDb(ctx, c.id), null);
+});
+
+ruta("DELETE", "/jarvis/conectores/:id", async (ctx, p) => {
+  exigirSuperConectores(ctx);
+  const c = await conectorDb(ctx, p.id);
+  await ctx.c.query("DELETE FROM conector_jarvis WHERE id = $1", [c.id]);
+  return null;
+});
+
+// ── herramientas de cada bot
+
+async function herramientasIdsDb(c: Consultor, botId: string) {
+  const skillIds = (await c.query<{ id: string }>("SELECT skill_id AS id FROM bot_skill WHERE bot_id = $1 ORDER BY skill_id", [botId])).rows.map((r) => r.id);
+  const conectorIds = (await c.query<{ id: string }>("SELECT conector_id AS id FROM bot_conector WHERE bot_id = $1 ORDER BY conector_id", [botId])).rows.map((r) => r.id);
+  return { skillIds, conectorIds };
+}
+/** Lo que se le agrega al sistema del bot, y las skills que se usaron (para la trazabilidad). */
+async function herramientasActivasDb(c: Consultor, botId: string) {
+  const skills = (await c.query<{ id: string; nombre: string; instrucciones: string; archivos: ArchivoSkill[] }>(
+    "SELECT s.id, s.nombre, s.instrucciones, s.archivos FROM bot_skill bs JOIN skill_jarvis s ON s.id = bs.skill_id WHERE bs.bot_id = $1 ORDER BY s.nombre", [botId],
+  )).rows;
+  const conectores = (await c.query<{ nombre: string; descripcion: string; estado: EstadoConector }>(
+    "SELECT c.nombre, c.descripcion, c.estado FROM bot_conector bc JOIN conector_jarvis c ON c.id = bc.conector_id WHERE bc.bot_id = $1 ORDER BY c.nombre", [botId],
+  )).rows;
+  return { texto: textoHerramientas(skills, conectores), skillIds: skills.map((s) => s.id) };
+}
+async function anotarUsoSkillsDb(c: Consultor, skillIds: string[], botId: string, sesionId: string, usuarioId: string, origen: "CHAT" | "RUTINA" | "AUTOMATIZACION") {
+  for (const id of skillIds) await c.query("INSERT INTO uso_skill (skill_id, bot_id, sesion_id, usuario_id, origen) VALUES ($1, $2, $3, $4, $5)", [id, botId, sesionId, usuarioId, origen]);
+}
+
+ruta("GET", "/jarvis/bots/:id/herramientas", async (ctx, p) => {
+  const bot = await botDeMiAreaDb(ctx, p.id);
+  return { ...(await herramientasIdsDb(ctx.c, bot.id)), puedeEditar: espacioDeUsoDb(ctx, bot) === espacioDelBot(bot) && puedeEditarBotDb(ctx, bot) } satisfies S<"HerramientasBot">;
+});
+
+ruta("PUT", "/jarvis/bots/:id/herramientas", async (ctx, p, _q, cuerpo) => {
+  const bot = await botDeMiAreaDb(ctx, p.id);
+  if (espacioDeUsoDb(ctx, bot) !== espacioDelBot(bot)) throw new ErrorApi(403, "SIN_PERMISO", "Un bot prestado se configura en su área");
+  exigirEditarBotDb(ctx, bot);
+  const b = (await cuerpo()) as { skillIds?: unknown; conectorIds?: unknown };
+  const espacio = espacioDelBot(bot);
+  const lista = (v: unknown) => (Array.isArray(v) && v.every(esUuid) ? [...new Set(v as string[])] : null);
+  const skills = b.skillIds !== undefined ? lista(b.skillIds) : undefined;
+  const conectores = b.conectorIds !== undefined ? lista(b.conectorIds) : undefined;
+  const e: { campo: string; mensaje: string }[] = [];
+  if (skills === null) e.push({ campo: "skillIds", mensaje: "Lista de skills inválida" });
+  if (conectores === null) e.push({ campo: "conectorIds", mensaje: "Lista de conectores inválida" });
+  if (skills?.length) {
+    const ok = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM skill_jarvis WHERE id = ANY(string_to_array($1, ',')::uuid[]) AND espacio = $2", [skills.join(","), espacio])).rows[0].n;
+    if (ok !== skills.length) e.push({ campo: "skillIds", mensaje: "Solo las skills de su área" });
+  }
+  if (conectores?.length) {
+    const ok = (await ctx.c.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM conector_jarvis WHERE id = ANY(string_to_array($1, ',')::uuid[]) AND (espacios = '{}' OR $2 = ANY(espacios))", [conectores.join(","), espacio],
+    )).rows[0].n;
+    if (ok !== conectores.length) e.push({ campo: "conectorIds", mensaje: "Solo los conectores que tiene su área" });
+  }
+  errores422(e);
+  if (skills) {
+    await ctx.c.query("DELETE FROM bot_skill WHERE bot_id = $1", [bot.id]);
+    for (const id of skills) await ctx.c.query("INSERT INTO bot_skill (bot_id, skill_id) VALUES ($1, $2)", [bot.id, id]);
+  }
+  if (conectores) {
+    await ctx.c.query("DELETE FROM bot_conector WHERE bot_id = $1", [bot.id]);
+    for (const id of conectores) await ctx.c.query("INSERT INTO bot_conector (bot_id, conector_id) VALUES ($1, $2)", [bot.id, id]);
+  }
+  await ctx.c.query("UPDATE bot_jarvis SET actualizado_en = now() WHERE id = $1", [bot.id]);
+  return { ...(await herramientasIdsDb(ctx.c, bot.id)), puedeEditar: true } satisfies S<"HerramientasBot">;
+});
+
+// ── ejecuciones (rutinas y automatizaciones)
+
+interface FilaEjecucion {
+  id: string; bot_id: string; bot_nombre: string; rutina_id: string | null; automatizacion_id: string | null; es_auto: boolean; nombre: string; estado: S<"EjecucionJarvis">["estado"];
+  sesion_id: string | null; error: string | null; creado_en: Date; terminado_en: Date | null; usuario_id: string; u_nombre: string; u_cargo: string | null; u_email: string | null; resumen: string | null;
+}
+const SELECT_EJECUCION = `SELECT e.id, e.bot_id, b.nombre AS bot_nombre, e.rutina_id, e.automatizacion_id, (e.contexto ? 'evento') AS es_auto,
+  coalesce(r.nombre, a.nombre, CASE WHEN e.contexto ? 'evento' THEN 'Automatización borrada' ELSE 'Rutina borrada' END) AS nombre,
+  e.estado, e.sesion_id, e.error, e.creado_en, e.terminado_en, e.usuario_id, u.nombre AS u_nombre, u.cargo AS u_cargo, u.email::text AS u_email,
+  (SELECT left(m.texto, 300) FROM mensaje_jarvis m WHERE m.sesion_id = e.sesion_id AND m.rol = 'BOT' ORDER BY m.id DESC LIMIT 1) AS resumen
+  FROM ejecucion_jarvis e JOIN bot_jarvis b ON b.id = e.bot_id JOIN usuario u ON u.id = e.usuario_id
+  LEFT JOIN rutina_jarvis r ON r.id = e.rutina_id LEFT JOIN automatizacion_jarvis a ON a.id = e.automatizacion_id`;
+const ejecucionVistaDb = (e: FilaEjecucion): S<"EjecucionJarvis"> => ({
+  id: e.id, bot: { id: e.bot_id, nombre: e.bot_nombre }, origen: e.es_auto ? "AUTOMATIZACION" : "RUTINA", nombre: e.nombre, estado: e.estado, sesionId: e.sesion_id, error: e.error,
+  resumen: e.resumen, creadoEn: iso(e.creado_en)!, terminadoEn: iso(e.terminado_en), pagadoPor: personaMiniDb(e.usuario_id, e.u_nombre, e.u_cargo, e.u_email),
+});
+async function ultimasEjecucionesDb(c: Consultor, campo: "rutina_id" | "automatizacion_id", ids: string[]) {
+  if (!ids.length) return new Map<string, S<"EjecucionJarvis">>();
+  const { rows } = await c.query<FilaEjecucion & { clave: string }>(
+    `SELECT DISTINCT ON (x.clave) * FROM (${SELECT_EJECUCION.replace("SELECT e.id,", `SELECT e.${campo} AS clave, e.id,`)} WHERE e.${campo} = ANY(string_to_array($1, ',')::uuid[])) x
+     ORDER BY x.clave, x.creado_en DESC`,
+    [ids.join(",")],
+  );
+  return new Map(rows.map((r) => [r.clave, ejecucionVistaDb(r)]));
+}
+
+// ── rutinas
+
+interface FilaRutina {
+  id: string; bot_id: string; bot_nombre: string; espacio: string; nombre: string; pedido: string; frecuencia: Frecuencia; hora: string; dia_semana: number | null; dia_mes: number | null;
+  activa: boolean; proxima_en: Date; creado_por: string; cp_nombre: string; cp_cargo: string | null; cp_email: string | null;
+}
+const SELECT_RUTINA = `SELECT r.id, r.bot_id, b.nombre AS bot_nombre, (CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) AS espacio, r.nombre, r.pedido,
+  r.frecuencia, r.hora, r.dia_semana, r.dia_mes, r.activa, r.proxima_en, r.creado_por, u.nombre AS cp_nombre, u.cargo AS cp_cargo, u.email::text AS cp_email
+  FROM rutina_jarvis r JOIN bot_jarvis b ON b.id = r.bot_id JOIN usuario u ON u.id = r.creado_por`;
+const horarioDe = (r: { frecuencia: Frecuencia; hora: string; dia_semana: number | null; dia_mes: number | null }): Horario => ({ frecuencia: r.frecuencia, hora: r.hora, diaSemana: r.dia_semana, diaMes: r.dia_mes });
+const rutinaVistaDb = (ctx: Ctx, r: FilaRutina, ultima: S<"EjecucionJarvis"> | null): S<"RutinaJarvis"> => ({
+  id: r.id, bot: { id: r.bot_id, nombre: r.bot_nombre }, nombre: r.nombre, pedido: r.pedido, frecuencia: r.frecuencia, hora: r.hora, diaSemana: r.dia_semana, diaMes: r.dia_mes,
+  activa: r.activa, horario: textoHorario(horarioDe(r)), proximaEn: r.activa ? iso(r.proxima_en) : null, ultima,
+  creadoPor: personaMiniDb(r.creado_por, r.cp_nombre, r.cp_cargo, r.cp_email), puedeEditar: puedeEditarEnEspacioDb(ctx, r.espacio, r.creado_por),
+});
+async function rutinaDb(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const r = esUuid(id) ? (await ctx.c.query<FilaRutina>(`${SELECT_RUTINA} WHERE r.id = $1`, [id])).rows[0] : undefined;
+  if (!r || !espaciosDb(ctx).includes(r.espacio as EspacioJarvis)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa rutina");
+  return r;
+}
+async function rutinaCompletaDb(ctx: Ctx, id: string) {
+  const r = await rutinaDb(ctx, id);
+  return rutinaVistaDb(ctx, r, (await ultimasEjecucionesDb(ctx.c, "rutina_id", [r.id])).get(r.id) ?? null);
+}
+/** Horario normalizado: el día solo cuando corresponde. */
+const horarioDeEntrada = (b: Record<string, unknown>, previo?: Horario): Horario => {
+  const frecuencia = (b.frecuencia ?? previo?.frecuencia) as Frecuencia;
+  return {
+    frecuencia, hora: (b.hora ?? previo?.hora) as string,
+    diaSemana: frecuencia === "SEMANAL" ? ((b.diaSemana ?? previo?.diaSemana) as number) : null,
+    diaMes: frecuencia === "MENSUAL" ? ((b.diaMes ?? previo?.diaMes) as number) : null,
+  };
+};
+
+ruta("GET", "/jarvis/rutinas", async (ctx, _p, q) => {
+  const espacio = espacioPedidoDb(ctx, q.get("area"));
+  if (!espacio) return { datos: [] };
+  const { rows } = await ctx.c.query<FilaRutina>(`${SELECT_RUTINA} WHERE (CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) = $1 ORDER BY b.nombre, r.nombre`, [espacio]);
+  const ultimas = await ultimasEjecucionesDb(ctx.c, "rutina_id", rows.map((r) => r.id));
+  return { datos: rows.map((r) => rutinaVistaDb(ctx, r, ultimas.get(r.id) ?? null)) };
+});
+
+ruta("POST", "/jarvis/rutinas", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las rutinas las crean personas del equipo");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarRutina(b));
+  const bot = await botPropioDb(ctx, b.botId, typeof b.area === "string" ? b.area : null);
+  const h = horarioDeEntrada(b);
+  const { rows } = await ctx.c.query<{ id: string }>(
+    `INSERT INTO rutina_jarvis (bot_id, nombre, pedido, frecuencia, hora, dia_semana, dia_mes, activa, proxima_en, creado_por)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+    [bot.id, (b.nombre as string).trim(), (b.pedido as string).trim(), h.frecuencia, h.hora, h.diaSemana, h.diaMes, b.activa !== false, proximaEjecucion(h, new Date()), ctx.u.usuarioId],
+  );
+  return { __status: 201, ...(await rutinaCompletaDb(ctx, rows[0].id)) };
+});
+
+ruta("PATCH", "/jarvis/rutinas/:id", async (ctx, p, _q, cuerpo) => {
+  const r = await rutinaDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, r.espacio, r.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la rutina, el lead del área o un ADMIN la cambia");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  const h = horarioDeEntrada(b, horarioDe(r));
+  errores422(validarRutina({ ...b, frecuencia: h.frecuencia, hora: h.hora, diaSemana: h.diaSemana, diaMes: h.diaMes }, true));
+  const activa = typeof b.activa === "boolean" ? b.activa : r.activa;
+  await ctx.c.query(
+    `UPDATE rutina_jarvis SET nombre = coalesce($2, nombre), pedido = coalesce($3, pedido), frecuencia = $4, hora = $5, dia_semana = $6, dia_mes = $7, activa = $8, proxima_en = $9 WHERE id = $1`,
+    [r.id, typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.pedido === "string" ? b.pedido.trim() : null, h.frecuencia, h.hora, h.diaSemana, h.diaMes, activa, proximaEjecucion(h, new Date())],
+  );
+  return rutinaCompletaDb(ctx, r.id);
+});
+
+ruta("DELETE", "/jarvis/rutinas/:id", async (ctx, p) => {
+  const r = await rutinaDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, r.espacio, r.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la rutina, el lead del área o un ADMIN la borra");
+  await ctx.c.query("DELETE FROM rutina_jarvis WHERE id = $1", [r.id]);
+  return null;
+});
+
+ruta("POST", "/jarvis/rutinas/:id/ejecutar", async (ctx, p) => {
+  const r = await rutinaDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, r.espacio, r.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la rutina, el lead del área o un ADMIN la corre");
+  const ya = (await ctx.c.query("SELECT 1 FROM ejecucion_jarvis WHERE rutina_id = $1 AND estado IN ('PENDIENTE', 'EN_CURSO')", [r.id])).rows.length;
+  if (ya) throw new ErrorApi(409, "YA_EN_COLA", "Esa rutina ya está en cola", "Corre en unos minutos.");
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO ejecucion_jarvis (bot_id, rutina_id, usuario_id, pedido) VALUES ($1, $2, $3, $4) RETURNING id", [r.bot_id, r.id, r.creado_por, r.pedido],
+  );
+  return { __status: 201, ...ejecucionVistaDb((await ctx.c.query<FilaEjecucion>(`${SELECT_EJECUCION} WHERE e.id = $1`, [rows[0].id])).rows[0]) };
+});
+
+// ── automatizaciones
+
+ruta("GET", "/jarvis/eventos", async (ctx) => {
+  soloEquipo(ctx);
+  return { datos: Object.entries(EVENTOS_JARVIS).map(([clave, nombre]) => ({ clave, nombre })) };
+});
+
+interface FilaAutomatizacion {
+  id: string; bot_id: string; bot_nombre: string; espacio: string; nombre: string; evento: string; pedido: string; activa: boolean; creado_por: string;
+  cp_nombre: string; cp_cargo: string | null; cp_email: string | null;
+}
+const SELECT_AUTOMATIZACION = `SELECT a.id, a.bot_id, b.nombre AS bot_nombre, (CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) AS espacio, a.nombre, a.evento,
+  a.pedido, a.activa, a.creado_por, u.nombre AS cp_nombre, u.cargo AS cp_cargo, u.email::text AS cp_email
+  FROM automatizacion_jarvis a JOIN bot_jarvis b ON b.id = a.bot_id JOIN usuario u ON u.id = a.creado_por`;
+const automatizacionVistaDb = (ctx: Ctx, a: FilaAutomatizacion, ultima: S<"EjecucionJarvis"> | null): S<"AutomatizacionJarvis"> => ({
+  id: a.id, bot: { id: a.bot_id, nombre: a.bot_nombre }, nombre: a.nombre, evento: a.evento, eventoNombre: EVENTOS_JARVIS[a.evento] ?? a.evento, pedido: a.pedido, activa: a.activa, ultima,
+  creadoPor: personaMiniDb(a.creado_por, a.cp_nombre, a.cp_cargo, a.cp_email), puedeEditar: puedeEditarEnEspacioDb(ctx, a.espacio, a.creado_por),
+});
+async function automatizacionDb(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const a = esUuid(id) ? (await ctx.c.query<FilaAutomatizacion>(`${SELECT_AUTOMATIZACION} WHERE a.id = $1`, [id])).rows[0] : undefined;
+  if (!a || !espaciosDb(ctx).includes(a.espacio as EspacioJarvis)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa automatización");
+  return a;
+}
+async function automatizacionCompletaDb(ctx: Ctx, id: string) {
+  const a = await automatizacionDb(ctx, id);
+  return automatizacionVistaDb(ctx, a, (await ultimasEjecucionesDb(ctx.c, "automatizacion_id", [a.id])).get(a.id) ?? null);
+}
+
+ruta("GET", "/jarvis/automatizaciones", async (ctx, _p, q) => {
+  const espacio = espacioPedidoDb(ctx, q.get("area"));
+  if (!espacio) return { datos: [] };
+  const { rows } = await ctx.c.query<FilaAutomatizacion>(`${SELECT_AUTOMATIZACION} WHERE (CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) = $1 ORDER BY b.nombre, a.nombre`, [espacio]);
+  const ultimas = await ultimasEjecucionesDb(ctx.c, "automatizacion_id", rows.map((a) => a.id));
+  return { datos: rows.map((a) => automatizacionVistaDb(ctx, a, ultimas.get(a.id) ?? null)) };
+});
+
+ruta("POST", "/jarvis/automatizaciones", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las automatizaciones las crean personas del equipo");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarAutomatizacion(b));
+  const bot = await botPropioDb(ctx, b.botId, typeof b.area === "string" ? b.area : null);
+  const { rows } = await ctx.c.query<{ id: string }>(
+    "INSERT INTO automatizacion_jarvis (bot_id, nombre, evento, pedido, activa, creado_por) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    [bot.id, (b.nombre as string).trim(), b.evento, (b.pedido as string).trim(), b.activa !== false, ctx.u.usuarioId],
+  );
+  return { __status: 201, ...(await automatizacionCompletaDb(ctx, rows[0].id)) };
+});
+
+ruta("PATCH", "/jarvis/automatizaciones/:id", async (ctx, p, _q, cuerpo) => {
+  const a = await automatizacionDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, a.espacio, a.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la automatización, el lead del área o un ADMIN la cambia");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarAutomatizacion(b, true));
+  await ctx.c.query(
+    "UPDATE automatizacion_jarvis SET nombre = coalesce($2, nombre), evento = coalesce($3, evento), pedido = coalesce($4, pedido), activa = coalesce($5, activa) WHERE id = $1",
+    [a.id, typeof b.nombre === "string" ? b.nombre.trim() : null, (b.evento as string) ?? null, typeof b.pedido === "string" ? b.pedido.trim() : null, typeof b.activa === "boolean" ? b.activa : null],
+  );
+  return automatizacionCompletaDb(ctx, a.id);
+});
+
+ruta("DELETE", "/jarvis/automatizaciones/:id", async (ctx, p) => {
+  const a = await automatizacionDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, a.espacio, a.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la automatización, el lead del área o un ADMIN la borra");
+  await ctx.c.query("DELETE FROM automatizacion_jarvis WHERE id = $1", [a.id]);
+  return null;
+});
+
+// ── actividad (trazabilidad)
+
+ruta("GET", "/jarvis/actividad", async (ctx, _p, q) => {
+  const espacio = espacioPedidoDb(ctx, q.get("area"));
+  if (!espacio) return { ejecuciones: [], skills: [] };
+  const delEspacio = "(CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) = $1";
+  const ej = (await ctx.c.query<FilaEjecucion>(`${SELECT_EJECUCION} WHERE ${delEspacio} ORDER BY e.creado_en DESC LIMIT 50`, [espacio])).rows;
+  const skills = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM skill_jarvis WHERE espacio = $1 ORDER BY nombre", [espacio])).rows;
+  const usos = (await ctx.c.query<{ skill_id: string; bot: string; n: number; ultimo: Date }>(
+    `SELECT x.skill_id, coalesce(b.nombre, 'Bot borrado') AS bot, count(*)::int AS n, max(x.creado_en) AS ultimo
+     FROM uso_skill x JOIN skill_jarvis s ON s.id = x.skill_id LEFT JOIN bot_jarvis b ON b.id = x.bot_id WHERE s.espacio = $1 GROUP BY x.skill_id, b.nombre`, [espacio],
+  )).rows;
+  return {
+    ejecuciones: ej.map(ejecucionVistaDb),
+    skills: skills.map((s) => {
+      const xs = usos.filter((u) => u.skill_id === s.id);
+      const ultimo = xs.reduce<Date | null>((m, u) => (!m || u.ultimo > m ? u.ultimo : m), null);
+      return { skillId: s.id, nombre: s.nombre, usos: xs.reduce((t, u) => t + u.n, 0), ultimoUso: iso(ultimo), porBot: xs.map((u) => ({ nombre: u.bot, usos: u.n })).sort((a, b) => b.usos - a.usos) };
+    }),
+  } satisfies S<"ActividadJarvis">;
+});
+
+// ── biblioteca (con copia en Drive)
+
+interface FilaBiblioteca { id: string; espacio: string; bot_id: string | null; bot_nombre: string; sesion_id: string | null; titulo: string; contenido: string; clave_archivo: string | null; creado_por: string; creado_en: Date; cp_nombre: string; cp_cargo: string | null; cp_email: string | null }
+const SELECT_BIBLIOTECA = `SELECT x.*, u.nombre AS cp_nombre, u.cargo AS cp_cargo, u.email::text AS cp_email FROM biblioteca_jarvis x JOIN usuario u ON u.id = x.creado_por`;
+const bibliotecaVistaDb = (ctx: Ctx, x: FilaBiblioteca): S<"ElementoBiblioteca"> => ({
+  id: x.id, espacio: x.espacio, bot: { id: x.bot_id, nombre: x.bot_nombre }, titulo: x.titulo, resumen: x.contenido.slice(0, 240), sesionId: x.sesion_id,
+  creadoPor: personaMiniDb(x.creado_por, x.cp_nombre, x.cp_cargo, x.cp_email), creadoEn: iso(x.creado_en)!, enDrive: !!x.clave_archivo, puedeBorrar: puedeEditarEnEspacioDb(ctx, x.espacio, x.creado_por),
+});
+async function elementoBibliotecaDb(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const x = esUuid(id) ? (await ctx.c.query<FilaBiblioteca>(`${SELECT_BIBLIOTECA} WHERE x.id = $1`, [id])).rows[0] : undefined;
+  if (!x || !espaciosDb(ctx).includes(x.espacio as EspacioJarvis)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos eso en la biblioteca");
+  return x;
+}
+
+ruta("GET", "/jarvis/biblioteca", async (ctx, _p, q) => {
+  const espacio = espacioPedidoDb(ctx, q.get("area"));
+  const drive = !!almacenOpcional();
+  if (!espacio) return { datos: [], drive };
+  const texto = q.get("q")?.trim() || null;
+  const { rows } = await ctx.c.query<FilaBiblioteca>(
+    `${SELECT_BIBLIOTECA} WHERE x.espacio = $1 AND ($2::text IS NULL OR x.titulo ILIKE '%' || $2 || '%' OR x.contenido ILIKE '%' || $2 || '%') ORDER BY x.creado_en DESC LIMIT 200`, [espacio, texto],
+  );
+  return { datos: rows.map((x) => bibliotecaVistaDb(ctx, x)), drive };
+});
+
+ruta("POST", "/jarvis/biblioteca", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "La biblioteca es de personas del equipo");
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarBiblioteca(b));
+  const bot = await botDeMiAreaDb(ctx, b.botId as string);
+  const espacio = espacioDeUsoDb(ctx, bot, typeof b.area === "string" ? b.area : null)!;
+  const titulo = (b.titulo as string).trim();
+  const contenido = (b.contenido as string).trim();
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO biblioteca_jarvis (espacio, bot_id, bot_nombre, sesion_id, titulo, contenido, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+    [espacio, bot.id, bot.nombre, typeof b.sesionId === "string" ? b.sesionId : null, titulo, contenido, ctx.u.usuarioId],
+  )).rows[0].id;
+  // La copia en Drive no frena el guardado: si Drive falla, queda solo en el portal.
+  const bucket = almacenOpcional();
+  if (bucket && !ctx.u.esPrueba) {
+    const clave = `jarvis/${espacio}/${id}/${archivoBiblioteca(titulo)}`;
+    try {
+      await bucket.subir(clave, "text/markdown; charset=utf-8", new TextEncoder().encode(`# ${titulo}\n\n_${bot.nombre} · ${nombreEspacio(espacio)} · ${HOY_LIMA()}_\n\n${contenido}\n`));
+      await ctx.c.query("UPDATE biblioteca_jarvis SET clave_archivo = $2 WHERE id = $1", [id, clave]);
+    } catch {
+      /* queda sin copia */
+    }
+  }
+  return { __status: 201, ...bibliotecaVistaDb(ctx, await elementoBibliotecaDb(ctx, id)) };
+});
+
+ruta("GET", "/jarvis/biblioteca/:id", async (ctx, p) => {
+  const x = await elementoBibliotecaDb(ctx, p.id);
+  const descarga = x.clave_archivo ? { ...almacen().urlDescarga(x.clave_archivo, archivoBiblioteca(x.titulo)), nombreArchivo: archivoBiblioteca(x.titulo) } : null;
+  return { ...bibliotecaVistaDb(ctx, x), contenido: x.contenido, descarga };
+});
+
+ruta("DELETE", "/jarvis/biblioteca/:id", async (ctx, p) => {
+  const x = await elementoBibliotecaDb(ctx, p.id);
+  if (!puedeEditarEnEspacioDb(ctx, x.espacio, x.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien lo guardó, el lead del área o un ADMIN lo saca");
+  await ctx.c.query("DELETE FROM biblioteca_jarvis WHERE id = $1", [x.id]);
+  return null;
+});
+
+// ── proceso de Jarvis (cada 10 minutos)
+
+const MAX_EJECUCIONES_POR_PASADA = 5;
+/** Corre una ejecución ya marcada EN_CURSO. Cada paso se guarda aparte (comoSistema) para que Hermes vea la conversación. */
+async function correrEjecucionDb(e: { id: string; bot_id: string; usuario_id: string; pedido: string; contexto: Record<string, unknown>; nombre: string; es_auto: boolean }) {
+  const terminar = (estado: "HECHA" | "FALLIDA", error: string | null) => comoSistema(async (c) => {
+    await c.query("UPDATE ejecucion_jarvis SET estado = $2, error = $3, terminado_en = now() WHERE id = $1", [e.id, estado, error]);
+    const bot = (await c.query<{ nombre: string }>("SELECT nombre FROM bot_jarvis WHERE id = $1", [e.bot_id])).rows[0]?.nombre ?? "Jarvis";
+    await c.query("SELECT app_notificar($1, NULL, NULL, $2, $3, $4)", [
+      e.usuario_id, estado === "HECHA" ? `${bot} terminó «${e.nombre}»` : `${bot} no pudo hacer «${e.nombre}»`, error, `/equipo/jarvis?bot=${e.bot_id}&chat=job-${e.id}`,
+    ]);
+  });
+  try {
+    const prep = await comoSistema(async (c) => {
+      const bot = (await c.query<FilaBot>(`${SELECT_BOT} WHERE b.id = $1`, [e.bot_id])).rows[0];
+      if (!bot) return { error: "El bot ya no existe" } as const;
+      const area = areaDelEspacio(espacioDelBot(bot));
+      const consumo = await vistaConsumoAreaDb(c, area);
+      if (consumo.pausado) return { error: `El área ${consumo.nombre} llegó a su tope ${consumo.pausado === "DIARIO" ? "de hoy" : "del mes"}` } as const;
+      const hermes = hermesDelArea(area);
+      if (!hermes) return { error: "El área todavía no tiene su Jarvis conectado" } as const;
+      const sesionId = `job-${e.id}`;
+      const fecha = new Date().toLocaleDateString("es-PE", { timeZone: "America/Lima", day: "numeric", month: "short" });
+      await c.query(
+        `INSERT INTO sesion_jarvis (sesion_id, usuario_id, bot_id, area, titulo) VALUES ($1, $2, $3, $4::area_equipo, $5) ON CONFLICT (sesion_id) DO NOTHING`,
+        [sesionId, e.usuario_id, bot.id, area, `${e.nombre} · ${fecha}`.slice(0, 60)],
+      );
+      const mensaje = mensajeDeEjecucion(e.pedido, e.es_auto ? "AUTOMATIZACION" : "RUTINA", e.nombre, e.contexto);
+      await c.query("INSERT INTO mensaje_jarvis (sesion_id, rol, autor_id, texto) VALUES ($1, 'PERSONA', $2, $3)", [sesionId, e.usuario_id, mensaje]);
+      await c.query("UPDATE ejecucion_jarvis SET sesion_id = $2 WHERE id = $1", [e.id, sesionId]);
+      const h = await herramientasActivasDb(c, bot.id);
+      await anotarUsoSkillsDb(c, h.skillIds, bot.id, sesionId, e.usuario_id, e.es_auto ? "AUTOMATIZACION" : "RUTINA");
+      return { hermes, sesionId, mensaje, sistema: `${sistemaDelBot(bot, area, "TRABAJAR")}${h.texto}` } as const;
+    });
+    if ("error" in prep) {
+      await terminar("FALLIDA", prep.error!);
+      return false;
+    }
+    const texto = await pedirAlBot(prep.hermes, { botId: e.bot_id, sistema: prep.sistema, mensaje: prep.mensaje, sesionId: prep.sesionId });
+    await comoSistema((c) => c.query("INSERT INTO mensaje_jarvis (sesion_id, rol, texto) VALUES ($1, 'BOT', $2)", [prep.sesionId, texto]));
+    await terminar("HECHA", null);
+    return true;
+  } catch (x) {
+    await terminar("FALLIDA", (x instanceof Error ? x.message : String(x)).slice(0, 500));
+    return false;
+  }
+}
+
+ruta("POST", "/integraciones/jarvis/ejecutar", async (ctx) => {
+  soloServicio(ctx, "jarvis:write");
+  // 0. Lo que quedó a medias (se cortó la pasada) no se queda colgado.
+  await ctx.c.query("UPDATE ejecucion_jarvis SET estado = 'FALLIDA', error = 'Se interrumpió; vuelve a correrla', terminado_en = now() WHERE estado = 'EN_CURSO' AND creado_en < now() - interval '2 hours'");
+  // 1. Las rutinas que tocan pasan a la cola y se programa su siguiente vez.
+  const rs = (await ctx.c.query<{ id: string; bot_id: string; pedido: string; creado_por: string; frecuencia: Frecuencia; hora: string; dia_semana: number | null; dia_mes: number | null; activo: boolean }>(
+    `SELECT r.id, r.bot_id, r.pedido, r.creado_por, r.frecuencia, r.hora, r.dia_semana, r.dia_mes, u.activo FROM rutina_jarvis r JOIN usuario u ON u.id = r.creado_por
+     WHERE r.activa AND r.proxima_en <= now() FOR UPDATE OF r SKIP LOCKED`,
+  )).rows;
+  let programadas = 0;
+  for (const r of rs) {
+    if (r.activo && !(await ctx.c.query("SELECT 1 FROM ejecucion_jarvis WHERE rutina_id = $1 AND estado IN ('PENDIENTE', 'EN_CURSO')", [r.id])).rows.length) {
+      await ctx.c.query("INSERT INTO ejecucion_jarvis (bot_id, rutina_id, usuario_id, pedido) VALUES ($1, $2, $3, $4)", [r.bot_id, r.id, r.creado_por, r.pedido]);
+      programadas++;
+    }
+    await ctx.c.query("UPDATE rutina_jarvis SET proxima_en = $2 WHERE id = $1", [r.id, proximaEjecucion(horarioDe(r), new Date())]);
+  }
+  // 2. Se toman hasta 5 pendientes.
+  const tomadas = (await ctx.c.query<{ id: string; bot_id: string; usuario_id: string; pedido: string; contexto: Record<string, unknown>; nombre: string; es_auto: boolean }>(
+    `UPDATE ejecucion_jarvis e SET estado = 'EN_CURSO' FROM (
+       SELECT id FROM ejecucion_jarvis WHERE estado = 'PENDIENTE' ORDER BY creado_en LIMIT ${MAX_EJECUCIONES_POR_PASADA} FOR UPDATE SKIP LOCKED
+     ) x WHERE e.id = x.id
+     RETURNING e.id, e.bot_id, e.usuario_id, e.pedido, e.contexto, (e.contexto ? 'evento') AS es_auto,
+       coalesce((SELECT nombre FROM rutina_jarvis WHERE id = e.rutina_id), (SELECT nombre FROM automatizacion_jarvis WHERE id = e.automatizacion_id), 'Ejecución') AS nombre`,
+  )).rows;
+  const pendientes = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM ejecucion_jarvis WHERE estado = 'PENDIENTE'")).rows[0].n;
+  // 3. Se corren cuando la transacción de esta solicitud ya cerró (como el chat): Hermes tiene que ver la conversación
+  // guardada para cobrarle a quien corresponde. La respuesta llega cuando terminan.
+  const cuerpo = new ReadableStream<Uint8Array>({
+    async pull(ctrl) {
+      const resultados = await Promise.all(tomadas.map((e) => correrEjecucionDb(e)));
+      ctrl.enqueue(new TextEncoder().encode(JSON.stringify({ programadas, hechas: resultados.filter(Boolean).length, fallidas: resultados.filter((x) => !x).length, pendientes })));
+      ctrl.close();
+    },
+  }, { highWaterMark: 0 });
+  return new Response(cuerpo, { status: 200, headers: { "content-type": "application/json" } });
 });
 
 // ───────────────────────────── conversaciones guardadas (6 nov)

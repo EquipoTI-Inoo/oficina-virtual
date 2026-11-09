@@ -7,6 +7,7 @@ import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasCuentas } from "./flujo-cuentas";
 import { pruebasEmpresas } from "./flujo-empresas";
+import { pruebasJarvisAvanzado } from "./flujo-jarvis-avanzado";
 import { pruebasPanel } from "./flujo-panel";
 import { pruebasArchivos } from "./flujo-archivos";
 import { pruebasRequerimientos } from "./flujo-requerimientos";
@@ -34,6 +35,7 @@ pruebasPlanificacion("API simulada", manejar, reiniciarMock, eventos);
 pruebasServicios("API simulada", manejar, reiniciarMock, eventos, HOY.slice(0, 10));
 pruebasCuentas("API simulada", manejar, reiniciarMock, eventos);
 pruebasEmpresas("API simulada", manejar, reiniciarMock);
+pruebasJarvisAvanzado("API simulada", manejar, reiniciarMock);
 pruebasPanel("API simulada", manejar, reiniciarMock);
 pruebasArchivos("API simulada", manejar, reiniciarMock, async (url) => {
   await manejar(new Request(`http://local${url}`, { method: "PUT", body: "x" }));
