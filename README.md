@@ -1,11 +1,10 @@
 # inoo-oficina-virtual
 
-Monorepo de la **Oficina virtual de IA** y el **Portal de clientes** de Inoo (Asesorías Estratégicas).
-La estructura sigue el PRD (`docs/prd.md`). Este primer corte entrega el **portal de clientes y el panel
-interno con un entorno de pruebas completo**: las 16 pantallas de Figma, una API simulada que cumple el
-contrato `docs/arquitectura/openapi.yaml` y una base Postgres con los mismos datos de prueba.
+Monorepo del **Portal de Inoo** (Asesorías Estratégicas): el portal de clientes, el espacio del equipo y Jarvis,
+los bots de IA de cada área. **En producción desde el 6 nov 2026 en `portal.inoo.pe`**, con usuarios reales: el
+equipo entra con su usuario de InooWork y los clientes con correo y contraseña propios.
 
-## Empezar en 2 minutos
+## Empezar en 2 minutos (API simulada)
 
 ```bash
 cd apps/portal
@@ -13,13 +12,17 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
+En local, sin base de datos, el portal usa una API simulada que cumple el mismo contrato
+(`docs/arquitectura/openapi.yaml`) con datos de prueba:
+
 | Usuario | Correo | Contraseña | Ve |
 |---|---|---|---|
 | Cliente (administradora) | valeria@casaoliva.pe | demo1234 | Portal de Casa Oliva |
 | Cliente (solo lectura) | martin@casaoliva.pe | demo1234 | Portal, sin poder aprobar |
-| Equipo (account manager) | diego.castro@inoo.pe | demo1234 | Panel interno |
-| Equipo (administración) | admin@inoo.pe | demo1234 | Panel interno + costos de IA |
-| Equipo operativo (desarrollo web) | camila.paredes@inoo.pe | demo1234 | Sin blog ni detalle de pagos |
+| Equipo (account manager, lead de CRM) | diego.castro@inoo.pe | demo1234 | Sus cuentas y proyectos |
+| Equipo (administración, super usuario) | admin@inoo.pe | demo1234 | Todo, incluidos niveles, permisos y conectores |
+| Equipo (Finanzas) | finanzas@inoo.pe | demo1234 | Todo lo de Administración y el estado de pago |
+| Equipo por proyecto (desarrollo web) | camila.paredes@inoo.pe | demo1234 | Solo sus proyectos y sus marcas |
 
 Entorno completo con Docker (portal, Postgres con semillas, Prism, Mailpit, MinIO):
 
@@ -28,34 +31,51 @@ cp infra/local/.env.example infra/local/.env
 docker compose -f infra/local/docker-compose.yml up --build
 ```
 
+## Qué hace el portal
+
+- **Clientes:** inicio de su cuenta, sus servicios con avance por etapas, entregables para aprobar o pedir
+  cambios, requerimientos (lo que la agencia le pide) con plazos en días hábiles, soporte y Mi cuenta.
+- **Equipo:** Mi panel, calendario del colaborador, Proyectos (pipeline, tareas, Gantt, entregables, taller web),
+  Clientes, Empresas, Organigrama, Equipo (personas sincronizadas con InooWork), Feriados y avisos, Costos de IA
+  y Mi cuenta. Cada persona ve según su nivel: ADMIN todo; CRM y Comercial sus cuentas; el resto sus proyectos.
+- **Jarvis:** bots de IA por área (y Gerencia para los super usuarios) con chats que se guardan, skills,
+  conectores MCP, rutinas, automatizaciones, biblioteca en Drive y registro de actividad. Corren en un Hermes por
+  área y el gasto se cobra a cada persona, con topes por área. Ver `docs/arquitectura/arquitectura.md` §0.
+- **La IA no se nota para el cliente:** todo lo que hace Jarvis lo revisa y lo envía el equipo.
+
 ## Documentación
 
 | Documento | Contenido |
 |---|---|
-| `docs/configuracion.md` | Requisitos, variables de entorno, puertos, Docker, Fase 1 en Hostinger, paso a backend real |
-| `docs/entorno-de-pruebas.md` | Qué simula el entorno, datos y usuarios, escenarios de prueba manual, pruebas automáticas |
-| `docs/diseno.md` | Tokens medidos en Figma, relación pantalla ↔ frame, diferencias conocidas |
-| `docs/arquitectura/` | Arquitectura v1.1, contrato OpenAPI |
-| `docs/prd.md`, `docs/backlog-y-casos-de-uso.md` | Documentos de producto |
+| `docs/operacion.md` | **Producción:** dónde vive cada cosa, cómo publicar, migraciones, procesos programados, respaldos y Jarvis |
+| `docs/configuracion.md` | Requisitos, variables de entorno, Docker local, backend real |
+| `docs/entorno-de-pruebas.md` | API simulada, datos y usuarios de prueba, cuenta de pruebas en producción, pruebas automáticas |
+| `docs/arquitectura/arquitectura.md` | Arquitectura (estado real y diseño original), esquema de datos, flujos y seguridad |
+| `docs/arquitectura/openapi.yaml` | Contrato de la API: lo cumplen la API simulada y el backend real |
+| `docs/diseno.md` | Tokens de Figma y todas las pantallas, con las que no tienen diseño |
+| `docs/prd.md`, `docs/backlog-y-casos-de-uso.md` | Producto: objetivos, fases y su estado, casos de uso |
 
 ## Estructura
 
 ```
-apps/portal/          Portal Next.js (UI cliente + panel interno + /api/v1)
-database/             migraciones (esquema.sql v1.1), semillas y comprobaciones
-docs/                 PRD, backlog, arquitectura, diseño y configuración
-infra/local/          entorno de pruebas con Docker
-infra/hostinger/      Fase 1: n8n + Postgres + NocoDB + Caddy
-infra/aws/            Fase 2 (pendiente)
-n8n/workflows/        un workflow por agente (vacío por ahora)
-prompts/ integrations/ templates/   según el PRD
+apps/portal/              Portal Next.js: pantallas, /api/v1 (API simulada y backend real) y pruebas
+database/migraciones/     Esquema de Postgres en migraciones numeradas (0001 a 0049)
+database/semillas/        Datos de prueba y llave de integración de desarrollo
+docs/                     Producto, arquitectura, diseño, configuración y operación
+infra/hostinger/          Producción: Compose del portal, Postgres, Caddy, respaldos y procesos programados (trabajos/)
+infra/local/              Entorno local con Docker
+infra/aws/                Fase 2 (sin usar por ahora)
+n8n/workflows/            Workflows de los agentes de contenido
+prompts/ integrations/ templates/
 ```
 
-## Estado
+## Estado (9 nov 2026)
 
-Hecho: portal con las 16 pantallas de Figma y 4 sin diseño, API simulada con todas las operaciones del
-contrato (incluidas `/integraciones/*` para n8n y el outbox de eventos), pruebas de contrato (45), de interfaz
-y visuales, semillas SQL, Docker local y Fase 1.
-Backend real (`API_MODO=db`, primer corte): flujo de entregables sobre Postgres con RLS, `cambiar_estado_pieza()`,
-idempotencia, verificación de JWT de Cognito y despachador del outbox hacia n8n (`docs/configuracion.md` §5).
-Pendiente: el resto de rutas en el backend, S3 real, API keys de integraciones, despliegue en AWS e InooWork.
+- En producción: todo el contrato sobre Postgres con RLS, ingreso propio sin AWS, archivos y respaldos en
+  Google Drive, correos por SMTP, personas sincronizadas con InooWork y Jarvis en las seis áreas.
+- Pruebas: 473 de API (cada flujo contra la API simulada y contra Postgres), de navegador y visuales.
+- Pendiente de publicar: Empresas, áreas que lidera cada persona y Jarvis avanzado (migración 0049).
+- Pendiente de instalar en el VPS: los procesos programados (`infra/hostinger/trabajos/instalar.sh`).
+- Por decidir: bóveda de contraseñas por cliente y grupo de WhatsApp al crear un proyecto.
+
+Detalle de fases y pendientes en `docs/prd.md` («Estado de implementación»).

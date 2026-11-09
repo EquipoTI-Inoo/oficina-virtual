@@ -4,6 +4,11 @@ Backlog y Casos de Uso — Oficina Virtual de IA y Portal de Clientes
 **Fecha:** Octubre 2026
 **Proyecto:** Inoo / Asesorías Estratégicas
 
+> **Nota del 9 nov 2026.** Este es el backlog original (v1.0, octubre). Varias decisiones posteriores lo
+> cambian: el cliente no ve la IA (15 y 30 oct), InooWork sigue y da el ingreso del equipo (27 oct), el portal salió
+> a producción sin AWS (6 nov) y el equipo trabaja con Jarvis, bots por área. Qué está hecho y qué falta, en
+> `docs/prd.md` («Estado de implementación»); cómo funciona hoy, en `docs/arquitectura/arquitectura.md` §0.
+
 # 1. Introducción y Alcance
 
 Este documento operacionaliza el Product Requirements Document (PRD) de la Oficina Virtual de IA y el Portal de Clientes, definiendo los actores del ecosistema, los casos de uso esenciales del flujo de trabajo y el Product Backlog estructurado en historias de usuario ágiles.

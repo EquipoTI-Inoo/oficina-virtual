@@ -1,8 +1,17 @@
 # PRD — Oficina virtual de IA y Portal de clientes
 
-Oct 3, 2026 · @Asesrorias Estrategicas · actualizado el 15 oct 2026
+Oct 3, 2026 · @Asesrorias Estrategicas · actualizado el 9 nov 2026
 
 > **Qué cambió (10–13 oct 2026).** La reunión del 12 oct con el CEO redefinió el portal. El cliente **solo mira** lo que tiene contratado y cómo avanza, y **opera en un solo lugar**: los requerimientos que la agencia le pide. Además aprueba entregables y comenta en sus proyectos. Los servicios siguen el catálogo real de Inoo (8 servicios con subtipos y plantillas de etapas). Plan del mes, blog, biblioteca y generación de estáticos pasan al panel del equipo. La integración con InooWork queda en pausa. Lo dicho en esa reunión manda sobre versiones anteriores de este documento.
+
+> **Qué cambió (26 oct – 9 nov 2026).** Esto manda sobre lo anterior:
+> - **InooWork no se apaga** (27 oct): el equipo entra al portal con su usuario de InooWork y las personas se sincronizan en los dos sentidos. Lo de «en pausa» del 12 oct quedó atrás.
+> - **Sin IA para el cliente** (30 oct): se quitó la sección «Agentes de IA»; los agentes para clientes viven en Cosmiq.
+> - **Jarvis** (30 oct en adelante): bots de IA para el equipo, por área, con topes de gasto y cobro por persona, sin que nadie maneje llaves. El 9 nov sumó skills, conectores MCP, rutinas, automatizaciones y biblioteca.
+> - **Accesos por nivel** (2 nov): ADMIN ve todo; CRM y Comercial sus cuentas; Audiovisual, Diseño y Marketing sus proyectos. Un super usuario (Ernesto, Omar Suyo) cambia niveles y permisos.
+> - **Producción sin AWS** (5–6 nov): `portal.inoo.pe` en el VPS de Hostinger, ingreso propio para clientes, archivos y respaldos en Google Drive, correos por SMTP.
+> - **Monday se deja** (26 oct): sus formularios (5 briefs e ingreso de cliente) son nativos del portal.
+> - **Descartados** (6 nov): la revisión de Sebastián y el brief mensual.
 
 > **Reunión del 15 oct 2026.** Dos principios nuevos:
 > - **El proyecto es el eje.** Los posts y blogs quedan acotados a Social Media Pro y Paid Media.
@@ -241,9 +250,11 @@ P0 = imprescindible para salir en esa fase; P1 = importante; P2 = deseable.
 
 **Estados de una pieza** (únicos para Drive, base de datos y portal): BORRADOR → EN_REVISION_INTERNA → LISTO_REVISION (visible al cliente) → APROBADO_CLIENTE o CAMBIOS_SOLICITADOS → PUBLICADO. En Drive el prefijo solo distingue BORRADOR_ y APROBADO_. Los blogs de clientes con WordPress también se crean allí como borrador. **Excepción, los blogs:** el cliente no los ve ni los aprueba, y el equipo los pasa de EN_REVISION_INTERNA a APROBADO_CLIENTE.
 
-## Estado de implementación (13 oct 2026)
+## Estado de implementación (9 nov 2026)
 
-El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cada una abarca contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas y pruebas.
+El portal (`apps/portal`) está **en producción desde el 6 nov 2026** en `portal.inoo.pe`. Cada fase abarca
+contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas y pruebas. Cómo se opera:
+`docs/operacion.md`.
 
 | **Fase** | **Qué incluye** | **Estado** |
 | --- | --- | --- |
@@ -253,32 +264,49 @@ El portal (`apps/portal`) implementa las fases 0 a 5 del roadmap del 12 oct. Cad
 | 3 | Requerimientos agencia → cliente con días hábiles y atrasos | Hecha |
 | 4 | Tickets dentro del servicio, cambio de responsable, avisos y feriados | Hecha |
 | 5 | Panel del equipo: proyectos desde plantilla, alta de cliente, blogs internos, pagos | Hecha |
-| 6 | Integración con InooWork | En pausa |
+| 6 | Integración con InooWork | Hecha (ver fila 20) |
 | 7 | Semáforo de requerimientos, estados del cliente, tickets distintos | Hecha |
 | 8 | Estado de pago solo para Finanzas (al día / atrasado) | Hecha |
 | 9a | Pipeline de proyectos y tareas (lista y Kanban) | Hecha |
 | 10 | La IA no se nota (salvo CRM) | Hecha |
 | 11 | Entregables genéricos con versiones, aprobación y rebotes | Hecha |
 | 12 | Estructura real de cada servicio: reunión clave, requerimientos al inicio, tamaño, personalizado, responsable, cierre de reuniones | Hecha |
-| 13 | KPIs internos, causa de los atrasos, reporte en Excel, panel del colaborador y panel general por proyectos | Hecha |
-| 14 | Gantt y calendario del proyecto (equipo y cliente); menú del equipo con la sección «Contenido» | Hecha |
+| 13 | KPIs internos, causa de los atrasos, reporte en Excel y panel del colaborador | Hecha |
+| 14 | Gantt y calendario del proyecto (equipo y cliente) | Hecha |
 | 15 | Soporte por consumo: sin etapas, bolsa del mes (tickets complejos y básicos, horas de Meet, WhatsApp ilimitado) | Hecha |
-| 15b | El contenido entra al proyecto: Kanban de piezas en Social Media Pro y Paid Media, blogs en una tarjeta del Soporte continuo web, sin Bandeja ni Plan del mes en el menú | Hecha |
-| 16a | IA para el cliente: agentes con chat de prueba, conocimiento, plantillas, Content AI (texto), conversaciones y consumo en soles | Quitada el 30 oct: los agentes para clientes viven en Cosmiq; el portal enlaza la cuenta desde los proyectos de CRM |
-| 19 | Flujo web con IA (taller web del equipo): benchmark con capturas y puntaje por dimensión, hallazgos y recomendaciones, flujograma de navegación y estructural, PDF como entregable, pantallas en Stitch y demo con link que vence | Hecha (Stitch probado el 24 oct con la clave de Inoo: una pantalla en unos 3 min) |
+| 15b | El contenido entra al proyecto: Kanban de piezas en Social Media Pro y Paid Media, blogs en el Soporte continuo web | Hecha |
+| 16a | IA para el cliente | Quitada el 30 oct: los agentes para clientes viven en Cosmiq; el portal enlaza la cuenta desde los proyectos de CRM |
+| 17 | Alta de cliente desde la transcripción de la reunión comercial y cierre de proyecto | Hecha (2 nov) |
+| 18 | Resumen de reunión con IA y recordatorios (tareas, requerimientos y reuniones) | Hecha (2 nov) |
+| 19 | Taller web: benchmark con capturas, flujograma, PDF, pantallas en Stitch o Claude, demo con link que vence; brief y branding editables, pasos 1 a 3 automáticos y pausa | Hecha (24 oct; ajustes de la reunión del 6 nov el 8 nov) |
+| 20 | InooWork vive: el equipo entra con su usuario, personas en los dos sentidos (alta, cambios y bajas), pase desde InooWork y tableros compartidos | Hecha (5–6 nov) |
+| — | Formularios de Monday nativos (5 briefs e ingreso de cliente) y con enlace | Hecha (26 oct) |
+| — | Calendario del colaborador (mes, semana y día) y un solo panel, «Mi panel» | Hecha (2 nov); Google Calendar todavía simulado |
+| — | Accesos por nivel, leads, super usuario, permisos sueltos y «ver como cliente» | Hecha (2–5 nov) |
+| — | Producción sin AWS: ingreso propio, archivos y respaldos en Drive, correos por SMTP | Hecha (5–6 nov) |
+| — | Entorno de pruebas dentro de producción (`pruebas@inoo.pe`) | Hecha (6 nov) |
+| — | Jarvis del equipo: bots por área y Gerencia, chats que se guardan, acciones con aprobación, préstamo y copia de bots, personajes | Hecha (30 oct–8 nov) |
+| — | Reunión del 6 nov: nuevo proyecto predeterminado o personalizado, Mi cuenta del equipo | Hecha (8 nov) |
+| — | Empresas (Inoo y cada cliente con su gente, proyectos y accesos) y áreas que lidera cada persona editables | Hecha (9 nov), pendiente de publicar |
+| — | Jarvis avanzado: skills, conectores MCP, rutinas, automatizaciones, biblioteca en Drive y actividad | Hecha (9 nov), pendiente de publicar (migración 0049) |
 
 **Pendientes:**
-- Conectar el requerimiento "Brief de contenido" con el brief mensual que lee el agente Jefe de Marketing.
-- Programar en n8n el proceso de etapas del mes (`POST /integraciones/servicios/etapas-del-mes`, el día 1).
-- Correos: los manda el portal por SMTP (despachador `npm run outbox`, 26 oct); falta configurar el SMTP de producción (SES o Workspace). El workflow de atrasos diarios de n8n sigue haciendo falta.
-- Actualizar los snapshots de las pruebas visuales.
-- Reemplazar los datos de relleno (fechas de pago, preguntas de los briefs, números de WhatsApp).
-- Despliegue (el backend real ya cubre todo el contrato salvo InooWork).
-- Ingreso real sin AWS por ahora (decidido el 5 nov): activo desde el 6 nov. El equipo entra con su usuario de InooWork (`AUTH_EQUIPO=inoowork`). Los clientes entran con correo y contraseña (`AUTH_MODO=portal`), y crean la suya con un enlace de un solo uso que copia el equipo. Los datos de demo quedan como entorno de prueba: clientes con «PRUEBA ·» en el nombre y sus usuarios del equipo desactivados. Cognito (implementado el 26 oct y probado solo con su API simulada) queda para cuando se use AWS.
-- Archivos en Google Drive sin AWS (decidido el 5 nov): el portal ya guarda el enlace de la carpeta del cliente y descarga archivos de Drive, pero las subidas solo van a S3 y sin almacén responden 503. Falta que suban a Drive. S3 queda para cuando se use AWS.
-- Super usuario (pedido de Ernesto, 2 nov): Ernesto y Omar, ambos de Admin, con los usuarios que ya tienen en InooWork. Hecho el 5 nov (migración 0039): solo el super usuario cambia niveles, permisos individuales y quién es ADMIN o super usuario; el ADMIN sigue con su trabajo diario. El 6 nov se importó al equipo y quedaron marcados Ernesto y Omar Suyo. Lo que llega por la sincronización de InooWork no puede cambiarle el nivel a nadie.
-- Flujo web (fase 19): exportar a Elementor o Shopify (coordinar con Hugo) y comparar Claude, Stitch, Figma AI y Codex con el mismo prompt (quedaron fuera por ahora); permitir subir capturas a mano para los sitios que bloquean las capturas automáticas.
-- Grupo de WhatsApp al crear un proyecto (pedido de Ernesto, 5 nov): un modal opcional donde la persona elige los contactos, y el enlace del grupo queda guardado en el proyecto. Nada automático. Empieza sin API: alguien crea el grupo en WhatsApp, pega el enlace y lo envía a cada contacto. La API de grupos de Meta queda para después y depende de confirmar si el número de Inoo es Official Business Account y si se puede usar fuera de Cosmiq; admite hasta 8 participantes y cada uno entra por el enlace.
+- Publicar Empresas, las áreas que lidera cada persona y Jarvis avanzado (aplicar la migración 0049).
+- Instalar en el VPS los procesos programados: diarios a las 6:00 y Jarvis cada 10 minutos (`docs/operacion.md` §5).
+- Cambiar el secreto OAuth de Drive que se pegó en un chat el 6 nov.
+- InooWork: publicar el APK nuevo y luego pasar su API a `estricto: true`.
+- Google Calendar real en el calendario del colaborador (requiere OAuth con `asesoria@inoo.pe`).
+- SAP quedó sin su proyecto de Branding (se creó antes del arreglo del 6 nov): falta elegir responsable y crearlo.
+- **Por decidir — bóveda de contraseñas por cliente:** choca con la decisión de que Jarvis no maneje llaves y
+  necesita un segundo VPS aislado. Hay que decidir quién la ve y si Jarvis puede usarla antes de construirla.
+- **Por decidir — grupo de WhatsApp al crear un proyecto** (pedido de Ernesto, 5 nov): un modal opcional donde la
+  persona elige los contactos y el enlace del grupo queda guardado en el proyecto. Empieza sin API: alguien crea
+  el grupo, pega el enlace y lo envía. La API de grupos de Meta depende de confirmar si el número de Inoo es
+  Official Business Account y si se puede usar fuera de Cosmiq; admite hasta 8 participantes.
+- Taller web: exportar a Elementor o Shopify (coordinar con Hugo) y subir capturas a mano para los sitios que
+  bloquean las automáticas.
+- Reemplazar los datos de relleno (preguntas de los briefs, números de WhatsApp) y actualizar los snapshots de las
+  pruebas visuales.
 
 ## Requisitos no funcionales
 

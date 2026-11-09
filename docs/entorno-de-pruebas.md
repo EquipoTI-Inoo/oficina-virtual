@@ -1,5 +1,23 @@
 # Entorno de pruebas
 
+Hay dos entornos de prueba:
+
+- **La API simulada** (este documento, desde «Qué es»): el portal completo en local, sin base de datos.
+- **La cuenta de pruebas en producción** (6 nov 2026, migraciones 0041 y 0046): dentro de `portal.inoo.pe`, con
+  datos de prueba separados de los reales. Ver la sección siguiente.
+
+## Cuenta de pruebas en producción
+
+- Se entra con `pruebas@inoo.pe`, que abre `/pruebas`: un menú para elegir con qué usuario de prueba entrar (del
+  equipo o de un cliente), con una descripción de qué puede hacer cada uno.
+- Los usuarios y clientes de prueba (`es_prueba`, clientes «PRUEBA · …») están separados por RLS: las personas
+  reales no los ven y los de prueba no ven nada real. La API fija `app.es_prueba` en cada solicitud.
+- En pruebas se bloquean Jarvis, los feriados y avisos, los topes de IA y las escrituras a InooWork, y no salen
+  correos. Las automatizaciones de Jarvis no se disparan con eventos de clientes de prueba.
+- La contraseña de `pruebas@inoo.pe` la pone un super usuario con el botón «Cuenta de pruebas» en Equipo. No se
+  guarda en ningún documento.
+
+
 ## Qué es
 
 Un portal que funciona de punta a punta sin backend: la interfaz real (Next.js) llama a `/api/v1`, y una
@@ -47,7 +65,11 @@ reciben los mismos eventos que en producción (`cliente.creado`, `brief.confirma
 | Tickets | #1042 En curso, #1041 Abierto, #1038 Resuelto |
 | Otros clientes (panel) | Nativa Café, Luma Studio, Andes Salud, Marea Local |
 | Administración | admin@inoo.pe / demo1234 (ve «Costos de IA» y contrata servicios) |
-| Equipo operativo (desarrollo web) | camila.paredes@inoo.pe / demo1234 (no ve el blog ni el detalle de pagos; responsable del e-commerce de Casa Oliva) |
+| Equipo operativo (desarrollo web) | camila.paredes@inoo.pe / demo1234 (nivel por proyecto: solo ve sus proyectos y «Mis marcas»; responsable de Social Media y asignada al e-commerce de Casa Oliva) |
+| Finanzas | finanzas@inoo.pe / demo1234 (Administración: ve todo y cambia el estado de pago) |
+| Super usuario | admin@inoo.pe (cambia niveles, permisos, áreas que lidera y conectores de Jarvis) |
+| Lead | diego.castro@inoo.pe es lead de CRM y account manager de Casa Oliva |
+| Bots de Jarvis | Dos de CRM («Seguimiento de clientes» y «Redactor de correos»). En la demo no hay Hermes: el chat avisa que el área no está conectada y las rutinas responden un texto de ejemplo |
 | Ejecuciones de agentes | 3 de Casa Oliva (suman US$ 48) y 1 con error en Luma |
 | Consumo de IA | Casa Oliva US$ 48/60 y Luma US$ 84/100 en alerta (≥ 80 %) |
 
@@ -78,8 +100,8 @@ Para volver al estado inicial: reiniciar `npm run dev` o `curl -X POST localhost
 
 | Suite | Comando | Qué cubre |
 |---|---|---|
-| Contrato (22 pruebas) | `npm run test:api` | Reglas de la tabla anterior, números de Figma y que cada ruta simulada exista en `openapi.yaml` |
-| Flujos de interfaz | `npm run test:e2e` | Escenarios 1–8, 10–12 en Chromium a 1440 px |
+| API (473 pruebas al 9 nov) | `npm run test:api` | Cada flujo (`tests/api/flujo-*.ts`) se corre dos veces: contra la API simulada y contra Postgres en proceso (PGlite, con RLS). Más el contrato: cada ruta, simulada y real, existe en `openapi.yaml` y al revés |
+| Flujos de interfaz | `npm run test:e2e` | `e2e/flujos.spec.ts` en Chromium a 1440 px: los escenarios de arriba y los flujos del equipo (proyectos, tableros, Jarvis, taller web, accesos) |
 | Móvil | `npx playwright test e2e/movil.spec.ts` | Cajón de navegación y KPIs en 2×2 a 390 px |
 | Visual | `npm run test:visual` | Captura de las 16 pantallas contra las capturas aprobadas |
 | Base de datos (CI) | job `base-de-datos` | Esquema + semillas + `database/pruebas/comprobaciones.sql` en Postgres 16 |
@@ -95,8 +117,7 @@ Probar contra el entorno de Docker en lugar de `npm run dev`: `BASE_URL=http://l
 
 - La API simulada guarda el estado en memoria del proceso: no persiste entre reinicios ni se comparte
   entre varias instancias.
-- Las subidas no guardan el archivo (simulan el PUT a S3). MinIO está en el compose para cuando el backend
-  genere URLs prefirmadas reales.
+- Las subidas no guardan el archivo (simulan el PUT al almacén). En producción los archivos van a Google Drive.
 - La API simulada implementa **todas** las operaciones del contrato (la prueba de cobertura compara método y
   ruta con `openapi.yaml` en ambos sentidos). Los correos no salen: quedan en «Correos automáticos».
 - Las fichas de los clientes de prueba que no son Casa Oliva muestran la ficha de Casa Oliva hasta que se editan.

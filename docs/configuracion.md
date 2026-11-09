@@ -76,7 +76,7 @@ docker compose --profile fase1 up    # además n8n y NocoDB
 | n8n (perfil `fase1`) | http://localhost:5678 | se crea al primer ingreso | n8n en VPS/ECS |
 | NocoDB (perfil `fase1`) | http://localhost:8080 | se crea al primer ingreso | Panel interno Fase 1 |
 
-Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0018) y luego `database/semillas/0001_casa_oliva.sql`
+Postgres ejecuta las migraciones de `database/migraciones/` (0001 a 0049) y luego `database/semillas/0001_casa_oliva.sql`
 **solo la primera vez** que se crea el volumen. Para volver a empezar: `infra/local/reiniciar-base.sh`.
 
 ### Probar el backend real en local (base, archivos, correos y n8n)
@@ -98,17 +98,20 @@ Para que el portal hable con Prism en vez de la API simulada: `API_MODO=proxy` e
 Prism responde con los ejemplos del contrato (útil para probar que la interfaz tolera respuestas válidas
 distintas a las de Figma).
 
-## 4. Fase 1 en el VPS de Hostinger (`infra/hostinger`)
+## 4. Producción en el VPS de Hostinger (`infra/hostinger`)
 
-1. Apuntar dos subdominios al VPS (por ejemplo `n8n.inoo.pe` y `panel.inoo.pe`).
-2. En el VPS: clonar el repositorio, `cd infra/hostinger`, `cp .env.example .env` y completar los secretos
-   con `openssl rand` como indica el archivo. Guardar `N8N_ENCRYPTION_KEY` en el gestor de secretos.
-3. `docker compose up -d`. Caddy obtiene los certificados HTTPS automáticamente.
-4. Crear las cuentas individuales del equipo en n8n y NocoDB (sin cuentas compartidas, como pide el PRD).
-5. En NocoDB, conectar la base `oficina_virtual` para tener el panel interno sobre las mismas tablas.
-6. Cargar en n8n las credenciales de Google Drive, Gemini, OpenAI, Anthropic, Telegram/Slack e InooWork.
-7. Respaldos: el servicio `respaldo` deja un `pg_dump` diario en `infra/hostinger/respaldos/` y borra los
-   de más de 14 días. Copiar esa carpeta fuera del VPS (Drive o S3).
+El portal corre en producción en `portal.inoo.pe` desde el 6 nov 2026. **La operación diaria (publicar, migraciones,
+procesos programados, respaldos, Jarvis) está en `docs/operacion.md`.** Para montar un VPS desde cero:
+
+1. Apuntar los subdominios al VPS (`portal.inoo.pe`; n8n y NocoDB viven en otro VPS).
+2. Clonar el repositorio en `/opt/inoo/oficina-virtual`, `cd infra/hostinger`, `cp .env.example .env` y completar
+   los secretos (los que se generan, con `openssl rand` como indica el archivo).
+3. `docker compose -p inoo-fase1 up -d`. Caddy obtiene los certificados HTTPS. Una base nueva corre todas las
+   migraciones al crearse.
+4. Importar al equipo desde InooWork (botón en «Equipo») y marcar a los super usuarios.
+5. Conectar Google Drive (`node integrations/google/conectar.mjs drive`) y el SMTP.
+6. Instalar los procesos programados: `bash infra/hostinger/trabajos/instalar.sh`.
+7. Respaldos: el servicio `respaldo` deja un `pg_dump` diario (14 días en el VPS, los últimos 30 en Drive).
 
 **Antes de conectar InooWork (INO-00):** desplegar el parche de seguridad en `intranet.inoo.pe`,
 cambiar la contraseña de admin expuesta en el historial y usar la API key solo por header `x-api-key`.
@@ -120,9 +123,10 @@ Postgres del esquema. Las reglas no se duplican en TypeScript: los cambios de es
 `cambiar_estado_pieza()`, la visibilidad la garantiza RLS (cada transacción corre como el rol
 `app_portal` con `app.usuario_tipo` y `app.cliente_ids`) y cada cambio deja su evento en `outbox_evento`.
 
-**Estado (26 oct 2026, tras unir la rama backend-real-y-n8n con las fases 10 a 19).** Todo el contrato está implementado contra la base salvo la sincronización con
-InooWork (`POST /integraciones/inoowork/sincronizacion` y `POST /webhooks/inoowork`, fase 6), que responde
-`501 RUTA_NO_IMPLEMENTADA`. Cada ruta tiene la misma forma que la API simulada y las suites compartidas de
+**Estado (9 nov 2026).** Todo el contrato está implementado contra la base y corre en producción desde el 6 nov.
+La única parte a medias es la sincronización que manda InooWork (`POST /integraciones/inoowork/sincronizacion`):
+recibe personas (empleados y empleados eliminados), y para proyectos y tickets responde `501 RUTA_NO_IMPLEMENTADA`;
+los tableros de InooWork se leen directo de su API. Cada ruta tiene la misma forma que la API simulada y las suites compartidas de
 `tests/api/flujo-*.ts` corren contra las dos. `Idempotency-Key` se guarda en la tabla `idempotencia`.
 
 | Variable | Valores | Efecto |
@@ -135,6 +139,20 @@ InooWork (`POST /integraciones/inoowork/sincronizacion` y `POST /webhooks/inoowo
 | `DRIVE_CLIENT_ID`, `DRIVE_CLIENT_SECRET`, `DRIVE_REFRESH_TOKEN`, `DRIVE_CARPETA_ID` | | Archivos en Google Drive, si no hay `S3_BUCKET`. Se conectan con `node integrations/google/conectar.mjs drive`; el correo, con `... smtp`. Sin `DRIVE_CARPETA_ID`, crea la carpeta «Portal Inoo». El navegador sube y descarga por el portal con URLs firmadas de 15 min, hasta 250 MB por archivo |
 | `S3_ENDPOINT`, `S3_ENDPOINT_PUBLICO` | URL | Solo MinIO: `http://minio:9000` y la URL que ve el navegador (`http://localhost:9000`). En AWS se dejan vacías |
 | `PORTAL_URL` | URL | Base de los enlaces de los correos automáticos (p. ej. `https://portal.inoo.pe`) |
+| `AUTH_MODO` = `portal` | | Desde el 5 nov, en producción: los clientes entran con correo y contraseña propios (hash scrypt en `usuario.clave_hash`) y la crean con un enlace de un solo uso |
+| `AUTH_EQUIPO` | `inoowork` | El equipo entra con su usuario y contraseña de InooWork (`POST /api/login` de InooWork). Necesita `INOOWORK_URL` y `SESION_SECRETO` |
+| `SESION_SECRETO` | 32 caracteres o más | Firma las sesiones del portal y las URLs temporales de Drive. Sin él, ingresar responde 503 |
+| `INOOWORK_URL`, `INOOWORK_API_KEY` | URL, clave | API de InooWork (`https://intranet.inoo.pe`); la clave va en el header `x-api-key` (parche INO-00). Sin URL, la conexión se simula |
+| `INOOWORK_SYNC_MINUTOS` | número | `60`. Cada cuánto el portal trae las personas de InooWork, con el propio uso del portal; `0` la apaga |
+| `CORREOS_POR` | `portal`, `n8n` | `portal` (por defecto): el despachador manda los correos por SMTP. `n8n`: se los entrega a n8n |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SEGURO`, `SMTP_USUARIO`, `SMTP_CLAVE`, `CORREO_REMITENTE` | | Servidor de correo. En producción, Gmail SMTP de `asesoria@inoo.pe` con una clave de aplicación |
+| `IA_MODO` | `simulado`, `real` | `simulado` (por defecto): el taller web, Stitch y las transcripciones responden de relleno. `real`: llaman a los modelos |
+| `IA_TOPE_DIARIO_USD` | número | `2`. Tope diario de gasto de esos modelos en todo el sistema; al llegar, vuelven a simulado. No aplica a Jarvis, que tiene topes por área |
+| `GEMINI_API_KEY`, `GEMINI_MODELO` | clave, modelo | Gemini Flash para casi todo (por defecto `gemini-flash-latest`) |
+| `ANTHROPIC_API_KEY`, `CLAUDE_MODELO` | clave, modelo | Claude para razonamiento y prototipos del taller web |
+| `N8N_URL` | URL | Enlace a cada ejecución de n8n en «Costos de IA» |
+| `PERMITIR_AUTH_DEMO`, `CLAVE_DEMO` | `true`; texto | Solo entornos de prueba: tokens `demo.<id>` y la clave única de los usuarios demo (`demo1234`). Nunca en producción |
+| `NEXT_PUBLIC_FECHA_FIJA` | `AAAA-MM-DD` | Fija «hoy» en la fecha de los datos de prueba (pruebas visuales) |
 
 **Taller web (fase 19).** `GET|PUT /servicios-contratados/{id}/taller-web` y sus pasos (`capturas`, `analisis`,
 `flujograma`, `documento`, `prototipo`, `demos`) están implementados contra la base (migración `0021_taller_web.sql`).
@@ -183,9 +201,9 @@ pool. Con `AUTH_MODO=demo`, `/sesion/ingresar` sigue usando las credenciales de 
 Todavía no se probó contra pools reales (no existen): las pruebas simulan la API de Cognito.
 
 **Producción en el VPS.** `infra/hostinger/docker-compose.yml` levanta también el portal (`portal`, en
-`DOMINIO_PORTAL` detrás de Caddy) y el despachador (`outbox`). Las variables están en `infra/hostinger/.env.example`.
-
-**Pendiente:** la sincronización con InooWork (en pausa).
+`DOMINIO_PORTAL` detrás de Caddy), el despachador (`outbox`) y los respaldos (`respaldo`). Las variables están
+en `infra/hostinger/.env.example`. Cómo publicar, aplicar migraciones e instalar los procesos programados:
+`docs/operacion.md`.
 
 **Equipo, Jarvis y tareas diarias de n8n (2 nov 2026).**
 
@@ -194,6 +212,7 @@ Todavía no se probó contra pools reales (no existen): las pruebas simulan la A
 - **Transcripciones.** «Nuevo cliente» y «Marcar reunión realizada» proponen datos desde la transcripción con DeepSeek, cobrados al área y a la persona que lo pide. Si el área está pausada o no hay clave, se usa un borrador por reglas. Nada se guarda hasta que una persona lo confirma.
 - **Proyectos → Tableros de InooWork.** InooWork es la fuente: el portal lee y guarda sus proyectos (grupos, ítems, subítems, columnas y vistas) por la API que InooWork ya tiene (`GET /api/projects`, `PUT /api/projects/:id`), sin tocar su código. Cada cambio vuelve a leer el proyecto y aplica solo ese cambio. Usa `INOOWORK_URL` e `INOOWORK_API_KEY`; sin ellas, proyectos de demo. Cada persona se reconoce por su id de empleado, y el nivel ADMIN ve todos los proyectos.
 - **El equipo entra con su usuario de InooWork.** Con `AUTH_EQUIPO=inoowork` y `SESION_SECRETO` (32 caracteres o más), el portal verifica el usuario y la contraseña con `POST /api/login` de InooWork, sin guardarlos, y da una sesión del portal de 12 horas. Los clientes siguen con Cognito. Cambiar o recuperar la contraseña se hace en InooWork.
+- **Procesos diarios (6:00 de Lima).** Desde el 6 nov ya no van por n8n: los corre `inoo-diarios.timer` en el VPS (`docs/operacion.md` §5). Lo que sigue describe las rutas que llama.
 - **n8n, una vez al día y temprano:** `POST /integraciones/recordatorios` (scope `recordatorios:write`) emite `tarea.por_vencer`, `requerimiento.por_vencer` y `reunion.proxima` para lo que vence o pasa el próximo día hábil, una sola vez cada aviso. Al cerrar un proyecto se emite `servicio.cerrado`, para el agradecimiento y la encuesta.
 
 ## 6. Seguridad del repositorio

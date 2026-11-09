@@ -1,19 +1,98 @@
 # Arquitectura y contratos de API — Oficina Virtual de IA y Portal de Clientes
 
-Versión 1.1 · 6 oct 2026 (ajustada a las pantallas de Figma del portal; ver sección 8) · Basado en el PRD (3 oct 2026), el Backlog y Casos de Uso v1.0, la hoja de validación de proveedores y la `API_GUIDE.md` de InooWork (repo AppInoo, rama main).
+Versión 1.1 · 6 oct 2026 (ajustada a las pantallas de Figma del portal; ver sección 8) · **Estado real al 9 nov 2026 en la sección 0** · Basado en el PRD (3 oct 2026), el Backlog y Casos de Uso v1.0, la hoja de validación de proveedores y la `API_GUIDE.md` de InooWork (repo AppInoo, rama main).
 
 Archivos de este paquete:
 
 | Archivo | Para qué |
 |---|---|
 | `arquitectura.md` | Este documento: componentes, diagramas, flujos y decisiones |
-| `esquema.sql` | Esquema Postgres 16 ejecutable (tablas, enums, reglas de estado, aislamiento por cliente). Probado en una base limpia |
+| `esquema.sql` | (Histórico: hoy el esquema son las migraciones de `database/migraciones/`.) Esquema Postgres 16 ejecutable (tablas, enums, reglas de estado, aislamiento por cliente). Probado en una base limpia |
 | `openapi.yaml` | Contrato REST v1 (OpenAPI 3.1) para portal, panel interno y n8n. Valida con Redocly sin errores |
-| `tipos-api.ts` | Tipos TypeScript generados del contrato, para importar en el portal Next.js |
+| `tipos-api.ts` | Tipos TypeScript generados del contrato; hoy viven en `apps/portal/src/api/tipos-api.ts` |
 
 ---
 
-## 1. Vista general (Fase 2, AWS)
+## 0. Estado real (9 nov 2026)
+
+Las secciones 1 a 8 son el diseño original (v1.1, 6 oct). Desde entonces el portal salió a producción **sin
+AWS**, en el VPS de Hostinger. Esta sección describe lo que corre hoy; donde choque con el resto, manda esta.
+La operación diaria está en `docs/operacion.md`.
+
+```mermaid
+flowchart LR
+  CLI[Cliente] -->|HTTPS| CADDY
+  EQ[Equipo] -->|HTTPS| CADDY
+  IW[InooWork<br/>intranet.inoo.pe] -->|login del equipo · pase de 60 s · personas| PORTAL
+  CADDY[Caddy<br/>portal.inoo.pe] --> PORTAL[Portal Next.js 15<br/>pantallas + /api/v1]
+  PORTAL --> PG[(Postgres 16<br/>RLS)]
+  PORTAL -->|archivos y respaldos| DRIVE[Google Drive<br/>asesoria@inoo.pe]
+  PORTAL -->|correos| SMTP[Gmail SMTP]
+  PORTAL <-->|chat · rutinas| HERMES[Hermes por área<br/>bots de Jarvis]
+  HERMES -->|IA, cobrada por persona| PASARELA[/api/v1/ia-equipo/] --> DS[DeepSeek]
+  HERMES -->|herramientas del portal| MCP[MCP del portal] --> PORTAL
+  TIMER[systemd: diarios 6:00<br/>Jarvis cada 10 min] -->|X-Api-Key| PORTAL
+  PORTAL -.->|outbox| N8N[n8n<br/>VPS aparte]
+```
+
+| Pieza | Cómo es hoy | Diseño original |
+|---|---|---|
+| Hosting | VPS KVM 1 de Hostinger, Docker Compose (`infra/hostinger`) | AWS (ECS, RDS) |
+| Backend | Dentro del portal (`apps/portal/src/servidor`), todo el contrato sobre Postgres con RLS | Igual |
+| Ingreso | Equipo con su usuario de InooWork (`AUTH_EQUIPO=inoowork`); clientes con correo y contraseña propios (`AUTH_MODO=portal`), sesión firmada con `SESION_SECRETO`. Cognito queda implementado para cuando haya AWS | Cognito |
+| Archivos | Google Drive (`almacen-drive.ts`, permiso `drive.file`): el navegador sube y descarga por el portal con URLs firmadas de corta duración | S3 con URLs prefirmadas |
+| Correos | El portal los manda por SMTP desde el outbox (`CORREOS_POR=portal`) | SES vía n8n |
+| IA del equipo | Jarvis: un Hermes por área, DeepSeek a través de la pasarela del portal. Nadie maneja llaves | Agentes en n8n |
+| IA para clientes | Ninguna en el portal (se quitó el 30 oct). Los agentes para clientes viven en Cosmiq | Sección «Agentes de IA» |
+| Procesos programados | Timers de systemd en el VPS (`infra/hostinger/trabajos`) que llaman a `/integraciones/*` con una llave de servicio | n8n |
+| Respaldos | `pg_dump` diario: 14 días en el VPS y los últimos 30 en Drive | Snapshots de RDS |
+
+### Accesos del equipo
+
+- **Niveles** (`dominio/accesos.ts`): ADMIN ve todo (toda Administración, Finanzas incluida); CUENTA (CRM y
+  Comercial) ve las cuentas que tiene a cargo o asignadas; PROYECTO (Audiovisual, Diseño, Marketing) ve solo sus
+  proyectos y la marca de esos clientes. Un cliente que no se ve da 404, igual que uno que no existe.
+- **Super usuario** (Ernesto y Omar Suyo): el único que cambia niveles, permisos sueltos, quién es ADMIN, las
+  áreas que lidera cada persona y los conectores de Jarvis. Cada cambio queda en `cambio_acceso`.
+- **Leads:** asignan y supervisan a la gente de su área. `usuario.areas_lideradas` va aparte del área porque la
+  sincronización con InooWork la pisa (Ernesto lidera Comercial aunque su área sea Administración).
+- **Ver como cliente:** el equipo usa el portal del cliente y lo que hace queda firmado como «(Inoo), en nombre
+  del cliente».
+- **Entorno de pruebas:** usuarios y clientes `es_prueba` separados por RLS; la cuenta `pruebas@inoo.pe` entra
+  como cualquiera de ellos (`docs/entorno-de-pruebas.md`).
+
+### Jarvis
+
+- **Bots** por espacio: cada área y Gerencia (solo super usuarios, su gasto va a Administración). Cada bot tiene
+  su trabajo, que se define en su conversación de configuración (`cfg-<bot>`), y chats de trabajo que son del
+  área y se guardan (`sesion_jarvis`, `mensaje_jarvis`). Un bot se puede prestar o copiar a otra área.
+- **Cobro:** el sistema de cada mensaje lleva la marca de la conversación. Hermes la repite a la pasarela, que le
+  cobra a la persona dueña de esa conversación y aplica el tope de su área (`consumo_jarvis`, `tope_ia_area`).
+  El MCP del portal lee con los permisos de esa misma persona.
+- **Acciones con aprobación:** Jarvis no escribe en el portal; propone (`accion_jarvis`) y la persona aprueba en
+  el chat. Al aprobar se ejecuta la misma ruta que usaría ella, con sus permisos.
+- **Jarvis avanzado (0049):** skills del espacio (instrucciones y archivos de texto) que se activan por bot y
+  entran en su sistema; conectores MCP como catálogo sin credenciales (las pone TI en el Hermes); rutinas
+  (diarias, de lunes a viernes, semanales o mensuales, hora de Lima) y automatizaciones (un trigger sobre
+  `outbox_evento` que solo pasa ids). Las dos crean `ejecucion_jarvis`, que corre `/integraciones/jarvis/ejecutar`
+  cada 10 minutos fuera de la transacción de la solicitud. La respuesta queda como chat `job-<id>`, se avisa en
+  la campana y la paga quien creó la rutina. La biblioteca guarda respuestas con su copia `.md` en Drive y
+  `uso_skill` deja la trazabilidad.
+
+### Migraciones posteriores a la v1.1
+
+| Migraciones | Qué agregaron |
+|---|---|
+| 0001–0018 | Esquema v1.1, catálogo de servicios, requerimientos, tickets, pipeline, tareas, entregables, KPIs, Gantt |
+| 0019–0029 | Soporte por consumo, taller web, invitaciones, Paid Media, correos automáticos y directos, standby, horario de correos |
+| 0030–0032 | Formularios de Monday nativos y con enlace; se quita la IA para el cliente |
+| 0033–0039 | Jarvis por área con topes, calendario del colaborador, accesos por nivel, personas con InooWork, Jarvis sin llaves, recordatorios, super usuario |
+| 0040–0046 | Ingreso propio, clientes de prueba, notificaciones y sesiones, acciones de Jarvis, proyectos culminados, «Subir contenido», entorno de pruebas |
+| 0047–0049 | Chats de Jarvis que se guardan, leads y Gerencia, Jarvis avanzado |
+
+---
+
+## 1. Vista general (Fase 2, AWS · diseño original)
 
 ```mermaid
 flowchart TB
@@ -448,8 +527,7 @@ Revisé las 16 pantallas de escritorio del archivo de Figma frente a la v1.0. Es
 - **"Contactar a mi equipo".** No está claro si abre un ticket, un correo o WhatsApp. Por ahora la API entrega nombre y correo del responsable de cuenta.
 - **Pantallas que faltan.** Biblioteca de paid media, correos automáticos, usuarios del cliente, la lista de clientes del equipo y la vista de costos de IA tienen endpoints pero no tienen diseño.
 
-## 7. Próximos pasos sugeridos
+## 7. Próximos pasos
 
-1. Revisar con frontend el contrato y las decisiones de la sección 6.
-2. Aplicar `esquema.sql` en el Postgres del VPS (Sprint 1) y conectar NocoDB.
-3. Generar mocks desde `openapi.yaml` (por ejemplo Prism) para que el portal avance en paralelo al backend.
+Los pasos sugeridos el 6 oct (revisar el contrato, aplicar el esquema, mocks con Prism) ya se hicieron. Los
+pendientes vigentes están en `docs/prd.md` («Estado de implementación») y los de operación en `docs/operacion.md` §9.
