@@ -60,8 +60,8 @@ docker compose -p inoo-fase1 exec -T postgres psql -U inoo -d oficina_virtual -1
   < ../../database/migraciones/00NN_nombre.sql
 ```
 
-Si algo falla, `-1` deshace todo y la base queda como estaba. **Al 9 nov la producción tiene hasta la 0048**;
-la 0049 (Jarvis avanzado) está pendiente de aplicar junto con su versión.
+Si algo falla, `-1` deshace todo y la base queda como estaba. **Al 9 nov la producción tiene hasta la 0049**; la 0050
+(conexiones personales) va con su versión.
 
 ## 5. Procesos programados
 
@@ -80,7 +80,7 @@ solo para root), le da los scopes que necesita y activa dos timers de systemd:
 | `inoo-jarvis.timer` | Cada 10 minutos | Pone en cola las rutinas de Jarvis que tocan y corre hasta 5 rutinas o automatizaciones pendientes (`/integraciones/jarvis/ejecutar`) |
 
 Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.service -n 20` (o
-`inoo-jarvis.service`). **Al 9 nov todavía no están instalados en el VPS.**
+`inoo-jarvis.service`). Instalados el 9 nov.
 
 ## 6. Jarvis
 
@@ -91,6 +91,15 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
 - **Conectores (MCP):** el portal guarda solo el catálogo. Un super usuario lo agrega en Jarvis → Conectores y
   queda «Falta conectarlo». TI configura el servidor MCP y su credencial en el Hermes del área y lo marca
   «Conectado». Desde ahí los bots que lo tengan activo lo usan. El portal rechaza llaves o tokens en sus campos.
+- **Conexiones personales (0050):** cada persona conecta su propia cuenta en Mi cuenta → Conexiones (por ahora,
+  Google Drive en solo lectura) y sus bots la usan solo en sus chats, con las herramientas `drive_buscar` y
+  `drive_leer` del MCP. Nadie copia llaves: el portal guarda el permiso cifrado y se puede desconectar. Para
+  activarlo: (1) en el proyecto «Portal Inoo» de Google Cloud, crear un cliente OAuth de tipo Aplicación web con la
+  URI `https://portal.inoo.pe/api/v1/conexiones/google-drive/vuelta`, habilitar la API de Drive y agregar el
+  alcance `drive.readonly`; (2) poner `GOOGLE_OAUTH_CLIENT_ID` y `GOOGLE_OAUTH_CLIENT_SECRET` en el `.env` y
+  reconstruir el portal; (3) copiar `integrations/hermes/mcp-portal.mjs` a `/home/hermes/inoo/` y reiniciar Hermes.
+  Con el público «Interno» solo entran cuentas de `inoo.pe`; para cuentas de Gmail hay que pasar a «Externo» y
+  agregarlas como usuarios de prueba (hasta 100) mientras Google no verifique la app.
 - **Rutinas y automatizaciones:** las corre `inoo-jarvis.timer`. Cada ejecución la paga quien la creó, su
   respuesta queda como un chat del bot (`job-<id>`) y se avisa en la campana. Si el Hermes del área no está
   conectado o el área llegó a su tope, la ejecución queda «Falló» con el motivo.
@@ -112,8 +121,5 @@ encima de producción sin respaldar primero lo que haya.
 
 ## 9. Pendientes de operación (9 nov 2026)
 
-- Instalar los procesos programados (sección 5).
-- Aplicar la migración 0049 y publicar Jarvis avanzado.
-- Cambiar el secreto OAuth de Drive que se pegó en un chat el 6 nov y actualizarlo en el `.env`.
 - Publicar el APK nuevo de InooWork y luego pasar su API a `estricto: true`.
-- Google Calendar real (necesita OAuth con `asesoria@inoo.pe`).
+- Google Calendar real: en espera de que el equipo tenga cuentas de Gmail propias.

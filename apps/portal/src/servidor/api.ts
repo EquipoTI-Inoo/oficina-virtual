@@ -49,6 +49,7 @@ import { enviadorSmtp } from "./correo-smtp";
 import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
 import { fotoDeEmpleado, inooworkConectado, leerEmpleados, sincronizarPersona } from "./inoowork";
+import { accesoDe, buscarEnDrive, canjearCodigo, cifrar, descifrar, leerDeDrive, nuevoInicio, PROVEEDORES, proveedorPorRuta, revocar, SinPermisoConexion } from "./conexiones";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
@@ -3537,6 +3538,125 @@ ruta("POST", "/integraciones/jarvis/ejecutar", async (ctx) => {
   return new Response(cuerpo, { status: 200, headers: { "content-type": "application/json" } });
 });
 
+// ───────────────────────────── conexiones personales de Jarvis (9 nov): cada persona conecta su cuenta, sin llaves
+
+/** Solo la persona misma, con su sesión: ni Jarvis, ni una llave de servicio, ni «ver como cliente», ni en pruebas. */
+function exigirPersonaPropia(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.u.jarvis || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "Cada persona conecta sus cuentas desde su sesión");
+  if (ctx.u.esPrueba) throw new ErrorApi(409, "NO_EN_PRUEBAS", "En el entorno de pruebas no se conectan cuentas reales");
+}
+const proveedorDe = (ruta: string) => {
+  const p = proveedorPorRuta(ruta);
+  if (!p) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese servicio no se puede conectar");
+  return p;
+};
+
+ruta("GET", "/me/conexiones", async (ctx) => {
+  soloEquipo(ctx);
+  const filas = (await ctx.c.query<{ proveedor: string; cuenta: string | null; creado_en: Date; ultimo_uso: Date | null }>(
+    "SELECT proveedor, cuenta, creado_en, ultimo_uso FROM conexion_persona WHERE usuario_id = $1", [ctx.u.usuarioId],
+  )).rows;
+  return {
+    datos: PROVEEDORES.map((p): S<"ConexionPersonal"> => {
+      const f = filas.find((x) => x.proveedor === p.clave);
+      return { proveedor: p.ruta, nombre: p.nombre, descripcion: p.descripcion, disponible: !!p.cliente(), conectada: !!f, cuenta: f?.cuenta ?? null, conectadaEn: iso(f?.creado_en ?? null), ultimoUso: iso(f?.ultimo_uso ?? null) };
+    }),
+  };
+});
+
+ruta("POST", "/me/conexiones/:proveedor", async (ctx, p) => {
+  exigirPersonaPropia(ctx);
+  const prov = proveedorDe(p.proveedor);
+  const inicio = nuevoInicio(prov);
+  if (!inicio) throw new ErrorApi(409, "NO_DISPONIBLE", `${prov.nombre} todavía no se puede conectar`, "Falta que TI registre la app del portal en ese servicio.");
+  await ctx.c.query("DELETE FROM estado_conexion WHERE usuario_id = $1 AND creado_en < now() - interval '10 minutes'", [ctx.u.usuarioId]);
+  await ctx.c.query("INSERT INTO estado_conexion (estado, usuario_id, proveedor, verificador) VALUES ($1, $2, $3, $4)", [inicio.estado, ctx.u.usuarioId, prov.clave, inicio.verificador]);
+  return { url: inicio.url };
+});
+
+ruta("DELETE", "/me/conexiones/:proveedor", async (ctx, p) => {
+  exigirPersonaPropia(ctx);
+  const prov = proveedorDe(p.proveedor);
+  const f = (await ctx.c.query<{ token_cifrado: string }>("DELETE FROM conexion_persona WHERE usuario_id = $1 AND proveedor = $2 RETURNING token_cifrado", [ctx.u.usuarioId, prov.clave])).rows[0];
+  if (!f) throw new ErrorApi(404, "NO_ENCONTRADO", `No tienes ${prov.nombre} conectado`);
+  try {
+    await revocar(prov, descifrar(f.token_cifrado));
+  } catch {
+    /* aunque no se pueda descifrar o revocar, aquí queda borrada */
+  }
+  return null;
+});
+
+/** Access token del Drive de la persona (la que chatea, si es Jarvis). 409 si no lo conectó o el permiso venció. */
+async function accesoDriveDb(ctx: Ctx) {
+  soloEquipo(ctx);
+  const prov = proveedorDe("google-drive");
+  const f = (await ctx.c.query<{ token_cifrado: string }>("SELECT token_cifrado FROM conexion_persona WHERE usuario_id = $1 AND proveedor = 'GOOGLE_DRIVE'", [ctx.u.usuarioId])).rows[0];
+  if (!f) throw new ErrorApi(409, "SIN_CONEXION", "No tienes Google Drive conectado", "Conéctalo en Mi cuenta → Conexiones (arriba a la derecha, en tus iniciales).");
+  try {
+    const acceso = await accesoDe(prov, descifrar(f.token_cifrado));
+    await ctx.c.query("UPDATE conexion_persona SET ultimo_uso = now() WHERE usuario_id = $1 AND proveedor = 'GOOGLE_DRIVE'", [ctx.u.usuarioId]);
+    return acceso;
+  } catch (x) {
+    if (x instanceof SinPermisoConexion) throw new ErrorApi(409, "CONEXION_VENCIDA", "El permiso de Google Drive venció o se quitó", "Vuelve a conectarlo en Mi cuenta → Conexiones.");
+    throw new ErrorApi(502, "SERVICIO_NO_DISPONIBLE", "Google no respondió", "Inténtalo de nuevo en unos minutos.");
+  }
+}
+const enDrive = async <T>(fn: () => Promise<T>) => {
+  try {
+    return await fn();
+  } catch (x) {
+    if (x instanceof ErrorApi) throw x;
+    if (x instanceof SinPermisoConexion) throw new ErrorApi(409, "CONEXION_VENCIDA", "Google Drive no dejó leer", "Vuelve a conectarlo en Mi cuenta → Conexiones.");
+    throw new ErrorApi(502, "SERVICIO_NO_DISPONIBLE", "Google Drive no respondió", "Inténtalo de nuevo en unos minutos.");
+  }
+};
+
+ruta("GET", "/me/conexiones/google-drive/buscar", async (ctx, _p, q) => {
+  const acceso = await accesoDriveDb(ctx);
+  return { datos: await enDrive(() => buscarEnDrive(acceso, (q.get("q") ?? "").slice(0, 200))) };
+});
+
+ruta("GET", "/me/conexiones/google-drive/archivos/:id", async (ctx, p) => {
+  const acceso = await accesoDriveDb(ctx);
+  const a = await enDrive(() => leerDeDrive(acceso, p.id));
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese archivo en tu Drive");
+  return { ...a, modificado: null };
+});
+
+/**
+ * GET /conexiones/{proveedor}/vuelta, sin sesión: el navegador vuelve del servicio. El «state» (un solo uso,
+ * 10 minutos) dice de quién es. Siempre termina en Mi cuenta, con ?conexion=ok o ?conexion=error.
+ */
+export async function vueltaConexionDb(req: Request, ruta: string): Promise<Response> {
+  const url = new URL(req.url);
+  const base = (process.env.PORTAL_URL?.trim() || url.origin).replace(/\/+$/, "");
+  const ir = (ok: boolean, motivo?: string) =>
+    Response.redirect(`${base}/equipo/mi-cuenta?conexion=${ok ? "ok" : "error"}&proveedor=${encodeURIComponent(ruta)}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ""}`, 302);
+  const prov = proveedorPorRuta(ruta);
+  const estado = url.searchParams.get("state");
+  if (!prov || !estado) return ir(false, "El enlace no es válido");
+  try {
+    const e = (await comoSistema((c) => c.query<{ usuario_id: string; verificador: string }>(
+      "DELETE FROM estado_conexion WHERE estado = $1 AND proveedor = $2 AND creado_en > now() - interval '10 minutes' RETURNING usuario_id, verificador", [estado, prov.clave],
+    ))).rows[0];
+    if (url.searchParams.get("error")) return ir(false, "Cancelaste la conexión");
+    const codigo = url.searchParams.get("code");
+    if (!e || !codigo) return ir(false, "El enlace venció: vuelve a intentarlo");
+    const r = await canjearCodigo(prov, codigo, e.verificador);
+    await comoSistema((c) => c.query(
+      `INSERT INTO conexion_persona (usuario_id, proveedor, cuenta, token_cifrado) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (usuario_id, proveedor) DO UPDATE SET cuenta = EXCLUDED.cuenta, token_cifrado = EXCLUDED.token_cifrado, creado_en = now(), ultimo_uso = NULL`,
+      [e.usuario_id, prov.clave, r.cuenta, cifrar(r.refresh)],
+    ));
+    return ir(true);
+  } catch (x) {
+    console.error("[conexiones]", x instanceof Error ? x.message : x);
+    return ir(false, "No pudimos conectar la cuenta");
+  }
+}
+
 // ───────────────────────────── conversaciones guardadas (6 nov)
 
 interface FilaConversacion { sesion_id: string; titulo: string | null; creado_en: Date; ultimo_uso: Date; mensajes: number; ultimo_nombre: string | null }
@@ -6751,6 +6871,9 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
   }
   const formulario = camino.match(/^\/publico\/formularios\/([0-9a-f]{64})(\/.*)?$/);
   if (formulario) return formularioPublicoDb(req, formulario[1], formulario[2] ?? "");
+  // Conexiones personales (9 nov): la vuelta del servicio, sin sesión.
+  const vuelta = camino.match(/^\/conexiones\/([a-z-]{3,30})\/vuelta$/);
+  if (vuelta && req.method === "GET") return vueltaConexionDb(req, vuelta[1]);
   if (req.method === "POST" && camino === "/__pruebas/ingresar") return ingresarDemo(req);
   // Pasarela de IA del equipo: entra con la llave de Jarvis, no con la sesión del portal.
   if (camino.startsWith("/ia-equipo/")) {

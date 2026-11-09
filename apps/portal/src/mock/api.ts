@@ -140,6 +140,9 @@ interface Estado {
   automatizacionesJarvis: { id: string; botId: string; nombre: string; evento: string; pedido: string; activa: boolean; creadoPorId: string }[];
   ejecucionesJarvis: { id: string; botId: string; rutinaId: string | null; automatizacionId: string | null; usuarioId: string; pedido: string; contexto: Record<string, unknown>; esAuto: boolean;
     estado: "PENDIENTE" | "EN_CURSO" | "HECHA" | "FALLIDA"; sesionId: string | null; error: string | null; creadoEn: string; terminadoEn: string | null }[];
+  /** Conexiones personales (9 nov): «usuario:proveedor» → cuenta; y los «state» de OAuth pendientes. */
+  conexiones: Record<string, { cuenta: string; creadoEn: string; ultimoUso: string | null }>;
+  estadosConexion: Record<string, { usuarioId: string; ruta: string }>;
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
@@ -227,7 +230,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {},
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -4070,6 +4073,78 @@ ruta("POST", "/integraciones/jarvis/ejecutar", (ctx) => {
   return { programadas, hechas, fallidas, pendientes: E.ejecucionesJarvis.filter((e) => e.estado === "PENDIENTE").length };
 });
 
+// ───────────────────────────── conexiones personales de Jarvis (9 nov). En la demo, Drive es de ejemplo.
+
+const PROVEEDORES_MOCK = [{ ruta: "google-drive", nombre: "Google Drive", descripcion: "Tus bots buscan y leen tus archivos de Drive (solo lectura) cuando se lo pides en tus chats." }];
+const ARCHIVOS_DRIVE_DEMO = [
+  { id: "demo-propuesta-casa-oliva", nombre: "Propuesta Casa Oliva 2027", tipo: "application/vnd.google-apps.document", modificado: "2026-11-05T15:00:00Z", enlace: "https://docs.google.com/document/d/demo", texto: "Propuesta de campaña de verano para Casa Oliva: tres ideas de contenido y un calendario de seis semanas." },
+  { id: "demo-presupuestos-q4", nombre: "Presupuestos Q4", tipo: "application/vnd.google-apps.spreadsheet", modificado: "2026-11-02T18:30:00Z", enlace: "https://docs.google.com/spreadsheets/d/demo", texto: "Cliente,Servicio,Monto\nCasa Oliva,Social Media Pro,1200\nNativa Café,Paid Media,800" },
+];
+function personaPropia(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "Cada persona conecta sus cuentas desde su sesión");
+}
+const proveedorMock = (ruta: string) => {
+  const p = PROVEEDORES_MOCK.find((x) => x.ruta === ruta);
+  if (!p) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese servicio no se puede conectar");
+  return p;
+};
+const llaveConexion = (usuarioId: string, ruta: string) => `${usuarioId}:${ruta}`;
+
+ruta("GET", "/me/conexiones", (ctx) => {
+  soloEquipo(ctx);
+  return {
+    datos: PROVEEDORES_MOCK.map((p): S<"ConexionPersonal"> => {
+      const c = E.conexiones[llaveConexion(ctx.usuario.id, p.ruta)];
+      return { ...p, proveedor: p.ruta, disponible: true, conectada: !!c, cuenta: c?.cuenta ?? null, conectadaEn: c?.creadoEn ?? null, ultimoUso: c?.ultimoUso ?? null };
+    }),
+  };
+});
+ruta("POST", "/me/conexiones/:proveedor", (ctx, p) => {
+  personaPropia(ctx);
+  const prov = proveedorMock(p.proveedor);
+  const estado = crypto.randomUUID().replace(/-/g, "");
+  E.estadosConexion[estado] = { usuarioId: ctx.usuario.id, ruta: prov.ruta };
+  return { url: `/api/v1/conexiones/${prov.ruta}/vuelta?code=demo&state=${estado}` };
+});
+ruta("DELETE", "/me/conexiones/:proveedor", (ctx, p) => {
+  personaPropia(ctx);
+  const prov = proveedorMock(p.proveedor);
+  const k = llaveConexion(ctx.usuario.id, prov.ruta);
+  if (!E.conexiones[k]) throw new ErrorApi(404, "NO_ENCONTRADO", `No tienes ${prov.nombre} conectado`);
+  delete E.conexiones[k];
+  return null;
+});
+function driveMock(ctx: Ctx) {
+  soloEquipo(ctx);
+  const c = E.conexiones[llaveConexion(ctx.usuario.id, "google-drive")];
+  if (!c) throw new ErrorApi(409, "SIN_CONEXION", "No tienes Google Drive conectado", "Conéctalo en Mi cuenta → Conexiones (arriba a la derecha, en tus iniciales).");
+  c.ultimoUso = new Date().toISOString();
+}
+ruta("GET", "/me/conexiones/google-drive/buscar", (ctx, _p, q) => {
+  driveMock(ctx);
+  const t = (q.get("q") ?? "").trim().toLowerCase();
+  return { datos: ARCHIVOS_DRIVE_DEMO.filter((a) => !t || a.nombre.toLowerCase().includes(t) || a.texto.toLowerCase().includes(t)).map(({ texto: _t, ...a }) => a) };
+});
+ruta("GET", "/me/conexiones/google-drive/archivos/:id", (ctx, p) => {
+  driveMock(ctx);
+  const a = ARCHIVOS_DRIVE_DEMO.find((x) => x.id === p.id);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese archivo en tu Drive");
+  return { ...a, modificado: null, truncado: false, aviso: null };
+});
+function vueltaConexionMock(req: Request, ruta: string): Response {
+  const url = new URL(req.url);
+  const ir = (ok: boolean, motivo?: string) =>
+    Response.redirect(new URL(`/equipo/mi-cuenta?conexion=${ok ? "ok" : "error"}&proveedor=${encodeURIComponent(ruta)}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ""}`, url).toString(), 302);
+  const estado = url.searchParams.get("state") ?? "";
+  const e = E.estadosConexion[estado];
+  delete E.estadosConexion[estado];
+  if (!e || e.ruta !== ruta || !url.searchParams.get("code")) return ir(false, "El enlace venció: vuelve a intentarlo");
+  const u = E.usuarios.find((x) => x.id === e.usuarioId);
+  E.conexiones[llaveConexion(e.usuarioId, ruta)] = { cuenta: u?.email ?? "demo@gmail.com", creadoEn: new Date().toISOString(), ultimoUso: null };
+  return ir(true);
+}
+
 // ───────────────────────────── conversaciones guardadas (6 nov)
 
 const conversacionVistaMock = (id: string, x: Estado["sesionesJarvis"][string]) => ({
@@ -5096,6 +5171,9 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       return Response.json({ datos: E.outbox.filter((e) => e.id > desde) });
     }
     if (req.method === "POST" && camino === "/webhooks/inoowork") return await webhookInooWork(req);
+    // Conexiones personales (9 nov): la vuelta del servicio, sin sesión. En la demo no hay Google: se conecta sola.
+    const vuelta = camino.match(/^\/conexiones\/([a-z-]{3,30})\/vuelta$/);
+    if (vuelta && req.method === "GET") return vueltaConexionMock(req, vuelta[1]);
     // Pasarela de IA del equipo: entra con la llave de Jarvis, no con la sesión del portal.
     if (camino.startsWith("/ia-equipo/")) return await pasarelaIa(req, camino.slice("/ia-equipo".length), almacenMock);
     const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;

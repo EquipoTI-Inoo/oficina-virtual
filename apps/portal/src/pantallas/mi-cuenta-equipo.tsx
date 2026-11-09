@@ -4,8 +4,8 @@
  * de InooWork, a qué clientes tengo acceso, la contraseña (se cambia en InooWork), notificaciones, lo que gasté en
  * Jarvis este mes y cerrar la sesión en los demás dispositivos.
  */
-import { useState, type ReactNode } from "react";
-import { LuBell, LuBot, LuBuilding2, LuExternalLink, LuKeyRound, LuLogOut, LuUserRound } from "react-icons/lu";
+import { useEffect, useState, type ReactNode } from "react";
+import { LuBell, LuBot, LuBuilding2, LuExternalLink, LuKeyRound, LuLogOut, LuPlug, LuUserRound } from "react-icons/lu";
 import { actualizarSesion, api, Enlace, fDiaHora, type ProblemaApi, useConsulta, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso } from "../componentes";
 import { NOMBRE_AREA, type Area } from "../dominio/ia-equipo";
@@ -102,6 +102,7 @@ function MiCuenta() {
           <CerrarSesiones ultima={d.sesionesCerradasEn} alCerrar={() => void recargar()} />
         </Tarjeta>
 
+        <Conexiones />
         <Notificaciones />
       </div>
     </>
@@ -154,6 +155,72 @@ function Notificaciones() {
         <p className="texto-sm texto-muted">No tienes notificaciones.</p>
       )}
       <p className="texto-xs texto-muted">Te avisamos en la campana de arriba. Los correos salen según lo que configure cada proyecto.</p>
+    </Tarjeta>
+  );
+}
+
+/**
+ * Conexiones (9 nov): cada persona conecta su propia cuenta para que sus bots la usen en sus chats. «Conectar» lleva
+ * al servicio (Google), donde la persona autoriza, y vuelve aquí con ?conexion=ok. Nadie copia llaves.
+ */
+function Conexiones() {
+  const { datos, recargar } = useConsulta<{ datos: S<"ConexionPersonal">[] }>("/me/conexiones");
+  const avisar = useAviso();
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const r = q.get("conexion");
+    if (!r) return;
+    avisar(r === "ok" ? { titulo: "Cuenta conectada", texto: "Tus bots ya pueden usarla en tus chats." } : { titulo: "No se conectó", texto: q.get("motivo") ?? undefined });
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [avisar]);
+  const conectar = async (c: S<"ConexionPersonal">) => {
+    setOcupado(c.proveedor);
+    try {
+      const r = await api<{ url: string }>(`/me/conexiones/${c.proveedor}`, { metodo: "POST", cuerpo: {} });
+      window.location.assign(r.url);
+    } catch (x) {
+      avisar({ titulo: "No se pudo conectar", texto: (x as ProblemaApi).detalle ?? (x as ProblemaApi).titulo });
+      setOcupado(null);
+    }
+  };
+  const desconectar = async (c: S<"ConexionPersonal">) => {
+    if (!window.confirm(`¿Desconectar ${c.nombre}? Tus bots dejan de poder usarlo.`)) return;
+    setOcupado(c.proveedor);
+    try {
+      await api(`/me/conexiones/${c.proveedor}`, { metodo: "DELETE" });
+      avisar({ titulo: `${c.nombre} desconectado` });
+      void recargar();
+    } catch (x) {
+      avisar({ titulo: "No se pudo desconectar", texto: (x as ProblemaApi).titulo });
+    } finally {
+      setOcupado(null);
+    }
+  };
+  return (
+    <Tarjeta titulo="Conexiones" icono={<LuPlug size={18} />}>
+      <p className="texto-sm">Conecta tus cuentas para que tus bots de Jarvis las usen cuando se lo pidas. Solo en tus chats y con lo que tú puedes ver.</p>
+      {!datos ? <Cargando /> : (
+        <ul style={{ display: "grid", gap: 10, listStyle: "none", padding: 0, margin: 0 }}>
+          {datos.datos.map((c) => (
+            <li key={c.proveedor} style={{ display: "grid", gap: 4 }}>
+              <span className="fila entre" style={{ gap: 8 }}>
+                <span className="texto-sm negrita">{c.nombre}</span>
+                {c.conectada ? (
+                  <button className="boton boton--chico" disabled={ocupado === c.proveedor} onClick={() => void desconectar(c)}>Desconectar</button>
+                ) : (
+                  <button className="boton boton--chico boton--primario" disabled={!c.disponible || ocupado === c.proveedor} onClick={() => void conectar(c)}>
+                    {ocupado === c.proveedor ? "Abriendo…" : "Conectar"}
+                  </button>
+                )}
+              </span>
+              <span className="texto-xs texto-muted">
+                {c.conectada ? `Conectado${c.cuenta ? ` con ${c.cuenta}` : ""}${c.ultimoUso ? ` · último uso ${fDiaHora(c.ultimoUso)}` : ""}` : c.disponible ? c.descripcion : "Todavía no disponible: falta que TI lo active."}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Tarjeta>
   );
 }

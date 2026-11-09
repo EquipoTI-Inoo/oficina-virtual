@@ -74,8 +74,8 @@ prompts/ integrations/ templates/
 - En producción: todo el contrato sobre Postgres con RLS, ingreso propio sin AWS, archivos y respaldos en
   Google Drive, correos por SMTP, personas sincronizadas con InooWork y Jarvis en las seis áreas.
 - Pruebas: 473 de API (cada flujo contra la API simulada y contra Postgres), de navegador y visuales.
-- Pendiente de publicar: Empresas, áreas que lidera cada persona y Jarvis avanzado (migración 0049).
-- Pendiente de instalar en el VPS: los procesos programados (`infra/hostinger/trabajos/instalar.sh`).
+- Publicado el 9 nov: Empresas, áreas que lidera cada persona y Jarvis avanzado (migración 0049), con los
+  procesos programados instalados en el VPS.
 - Por decidir: bóveda de contraseñas por cliente y grupo de WhatsApp al crear un proyecto.
 
 Detalle de fases y pendientes en `docs/prd.md` («Estado de implementación»).

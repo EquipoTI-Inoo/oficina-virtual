@@ -3738,6 +3738,95 @@ paths:
                   pendientes: { type: integer }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  # ───────────── Conexiones personales de Jarvis (9 nov): cada persona conecta su cuenta con OAuth, sin llaves.
+  /me/conexiones:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: misConexiones
+      summary: 'Las cuentas que la persona puede conectar para sus bots y cuáles conectó'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ConexionPersonal' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /me/conexiones/{proveedor}:
+    parameters: [ { name: proveedor, in: path, required: true, schema: { type: string, examples: [google-drive] } } ]
+    post:
+      tags: [Jarvis del equipo]
+      operationId: conectarCuenta
+      summary: 'Empieza a conectar la cuenta: devuelve la URL del servicio (OAuth con PKCE). El navegador va allí y vuelve por /conexiones/{proveedor}/vuelta'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [url], properties: { url: { type: string } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: desconectarCuenta
+      summary: 'Desconecta la cuenta: revoca el permiso en el servicio y lo borra del portal'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Desconectada }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /conexiones/{proveedor}/vuelta:
+    parameters:
+      - { name: proveedor, in: path, required: true, schema: { type: string } }
+      - { name: code, in: query, schema: { type: string } }
+      - { name: state, in: query, schema: { type: string } }
+      - { name: error, in: query, schema: { type: string } }
+    get:
+      tags: [Jarvis del equipo]
+      operationId: vueltaDeConexion
+      summary: 'Adonde vuelve el navegador después de autorizar, sin sesión: el «state» (un solo uso, 10 minutos) dice de quién es. Redirige a Mi cuenta con ?conexion=ok o ?conexion=error'
+      security: []
+      responses:
+        '302': { description: A Mi cuenta }
+
+  /me/conexiones/google-drive/buscar:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: buscarEnMiDrive
+      summary: 'Busca en el Drive conectado de la persona (por nombre y contenido; sin texto, los más recientes). Lo usan sus bots desde el MCP del portal'
+      x-roles: [EQUIPO]
+      parameters: [ { name: q, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ArchivoDrivePersonal' } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /me/conexiones/google-drive/archivos/{archivoId}:
+    parameters: [ { name: archivoId, in: path, required: true, schema: { type: string } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: leerDeMiDrive
+      summary: 'Lee un archivo del Drive conectado como texto (Docs, Sheets como CSV, Slides y archivos de texto; hasta 50 000 caracteres)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ArchivoDrivePersonal'
+                  - type: object
+                    required: [texto, truncado, aviso]
+                    properties:
+                      texto: { type: [string, 'null'] }
+                      truncado: { type: boolean }
+                      aviso: { type: [string, 'null'] }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
   /jarvis/bots:
     get:
       tags: [Jarvis del equipo]
@@ -6338,6 +6427,29 @@ components:
         creadoEn: { type: string, format: date-time }
         enDrive: { type: boolean }
         puedeBorrar: { type: boolean }
+
+    ConexionPersonal:
+      type: object
+      required: [proveedor, nombre, descripcion, disponible, conectada, cuenta, conectadaEn, ultimoUso]
+      properties:
+        proveedor: { type: string, examples: [google-drive] }
+        nombre: { type: string }
+        descripcion: { type: string }
+        disponible: { type: boolean, description: 'false si el portal todavía no tiene la app de ese servicio configurada' }
+        conectada: { type: boolean }
+        cuenta: { type: [string, 'null'], description: 'Con qué cuenta se conectó (p. ej. su correo)' }
+        conectadaEn: { type: [string, 'null'], format: date-time }
+        ultimoUso: { type: [string, 'null'], format: date-time }
+
+    ArchivoDrivePersonal:
+      type: object
+      required: [id, nombre, tipo, modificado, enlace]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        tipo: { type: string, description: 'Tipo MIME' }
+        modificado: { type: [string, 'null'], format: date-time }
+        enlace: { type: [string, 'null'] }
 
     EmpresaResumen:
       type: object

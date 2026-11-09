@@ -2,6 +2,7 @@
 /**
  * MCP del portal para Hermes («Mi Jarvis»). Lee el portal y, desde el 6 nov, propone acciones: crear una tarea,
  * un comentario interno o un pendiente del calendario. Nada se hace hasta que la persona lo aprueba en el chat.
+ * Desde el 9 nov (0.3.0) también busca y lee en el Google Drive que la persona conectó en Mi cuenta → Conexiones.
  *
  * Hermes lo lanza como servidor stdio (ver config.example.yaml). Habla JSON-RPC por líneas en
  * stdin/stdout (Model Context Protocol) y llama a la API del portal como la persona que está chateando
@@ -94,6 +95,20 @@ const HERRAMIENTAS = [
     run: ({ clienteId, conversacion }) => api(`/clientes/${enc(clienteId)}/requerimientos`, conversacion),
   },
   {
+    name: "drive_buscar",
+    description:
+      "Busca en el Google Drive de la persona que chatea (solo si lo conectó en Mi cuenta → Conexiones; si no, dile que lo conecte ahí). " +
+      "Busca por nombre y contenido; sin texto, devuelve los archivos más recientes. Devuelve id, nombre, tipo y enlace.",
+    inputSchema: { type: "object", properties: { q: { type: "string", description: "Qué buscar (nombre o palabras del contenido)" } } },
+    run: ({ q, conversacion }) => api(`/me/conexiones/google-drive/buscar${q ? `?q=${enc(q)}` : ""}`, conversacion),
+  },
+  {
+    name: "drive_leer",
+    description: "Lee como texto un archivo del Google Drive conectado de la persona (Docs, Sheets como CSV, Slides y archivos de texto; hasta 50 000 caracteres). Saca el id de drive_buscar.",
+    inputSchema: { type: "object", properties: { archivoId: id("Id del archivo (de drive_buscar)") }, required: ["archivoId"] },
+    run: ({ archivoId, conversacion }) => api(`/me/conexiones/google-drive/archivos/${enc(archivoId)}`, conversacion),
+  },
+  {
     name: "proponer_accion",
     description:
       "Propone hacer algo en el portal. NO lo hace: la persona lo ve en el chat y lo aprueba o lo rechaza. Úsalo solo cuando te lo pidan. " +
@@ -127,7 +142,7 @@ async function atender(msg) {
       return responder(idMsg, {
         protocolVersion: params?.protocolVersion ?? VERSION_PROTOCOLO,
         capabilities: { tools: {} },
-        serverInfo: { name: "inoo-portal", version: "0.2.0" },
+        serverInfo: { name: "inoo-portal", version: "0.3.0" },
       });
     case "ping":
       return responder(idMsg, {});

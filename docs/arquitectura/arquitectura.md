@@ -78,6 +78,10 @@ flowchart LR
   cada 10 minutos fuera de la transacción de la solicitud. La respuesta queda como chat `job-<id>`, se avisa en
   la campana y la paga quien creó la rutina. La biblioteca guarda respuestas con su copia `.md` en Drive y
   `uso_skill` deja la trazabilidad.
+- **Conexiones personales (0050):** cada persona conecta su propia cuenta (Google Drive, solo lectura) con OAuth y
+  PKCE desde Mi cuenta. El portal guarda solo el refresh token, cifrado con AES-256-GCM, y nunca lo muestra; los
+  access tokens viven en memoria. El MCP (`drive_buscar`, `drive_leer`) llama al portal como la persona dueña de
+  la conversación, así que cada bot usa solo la cuenta de quien chatea.
 
 ### Migraciones posteriores a la v1.1
 

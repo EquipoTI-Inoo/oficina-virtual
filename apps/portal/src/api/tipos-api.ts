@@ -2609,6 +2609,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/conexiones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Las cuentas que la persona puede conectar para sus bots y cuáles conectó */
+        get: operations["misConexiones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/conexiones/{proveedor}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proveedor: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Empieza a conectar la cuenta: devuelve la URL del servicio (OAuth con PKCE). El navegador va allí y vuelve por /conexiones/{proveedor}/vuelta */
+        post: operations["conectarCuenta"];
+        /** Desconecta la cuenta: revoca el permiso en el servicio y lo borra del portal */
+        delete: operations["desconectarCuenta"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conexiones/{proveedor}/vuelta": {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path: {
+                proveedor: string;
+            };
+            cookie?: never;
+        };
+        /** Adonde vuelve el navegador después de autorizar, sin sesión: el «state» (un solo uso, 10 minutos) dice de quién es. Redirige a Mi cuenta con ?conexion=ok o ?conexion=error */
+        get: operations["vueltaDeConexion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/conexiones/google-drive/buscar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Busca en el Drive conectado de la persona (por nombre y contenido; sin texto, los más recientes). Lo usan sus bots desde el MCP del portal */
+        get: operations["buscarEnMiDrive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/conexiones/google-drive/archivos/{archivoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        /** Lee un archivo del Drive conectado como texto (Docs, Sheets como CSV, Slides y archivos de texto; hasta 50 000 caracteres) */
+        get: operations["leerDeMiDrive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jarvis/bots": {
         parameters: {
             query?: never;
@@ -4783,6 +4879,30 @@ export interface components {
             creadoEn: string;
             enDrive: boolean;
             puedeBorrar: boolean;
+        };
+        ConexionPersonal: {
+            /** @example google-drive */
+            proveedor: string;
+            nombre: string;
+            descripcion: string;
+            /** @description false si el portal todavía no tiene la app de ese servicio configurada */
+            disponible: boolean;
+            conectada: boolean;
+            /** @description Con qué cuenta se conectó (p. ej. su correo) */
+            cuenta: string | null;
+            /** Format: date-time */
+            conectadaEn: string | null;
+            /** Format: date-time */
+            ultimoUso: string | null;
+        };
+        ArchivoDrivePersonal: {
+            id: string;
+            nombre: string;
+            /** @description Tipo MIME */
+            tipo: string;
+            /** Format: date-time */
+            modificado: string | null;
+            enlace: string | null;
         };
         EmpresaResumen: {
             /** @description «inoo» o el id del cliente */
@@ -12340,6 +12460,154 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+        };
+    };
+    misConexiones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ConexionPersonal"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    conectarCuenta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proveedor: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    desconectarCuenta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proveedor: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Desconectada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    vueltaDeConexion: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path: {
+                proveedor: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A Mi cuenta */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    buscarEnMiDrive: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ArchivoDrivePersonal"][];
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    leerDeMiDrive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchivoDrivePersonal"] & {
+                        texto: string | null;
+                        truncado: boolean;
+                        aviso: string | null;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
         };
     };
     botsDeMiArea: {

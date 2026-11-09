@@ -10,7 +10,7 @@
  */
 import { useState, type FormEvent, type ReactNode } from "react";
 import { LuBookOpen, LuDownload, LuPause, LuPlay, LuPlus, LuTrash2, LuPencil, LuZap, LuClock, LuPlug, LuActivity, LuSparkles, LuSearch } from "react-icons/lu";
-import { api, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
+import { api, Enlace, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
 import { MAX_ARCHIVOS_SKILL, MAX_TEXTO_ARCHIVO } from "../dominio/jarvis-avanzado";
 
@@ -565,7 +565,11 @@ function Conectores({ espacio }: { espacio: string | null }) {
     <section aria-label="Conectores">
       <Cabeza titulo="Conectores" bajada="Servidores MCP (Drive, GitHub, Canva, Figma…) que pueden usar los bots. Las llaves no pasan por el portal: TI las configura en el Hermes del área y lo marca como conectado."
         accion={r.datos.puedeCrear ? <button className="boton boton--primario" onClick={() => setEditor("nuevo")}><LuPlus size={16} /> Nuevo conector</button> : undefined} />
-      {!r.datos.datos.length && <Vacio>{r.datos.puedeCrear ? "Todavía no hay conectores." : "Tu área todavía no tiene conectores. Pídeselos a un super usuario."}</Vacio>}
+      <div className="tarjeta fila" style={{ padding: "14px 16px", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <LuPlug size={16} />
+        <span className="texto-sm" style={{ flex: 1 }}>Tus cuentas personales (por ejemplo, tu Google Drive) las conectas tú, con un botón, en <Enlace a="/equipo/mi-cuenta" className="enlace">Mi cuenta → Conexiones</Enlace>. Tus bots las usan solo en tus chats.</span>
+      </div>
+      {!r.datos.datos.length && <Vacio>{r.datos.puedeCrear ? "Todavía no hay conectores de área." : "Tu área todavía no tiene conectores compartidos. Los agrega un super usuario."}</Vacio>}
       <div style={rejilla}>
         {r.datos.datos.map((c) => (
           <article key={c.id} className="tarjeta" style={tarjeta}>

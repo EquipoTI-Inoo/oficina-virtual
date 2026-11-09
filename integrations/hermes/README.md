@@ -19,7 +19,7 @@ Esta prueba mide tres cosas antes de construir nada en el portal:
 
 | Archivo | Qué es |
 | --- | --- |
-| `mcp-portal.mjs` | MCP del portal. Lee con `mi_panel`, `mis_proyectos`, `proyecto`, `tareas_proyecto`, `requerimientos_cliente`, y propone con `proponer_accion` (tarea, comentario interno o pendiente): nada se hace hasta que la persona lo aprueba en el chat. Node 22, sin dependencias |
+| `mcp-portal.mjs` | MCP del portal. Lee con `mi_panel`, `mis_proyectos`, `proyecto`, `tareas_proyecto`, `requerimientos_cliente`, y propone con `proponer_accion` (tarea, comentario interno o pendiente): nada se hace hasta que la persona lo aprueba en el chat. Desde la 0.3.0 (9 nov), `drive_buscar` y `drive_leer` usan el Google Drive que la persona conectó en Mi cuenta → Conexiones. Node 22, sin dependencias |
 | `config.example.yaml` | Bloques para `~/.hermes/config.yaml`: modelo por la pasarela del portal, contenedor Docker y el MCP del portal |
 | `env.example` | Llaves para `~/.hermes/.env`: la clave del área y el token del MCP |
 
