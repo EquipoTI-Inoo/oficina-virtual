@@ -2558,6 +2558,9 @@ function repoTaller(ctx: Ctx, s: D.ServicioContratadoDemo): RepoTaller {
     async guardar(e) {
       E.talleres[s.id] = structuredClone(e);
     },
+    // 9 nov: en la demo no hay DeepSeek: el brief desde la transcripción queda con el resumen por reglas.
+    iaEquipo: async () => null,
+    urlCompleta: (url) => url,
     almacen: {
       async guardar(a) {
         const f = archivo(a);
@@ -2647,6 +2650,10 @@ ruta("POST", "/servicios-contratados/:id/taller-web/bocetos", (ctx, p, _q, req) 
 ruta("POST", "/servicios-contratados/:id/taller-web/prototipo", (ctx, p, _q, req) => taller(ctx, p.id, "PROTOTIPO", req));
 ruta("POST", "/servicios-contratados/:id/taller-web/demos", (ctx, p, _q, req) => taller(ctx, p.id, "DEMO", req));
 ruta("DELETE", "/servicios-contratados/:id/taller-web/demos/:demoId", (ctx, p) => taller(ctx, p.id, "REVOCAR_DEMO", undefined, p.demoId));
+// 9 nov: los archivos del cliente y el brief desde la transcripción (con DeepSeek).
+ruta("POST", "/servicios-contratados/:id/taller-web/materiales", (ctx, p, _q, req) => taller(ctx, p.id, "MATERIAL", req));
+ruta("DELETE", "/servicios-contratados/:id/taller-web/materiales/:materialId", (ctx, p) => taller(ctx, p.id, "QUITAR_MATERIAL", undefined, p.materialId));
+ruta("POST", "/servicios-contratados/:id/taller-web/brief-desde-transcripcion", (ctx, p, _q, req) => taller(ctx, p.id, "BRIEF_TRANSCRIPCION", req));
 
 /**
  * GET /publico/{token} y /demo/{token}: los archivos del taller por su enlace, sin sesión. Las demos

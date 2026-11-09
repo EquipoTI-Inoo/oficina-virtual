@@ -10,10 +10,11 @@
  * contenido del PDF como DESIGN.md, el prompt y la plantilla) → Figma, que lo pasa una persona · 5. Demo.
  */
 import { useEffect, useRef, useState } from "react";
-import { LuCamera, LuChevronDown, LuChevronUp, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPause, LuPencil, LuPlay, LuPlus, LuRotateCcw, LuSave, LuSparkles, LuTrash2, LuWandSparkles, LuX } from "react-icons/lu";
+import { LuCamera, LuFileUp, LuImage, LuMic, LuPaperclip, LuChevronDown, LuChevronUp, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPause, LuPencil, LuPlay, LuPlus, LuRotateCcw, LuSave, LuSparkles, LuTrash2, LuWandSparkles, LuX } from "react-icons/lu";
 import { api, Enlace, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso } from "../componentes";
-import { type AjustesTaller, conAjustes, type Insumos, LIMITES_TALLER, mensajeBoceto, paginaParaPrompt, type Plantilla, promptStitch, promptStitchSitio } from "../dominio/taller-web";
+import { leerAdjunto } from "./leer-archivos";
+import { MAX_BYTES_MATERIAL, type TipoMaterial, type AjustesTaller, conAjustes, type Insumos, LIMITES_TALLER, mensajeBoceto, paginaParaPrompt, type Plantilla, promptStitch, promptStitchSitio } from "../dominio/taller-web";
 
 type Taller = S<"TallerWeb">;
 type Resultado = S<"ResultadoTallerWeb">;
@@ -231,6 +232,7 @@ function TallerWeb() {
         <div className="pila">
           {pestana === "BRIEF" && (
             <>
+              <Materiales t={t} ruta={ruta} paso={paso} ocupado={ocupado} alCambiar={aplicar} />
               <DelBrief t={t} b={b} editar={editar} />
               <Benchmark t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />
             </>
@@ -282,6 +284,121 @@ function Lateral({ t }: { t: Taller }) {
         </ol>
       </section>
     </aside>
+  );
+}
+
+// ───────────────────────────── 0. materiales del cliente (9 nov)
+
+const ETIQUETA_MATERIAL: Record<TipoMaterial, string> = { LOGO: "Logo", MANUAL: "Manual de marca", TRANSCRIPCION: "Transcripción", OTRO: "Otro" };
+const ACEPTA: Record<TipoMaterial, string> = {
+  LOGO: "image/png,image/jpeg,image/svg+xml,image/webp",
+  MANUAL: "application/pdf,image/png,image/jpeg,image/webp",
+  TRANSCRIPCION: ".txt,.md,.vtt,.srt,.pdf,.docx,text/plain",
+  OTRO: "image/*,application/pdf,.docx,.xlsx,.pptx,.zip,.txt,.csv,video/mp4",
+};
+const mimeDe = (f: File) => f.type || (/\.vtt$/i.test(f.name) ? "text/vtt" : /\.srt$/i.test(f.name) ? "application/x-subrip" : /\.md$/i.test(f.name) ? "text/markdown" : "text/plain");
+const enBase64 = (f: File) => new Promise<string>((ok, mal) => {
+  const r = new FileReader();
+  r.onload = () => ok(String(r.result).split(",")[1] ?? "");
+  r.onerror = () => mal(new Error(`No pudimos leer «${f.name}»`));
+  r.readAsDataURL(f);
+});
+const peso = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`);
+
+/** Los archivos del cliente: logo y manual (van al branding), la transcripción de la reunión (llena el brief) y otros. */
+function Materiales({ t, ruta, paso, ocupado, alCambiar }: { t: Taller; ruta: string; paso: Paso; ocupado: string | null; alCambiar: (x: Taller) => void }) {
+  const avisar = useAviso();
+  const [subiendo, setSubiendo] = useState<TipoMaterial | null>(null);
+  const [pegada, setPegada] = useState("");
+  const materiales = t.materiales ?? [];
+  const transcripciones = materiales.filter((m) => m.tipo === "TRANSCRIPCION");
+  const subir = async (tipo: TipoMaterial, lista: FileList | null) => {
+    const archivos = [...(lista ?? [])];
+    if (!archivos.length) return;
+    setSubiendo(tipo);
+    try {
+      for (const f of archivos) {
+        if (f.size > MAX_BYTES_MATERIAL[tipo]) throw new Error(`«${f.name}» pesa más de ${Math.round(MAX_BYTES_MATERIAL[tipo] / 1_000_000)} MB`);
+        // La transcripción y el manual en PDF llevan su texto, para que DeepSeek los lea.
+        let texto: string | null = null;
+        if (tipo === "TRANSCRIPCION" || (tipo === "MANUAL" && /pdf$/i.test(f.type || f.name))) {
+          const a = await leerAdjunto(f).catch((e: Error) => (tipo === "TRANSCRIPCION" ? Promise.reject(e) : null));
+          texto = a && "texto" in a ? a.texto : null;
+        }
+        const r = await paso(`material-${tipo}`, "/materiales", { tipo, nombre: f.name, mime: mimeDe(f), base64: await enBase64(f), texto });
+        if (!r) return;
+      }
+      avisar({ titulo: tipo === "LOGO" ? "Logo listo: ya se usa en el branding" : tipo === "MANUAL" ? "Manual listo: ya se usa en el branding" : "Archivo subido" });
+    } catch (e) {
+      avisar({ titulo: "No se pudo subir", texto: (e as Error).message });
+    } finally {
+      setSubiendo(null);
+    }
+  };
+  const guardarPegada = async () => {
+    const r = await paso("material-TRANSCRIPCION", "/materiales", { tipo: "TRANSCRIPCION", nombre: `Transcripción pegada (${new Date().toLocaleDateString("es-PE")})`, mime: "text/plain", texto: pegada.trim() });
+    if (r) setPegada("");
+  };
+  const quitar = async (id: string, nombre: string) => {
+    if (!window.confirm(`¿Sacar «${nombre}» del taller?`)) return;
+    try {
+      alCambiar((await api<{ taller: Taller }>(`${ruta}/materiales/${encodeURIComponent(id)}`, { metodo: "DELETE" })).taller);
+    } catch (e) {
+      avisar({ titulo: "No se pudo sacar", texto: errorDe(e) });
+    }
+  };
+  const llenar = () =>
+    paso("brief", "/brief-desde-transcripcion", pegada.trim().length >= 120 ? { transcripcion: pegada.trim() } : {}, (r) => {
+      const x = r as Resultado & { completados?: string[]; referenciasNuevas?: number };
+      if (r.simulado) return "La IA no estaba disponible: solo resumimos la reunión";
+      return `Brief completado (${x.completados?.length ?? 0} datos${x.referenciasNuevas ? `, ${x.referenciasNuevas} referencias nuevas` : ""}). Revísalo abajo`;
+    });
+  const boton = (tipo: TipoMaterial, icono: React.ReactNode, texto: string, multiple = false) => (
+    <label className="boton boton--chico" style={{ cursor: "pointer", opacity: subiendo ? 0.6 : 1 }}>
+      {icono} {subiendo === tipo ? "Subiendo…" : texto}
+      <input type="file" hidden accept={ACEPTA[tipo]} multiple={multiple} disabled={!!subiendo} aria-label={texto}
+        onChange={(e) => { void subir(tipo, e.target.files); e.target.value = ""; }} />
+    </label>
+  );
+  return (
+    <section className="tarjeta" style={{ display: "grid", gap: 12 }} aria-label="Materiales del cliente">
+      <div>
+        <h2 className="tarjeta-titulo">Materiales del cliente</h2>
+        <p className="texto-sm texto-muted" style={{ margin: 0 }}>Sube lo que mandó el cliente. El logo y el manual se usan en todo el taller; con la transcripción de la reunión, DeepSeek llena el brief solo.</p>
+      </div>
+      <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+        {boton("LOGO", <LuImage size={14} />, "Subir logo")}
+        {boton("MANUAL", <LuFileText size={14} />, "Subir manual de marca")}
+        {boton("TRANSCRIPCION", <LuMic size={14} />, "Subir transcripción")}
+        {boton("OTRO", <LuPaperclip size={14} />, "Otros archivos", true)}
+      </div>
+      {materiales.length > 0 && (
+        <ul style={{ display: "grid", gap: 6, listStyle: "none", padding: 0, margin: 0 }}>
+          {materiales.map((m) => (
+            <li key={m.id} className="fila entre texto-sm" style={{ gap: 8 }}>
+              <span className="fila" style={{ gap: 8, minWidth: 0 }}>
+                <Etiqueta tono={m.tipo === "LOGO" || m.tipo === "MANUAL" ? "verde" : m.tipo === "TRANSCRIPCION" ? "violeta" : "gris"} sinPunto>{ETIQUETA_MATERIAL[m.tipo]}</Etiqueta>
+                {m.tipo === "LOGO" && m.url && <img src={m.url} alt="" style={{ height: 22, maxWidth: 60, objectFit: "contain" }} />}
+                {m.url ? <a className="enlace" href={m.url} target="_blank" rel="noreferrer" style={{ overflowWrap: "anywhere" }}>{m.nombre}</a> : <span>{m.nombre}</span>}
+                <span className="texto-xs texto-muted">{m.bytes ? peso(m.bytes) : ""}{m.conTexto ? " · se lee para el brief" : ""}</span>
+              </span>
+              <button className="boton-icono" aria-label={`Sacar ${m.nombre}`} onClick={() => void quitar(m.id, m.nombre)}><LuTrash2 size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div style={{ display: "grid", gap: 8, borderTop: "1px solid var(--c-borde)", paddingTop: 12 }}>
+        <label className="texto-sm negrita" htmlFor="taller-transcripcion">¿No tienes el archivo? Pega la transcripción</label>
+        <div className="entrada"><textarea id="taller-transcripcion" rows={4} value={pegada} onChange={(e) => setPegada(e.target.value)} placeholder="Lo que se dijo en la reunión de brief (Meet, Zoom…)" /></div>
+        <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button className="boton boton--primario boton--chico" disabled={!!ocupado || (transcripciones.length === 0 && pegada.trim().length < 120)} onClick={() => void llenar()}>
+            <LuWandSparkles size={14} /> {ocupado === "brief" ? "Leyendo la reunión…" : "Llenar el brief con la transcripción"}
+          </button>
+          {pegada.trim().length >= 120 && <button className="boton boton--chico" disabled={!!ocupado} onClick={() => void guardarPegada()}><LuFileUp size={14} /> Guardarla en materiales</button>}
+        </span>
+        <span className="ayuda-campo">Saca objetivo, público, alcance, CMS, mensaje, tono, resumen de lo acordado, secciones y, si el manual tiene texto, colores y tipografías. Los sitios que se nombraron se suman al benchmark. Todo queda como «corregido»: revísalo y guarda.</span>
+      </div>
+    </section>
   );
 }
 

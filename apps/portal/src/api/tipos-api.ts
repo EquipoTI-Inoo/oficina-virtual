@@ -3569,6 +3569,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/materiales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sube un archivo del cliente (9 nov): el logo y el manual pasan a ser los del branding; la transcripción y el manual llevan el texto que sacó el navegador, para la IA */
+        post: operations["subirMaterialTaller"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/materiales/{materialId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                materialId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Saca un archivo del taller (si era el logo o el manual, deja de usarse en el branding) */
+        delete: operations["quitarMaterialTaller"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/brief-desde-transcripcion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** DeepSeek llena el brief con la transcripción de la reunión (pegada o la subida) y el manual de marca: objetivo, público, alcance, CMS, mensaje, tono, resumen, secciones, tipografías, colores y los sitios de referencia que se nombraron. Queda como corregido, para revisarlo */
+        post: operations["briefDesdeTranscripcion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/taller-web/demos": {
         parameters: {
             query?: never;
@@ -4442,6 +4500,21 @@ export interface components {
             version: number;
             formato: components["schemas"]["FormatoEntregable"];
         };
+        /** @enum {string} */
+        TipoMaterialTaller: "LOGO" | "MANUAL" | "TRANSCRIPCION" | "OTRO";
+        MaterialTaller: {
+            id: string;
+            tipo: components["schemas"]["TipoMaterialTaller"];
+            nombre: string;
+            mime: string;
+            /** @description Enlace público con token (vacío si la transcripción llegó solo como texto) */
+            url: string;
+            bytes: number;
+            /** @description Si se guardó su texto para la IA */
+            conTexto: boolean;
+            /** Format: date-time */
+            creadoEn: string;
+        };
         /** @description Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables */
         TallerWeb: {
             /** Format: uuid */
@@ -4470,6 +4543,8 @@ export interface components {
             };
             /** @description Los campos de insumos que el equipo corrigió (el resto sale del brief) */
             insumosEditados: string[];
+            /** @description 9 nov: logo, manual, transcripción y otros archivos del cliente */
+            materiales: components["schemas"]["MaterialTaller"][];
             dimensiones: {
                 codigo: components["schemas"]["DimensionBenchmark"];
                 nombre: string;
@@ -14856,6 +14931,106 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+        };
+    };
+    subirMaterialTaller: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tipo: components["schemas"]["TipoMaterialTaller"];
+                    nombre: string;
+                    mime?: string;
+                    /** @description El archivo. Logo hasta 5 MB; manual y otros hasta 25 MB; transcripción hasta 10 MB */
+                    base64?: string;
+                    /** @description El texto del archivo (transcripción o manual), sacado en el navegador. La transcripción puede venir solo como texto */
+                    texto?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        taller: components["schemas"]["TallerWeb"];
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    quitarMaterialTaller: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                materialId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        taller: components["schemas"]["TallerWeb"];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    briefDesdeTranscripcion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Si no viene, usa las transcripciones subidas */
+                    transcripcion?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        taller: components["schemas"]["TallerWeb"];
+                        /** @description true si la IA no estaba disponible y solo se resumió la reunión */
+                        simulado: boolean;
+                        completados: string[];
+                        referenciasNuevas: number;
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
         };
     };
     crearDemoWeb: {

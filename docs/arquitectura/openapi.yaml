@@ -5116,6 +5116,79 @@ paths:
         '409': { description: 'TALLER_SIN_FLUJOGRAMA o LIMITE_PANTALLAS', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '502': { description: 'STITCH_NO_DISPONIBLE', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
 
+  /servicios-contratados/{servicioContratadoId}/taller-web/materiales:
+    parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    post:
+      tags: [Taller web]
+      operationId: subirMaterialTaller
+      summary: 'Sube un archivo del cliente (9 nov): el logo y el manual pasan a ser los del branding; la transcripción y el manual llevan el texto que sacó el navegador, para la IA'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipo, nombre]
+              properties:
+                tipo: { $ref: '#/components/schemas/TipoMaterialTaller' }
+                nombre: { type: string }
+                mime: { type: string }
+                base64: { type: string, description: 'El archivo. Logo hasta 5 MB; manual y otros hasta 25 MB; transcripción hasta 10 MB' }
+                texto: { type: [string, 'null'], description: 'El texto del archivo (transcripción o manual), sacado en el navegador. La transcripción puede venir solo como texto' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [taller], properties: { taller: { $ref: '#/components/schemas/TallerWeb' } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/materiales/{materialId}:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: materialId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Taller web]
+      operationId: quitarMaterialTaller
+      summary: 'Saca un archivo del taller (si era el logo o el manual, deja de usarse en el branding)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [taller], properties: { taller: { $ref: '#/components/schemas/TallerWeb' } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/brief-desde-transcripcion:
+    parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    post:
+      tags: [Taller web]
+      operationId: briefDesdeTranscripcion
+      summary: 'DeepSeek llena el brief con la transcripción de la reunión (pegada o la subida) y el manual de marca: objetivo, público, alcance, CMS, mensaje, tono, resumen, secciones, tipografías, colores y los sitios de referencia que se nombraron. Queda como corregido, para revisarlo'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { transcripcion: { type: string, description: 'Si no viene, usa las transcripciones subidas' } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [taller, simulado, completados, referenciasNuevas]
+                properties:
+                  taller: { $ref: '#/components/schemas/TallerWeb' }
+                  simulado: { type: boolean, description: 'true si la IA no estaba disponible y solo se resumió la reunión' }
+                  completados: { type: array, items: { type: string } }
+                  referenciasNuevas: { type: integer }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /servicios-contratados/{servicioContratadoId}/taller-web/demos:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -6054,10 +6127,24 @@ components:
         estado: { $ref: '#/components/schemas/EstadoEntregable' }
         version: { type: integer }
         formato: { $ref: '#/components/schemas/FormatoEntregable' }
+    TipoMaterialTaller: { type: string, enum: [LOGO, MANUAL, TRANSCRIPCION, OTRO] }
+    MaterialTaller:
+      type: object
+      required: [id, tipo, nombre, mime, url, bytes, conTexto, creadoEn]
+      properties:
+        id: { type: string }
+        tipo: { $ref: '#/components/schemas/TipoMaterialTaller' }
+        nombre: { type: string }
+        mime: { type: string }
+        url: { type: string, description: 'Enlace público con token (vacío si la transcripción llegó solo como texto)' }
+        bytes: { type: integer }
+        conTexto: { type: boolean, description: 'Si se guardó su texto para la IA' }
+        creadoEn: { type: string, format: date-time }
+
     TallerWeb:
       type: object
       description: 'Solo equipo. Es la IA de Inoo: el cliente no lo ve; le llegan el PDF y la demo como entregables'
-      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, insumosEditados, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
+      required: [servicioContratadoId, servicioTitulo, variante, version, insumos, insumosEditados, materiales, dimensiones, referencias, hallazgos, recomendaciones, flujograma, prototipo, plantilla, bocetos, documento, demoEntregable, demos, modos, actualizadoEn]
       properties:
         servicioContratadoId: { type: string, format: uuid }
         servicioTitulo: { type: string }
@@ -6081,6 +6168,7 @@ components:
             logoUrl: { type: [string, 'null'], description: 'Enlace al logo (8 nov: branding en todo el flujo)' }
             manualUrl: { type: [string, 'null'], description: Enlace al manual de marca }
         insumosEditados: { type: array, items: { type: string }, description: 'Los campos de insumos que el equipo corrigió (el resto sale del brief)' }
+        materiales: { type: array, items: { $ref: '#/components/schemas/MaterialTaller' }, description: '9 nov: logo, manual, transcripción y otros archivos del cliente' }
         dimensiones:
           type: array
           items:

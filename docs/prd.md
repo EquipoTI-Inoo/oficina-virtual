@@ -289,6 +289,7 @@ contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas 
 | — | Reunión del 6 nov: nuevo proyecto predeterminado o personalizado, Mi cuenta del equipo | Hecha (8 nov) |
 | — | Empresas (Inoo y cada cliente con su gente, proyectos y accesos) y áreas que lidera cada persona editables | Hecha y publicada (9 nov) |
 | — | Jarvis avanzado: skills, conectores MCP, rutinas, automatizaciones, biblioteca en Drive y actividad | Hecha y publicada (9 nov, migración 0049) |
+| — | Taller web: materiales del cliente (logo, manual, transcripción y otros archivos) y DeepSeek llena el brief con la transcripción y el manual | Hecha (9 nov), pendiente de publicar |
 | — | Bóveda personal: cada persona guarda los accesos de sus clientes, cifrados con su propia clave; solo ella y su Jarvis (con la bóveda abierta) los leen | Hecha (9 nov, migración 0051), pendiente de publicar |
 | — | Conexiones personales: cada persona conecta su Google Drive con un botón y sus bots lo leen en sus chats | Hecha (9 nov, migración 0050), pendiente de publicar y de crear el cliente OAuth web en Google Cloud |
 

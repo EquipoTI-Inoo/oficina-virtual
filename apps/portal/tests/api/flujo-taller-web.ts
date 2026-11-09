@@ -321,5 +321,81 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("DELETE", `${RUTA}/demos/${demo.id}`, DIEGO)).status, 404);
       assert.equal((await llamar("GET", `/publico/${"0".repeat(64)}`)).status, 404);
     });
+    test("materiales (9 nov): logo y manual van al branding; con la transcripción DeepSeek llena el brief", async () => {
+      await reiniciar();
+      const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+      assert.equal((await llamar("POST", `${RUTA}/materiales`, VALERIA, { tipo: "LOGO", nombre: "logo.png", mime: "image/png", base64: PNG })).status, 403, "el cliente no entra al taller");
+      const malo = await llamar("POST", `${RUTA}/materiales`, DIEGO, { tipo: "LOGO", nombre: "logo.exe", mime: "application/x-msdownload", base64: PNG });
+      assert.equal(malo.status, 422);
+      assert.deepEqual(malo.json.errores.map((e: any) => e.campo), ["mime"]);
+
+      const logo = await llamar("POST", `${RUTA}/materiales`, DIEGO, { tipo: "LOGO", nombre: "logo.png", mime: "image/png", base64: PNG });
+      assert.equal(logo.status, 200);
+      const m = logo.json.taller.materiales;
+      assert.equal(m.length, 1);
+      assert.equal(m[0].tipo, "LOGO");
+      assert.equal(logo.json.taller.insumos.logoUrl, m[0].url, "el logo pasa al branding");
+      assert.ok(logo.json.taller.insumosEditados.includes("logoUrl"));
+      const archivo = await llamar("GET", m[0].url.replace(/^https?:\/\/[^/]+/, "").replace(/^\/api\/v1/, ""));
+      assert.equal(archivo.status, 200, "el enlace público abre el logo");
+
+      const otro = await llamar("POST", `${RUTA}/materiales`, DIEGO, { tipo: "LOGO", nombre: "logo-nuevo.png", mime: "image/png", base64: PNG });
+      assert.deepEqual(otro.json.taller.materiales.map((x: any) => x.nombre), ["logo-nuevo.png"], "un solo logo: el nuevo reemplaza al anterior");
+
+      const manual = await llamar("POST", `${RUTA}/materiales`, DIEGO, { tipo: "MANUAL", nombre: "manual.pdf", mime: "application/pdf", base64: Buffer.from("%PDF-1.4 manual").toString("base64"), texto: "Colores: verde oliva #556B2F y crema #F5F0E1. Tipografía: Playfair Display." });
+      assert.equal(manual.json.taller.insumos.manualUrl, manual.json.taller.materiales.find((x: any) => x.tipo === "MANUAL").url);
+      assert.ok(!JSON.stringify(manual.json).includes("Playfair"), "el texto del manual no sale en la vista");
+
+      assert.equal((await llamar("POST", `${RUTA}/brief-desde-transcripcion`, DIEGO, { transcripcion: "muy corta" })).status, 422);
+      const transcripcion = "Reunión de brief con Casa Oliva. Quieren una tienda en línea para vender aceite de oliva y conservas a todo el Perú. " +
+        "Le hablan a familias que cocinan en casa. Piden inicio, tienda, nosotros, recetas y contacto, en Shopify. Les gusta cómo se ve https://www.ejemplo-oliva.com.";
+      const pegada = await llamar("POST", `${RUTA}/materiales`, DIEGO, { tipo: "TRANSCRIPCION", nombre: "reunion.txt", texto: transcripcion });
+      assert.equal(pegada.status, 200, "la transcripción puede llegar solo como texto");
+
+      // DeepSeek falso (solo lo usa el backend real; la demo resume por reglas).
+      const antes = { fetch: globalThis.fetch, clave: process.env.DEEPSEEK_API_KEY, url: process.env.IA_EQUIPO_URL };
+      process.env.DEEPSEEK_API_KEY = "sk-prueba";
+      process.env.IA_EQUIPO_URL = "http://deepseek.prueba";
+      let leyoManual = false;
+      globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
+        leyoManual = String(init?.body ?? "").includes("Playfair");
+        const contenido = JSON.stringify({
+          objetivo: "Vender aceite de oliva y conservas en línea a todo el Perú", publico: "Familias que cocinan en casa", alcance: "Tienda en línea", cms: "Shopify",
+          mensajeCentral: null, tono: "Cálido", resumenReunion: "Tienda en Shopify con cinco secciones.", secciones: ["Inicio", "Tienda", "Nosotros", "Recetas", "Contacto"],
+          tipografias: ["Playfair Display"], paleta: ["#556b2f", "#F5F0E1", "verde"], referencias: [{ nombre: "Ejemplo Oliva", url: "https://www.ejemplo-oliva.com" }],
+        });
+        return Response.json({ choices: [{ message: { content: contenido } }], usage: { prompt_tokens: 500, completion_tokens: 200 } });
+      }) as typeof fetch;
+      try {
+        const r = await llamar("POST", `${RUTA}/brief-desde-transcripcion`, DIEGO, {});
+        assert.equal(r.status, 200);
+        const i = r.json.taller.insumos;
+        if (!r.json.simulado) {
+          assert.ok(leyoManual, "DeepSeek recibe también el manual");
+          assert.equal(i.cms, "Shopify");
+          assert.deepEqual(i.secciones, ["Inicio", "Tienda", "Nosotros", "Recetas", "Contacto"]);
+          assert.deepEqual(i.paleta, ["#556B2F", "#F5F0E1"], "solo colores válidos");
+          assert.equal(r.json.referenciasNuevas, 1, "el sitio que se nombró se suma al benchmark");
+          assert.ok(r.json.taller.referencias.some((x: any) => x.url.startsWith("https://www.ejemplo-oliva.com")));
+        } else {
+          assert.ok(i.resumenReunion?.includes("tienda en línea"), "sin IA, al menos resume la reunión");
+        }
+        assert.ok(r.json.taller.insumosEditados.includes("resumenReunion"));
+        assert.equal(i.logoUrl, otro.json.taller.insumos.logoUrl, "no pisa el logo");
+      } finally {
+        globalThis.fetch = antes.fetch;
+        for (const [k, v] of [["DEEPSEEK_API_KEY", antes.clave], ["IA_EQUIPO_URL", antes.url]] as const) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+
+      const logoId = otro.json.taller.materiales[0].id;
+      const sin = await llamar("DELETE", `${RUTA}/materiales/${logoId}`, DIEGO);
+      assert.equal(sin.status, 200);
+      assert.ok(!sin.json.taller.materiales.some((x: any) => x.id === logoId));
+      assert.ok(!sin.json.taller.insumosEditados.includes("logoUrl"), "sin el archivo, el logo vuelve a salir del brief");
+      assert.equal((await llamar("DELETE", `${RUTA}/materiales/no-existe`, DIEGO)).status, 404);
+    });
   });
 }

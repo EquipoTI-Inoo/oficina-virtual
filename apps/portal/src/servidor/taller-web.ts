@@ -10,7 +10,7 @@ import {
   analisisSimulado, capturaSimulada, conNoindex, demoSimulada, DIMENSIONES, dimensionesPara, ESQUEMA_FLUJOGRAMA, ESQUEMA_SINTESIS, esquemaAnalisis, flujogramaSimulado,
   informeHtml, interpretarJson, LIMITES_TALLER, limpiarHtml, mencionaIa, mensajeAnalisis, mensajeDemo, mensajeFlujograma, mensajeSintesis, paginaParaPrompt, pantallaSimulada, promptStitch, promptStitchSitio, puntajeGlobal,
   SISTEMA_ANALISIS, SISTEMA_BOCETO, SISTEMA_PROTOTIPO, GENERADORES_PROTOTIPO, type GeneradorPrototipo, SISTEMA_DEMO, SISTEMA_FLUJOGRAMA, SISTEMA_SINTESIS, sintesisSimulada, validarDemo, validarEdicion, validarFlujograma, venceEn,
-  designMdStitch, huella, mensajeBoceto, conAjustes, type AjustesTaller,
+  designMdStitch, huella, mensajeBoceto, conAjustes, type AjustesTaller, validarMaterial, MAX_MATERIALES, MAX_TEXTO_MATERIAL, SISTEMA_BRIEF_WEB, normalizarBriefWeb, briefPorReglas, type MaterialGuardado,
   type Boceto, type Captura, type Dimension, type Plantilla, type Dispositivo, type Insumos, type PaginaFlujo, type PantallaPrototipo, type Puntaje, type Punto, type Referencia,
 } from "../dominio/taller-web";
 import { ErrorIa, generar, motivoSimulado, type ImagenIa } from "./ia-modelos";
@@ -391,6 +391,8 @@ export interface EstadoTaller {
     plantilla: Plantilla | null; bocetos: Boceto[]; sistemaStitch: { asset: string; huella: string } | null;
     /** 8 nov: lo que el equipo corrigió del brief y la marca (va en la misma columna). */
     ajustes?: AjustesTaller | null;
+    /** 9 nov: los archivos del cliente que subió el equipo (logo, manual, transcripción y otros). */
+    materiales?: MaterialGuardado[];
   };
   documentoEntregableId: string | null;
   demoEntregableId: string | null;
@@ -418,6 +420,10 @@ export interface RepoTaller {
   crearEntregable(e: { titulo: string; descripcion: string; etapaId: string | null; formato: ResumenEntregable["formato"]; url: string; nombreArchivo: string | null; nota: string | null }): Promise<string>;
   /** También cambia el formato: el informe es PDF con navegador real y HTML sin él. */
   nuevaVersion(id: string, v: { url: string; nombreArchivo: string | null; nota: string | null; formato: ResumenEntregable["formato"] }): Promise<void>;
+  /** 9 nov: la IA del equipo (DeepSeek, con el tope del área y cobrada a quien pide). null si no está disponible. */
+  iaEquipo(sistema: string, mensaje: string): Promise<string | null>;
+  /** El enlace público completo (con el dominio del portal), para Stitch, el PDF y la demo. */
+  urlCompleta(url: string): string;
 }
 
 /** Errores del taller con la forma del contrato; cada backend los convierte en su ErrorApi. */
@@ -484,6 +490,7 @@ export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
     },
     plantilla: e.prototipo.plantilla,
     bocetos: e.prototipo.bocetos,
+    materiales: (e.prototipo.materiales ?? []).map(({ texto: _t, ...m }) => m),
     documento: await resumen(e.documentoEntregableId),
     demoEntregable: await resumen(e.demoEntregableId),
     demos: await repo.demos(),
@@ -528,7 +535,7 @@ function nota(v: unknown): string | null {
   return t;
 }
 
-export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO";
+export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO" | "MATERIAL" | "QUITAR_MATERIAL" | "BRIEF_TRANSCRIPCION";
 
 /**
  * Todas las operaciones del taller (rutas /servicios-contratados/{id}/taller-web/*). El backend ya validó
@@ -546,6 +553,71 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
     switch (op) {
       case "VER":
         return vistaTaller(repo, e);
+
+      // 9 nov: los archivos del cliente. El logo y el manual pasan a ser los del branding.
+      case "MATERIAL": {
+        const v = validarMaterial(b);
+        if (v.errores.length) throw new ErrorTaller(422, "VALIDACION", "Revisa el archivo", undefined, v.errores);
+        const d = v.datos!;
+        const lista = e.prototipo.materiales ?? [];
+        if (lista.length >= MAX_MATERIALES) throw new ErrorTaller(409, "DEMASIADOS_MATERIALES", `Hasta ${MAX_MATERIALES} archivos por taller`, "Quita los que ya no sirvan.");
+        let url = "";
+        let bytes = 0;
+        if (d.base64) {
+          const contenido = desdeBase64(d.base64);
+          bytes = contenido.byteLength;
+          url = repo.urlCompleta((await repo.almacen.guardar({ tipo: "DOCUMENTO", mime: d.mime, nombre: d.nombre, bytes: contenido })).url);
+        }
+        const m: MaterialGuardado = { id: crypto.randomUUID(), tipo: d.tipo, nombre: d.nombre, mime: d.mime, url, bytes, conTexto: !!d.texto, creadoEn: ahoraIso(), texto: d.texto };
+        let ajustes = e.prototipo.ajustes ?? null;
+        if (d.tipo === "LOGO" && url) ajustes = { ...(ajustes ?? {}), logoUrl: url };
+        if (d.tipo === "MANUAL" && url) ajustes = { ...(ajustes ?? {}), manualUrl: url };
+        // Un solo logo y un solo manual: el nuevo reemplaza al anterior.
+        const siguen = d.tipo === "LOGO" || d.tipo === "MANUAL" ? lista.filter((x) => x.tipo !== d.tipo) : lista;
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, materiales: [...siguen, m], ajustes } });
+        return resultado(e);
+      }
+
+      case "QUITAR_MATERIAL": {
+        const lista = e.prototipo.materiales ?? [];
+        const m = lista.find((x) => x.id === demoId);
+        if (!m) throw new ErrorTaller(404, "NO_ENCONTRADO", "No encontramos ese archivo en el taller");
+        const ajustes: AjustesTaller = { ...(e.prototipo.ajustes ?? {}) };
+        if (m.url && ajustes.logoUrl === m.url) delete ajustes.logoUrl;
+        if (m.url && ajustes.manualUrl === m.url) delete ajustes.manualUrl;
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, materiales: lista.filter((x) => x !== m), ajustes: Object.keys(ajustes).length ? ajustes : null } });
+        return resultado(e);
+      }
+
+      // 9 nov: de la transcripción (y del manual, si tiene texto) DeepSeek llena el brief. Queda como «corregido»:
+      // se revisa como cualquier corrección y se puede volver al brief.
+      case "BRIEF_TRANSCRIPCION": {
+        const materiales = e.prototipo.materiales ?? [];
+        const pegada = typeof b.transcripcion === "string" ? b.transcripcion.trim() : "";
+        const transcripcion = (pegada || materiales.filter((x) => x.tipo === "TRANSCRIPCION" && x.texto).map((x) => x.texto).join("\n\n")).slice(0, MAX_TEXTO_MATERIAL);
+        if (transcripcion.length < 120) {
+          throw new ErrorTaller(422, "VALIDACION", "Falta la transcripción", undefined, [{ campo: "transcripcion", mensaje: "Sube o pega la transcripción de la reunión (al menos unas líneas)" }]);
+        }
+        const manual = materiales.find((x) => x.tipo === "MANUAL" && x.texto)?.texto ?? null;
+        const mensaje = `Transcripción de la reunión:\n${transcripcion}${manual ? `\n\nManual de marca:\n${manual.slice(0, 40_000)}` : ""}`;
+        const respuesta = await repo.iaEquipo(SISTEMA_BRIEF_WEB, mensaje);
+        let propuesta = briefPorReglas(transcripcion);
+        let conIa = false;
+        if (respuesta) {
+          try {
+            propuesta = normalizarBriefWeb(JSON.parse(respuesta.replace(/^```(?:json)?\s*|\s*```$/g, "")) as Record<string, unknown>);
+            conIa = true;
+          } catch {
+            /* si no es JSON, queda el resumen por reglas */
+          }
+        }
+        const ajustes: AjustesTaller = { ...(e.prototipo.ajustes ?? {}), ...propuesta.ajustes };
+        // Los sitios que se nombraron en la reunión se suman al benchmark, sin repetir.
+        const nuevas = propuesta.referencias.filter((r) => !e.referencias.some((x) => x.url === r.url))
+          .map((r): Referencia => ({ id: crypto.randomUUID(), nombre: r.nombre || new URL(r.url).hostname, url: r.url, origen: "BRIEF", capturas: [], puntajes: [], resumen: null, analizadaEn: null }));
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, ajustes }, ...(nuevas.length ? { referencias: [...e.referencias, ...nuevas] } : {}) });
+        return { ...(await resultado(e, { simulado: !conIa })), completados: Object.keys(propuesta.ajustes), referenciasNuevas: nuevas.length };
+      }
 
       case "EDITAR": {
         if (b.version !== e.version) {

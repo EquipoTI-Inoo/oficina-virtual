@@ -180,7 +180,8 @@ export function validarAjustes(v: unknown, errores: { campo: string; mensaje: st
     if (b[k] === undefined) continue;
     if (b[k] === null || b[k] === "") a[k] = null;
     else {
-      const u = normalizarUrl(b[k]);
+      // 9 nov: también el enlace de un material subido al taller (/api/v1/publico/{token}).
+      const u = typeof b[k] === "string" && /^\/api\/v1\/publico\/[0-9a-f]{64}$/.test(b[k] as string) ? (b[k] as string) : normalizarUrl(b[k]);
       if (!u) errores.push({ campo: `ajustes.${k}`, mensaje: "Pega un enlace público (https://…)" });
       else a[k] = u;
     }
@@ -885,3 +886,72 @@ ${d.flujograma.length ? portada(numero(), "Flujograma") : ""}${navegacion}
 ${bocetos ? `${portada(numero(), "Propuesta visual")}${bocetos}` : ""}
 </body></html>`;
 }
+
+// ───────────────────────────── materiales y brief desde la transcripción (9 nov)
+
+/**
+ * Materiales del cliente que el equipo sube al taller: el logo, el manual de marca, la transcripción de la reunión
+ * de brief y cualquier otro archivo. El logo y el manual pasan a ser el logo y el manual del branding.
+ */
+export const TIPOS_MATERIAL = ["LOGO", "MANUAL", "TRANSCRIPCION", "OTRO"] as const;
+export type TipoMaterial = (typeof TIPOS_MATERIAL)[number];
+export interface MaterialTaller { id: string; tipo: TipoMaterial; nombre: string; mime: string; url: string; bytes: number; conTexto: boolean; creadoEn: string }
+/** Lo que se guarda: además, el texto que el navegador sacó del archivo (para la IA), que no sale en la vista. */
+export type MaterialGuardado = MaterialTaller & { texto?: string | null };
+
+const MIMES_MATERIAL: Record<TipoMaterial, RegExp> = {
+  LOGO: /^image\/(png|jpeg|svg\+xml|webp)$/,
+  MANUAL: /^(application\/pdf|image\/(png|jpeg|webp))$/,
+  TRANSCRIPCION: /^(text\/(plain|vtt|markdown)|application\/(pdf|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|x-subrip)|text\/x-subrip)$/,
+  OTRO: /^(image\/(png|jpeg|svg\+xml|webp|gif)|application\/(pdf|zip|vnd\.openxmlformats-officedocument\.[\w.]+)|text\/(plain|csv|markdown)|video\/mp4)$/,
+};
+export const MAX_BYTES_MATERIAL: Record<TipoMaterial, number> = { LOGO: 5_000_000, MANUAL: 25_000_000, TRANSCRIPCION: 10_000_000, OTRO: 25_000_000 };
+export const MAX_MATERIALES = 30;
+export const MAX_TEXTO_MATERIAL = 120_000;
+
+export function validarMaterial(b: Record<string, unknown>): { errores: Errores; datos: { tipo: TipoMaterial; nombre: string; mime: string; base64: string | null; texto: string | null } | null } {
+  const errores: Errores = [];
+  const tipo = b.tipo as TipoMaterial;
+  if (!TIPOS_MATERIAL.includes(tipo)) errores.push({ campo: "tipo", mensaje: "Elige qué es: logo, manual, transcripción u otro" });
+  const nombre = typeof b.nombre === "string" ? b.nombre.trim().slice(0, 200) : "";
+  if (!nombre) errores.push({ campo: "nombre", mensaje: "Falta el nombre del archivo" });
+  const mime = typeof b.mime === "string" ? b.mime.toLowerCase() : "";
+  const base64 = typeof b.base64 === "string" && b.base64 ? b.base64 : null;
+  const texto = typeof b.texto === "string" && b.texto.trim() ? b.texto.slice(0, MAX_TEXTO_MATERIAL) : null;
+  // La transcripción puede llegar solo como texto (pegada o leída en el navegador).
+  if (!base64 && !(tipo === "TRANSCRIPCION" && texto)) errores.push({ campo: "base64", mensaje: "Falta el archivo" });
+  if (base64 && TIPOS_MATERIAL.includes(tipo)) {
+    if (!MIMES_MATERIAL[tipo].test(mime)) errores.push({ campo: "mime", mensaje: tipo === "LOGO" ? "El logo va en PNG, JPG, SVG o WebP" : tipo === "MANUAL" ? "El manual va en PDF o imagen" : tipo === "TRANSCRIPCION" ? "La transcripción va en texto, PDF, Word, VTT o SRT" : "Ese tipo de archivo no se puede subir" });
+    if (Math.floor((base64.length * 3) / 4) > MAX_BYTES_MATERIAL[tipo]) errores.push({ campo: "base64", mensaje: `Pesa más de ${Math.round(MAX_BYTES_MATERIAL[tipo] / 1_000_000)} MB` });
+  }
+  return { errores, datos: errores.length ? null : { tipo, nombre, mime: mime || "text/plain", base64, texto } };
+}
+
+/** DeepSeek: de la transcripción de la reunión de brief (y el manual, si se subió) saca los datos del brief web. */
+export const SISTEMA_BRIEF_WEB = `Eres analista de una agencia de marketing en Perú. Te paso la transcripción de la reunión de brief de una página web con el cliente y, si existe, el texto de su manual de marca. Saca solo lo que se dijo o está escrito; no inventes. Responde SOLO un objeto JSON con estas claves (null o [] si no se mencionó):
+{"objetivo": "para qué es la web, en una o dos frases", "publico": "a quién le habla", "alcance": "qué incluye el proyecto (páginas, funciones, integraciones)", "cms": "WordPress, Elementor, Shopify u otro, si se dijo", "mensajeCentral": "la idea principal que debe transmitir", "tono": "cómo debe sonar", "resumenReunion": "resumen de lo acordado, pendientes y fechas, en hasta 6 líneas", "secciones": ["páginas o secciones pedidas"], "tipografias": ["fuentes de la marca"], "paleta": ["colores de la marca en #RRGGBB"], "referencias": [{"nombre": "sitio", "url": "https://…"}]}
+Cada texto de hasta 550 caracteres. Hasta 20 secciones, 4 tipografías y 8 colores. Escribe en español.`;
+
+export interface PropuestaBriefWeb { ajustes: AjustesTaller; referencias: { nombre: string; url: string }[] }
+export function normalizarBriefWeb(j: Record<string, unknown>): PropuestaBriefWeb {
+  const t = (v: unknown) => (typeof v === "string" && v.trim() && v.trim().toLowerCase() !== "null" ? v.trim().slice(0, 600) : undefined);
+  const l = (v: unknown, max: number, largo: number, patron?: RegExp) =>
+    Array.isArray(v) ? [...new Set(v.map((x) => (typeof x === "string" ? x.trim() : "")).filter((x) => x && x.length <= largo && (!patron || patron.test(x))))].slice(0, max) : [];
+  const a: AjustesTaller = {};
+  for (const k of AJUSTES_TEXTO) {
+    const v = t(j[k]);
+    if (v) a[k] = v;
+  }
+  const secciones = l(j.secciones, 20, 60);
+  const tipografias = l(j.tipografias, 4, 60);
+  const paleta = l((Array.isArray(j.paleta) ? j.paleta : []).map((c) => (typeof c === "string" ? c.trim().toUpperCase() : c)), 8, 7, /^#[0-9A-F]{6}$/);
+  if (secciones.length) a.secciones = secciones;
+  if (tipografias.length) a.tipografias = tipografias;
+  if (paleta.length) a.paleta = paleta;
+  const referencias = (Array.isArray(j.referencias) ? j.referencias : [])
+    .map((r) => ({ nombre: typeof (r as { nombre?: unknown })?.nombre === "string" ? ((r as { nombre: string }).nombre).trim().slice(0, 80) : "", url: normalizarUrl((r as { url?: unknown })?.url) }))
+    .filter((r): r is { nombre: string; url: string } => !!r.url).slice(0, 8);
+  return { ajustes: a, referencias };
+}
+/** Sin IA: al menos la reunión queda resumida con su comienzo. */
+export const briefPorReglas = (transcripcion: string): PropuestaBriefWeb => ({ ajustes: { resumenReunion: transcripcion.replace(/\s+/g, " ").trim().slice(0, 600) || null }, referencias: [] });

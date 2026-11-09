@@ -39,7 +39,7 @@ import type { EnviarCorreo } from "./correo-smtp";
 import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideClave, type Pool, renovar, restablecerClave, type Tokens } from "./cognito";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { AREAS, NOMBRE_AREA, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, validarBot, validarTopes, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, type Area } from "../dominio/ia-equipo";
-import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
+import { completarEquipo, pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, pedirAlBot, validarChat } from "./jarvis-chat";
 import { archivoBiblioteca, EVENTOS_JARVIS, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
@@ -1974,6 +1974,9 @@ function repoTallerDb(ctx: Ctx, s: FilaServicio): RepoTaller {
           JSON.stringify(e.prototipo), e.documentoEntregableId, e.demoEntregableId, autor, e.actualizadoEn],
       );
     },
+    // 9 nov: el brief desde la transcripción usa DeepSeek, con el tope del área y cobrado a quien lo pide.
+    iaEquipo: (sistema, mensaje) => (ctx.esServicio ? Promise.resolve(null) : completarEquipo(almacenDeSolicitud(ctx), { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null, sistema, mensaje, maxTokens: 4000 })),
+    urlCompleta: (url) => (url.startsWith("/") ? `${(process.env.PORTAL_URL?.trim() || "").replace(/\/+$/, "")}${url}` : url),
     almacen: {
       async guardar(a) {
         const f = await archivo(a);
@@ -2056,6 +2059,10 @@ ruta("POST", "/servicios-contratados/:id/taller-web/bocetos", (ctx, p, _q, cuerp
 ruta("POST", "/servicios-contratados/:id/taller-web/prototipo", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "PROTOTIPO", cuerpo));
 ruta("POST", "/servicios-contratados/:id/taller-web/demos", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "DEMO", cuerpo));
 ruta("DELETE", "/servicios-contratados/:id/taller-web/demos/:demoId", (ctx, p) => tallerDb(ctx, p.id, "REVOCAR_DEMO", undefined, p.demoId));
+// 9 nov: los archivos del cliente y el brief desde la transcripción (con DeepSeek).
+ruta("POST", "/servicios-contratados/:id/taller-web/materiales", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "MATERIAL", cuerpo));
+ruta("DELETE", "/servicios-contratados/:id/taller-web/materiales/:materialId", (ctx, p) => tallerDb(ctx, p.id, "QUITAR_MATERIAL", undefined, p.materialId));
+ruta("POST", "/servicios-contratados/:id/taller-web/brief-desde-transcripcion", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "BRIEF_TRANSCRIPCION", cuerpo));
 
 /**
  * GET /publico/{token} y /demo/{token}, sin sesión: se busca el archivo por su token con una sesión de
@@ -2576,6 +2583,23 @@ const almacenDb: AlmacenPasarela = {
     );
   }),
 };
+
+/**
+ * 9 nov: dentro de una solicitud (transcripciones, brief del taller), el tope del área y el cobro van en la misma
+ * transacción de la solicitud: con una sola conexión (PGlite) otra transacción se bloquearía, y así el gasto queda
+ * junto con lo que lo causó.
+ */
+const almacenDeSolicitud = (ctx: Ctx): AlmacenPasarela => ({
+  ...almacenDb,
+  situacion: (area, ahora) => consumoAreaDb(ctx.c, area, ahora),
+  registrar: async (x) => {
+    await ctx.c.query(
+      `INSERT INTO consumo_jarvis (usuario_id, area, modelo, tokens_entrada, tokens_cache, tokens_salida, costo_usd, hora_pico, creado_en)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [x.usuarioId, x.area, x.modelo, x.entrada, x.cache, x.salida, x.costoUsd, x.horaPico, x.creadoEn],
+    );
+  },
+});
 
 ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
   exigirPermiso(ctx, "GESTIONAR_EQUIPO");
@@ -4675,7 +4699,7 @@ ruta("POST", "/servicios-contratados/:id/reuniones/propuesta", async (ctx, p, _q
   await buscarServicio(ctx, p.id);
   const b = (await cuerpo()) as { transcripcion?: unknown };
   validacion(validarTranscripcion(b.transcripcion));
-  return proponerResumen(almacenDb, { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (b.transcripcion as string).trim());
+  return proponerResumen(almacenDeSolicitud(ctx), { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (b.transcripcion as string).trim());
 });
 
 ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, cuerpo) => {
@@ -5508,7 +5532,7 @@ ruta("POST", "/clientes/propuesta-desde-transcripcion", async (ctx, _p, _q, cuer
   exigirRol(ctx, null, ["ACCOUNT_MANAGER", "ADMIN"]);
   const b = (await cuerpo()) as { transcripcion?: unknown };
   validacion(validarTranscripcion(b.transcripcion));
-  return proponerAlta(almacenDb, { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (b.transcripcion as string).trim());
+  return proponerAlta(almacenDeSolicitud(ctx), { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (b.transcripcion as string).trim());
 });
 
 ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
