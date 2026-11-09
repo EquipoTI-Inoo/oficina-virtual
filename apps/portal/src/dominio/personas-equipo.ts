@@ -39,7 +39,7 @@ export const correoValido = (v: unknown): v is string => typeof v === "string" &
 export const inicialesDe = (nombre: string) => nombre.trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
 type Errores = { campo: string; mensaje: string }[];
-const CAMPOS_CAMBIO = ["area", "nivel", "esLead", "nombre", "correo", "cargo", "rolEquipo", "activo", "reportaAId", "esSuperUsuario", "permisos"] as const;
+const CAMPOS_CAMBIO = ["area", "nivel", "esLead", "nombre", "correo", "cargo", "rolEquipo", "activo", "reportaAId", "esSuperUsuario", "permisos", "areasLideradas"] as const;
 export type CambioPersona = Partial<Record<(typeof CAMPOS_CAMBIO)[number], unknown>>;
 
 /** PATCH /panel/equipo/{id}: datos, área, nivel (null = el del área), lead, rol y activo. */
@@ -58,8 +58,14 @@ export function validarPersonaEquipo(b: CambioPersona, esArea: (v: unknown) => b
   if (b.esSuperUsuario !== undefined && typeof b.esSuperUsuario !== "boolean") errores.push({ campo: "esSuperUsuario", mensaje: "Debe ser verdadero o falso" });
   const permisos = b.permisos !== undefined ? validarPermisos(b.permisos) : null;
   if (permisos) errores.push({ campo: "permisos", mensaje: permisos });
+  if (b.areasLideradas !== undefined && !(Array.isArray(b.areasLideradas) && b.areasLideradas.every(esArea) && new Set(b.areasLideradas).size === b.areasLideradas.length)) {
+    errores.push({ campo: "areasLideradas", mensaje: "Elige áreas sin repetir" });
+  }
   return errores;
 }
+
+/** Para el historial de accesos: «Administración, Comercial» o «Ninguna». */
+export const textoAreasLideradas = (xs: readonly string[], nombre: (a: string) => string) => (xs.length ? [...xs].map(nombre).sort().join(", ") : "Ninguna");
 
 /**
  * Organigrama: ¿puede `personaId` reportar a `jefeId`? No a sí misma ni a alguien que (directa o

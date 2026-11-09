@@ -4178,6 +4178,8 @@ export interface components {
         };
         /** @description Una persona del equipo vista por el ADMIN: sus datos, si está activa y cómo está en InooWork */
         FichaPersona: components["schemas"]["PersonaEquipo"] & {
+            /** @description Áreas que lidera, aparte de su área (Jarvis y «Mi área»). La sincronización con InooWork no las toca */
+            areasLideradas: components["schemas"]["AreaEquipo"][];
             /** Format: email */
             correo: string;
             activo: boolean;
@@ -10535,6 +10537,8 @@ export interface operations {
                     reportaAId?: string | null;
                     /** @description Solo super usuario */
                     esSuperUsuario?: boolean;
+                    /** @description Solo super usuario. Las áreas que lidera; queda en el historial de accesos */
+                    areasLideradas?: components["schemas"]["AreaEquipo"][];
                     /** @description Solo super usuario. Permiso → true (concedido), false (quitado) o null (vuelve a lo que da su nivel). Los que no vienen no cambian */
                     permisos?: {
                         GESTIONAR_EQUIPO?: boolean | null;

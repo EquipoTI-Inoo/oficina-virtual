@@ -24,7 +24,7 @@ import {
 import { bolsaDe, calcularConsumo, COMPLEJIDADES, type Complejidad, DURACION_REUNION_MIN, esPorConsumo, periodoLima } from "../dominio/consumo";
 import { archivoReporte, hojasReporte } from "../dominio/reporte";
 import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
-import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, TOPES_INICIALES, validarBot, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
+import { AREAS, NOMBRE_AREA, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, TOPES_INICIALES, validarBot, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, validarTopes, type Area, type TopesArea } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela, type ConsumoJarvis } from "../servidor/pasarela-ia";
 import { leerPaseInooWork } from "../servidor/sesion-inoowork";
 import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
@@ -35,7 +35,7 @@ import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaClie
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
-import { aliasDeCorreo, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
+import { aliasDeCorreo, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, textoAreasLideradas, correoValido, inicialesDe, nuevoIdEmpleado, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, areaDeDepartamento, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
@@ -2652,7 +2652,7 @@ const esDelEquipo = (id: unknown) => E.usuarios.some((u) => u.id === id && u.tip
 
 const fichaVista = (u: D.UsuarioDemo): S<"FichaPersona"> => ({
   ...equipoVista(u), correo: u.email, activo: u.activo !== false, reportaAId: u.reportaAId ?? null,
-  esSuperUsuario: !!u.esSuperUsuario, permisos: permisosDe(u), permisosPersonalizados: u.permisosPersonalizados ?? {},
+  esSuperUsuario: !!u.esSuperUsuario, permisos: permisosDe(u), permisosPersonalizados: u.permisosPersonalizados ?? {}, areasLideradas: [...(u.areasLideradas ?? [])],
   inoowork: { empleadoId: u.inooworkEmpleadoId ?? null, estado: u.inooworkEstado ?? "SIMULADO", error: u.inooworkError ?? null },
 });
 
@@ -3250,6 +3250,7 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
   const otrosSupers = E.usuarios.filter((x) => x.esSuperUsuario && x.activo !== false && x.id !== u.id).length;
   const revision = revisarCambioAcceso(!!ctx.usuario.esSuperUsuario, estadoAntes, b, otrosSupers);
   if (revision.prohibido) throw new ErrorApi(403, "SIN_PERMISO", revision.prohibido);
+  if (b.areasLideradas !== undefined && (ctx.esServicio || !ctx.usuario.esSuperUsuario)) throw new ErrorApi(403, "SIN_PERMISO", "Las áreas que lidera alguien las cambia un super usuario");
   errores.push(...revision.errores);
   if (b.activo === false && u.id === ctx.usuario.id) errores.push({ campo: "activo", mensaje: "No puedes desactivarte a ti mismo" });
   const jefe = typeof b.reportaAId === "string" ? errorJefeMock(u.id, b.reportaAId) : null;
@@ -3273,6 +3274,14 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, req) => {
   u.esSuperUsuario = revision.despues.esSuperUsuario;
   u.permisosPersonalizados = revision.despues.permisosPersonalizados;
   registrarCambiosAcceso(ctx, u.id, estadoAntes, revision.despues);
+  if (b.areasLideradas !== undefined) {
+    const nombre = (a: string) => NOMBRE_AREA[a as Area];
+    const [x, y] = [textoAreasLideradas(u.areasLideradas ?? [], nombre), textoAreasLideradas(b.areasLideradas as Area[], nombre)];
+    if (x !== y) {
+      u.areasLideradas = [...(b.areasLideradas as Area[])];
+      E.cambiosAcceso.push({ id: nuevoId(1), usuarioId: u.id, hechoPorId: ctx.usuario.id, campo: "Áreas que lidera", antes: x, despues: y, creadoEn: new Date().toISOString() });
+    }
+  }
   // Lo que InooWork comparte (datos, área, jefe y activo) se le manda; nivel y lead son solo del portal.
   if (["nombre", "correo", "cargo", "area", "rolEquipo", "activo", "reportaAId"].some((k) => b[k as keyof CambioPersona] !== undefined)) enviarAInooWork(u);
   if (antes && u.activo === false) emitir("equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "PORTAL" });

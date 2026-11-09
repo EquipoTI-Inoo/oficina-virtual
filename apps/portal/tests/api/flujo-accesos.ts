@@ -214,5 +214,25 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       const detalle = (await llamar("GET", `/entregables/${e}`, VALERIA)).json;
       assert.equal(detalle.decisiones[0].usuario.nombre, "Diego Castro (Inoo), en nombre del cliente");
     });
+    test("áreas que lidera (9 nov): solo un super usuario las cambia y queda en el historial", async () => {
+      await reiniciar();
+      const DIEGO_ID = uid(1, 3);
+      assert.equal((await llamar("PATCH", `/panel/equipo/${DIEGO_ID}`, ROSA, { areasLideradas: ["COMERCIAL"] })).status, 403, "Rosa gestiona el equipo pero no es super usuario");
+      const malo = await llamar("PATCH", `/panel/equipo/${DIEGO_ID}`, ADMIN, { areasLideradas: ["CRM", "CRM"] });
+      assert.equal(malo.status, 422);
+      assert.deepEqual(malo.json.errores.map((e: any) => e.campo), ["areasLideradas"]);
+      const ok = await llamar("PATCH", `/panel/equipo/${DIEGO_ID}`, ADMIN, { areasLideradas: ["CRM", "COMERCIAL"] });
+      assert.equal(ok.status, 200, JSON.stringify(ok.json));
+      assert.deepEqual([...ok.json.areasLideradas].sort(), ["COMERCIAL", "CRM"]);
+      const ficha = (await llamar("GET", "/panel/personas", ADMIN)).json.datos.find((x: any) => x.id === DIEGO_ID);
+      assert.deepEqual([...ficha.areasLideradas].sort(), ["COMERCIAL", "CRM"]);
+      const yo = (await llamar("GET", "/me/cuenta", DIEGO)).json;
+      assert.deepEqual([...yo.perfil.areasLideradas].sort(), ["COMERCIAL", "CRM"], "se nota en su sesión");
+      const h = (await llamar("GET", `/panel/personas/${DIEGO_ID}/cambios-acceso`, ADMIN)).json.datos.find((x: any) => x.campo === "Áreas que lidera");
+      assert.equal(h?.despues, "CRM, Comercial".split(", ").sort().join(", "));
+      assert.equal(h?.hechoPor?.nombre, "Admin Inoo");
+      await llamar("PATCH", `/panel/equipo/${DIEGO_ID}`, ADMIN, { areasLideradas: [] });
+      assert.deepEqual((await llamar("GET", "/panel/personas", ADMIN)).json.datos.find((x: any) => x.id === DIEGO_ID).areasLideradas, []);
+    });
   });
 }

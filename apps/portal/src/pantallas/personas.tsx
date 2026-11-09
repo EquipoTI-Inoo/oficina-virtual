@@ -135,7 +135,7 @@ function Personas() {
                     <span className="negrita" style={{ display: "block" }}>{p.nombre}{!p.activo && <span className="texto-xs texto-muted"> · desactivada</span>}</span>
                     <span className="texto-xs texto-muted">{p.cargo ? `${p.cargo} · ` : ""}{p.correo}</span>
                   </td>
-                  <td className="texto-sm">{p.area ? NOMBRE_AREA[p.area] : <span style={{ color: "var(--c-alerta)" }}>Sin área</span>}{p.esLead && <span className="texto-xs texto-muted"> · lead</span>}</td>
+                  <td className="texto-sm">{p.area ? NOMBRE_AREA[p.area] : <span style={{ color: "var(--c-alerta)" }}>Sin área</span>}{p.areasLideradas.length > 0 ? <span className="texto-xs texto-muted"> · lidera {p.areasLideradas.map((a) => NOMBRE_AREA[a]).join(", ")}</span> : p.esLead && <span className="texto-xs texto-muted"> · lead</span>}</td>
                   <td className="texto-sm">
                     {p.esSuperUsuario ? <Etiqueta tono="violeta">Super usuario</Etiqueta> : NOMBRE_NIVEL[p.nivel]}
                     {!p.esSuperUsuario && (p.nivelPersonalizado || Object.keys(p.permisosPersonalizados).length > 0) && <span className="texto-xs texto-muted"> · a medida</span>}
@@ -237,6 +237,7 @@ function EditorPersona({ persona, equipo, soySuper, alCerrar, alGuardar }: { per
   const [esLead, setEsLead] = useState(persona?.esLead ?? false);
   const [jefe, setJefe] = useState(persona?.reportaAId ?? "");
   const [esSuper, setEsSuper] = useState(persona?.esSuperUsuario ?? false);
+  const [lidera, setLidera] = useState<Area[]>(persona?.areasLideradas ?? []);
   const [permisos, setPermisos] = useState<Record<Permiso, ValorPermiso>>(() => Object.fromEntries(PERMISOS.map((x) => [x, valorDePermiso(persona?.permisosPersonalizados[x])])) as Record<Permiso, ValorPermiso>);
   const [err, setErr] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
@@ -247,7 +248,7 @@ function EditorPersona({ persona, equipo, soySuper, alCerrar, alGuardar }: { per
     setGuardando(true);
     const cuerpo = {
       nombre, correo, cargo: cargo.trim() || null, area: area || null, nivel: nivel || null, esLead: !!area && esLead, reportaAId: jefe || null,
-      ...(soySuper && persona ? { esSuperUsuario: esSuper, permisos: Object.fromEntries(PERMISOS.map((x) => [x, VALOR_PERMISO[permisos[x]]])) } : {}),
+      ...(soySuper && persona ? { esSuperUsuario: esSuper, areasLideradas: AREAS.filter((a) => lidera.includes(a)), permisos: Object.fromEntries(PERMISOS.map((x) => [x, VALOR_PERMISO[permisos[x]]])) } : {}),
     };
     try {
       const x = persona
@@ -309,6 +310,21 @@ function EditorPersona({ persona, equipo, soySuper, alCerrar, alGuardar }: { per
           {equipo.filter((p) => p.id !== persona?.id).map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.cargo ? ` · ${p.cargo}` : ""}</option>)}
         </select>
       </Campo>
+      {soySuper && persona && (
+        <fieldset className="pila" style={{ gap: 6, border: 0, padding: 0, margin: 0 }}>
+          <legend className="negrita texto-sm" style={{ marginBottom: 4 }}>Áreas que lidera</legend>
+          <p className="texto-xs texto-muted">Ve y edita los bots de Jarvis de esas áreas y su gente aparece en «Mi área» de su panel. Puede ser otra que su área (InooWork no lo cambia).</p>
+          <div className="fila" style={{ gap: "6px 14px", flexWrap: "wrap" }}>
+            {AREAS.map((a) => (
+              <label key={a} className="fila texto-sm" style={{ gap: 6 }}>
+                <input type="checkbox" checked={lidera.includes(a)} onChange={(e) => setLidera((xs) => (e.target.checked ? [...xs, a] : xs.filter((x) => x !== a)))} />
+                {NOMBRE_AREA[a]}
+              </label>
+            ))}
+          </div>
+          {err.areasLideradas && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err.areasLideradas}</p>}
+        </fieldset>
+      )}
       {soySuper && persona && (
         <section className="pila" style={{ gap: 8, borderTop: "1px solid var(--c-borde)", paddingTop: 12 }} aria-label="Permisos">
           <label className="fila texto-sm" style={{ gap: 8 }}>

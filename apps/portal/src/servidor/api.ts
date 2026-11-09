@@ -38,12 +38,12 @@ import { autenticar, type Usuario } from "./auth";
 import type { EnviarCorreo } from "./correo-smtp";
 import { crearUsuarioCognito, ingresar as ingresarCognito, nuevaClave, olvideClave, type Pool, renovar, restablecerClave, type Tokens } from "./cognito";
 import { baseDatos, comoUsuario, type Consultor } from "./db";
-import { AREAS, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, validarBot, validarTopes, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, type Area } from "../dominio/ia-equipo";
+import { AREAS, NOMBRE_AREA, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, validarBot, validarTopes, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, type Area } from "../dominio/ia-equipo";
 import { pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "./jarvis-chat";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
-import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
+import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, textoAreasLideradas, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
 import { enviadorSmtp } from "./correo-smtp";
 import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } from "./claves";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
@@ -2194,12 +2194,12 @@ const personaEquipoVista = (u: FilaPersonaEquipo): S<"PersonaEquipo"> => ({
 
 interface FilaFichaPersona extends FilaPersonaEquipo {
   email: string; activo: boolean; reporta_a_id: string | null; inoowork_empleado_id: string | null; inoowork_usuario: string | null;
-  inoowork_estado: S<"PersonaEnInooWork">["estado"]; inoowork_error: string | null;
+  inoowork_estado: S<"PersonaEnInooWork">["estado"]; inoowork_error: string | null; areas_lideradas: Area[];
 }
-const COLUMNAS_FICHA_PERSONA = `${COLUMNAS_PERSONA_EQUIPO}, email::text AS email, activo, reporta_a_id, inoowork_empleado_id, inoowork_usuario, inoowork_estado, inoowork_error`;
+const COLUMNAS_FICHA_PERSONA = `${COLUMNAS_PERSONA_EQUIPO}, email::text AS email, activo, reporta_a_id, inoowork_empleado_id, inoowork_usuario, inoowork_estado, inoowork_error, areas_lideradas::text[] AS areas_lideradas`;
 const fichaPersonaVista = (u: FilaFichaPersona): S<"FichaPersona"> => ({
   ...personaEquipoVista(u), correo: u.email, activo: u.activo, reportaAId: u.reporta_a_id,
-  esSuperUsuario: u.es_super_usuario, permisos: permisosDe(accesoDeFila(u)), permisosPersonalizados: u.permisos_personalizados,
+  esSuperUsuario: u.es_super_usuario, permisos: permisosDe(accesoDeFila(u)), permisosPersonalizados: u.permisos_personalizados, areasLideradas: u.areas_lideradas ?? [],
   inoowork: { empleadoId: u.inoowork_empleado_id, estado: u.inoowork_estado, error: u.inoowork_error },
 });
 
@@ -2586,6 +2586,8 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
   const otrosSupers = (await ctx.c.query("SELECT 1 FROM usuario WHERE es_super_usuario AND activo AND id <> $1", [p.id])).rows.length;
   const revision = revisarCambioAcceso(!!ctx.u.esSuperUsuario, antes, b, otrosSupers);
   if (revision.prohibido) throw new ErrorApi(403, "SIN_PERMISO", revision.prohibido);
+  // 9 nov: las áreas que lidera cambian lo que ve y edita en Jarvis; solo las cambia un super usuario.
+  if (b.areasLideradas !== undefined && (ctx.esServicio || !ctx.u.esSuperUsuario)) throw new ErrorApi(403, "SIN_PERMISO", "Las áreas que lidera alguien las cambia un super usuario");
   errores.push(...revision.errores);
   if (b.activo === false && p.id === ctx.u.usuarioId) errores.push({ campo: "activo", mensaje: "No puedes desactivarte a ti mismo" });
   const jefe = typeof b.reportaAId === "string" ? await errorJefeDb(ctx, p.id, b.reportaAId) : null;
@@ -2605,6 +2607,15 @@ ruta("PATCH", "/panel/equipo/:id", async (ctx, p, _q, cuerpo) => {
       b.reportaAId !== undefined, (b.reportaAId as string | null | undefined) ?? null, revision.despues.esSuperUsuario, JSON.stringify(revision.despues.permisosPersonalizados)],
   )).rows[0];
   await registrarCambiosAccesoDb(ctx, u.id, antes, revision.despues);
+  if (b.areasLideradas !== undefined) {
+    const previas = (await ctx.c.query<{ a: Area[] }>("SELECT areas_lideradas::text[] AS a FROM usuario WHERE id = $1", [u.id])).rows[0].a;
+    const nuevas = b.areasLideradas as Area[];
+    const [x, y] = [textoAreasLideradas(previas, (a) => NOMBRE_AREA[a as Area]), textoAreasLideradas(nuevas, (a) => NOMBRE_AREA[a as Area])];
+    if (x !== y) {
+      u = (await ctx.c.query<FilaFichaPersona>(`UPDATE usuario SET areas_lideradas = string_to_array($2, ',')::area_equipo[] WHERE id = $1 RETURNING ${COLUMNAS_FICHA_PERSONA}`, [u.id, nuevas.join(",")])).rows[0];
+      await ctx.c.query("INSERT INTO cambio_acceso (usuario_id, hecho_por, campo, antes, despues) VALUES ($1, $2, 'Áreas que lidera', $3, $4)", [u.id, ctx.u.usuarioId, x, y]);
+    }
+  }
   if (antes.activo && !u.activo) await emitirOutbox(ctx, "equipo.persona_desactivada", null, { usuarioId: u.id, email: u.email, origen: "PORTAL" });
   // Lo que InooWork comparte (datos, área y activo) se le manda; nivel y lead son solo del portal.
   if ((["nombre", "correo", "cargo", "area", "rolEquipo", "activo", "reportaAId"] as const).some((k) => b[k] !== undefined)) u = await enviarAInooWorkDb(ctx, u);

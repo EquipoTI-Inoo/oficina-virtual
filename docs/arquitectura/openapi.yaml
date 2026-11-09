@@ -2884,6 +2884,7 @@ paths:
                 activo: { type: boolean }
                 reportaAId: { type: [string, 'null'], format: uuid, description: 'Su jefe en el organigrama; null = nadie' }
                 esSuperUsuario: { type: boolean, description: 'Solo super usuario' }
+                areasLideradas: { type: array, items: { $ref: '#/components/schemas/AreaEquipo' }, description: 'Solo super usuario. Las áreas que lidera; queda en el historial de accesos' }
                 permisos:
                   type: object
                   description: 'Solo super usuario. Permiso → true (concedido), false (quitado) o null (vuelve a lo que da su nivel). Los que no vienen no cambian'
@@ -5689,8 +5690,9 @@ components:
       allOf:
         - $ref: '#/components/schemas/PersonaEquipo'
         - type: object
-          required: [correo, activo, inoowork, reportaAId, esSuperUsuario, permisos, permisosPersonalizados]
+          required: [correo, activo, inoowork, reportaAId, esSuperUsuario, permisos, permisosPersonalizados, areasLideradas]
           properties:
+            areasLideradas: { type: array, items: { $ref: '#/components/schemas/AreaEquipo' }, description: 'Áreas que lidera, aparte de su área (Jarvis y «Mi área»). La sincronización con InooWork no las toca' }
             correo: { type: string, format: email }
             activo: { type: boolean }
             reportaAId: { type: [string, 'null'], format: uuid }
