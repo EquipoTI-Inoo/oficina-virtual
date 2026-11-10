@@ -96,7 +96,10 @@ function PipelineProyectos() {
             <LuSearch size={16} />
           </span>
         </div>
-        <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando("CATALOGO")}>
+        {sesion?.usuario.nivelAcceso === "ADMIN" && (
+          <Enlace a="/equipo/proyectos/monday" className="boton" style={{ marginLeft: "auto" }}>Importar de Monday</Enlace>
+        )}
+        <button type="button" className="boton boton--primario" style={sesion?.usuario.nivelAcceso === "ADMIN" ? undefined : { marginLeft: "auto" }} onClick={() => setCreando("CATALOGO")}>
           <LuPlus size={16} /> Nuevo proyecto
         </button>
       </div>

@@ -5,7 +5,8 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { LuChevronDown, LuChevronLeft, LuChevronRight, LuPlus, LuTrash2 } from "react-icons/lu";
+import { LuChevronDown, LuChevronLeft, LuChevronRight, LuHistory, LuPlus, LuTrash2 } from "react-icons/lu";
+import { HistorialMonday } from "./monday";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso } from "../componentes";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
@@ -179,6 +180,7 @@ function Fecha({ valor, guardar, editable, etiqueta, vencido }: { valor: string 
 function VistaTabla({ t, items, cambiar, editable }: Ctx) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
+  const [historial, setHistorial] = useState<Item | null>(null);
   const alternar = (s: Set<string>, id: string) => {
     const n = new Set(s);
     if (n.has(id)) n.delete(id);
@@ -253,6 +255,7 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                             <span className="fila" style={{ gap: 6 }}>
                               <Texto valor={i.nombre} editable={editable} etiqueta={`Nombre de ${i.nombre}`} guardar={(nombre) => void item(i, { nombre })} />
                               {i.subitems.length > 0 && <span className="contador-sub">{i.subitems.length}</span>}
+                              {i.deMonday && <button className="boton-icono" aria-label={`Historial de Monday de ${i.nombre}`} title="Historial de Monday" onClick={() => setHistorial(i)}><LuHistory size={13} /></button>}
                             </span>
                           </td>
                           <td><Persona t={t} valor={i.responsable} editable={editable} etiqueta={`Responsable de ${i.nombre}`} guardar={(responsableId) => void item(i, { responsableId })} /></td>
@@ -297,6 +300,7 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
           <LuPlus size={14} /> Nuevo grupo
         </button>
       )}
+      {historial && <HistorialMonday proyectoId={t.id} item={historial} alCerrar={() => setHistorial(null)} />}
     </div>
   );
 }

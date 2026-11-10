@@ -99,7 +99,7 @@ const TIPO_VISTA: Record<string, string> = { table: "TABLA", kanban: "KANBAN", c
 function itemVista(p: ProyectoIW, it: ItemIW, cols: { id: string }[]) {
   return {
     id: it.id, nombre: it.name, estado: it.status, responsable: persona(it.assignee, it.assigneeName), fecha: it.dueDate || null,
-    prioridad: it.priority || "Media", notas: it.notes || "", grupoId: it.groupId, creadoEn: it.createdAt || null, vencido: itemVencido(it),
+    prioridad: it.priority || "Media", notas: it.notes || "", grupoId: it.groupId, creadoEn: it.createdAt || null, vencido: itemVencido(it), deMonday: !!it.mondayId,
     valores: Object.fromEntries(cols.map((c) => [c.id, it[c.id] ?? ""]).filter(([, v]) => v !== "")) as Record<string, string | number>,
     subitems: (it.subitems ?? []).map((s) => ({ id: s.id, nombre: s.name, estado: s.status, responsable: persona(s.assignee, s.assigneeName), fecha: s.dueDate || null, vencido: itemVencido(s) })),
   };
@@ -176,6 +176,16 @@ export function crearTableros(fallar: Fallar) {
       return tableroVista(p, yo);
     }),
     ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),
+    /** Importación de Monday (9 nov): crea el proyecto ya armado. */
+    importar: (p: ProyectoIW, yo: Yo) => protegido(async () => {
+      await crearIW(p, yo.prueba);
+      return tableroVista(p, yo);
+    }),
+    /** ¿Sigue existiendo (y sin borrar) ese proyecto? Para no importar dos veces el mismo tablero. */
+    existe: (id: string, yo: Yo) => protegido(async () => {
+      const p = await obtenerIW(id, yo.prueba);
+      return !!p && !p.deleted;
+    }),
     /** Cliente y estado del proyecto (6 nov: «Completado» lo culmina y a los 14 días se archiva). */
     cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown }) => cambiar(id, yo, (p) => {
       const errores: { campo: string; mensaje: string }[] = [];

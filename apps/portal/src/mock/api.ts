@@ -43,6 +43,7 @@ import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/re
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
+import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { descripcionPrueba } from "../dominio/pruebas";
@@ -146,6 +147,9 @@ interface Estado {
   estadosConexion: Record<string, { usuarioId: string; ruta: string }>;
   /** Bóveda personal (9 nov): lo que se guardaría (opaco: la contraseña llega cifrada desde el navegador). */
   bovedas: Record<string, { sal: string; iteraciones: number; llaveEnvuelta: string }>;
+  /** Importación de Monday (9 nov): tableros ya importados y el historial de cada ítem. */
+  importacionesMonday: { tableroId: string; nombre: string; proyectoId: string; en: string }[];
+  historialMonday: (FilaHistorial & { proyectoId: string })[];
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
@@ -234,7 +238,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -1631,6 +1635,46 @@ ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, req) => {
 ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarGrupo(p.id, p.grupo, yoTablero(ctx));
+});
+
+// ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN
+
+const MONDAY = crearImportadorMonday((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+const repoMonday = (): RepoMonday => ({
+  importaciones: async () => E.importacionesMonday.map((x) => ({ ...x })),
+  equipo: async () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false).map((u) => ({ id: u.id, nombre: u.nombre, email: u.email ?? null, empleadoId: u.inooworkEmpleadoId ?? null })),
+  guardar: async (reg, filas) => {
+    E.importacionesMonday = E.importacionesMonday.filter((x) => x.tableroId !== reg.tableroId).concat({ tableroId: reg.tableroId, nombre: reg.nombre, proyectoId: reg.proyectoId, en: new Date().toISOString() });
+    E.historialMonday.push(...filas.map((f) => ({ ...f, proyectoId: reg.proyectoId })));
+  },
+  historial: async (proyectoId, itemId) => E.historialMonday.filter((h) => h.proyectoId === proyectoId && h.itemId === itemId),
+  archivo: async (proyectoId, archivoId) => E.historialMonday.filter((h) => h.proyectoId === proyectoId).flatMap((h) => h.archivos).find((a) => a.id === archivoId) ?? null,
+  almacen: null,
+});
+const soloAdminMonday = (ctx: Ctx) => {
+  soloEquipo(ctx);
+  if (!esNivelAdmin(ctx)) throw new ErrorApi(403, "SIN_PERMISO", "La importación de Monday la hace el nivel Admin");
+};
+ruta("GET", "/monday/tableros", async (ctx) => {
+  soloAdminMonday(ctx);
+  return MONDAY.listar(repoMonday(), yoTablero(ctx));
+});
+ruta("GET", "/monday/tableros/:id", async (ctx, p) => {
+  soloAdminMonday(ctx);
+  return MONDAY.previa(repoMonday(), p.id, yoTablero(ctx));
+});
+ruta("POST", "/monday/tableros/:id/importar", async (ctx, p, _q, req) => {
+  soloAdminMonday(ctx);
+  const u = ctx.usuario;
+  return MONDAY.importar(repoMonday(), p.id, { ...yoTablero(ctx), usuarioId: u.id, departamento: departamentoDe({ area: u.area ?? null, rolEquipo: u.rolEquipo ?? null }) }, await cuerpo<Record<string, unknown>>(req));
+});
+ruta("GET", "/tableros/:id/items/:item/historial-monday", async (ctx, p) => {
+  soloEquipo(ctx);
+  return MONDAY.historial(repoMonday(), p.id, p.item, yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id/archivos-monday/:archivo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return MONDAY.descargar(repoMonday(), p.id, p.archivo, yoTablero(ctx));
 });
 
 // Búsqueda global del equipo (6 nov): solo lo que cada persona puede ver.

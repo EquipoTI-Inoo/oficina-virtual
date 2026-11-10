@@ -3300,6 +3300,111 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/monday/tableros": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Importar de Monday (9 nov): los tableros de la cuenta de Monday y cuáles ya se importaron
+         * @description Una importación masiva que hace el nivel ADMIN para dejar de usar Monday. El portal lee Monday con la clave
+         *     MONDAY_API_TOKEN del servidor (solo lectura). `conectado: false` = tableros de demo (falta la clave).
+         */
+        get: operations["listarTablerosMonday"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/monday/tableros/{tableroId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tableroId: string;
+            };
+            cookie?: never;
+        };
+        /** Vista previa: qué se pasa, cómo se traducen los estados y a quién del equipo corresponde cada persona de Monday */
+        get: operations["previaTableroMonday"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/monday/tableros/{tableroId}/importar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tableroId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crea el proyecto en InooWork con todo el tablero y guarda el historial de cada ítem (actualizaciones, respuestas y archivos)
+         * @description `estados` y `personas` corrigen lo sugerido en la vista previa (lo que no se manda queda como se sugirió).
+         *     Una persona emparejada con alguien sin ficha de InooWork da 422. El líder, si no se elige, es el dueño del
+         *     tablero en Monday (si está emparejado) o quien importa. Los archivos se copian al almacén del portal.
+         *     409 YA_IMPORTADO si ese tablero ya está en un proyecto que sigue existiendo.
+         */
+        post: operations["importarTableroMonday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/historial-monday": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        /** Lo que el ítem traía de Monday: actualizaciones con sus respuestas y archivos (lo ve quien ve el tablero) */
+        get: operations["historialMondayItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/archivos-monday/{archivoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        /** Enlace temporal para descargar un archivo traído de Monday */
+        get: operations["descargarArchivoMonday"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/tareas": {
         parameters: {
             query?: never;
@@ -5621,6 +5726,8 @@ export interface components {
         };
         ItemTablero: {
             id: string;
+            /** @description Vino de Monday (9 nov): tiene historial (actualizaciones y archivos) en el portal. */
+            deMonday: boolean;
             nombre: string;
             /** @enum {string} */
             estado: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";
@@ -5638,6 +5745,75 @@ export interface components {
                 [key: string]: string | number;
             };
             subitems: components["schemas"]["SubitemTablero"][];
+        };
+        ImportacionMonday: {
+            proyectoId: string;
+            /** Format: date-time */
+            en: string;
+        } | null;
+        PreviaMonday: {
+            tablero: {
+                id: string;
+                nombre: string;
+                espacio: string | null;
+                descripcion: string;
+            };
+            conteo: {
+                grupos: number;
+                items: number;
+                subitems: number;
+                actualizaciones: number;
+                archivos: number;
+            };
+            columnas: {
+                id: string;
+                titulo: string;
+                tipo: string;
+                /** @enum {string} */
+                uso: "ESTADO" | "PRIORIDAD" | "RESPONSABLE" | "FECHA" | "LINEA_TIEMPO" | "NOTAS" | "COLUMNA" | "NO_SE_PASA";
+            }[];
+            estados: {
+                etiqueta: string;
+                cantidad: number;
+                /** @enum {string} */
+                sugerido: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";
+            }[];
+            personas: {
+                id: string;
+                nombre: string;
+                email: string | null;
+                cantidad: number;
+                esDueno: boolean;
+                sugeridoId: string | null;
+            }[];
+            equipo: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+                /** @description Tiene ficha en InooWork (puede ser responsable). */
+                conFicha: boolean;
+            }[];
+            importado: components["schemas"]["ImportacionMonday"];
+        };
+        EntradaHistorialMonday: {
+            id: string;
+            /** @enum {string} */
+            tipo: "ACTUALIZACION" | "ARCHIVOS";
+            autor: string | null;
+            fecha: string | null;
+            texto: string;
+            respuestas: {
+                autor: string;
+                fecha: string | null;
+                texto: string;
+            }[];
+            archivos: {
+                id: string;
+                nombre: string;
+                bytes: number | null;
+                /** @description Se copió al almacén del portal y se puede descargar. */
+                disponible: boolean;
+            }[];
         };
         /** @description Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente */
         TableroInooWork: {
@@ -14443,6 +14619,194 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listarTablerosMonday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        conectado: boolean;
+                        datos: {
+                            id: string;
+                            nombre: string;
+                            espacio: string | null;
+                            items: number;
+                            actualizadoEn: string | null;
+                            importado: components["schemas"]["ImportacionMonday"];
+                        }[];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description Monday no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    previaTableroMonday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tableroId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviaMonday"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description Monday no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    importarTableroMonday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tableroId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre?: string;
+                    cliente: string;
+                    /** @description Etiqueta de Monday → estado de InooWork. */
+                    estados?: {
+                        [key: string]: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";
+                    };
+                    /** @description Id de persona en Monday → id de usuario del equipo (o null, sin asignar). */
+                    personas?: {
+                        [key: string]: string | null;
+                    };
+                    liderId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tablero: components["schemas"]["TableroInooWork"];
+                        resumen: {
+                            grupos: number;
+                            items: number;
+                            subitems: number;
+                            actualizaciones: number;
+                            archivos: number;
+                            archivosCopiados: number;
+                            sinResponsable: number;
+                        };
+                        archivosSinCopiar: {
+                            nombre: string;
+                            motivo: string;
+                        }[];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+            /** @description Monday o InooWork no respondieron */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    historialMondayItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["EntradaHistorialMonday"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    descargarArchivoMonday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
         };
     };
     listarTareas: {

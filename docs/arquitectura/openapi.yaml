@@ -4763,6 +4763,161 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /monday/tableros:
+    get:
+      tags: [Tableros]
+      operationId: listarTablerosMonday
+      summary: 'Importar de Monday (9 nov): los tableros de la cuenta de Monday y cuáles ya se importaron'
+      description: |
+        Una importación masiva que hace el nivel ADMIN para dejar de usar Monday. El portal lee Monday con la clave
+        MONDAY_API_TOKEN del servidor (solo lectura). `conectado: false` = tableros de demo (falta la clave).
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, conectado]
+                properties:
+                  conectado: { type: boolean }
+                  datos:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, nombre, espacio, items, actualizadoEn, importado]
+                      properties:
+                        id: { type: string }
+                        nombre: { type: string }
+                        espacio: { type: [string, 'null'] }
+                        items: { type: integer }
+                        actualizadoEn: { type: [string, 'null'] }
+                        importado: { $ref: '#/components/schemas/ImportacionMonday' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: Monday no respondió }
+
+  /monday/tableros/{tableroId}:
+    parameters:
+      - { name: tableroId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: previaTableroMonday
+      summary: 'Vista previa: qué se pasa, cómo se traducen los estados y a quién del equipo corresponde cada persona de Monday'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreviaMonday' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '502': { description: Monday no respondió }
+
+  /monday/tableros/{tableroId}/importar:
+    parameters:
+      - { name: tableroId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: importarTableroMonday
+      summary: 'Crea el proyecto en InooWork con todo el tablero y guarda el historial de cada ítem (actualizaciones, respuestas y archivos)'
+      description: |
+        `estados` y `personas` corrigen lo sugerido en la vista previa (lo que no se manda queda como se sugirió).
+        Una persona emparejada con alguien sin ficha de InooWork da 422. El líder, si no se elige, es el dueño del
+        tablero en Monday (si está emparejado) o quien importa. Los archivos se copian al almacén del portal.
+        409 YA_IMPORTADO si ese tablero ya está en un proyecto que sigue existiendo.
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cliente]
+              properties:
+                nombre: { type: string, maxLength: 120 }
+                cliente: { type: string, maxLength: 120 }
+                estados:
+                  type: object
+                  description: Etiqueta de Monday → estado de InooWork.
+                  additionalProperties: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Soporte Continuo, Bloqueado] }
+                personas:
+                  type: object
+                  description: Id de persona en Monday → id de usuario del equipo (o null, sin asignar).
+                  additionalProperties: { type: [string, 'null'] }
+                liderId: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tablero, resumen, archivosSinCopiar]
+                properties:
+                  tablero: { $ref: '#/components/schemas/TableroInooWork' }
+                  resumen:
+                    type: object
+                    required: [grupos, items, subitems, actualizaciones, archivos, archivosCopiados, sinResponsable]
+                    properties:
+                      grupos: { type: integer }
+                      items: { type: integer }
+                      subitems: { type: integer }
+                      actualizaciones: { type: integer }
+                      archivos: { type: integer }
+                      archivosCopiados: { type: integer }
+                      sinResponsable: { type: integer }
+                  archivosSinCopiar:
+                    type: array
+                    items: { type: object, required: [nombre, motivo], properties: { nombre: { type: string }, motivo: { type: string } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: Monday o InooWork no respondieron }
+
+  /tableros/{proyectoId}/items/{itemId}/historial-monday:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: historialMondayItem
+      summary: 'Lo que el ítem traía de Monday: actualizaciones con sus respuestas y archivos (lo ve quien ve el tablero)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/EntradaHistorialMonday' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /tableros/{proyectoId}/archivos-monday/{archivoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: descargarArchivoMonday
+      summary: 'Enlace temporal para descargar un archivo traído de Monday'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [url], properties: { url: { type: string } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
   /servicios-contratados/{servicioContratadoId}/tareas:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -7139,9 +7294,10 @@ components:
         vencido: { type: boolean }
     ItemTablero:
       type: object
-      required: [id, nombre, estado, responsable, fecha, prioridad, notas, grupoId, valores, subitems, vencido]
+      required: [id, nombre, estado, responsable, fecha, prioridad, notas, grupoId, valores, subitems, vencido, deMonday]
       properties:
         id: { type: string }
+        deMonday: { type: boolean, description: 'Vino de Monday (9 nov): tiene historial (actualizaciones y archivos) en el portal.' }
         nombre: { type: string }
         estado: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Soporte Continuo, Bloqueado] }
         responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
@@ -7153,6 +7309,102 @@ components:
         vencido: { type: boolean }
         valores: { type: object, additionalProperties: { type: [string, number] }, description: 'Columnas personalizadas, por id de columna' }
         subitems: { type: array, items: { $ref: '#/components/schemas/SubitemTablero' } }
+    ImportacionMonday:
+      type: [object, 'null']
+      required: [proyectoId, en]
+      properties:
+        proyectoId: { type: string }
+        en: { type: string, format: date-time }
+    PreviaMonday:
+      type: object
+      required: [tablero, conteo, columnas, estados, personas, equipo, importado]
+      properties:
+        tablero:
+          type: object
+          required: [id, nombre, espacio, descripcion]
+          properties:
+            id: { type: string }
+            nombre: { type: string }
+            espacio: { type: [string, 'null'] }
+            descripcion: { type: string }
+        conteo:
+          type: object
+          required: [grupos, items, subitems, actualizaciones, archivos]
+          properties:
+            grupos: { type: integer }
+            items: { type: integer }
+            subitems: { type: integer }
+            actualizaciones: { type: integer }
+            archivos: { type: integer }
+        columnas:
+          type: array
+          items:
+            type: object
+            required: [id, titulo, tipo, uso]
+            properties:
+              id: { type: string }
+              titulo: { type: string }
+              tipo: { type: string }
+              uso: { type: string, enum: [ESTADO, PRIORIDAD, RESPONSABLE, FECHA, LINEA_TIEMPO, NOTAS, COLUMNA, NO_SE_PASA] }
+        estados:
+          type: array
+          items:
+            type: object
+            required: [etiqueta, cantidad, sugerido]
+            properties:
+              etiqueta: { type: string }
+              cantidad: { type: integer }
+              sugerido: { type: string, enum: [Sin Iniciar, En Progreso, En Revisión, Completado, Soporte Continuo, Bloqueado] }
+        personas:
+          type: array
+          items:
+            type: object
+            required: [id, nombre, email, cantidad, esDueno, sugeridoId]
+            properties:
+              id: { type: string }
+              nombre: { type: string }
+              email: { type: [string, 'null'] }
+              cantidad: { type: integer }
+              esDueno: { type: boolean }
+              sugeridoId: { type: [string, 'null'] }
+        equipo:
+          type: array
+          items:
+            type: object
+            required: [id, nombre, conFicha]
+            properties:
+              id: { type: string, format: uuid }
+              nombre: { type: string }
+              conFicha: { type: boolean, description: Tiene ficha en InooWork (puede ser responsable). }
+        importado: { $ref: '#/components/schemas/ImportacionMonday' }
+    EntradaHistorialMonday:
+      type: object
+      required: [id, tipo, autor, fecha, texto, respuestas, archivos]
+      properties:
+        id: { type: string }
+        tipo: { type: string, enum: [ACTUALIZACION, ARCHIVOS] }
+        autor: { type: [string, 'null'] }
+        fecha: { type: [string, 'null'] }
+        texto: { type: string }
+        respuestas:
+          type: array
+          items:
+            type: object
+            required: [autor, fecha, texto]
+            properties:
+              autor: { type: string }
+              fecha: { type: [string, 'null'] }
+              texto: { type: string }
+        archivos:
+          type: array
+          items:
+            type: object
+            required: [id, nombre, bytes, disponible]
+            properties:
+              id: { type: string }
+              nombre: { type: string }
+              bytes: { type: [integer, 'null'] }
+              disponible: { type: boolean, description: Se copió al almacén del portal y se puede descargar. }
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'

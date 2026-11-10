@@ -56,6 +56,7 @@ import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
+import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUEBAS, permitidoACuentaPruebas } from "../dominio/pruebas";
@@ -5189,6 +5190,69 @@ ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, cuerpo) => {
 ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarGrupo(p.id, p.grupo, await yoTablero(ctx));
+});
+
+// ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN
+
+const MONDAY = crearImportadorMonday((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+type FilaHistorialDb = { id: string; item_iw_id: string; tipo: FilaHistorial["tipo"]; autor: string | null; fecha: Date | null; texto: string; respuestas: FilaHistorial["respuestas"]; archivos: FilaHistorial["archivos"] };
+const filaHistorial = (r: FilaHistorialDb): FilaHistorial => ({
+  id: r.id, itemId: r.item_iw_id, tipo: r.tipo, autor: r.autor, fecha: r.fecha ? new Date(r.fecha).toISOString() : null, texto: r.texto, respuestas: r.respuestas ?? [], archivos: r.archivos ?? [],
+});
+function repoMonday(ctx: Ctx): RepoMonday {
+  return {
+    importaciones: async () => (await ctx.c.query<{ tablero_monday_id: string; nombre: string; proyecto_iw_id: string; importado_en: Date }>(
+      "SELECT tablero_monday_id, nombre, proyecto_iw_id, importado_en FROM importacion_monday")).rows
+      .map((r) => ({ tableroId: r.tablero_monday_id, nombre: r.nombre, proyectoId: r.proyecto_iw_id, en: new Date(r.importado_en).toISOString() })),
+    equipo: async () => (await ctx.c.query<{ id: string; nombre: string; email: string | null; empleado: string | null }>(
+      "SELECT id, nombre, email, inoowork_empleado_id AS empleado FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre")).rows
+      .map((r) => ({ id: r.id, nombre: r.nombre, email: r.email, empleadoId: r.empleado })),
+    guardar: async (reg, filas) => {
+      await ctx.c.query(
+        `INSERT INTO importacion_monday (tablero_monday_id, nombre, proyecto_iw_id, importado_por, resumen) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (tablero_monday_id) DO UPDATE SET nombre = EXCLUDED.nombre, proyecto_iw_id = EXCLUDED.proyecto_iw_id, importado_por = EXCLUDED.importado_por, importado_en = now(), resumen = EXCLUDED.resumen`,
+        [reg.tableroId, reg.nombre.slice(0, 300), reg.proyectoId, ctx.u.usuarioId, JSON.stringify(reg.resumen)]);
+      for (const f of filas) {
+        await ctx.c.query(
+          "INSERT INTO historial_monday (id, proyecto_iw_id, item_iw_id, tipo, autor, fecha, texto, respuestas, archivos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+          [f.id, reg.proyectoId, f.itemId, f.tipo, f.autor, f.fecha, f.texto, JSON.stringify(f.respuestas), JSON.stringify(f.archivos)]);
+      }
+    },
+    historial: async (proyectoId, itemId) => (await ctx.c.query<FilaHistorialDb>(
+      "SELECT id, item_iw_id, tipo, autor, fecha, texto, respuestas, archivos FROM historial_monday WHERE proyecto_iw_id = $1 AND item_iw_id = $2 ORDER BY fecha NULLS FIRST, id",
+      [proyectoId, itemId])).rows.map(filaHistorial),
+    archivo: async (proyectoId, archivoId) => {
+      const r = (await ctx.c.query<{ a: FilaHistorial["archivos"][number] }>(
+        "SELECT a FROM historial_monday h, jsonb_array_elements(h.archivos) a WHERE h.proyecto_iw_id = $1 AND a->>'id' = $2 LIMIT 1", [proyectoId, archivoId])).rows[0];
+      return r?.a ?? null;
+    },
+    almacen: almacenOpcional(),
+  };
+}
+const soloAdminMonday = (ctx: Ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.u.nivelAcceso !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "La importación de Monday la hace el nivel Admin");
+};
+ruta("GET", "/monday/tableros", async (ctx) => {
+  soloAdminMonday(ctx);
+  return MONDAY.listar(repoMonday(ctx), await yoTablero(ctx));
+});
+ruta("GET", "/monday/tableros/:id", async (ctx, p) => {
+  soloAdminMonday(ctx);
+  return MONDAY.previa(repoMonday(ctx), p.id, await yoTablero(ctx));
+});
+ruta("POST", "/monday/tableros/:id/importar", async (ctx, p, _q, cuerpo) => {
+  soloAdminMonday(ctx);
+  const yo = await yoTablero(ctx);
+  return MONDAY.importar(repoMonday(ctx), p.id, { ...yo, usuarioId: ctx.u.usuarioId, departamento: departamentoDe({ area: ctx.u.area ?? null, rolEquipo: ctx.u.rolEquipo }) }, (await cuerpo()) as Record<string, unknown>);
+});
+ruta("GET", "/tableros/:id/items/:item/historial-monday", async (ctx, p) => {
+  soloEquipo(ctx);
+  return MONDAY.historial(repoMonday(ctx), p.id, p.item, await yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id/archivos-monday/:archivo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return MONDAY.descargar(repoMonday(ctx), p.id, p.archivo, await yoTablero(ctx));
 });
 
 // Búsqueda global del equipo (6 nov): solo lo que cada persona puede ver, con los mismos filtros de cada pantalla.
