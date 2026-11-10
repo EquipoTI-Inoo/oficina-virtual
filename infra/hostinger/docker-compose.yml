@@ -103,6 +103,8 @@ services:
       AUTH_EQUIPO: ${AUTH_EQUIPO:-}
       INOOWORK_URL: ${INOOWORK_URL:-}
       INOOWORK_API_KEY: ${INOOWORK_API_KEY:-}
+      # Importar de Monday (10 nov): clave de un admin de Monday, solo lectura; se borra al terminar.
+      MONDAY_API_TOKEN: ${MONDAY_API_TOKEN:-}
       SESION_SECRETO: ${SESION_SECRETO}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PORTAL_URL: https://${DOMINIO_PORTAL}
