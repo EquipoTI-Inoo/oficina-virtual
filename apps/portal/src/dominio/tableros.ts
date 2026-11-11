@@ -8,6 +8,8 @@
  * Aquí: el formato de InooWork, quién ve y edita, y los cambios sobre el JSON del proyecto.
  */
 
+import { alternarCronometro, alternarVoto, info, validarConfig, valorDeColumna, type ConfigColumna, type ContextoValor, type Cronometro, type TipoColumna } from "./columnas";
+
 // ───────────────────────────── formato de InooWork (tabla projects, JSON)
 
 export interface PersonaIW { id: string; nombre: string }
@@ -18,7 +20,7 @@ export interface ItemIW {
   [columna: string]: unknown;
 }
 export interface GrupoIW { id: string; name: string; color: string; collapsed?: boolean }
-export interface ColumnaIW { id: string; label: string; type: string; width?: number; fixed?: boolean }
+export interface ColumnaIW { id: string; label: string; type: string; width?: number; fixed?: boolean; config?: ConfigColumna }
 export interface VistaIW { id: string; name: string; type: string; isDefault?: boolean; columns?: ColumnaIW[]; filters?: unknown[] }
 export interface ProyectoIW {
   id: string; name: string; clientName?: string; description?: string; status?: string; department?: string;
@@ -123,8 +125,24 @@ const esFecha = (v: unknown) => v === "" || (typeof v === "string" && /^\d{4}-\d
 const nuevoId = (prefijo: string) => `${prefijo}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
 
 export interface CambioItem { nombre?: unknown; estado?: unknown; responsableId?: unknown; fecha?: unknown; prioridad?: unknown; notas?: unknown; grupoId?: unknown; valores?: unknown }
+/** Ítems de los tableros conectados (columna «Conectar tableros»), por id de tablero. */
+export type Conectados = Record<string, { id: string; name: string }[]>;
+/** Quién hace el cambio (para «Última actualización» y «Registro de creación»). */
+export interface Quien { id: string | null; nombre: string | null }
 
-export function validarItem(b: CambioItem, p: ProyectoIW, nuevo: boolean): Errores {
+const contextoValor = (p: ProyectoIW, itemId?: string): ContextoValor => ({
+  personas: personasDelProyecto(p), items: (p.items ?? []).map((i) => ({ id: i.id, name: i.name })), itemId, conectados: undefined,
+});
+/** Convierte el valor de una columna según su tipo. */
+export function valorParaItem(p: ProyectoIW, colId: string, v: unknown, conectados: Conectados = {}, itemId?: string) {
+  const col = columnasPersonalizadas(p).find((c) => c.id === colId);
+  if (!col) return { error: "Esa columna no es de este proyecto" } as const;
+  const ctx = contextoValor(p, itemId);
+  if (col.type === "board_relation") ctx.conectados = conectados[col.config?.tableroId ?? ""] ?? [];
+  return valorDeColumna({ tipo: col.type, config: col.config }, v, ctx);
+}
+
+export function validarItem(b: CambioItem, p: ProyectoIW, nuevo: boolean, conectados: Conectados = {}, itemId?: string): Errores {
   const e: Errores = [];
   if ((nuevo || b.nombre !== undefined) && !(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 300)) e.push({ campo: "nombre", mensaje: "Escribe el ítem (hasta 300 caracteres)" });
   if (b.estado !== undefined && !(ESTADOS_ITEM as readonly unknown[]).includes(b.estado)) e.push({ campo: "estado", mensaje: "Estado no válido" });
@@ -139,7 +157,10 @@ export function validarItem(b: CambioItem, p: ProyectoIW, nuevo: boolean): Error
     if (!v || typeof v !== "object" || Array.isArray(v)) e.push({ campo: "valores", mensaje: "Valores no válidos" });
     else for (const [k, x] of Object.entries(v)) {
       if (!cols.some((c) => c.id === k)) e.push({ campo: `valores.${k}`, mensaje: "Esa columna no es de este proyecto" });
-      else if (x !== null && !(typeof x === "string" && x.length <= 500) && typeof x !== "number") e.push({ campo: `valores.${k}`, mensaje: "Valor no válido" });
+      else {
+        const r = valorParaItem(p, k, x, conectados, itemId);
+        if ("error" in r) e.push({ campo: `valores.${k}`, mensaje: r.error });
+      }
     }
   }
   return e;
@@ -153,13 +174,15 @@ const asignar = (p: ProyectoIW, x: { assignee?: string; assigneeName?: string; a
 };
 
 /** Aplica un cambio a un ítem (o lo crea, como en InooWork: Sin Iniciar, prioridad Media). Devuelve el id. */
-export function aplicarItem(p: ProyectoIW, b: CambioItem, itemId: string | null): string {
+export function aplicarItem(p: ProyectoIW, b: CambioItem, itemId: string | null, quien?: Quien, conectados: Conectados = {}): string {
   p.items ??= [];
   let it = itemId ? p.items.find((x) => x.id === itemId) : undefined;
   if (!it) {
     it = { id: nuevoId("item"), name: "", status: "Sin Iniciar", assignee: "", assigneeName: "", assigneeAvatar: "", dueDate: "", priority: "Media", notes: "", createdAt: hoy(), groupId: b.grupoId as string, subitems: [] };
+    if (quien?.nombre) it.creadoPorNombre = quien.nombre;
     p.items.push(it);
   }
+  marcarCambio(it, quien);
   if (typeof b.nombre === "string") it.name = b.nombre.trim();
   if (typeof b.estado === "string") it.status = b.estado;
   if (typeof b.prioridad === "string") it.priority = b.prioridad;
@@ -167,8 +190,104 @@ export function aplicarItem(p: ProyectoIW, b: CambioItem, itemId: string | null)
   if (b.notas !== undefined) it.notes = ((b.notas as string | null) ?? "").trim();
   if (typeof b.grupoId === "string") it.groupId = b.grupoId;
   if (b.responsableId !== undefined) asignar(p, it, b.responsableId as string | null);
-  if (b.valores) for (const [k, v] of Object.entries(b.valores as Record<string, unknown>)) it[k] = v === null ? "" : v;
+  if (b.valores) for (const [k, v] of Object.entries(b.valores as Record<string, unknown>)) {
+    const r = valorParaItem(p, k, v, conectados, it.id);
+    if ("error" in r) continue; // ya validado
+    guardarValor(it, k, r.texto, r.dato);
+  }
   return it.id;
+}
+
+/** El texto visible en la columna (lo que ve InooWork) y el dato del portal aparte. */
+export function guardarValor(it: ItemIW, colId: string, texto: string, dato?: unknown) {
+  it[colId] = texto;
+  if (dato === undefined) delete it[`${colId}__d`];
+  else it[`${colId}__d`] = dato;
+}
+export function marcarCambio(it: ItemIW, quien?: Quien) {
+  it.actualizadoEn = new Date().toISOString();
+  if (quien?.nombre) it.actualizadoPorNombre = quien.nombre;
+}
+
+// ───────────────────────────── columnas (11 nov): la biblioteca de Monday
+
+export interface CambioColumna { nombre?: unknown; tipo?: unknown; config?: unknown }
+const FIJAS_IW = new Set(["name", "assignee", "priority", "status", "dueDate", "notes"]);
+const tiposDe = (p: ProyectoIW) => [{ id: "status", tipo: "status" }, ...columnasPersonalizadas(p).map((c) => ({ id: c.id, tipo: c.type }))];
+
+export function agregarColumna(p: ProyectoIW, b: CambioColumna): { id?: string; errores: Errores } {
+  const e: Errores = [];
+  if (!(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 80)) e.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 80 caracteres)" });
+  const i = typeof b.tipo === "string" ? info(b.tipo) : undefined;
+  if (!i) e.push({ campo: "tipo", mensaje: "Elige un tipo de columna de la biblioteca" });
+  if (columnasPersonalizadas(p).length >= 60) e.push({ campo: "tipo", mensaje: "Hasta 60 columnas por tablero" });
+  const { config, errores } = i ? validarConfig(i.tipo, b.config, tiposDe(p)) : { config: {}, errores: [] };
+  e.push(...errores);
+  if (e.length) return { errores: e };
+  const col: ColumnaIW = { id: nuevoId("col"), label: String(b.nombre).trim(), type: i!.tipo, width: 150, config };
+  p.views ??= [];
+  if (!p.views.length) p.views.push({ id: nuevoId("view"), name: "Tabla Principal", type: "table", isDefault: true, columns: [], filters: [] });
+  for (const v of p.views) v.columns = [...(v.columns ?? []), { ...col, config: structuredClone(config) }];
+  return { id: col.id, errores: [] };
+}
+
+export function cambiarColumna(p: ProyectoIW, colId: string, b: CambioColumna): Errores {
+  const col = columnasPersonalizadas(p).find((c) => c.id === colId);
+  if (!col) return [{ campo: "columna", mensaje: "No encontramos esa columna" }];
+  const e: Errores = [];
+  if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 80)) e.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 80 caracteres)" });
+  let config = col.config;
+  if (b.config !== undefined) {
+    if (!info(col.type)) e.push({ campo: "config", mensaje: "Esta columna de InooWork no tiene configuración" });
+    else {
+      const r = validarConfig(col.type as TipoColumna, { ...(col.config ?? {}), ...(b.config as object) }, tiposDe(p).filter((x) => x.id !== colId));
+      e.push(...r.errores);
+      config = r.config;
+    }
+  }
+  if (e.length) return e;
+  for (const v of p.views ?? []) for (const c of v.columns ?? []) if (c.id === colId) {
+    if (typeof b.nombre === "string") c.label = b.nombre.trim();
+    if (config) c.config = structuredClone(config);
+  }
+  // Si cambian las etiquetas o las opciones, los valores que ya no existen se vacían.
+  if (col.type === "etiqueta" && config?.etiquetas) for (const it of p.items ?? []) if (it[colId] && !config.etiquetas.some((l) => l.texto === it[colId])) it[colId] = "";
+  return [];
+}
+
+export function borrarColumna(p: ProyectoIW, colId: string): string | null {
+  if (FIJAS_IW.has(colId) || !columnasPersonalizadas(p).some((c) => c.id === colId)) return "No encontramos esa columna";
+  for (const v of p.views ?? []) v.columns = (v.columns ?? []).filter((c) => c.id !== colId);
+  for (const it of p.items ?? []) { delete it[colId]; delete it[`${colId}__d`]; }
+  return null;
+}
+
+/** Votar, el cronómetro y el botón: columnas que se usan con un clic. */
+export function accionColumna(p: ProyectoIW, itemId: string, colId: string, quien: Quien): string | null {
+  const it = (p.items ?? []).find((x) => x.id === itemId);
+  const col = columnasPersonalizadas(p).find((c) => c.id === colId);
+  if (!it || !col) return "No encontramos ese ítem o esa columna";
+  if (col.type === "vote") {
+    if (!quien.id) return "Necesitas tu ficha para votar";
+    const r = alternarVoto(it[`${colId}__d`] as string[] | undefined, quien.id);
+    guardarValor(it, colId, r.texto, r.dato.length ? r.dato : undefined);
+  } else if (col.type === "time_tracking") {
+    const r = alternarCronometro(it[`${colId}__d`] as Cronometro | undefined);
+    guardarValor(it, colId, r.texto, r.dato);
+  } else if (col.type === "button") {
+    const a = col.config?.accion;
+    if (!a) return "Configura qué hace el botón";
+    if (a.columnaId === "status") {
+      if (!(ESTADOS_ITEM as readonly string[]).includes(a.valor)) return "El botón tiene un estado que ya no existe";
+      it.status = a.valor;
+    } else {
+      const r = valorParaItem(p, a.columnaId, a.columnaId && columnasPersonalizadas(p).find((c) => c.id === a.columnaId)?.type === "checkbox" ? a.valor === "✓" || a.valor === "true" : a.valor);
+      if ("error" in r) return `El botón no pudo cambiar la columna: ${r.error}`;
+      guardarValor(it, a.columnaId, r.texto, r.dato);
+    }
+  } else return "Esa columna no tiene acción";
+  marcarCambio(it, quien);
+  return null;
 }
 
 export function validarSubitem(b: CambioItem, p: ProyectoIW, nuevo: boolean): Errores {

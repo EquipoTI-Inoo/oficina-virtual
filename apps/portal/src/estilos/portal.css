@@ -2501,3 +2501,8 @@ button.cuenta { cursor: pointer; }
 /* Jarvis avanzado (9 nov): «Guardar en biblioteca» debajo de cada respuesta. */
 .jarvis-guardar { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; opacity: 0.75; white-space: normal; }
 .jarvis-guardar:hover { opacity: 1; }
+
+/* Columnas de los tableros (11 nov): encabezado que abre la configuración y pie con el resumen de los números. */
+.boton-texto { background: none; border: 0; padding: 0; cursor: pointer; color: var(--c-primario); font: inherit; text-align: left; }
+.boton-texto:hover { text-decoration: underline; }
+.tabla-tablero .fila-pie td { border-top: 1px solid var(--c-borde); background: var(--c-fondo, transparent); padding-top: 4px; padding-bottom: 4px; }

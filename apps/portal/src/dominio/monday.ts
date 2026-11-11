@@ -210,7 +210,7 @@ export function convertirTablero(t: TableroMonday, o: OpcionesConversion, ahora 
   p.mondayId = t.id;
   p.status = "En Progreso";
   const propias = t.columnas.filter((c) => !TIPOS_FUERA.has(c.tipo) && ![k.estado, k.prioridad, k.personas, k.fecha, k.notas].includes(c.id));
-  const columnas: ColumnaIW[] = propias.map((c) => ({ id: idColumna(c.id), label: c.titulo.slice(0, 80), type: "text", width: 150 }));
+  const columnas: ColumnaIW[] = propias.map((c) => ({ id: idColumna(c.id), label: c.titulo.slice(0, 80), type: TIPO_PORTAL[c.tipo] ?? "text", width: 150, config: configDe(t, c) }));
   for (const v of p.views ?? []) v.columns = [...(v.columns ?? []), ...columnas];
   p.groups = t.grupos.map((g, i) => ({ id: `mon-${g.id}`, name: g.titulo.slice(0, 80) || "Grupo", color: g.color && COLOR_HEX.test(g.color) ? g.color : COLORES_GRUPO[i % COLORES_GRUPO.length], collapsed: false }));
   if (!p.groups.length) p.groups = [{ id: "default", name: "To-Do", color: COLORES_GRUPO[0], collapsed: false }];
@@ -240,12 +240,56 @@ export function convertirTablero(t: TableroMonday, o: OpcionesConversion, ahora 
       mondayId: it.id,
     };
     for (const c of propias) {
-      const v = texto(it, c.id);
-      if (v) x[idColumna(c.id)] = v.slice(0, 2000);
+      const r = valorPortal(c, valor(it, c.id), o.personas);
+      if (r.texto) x[idColumna(c.id)] = r.texto.slice(0, 2000);
+      if (r.dato !== undefined) x[`${idColumna(c.id)}__d`] = r.dato;
     }
     return x;
   });
   return { proyecto: p, items: mapa };
+}
+
+// ───────────────────────────── tipos de columna (11 nov): cada columna entra con su tipo del portal
+
+/** Tipo de Monday → tipo del portal. Las calculadas de Monday (fórmula, espejo…) entran como texto con su valor. */
+export const TIPO_PORTAL: Record<string, string> = {
+  text: "text", long_text: "long_text", numbers: "number", date: "date", email: "email", phone: "phone", link: "link", country: "country",
+  location: "location", checkbox: "checkbox", rating: "rating", tags: "tags", dropdown: "dropdown", hour: "hour", week: "week",
+  color_picker: "color_picker", world_clock: "world_clock", timeline: "timeline", people: "people", status: "etiqueta", color: "etiqueta",
+};
+const json = (v: unknown): Record<string, unknown> | null => {
+  if (v && typeof v === "object") return v as Record<string, unknown>;
+  if (typeof v !== "string") return null;
+  try { return JSON.parse(v); } catch { return null; }
+};
+const COLORES_IMPORTADOS = ["#00c875", "#fdab3d", "#e2445c", "#579bfc", "#a25ddc", "#c4c4c4", "#ff642e", "#0086c0", "#9cd326", "#ff158a"];
+/** Etiquetas (estado) y opciones (desplegable) salen de los valores que tiene el tablero. */
+function configDe(t: TableroMonday, c: ColumnaMonday): ColumnaIW["config"] {
+  const textos = () => [...new Set(t.items.flatMap((i) => (i.valores.find((v) => v.id === c.id)?.texto ?? "").split(",").map((x) => x.trim())).filter(Boolean))];
+  if (TIPO_PORTAL[c.tipo] === "etiqueta") return { etiquetas: textos().slice(0, 40).map((x, n) => ({ texto: x.slice(0, 40), color: COLORES_IMPORTADOS[n % COLORES_IMPORTADOS.length], ...(estadoSugerido(x) === "Completado" ? { hecho: true } : {}) })) };
+  if (c.tipo === "dropdown") return { opciones: textos().slice(0, 200).map((x) => x.slice(0, 60)) };
+  if (c.tipo === "numbers") return { resumen: "SUMA" };
+  if (c.tipo === "rating") return { maximo: 5 };
+  return undefined;
+}
+function valorPortal(c: ColumnaMonday, v: ValorMonday | undefined, personas: Record<string, PersonaIW | null>): { texto: string; dato?: unknown } {
+  const texto = (v?.texto ?? "").trim();
+  const x = json(v?.valor);
+  switch (TIPO_PORTAL[c.tipo]) {
+    case "checkbox": return { texto: x?.checked === true || x?.checked === "true" ? "✓" : "" };
+    case "number": return { texto: texto && Number.isFinite(Number(texto)) ? String(Number(texto)) : "" };
+    case "date": return { texto: fechaIso(texto) };
+    case "link": { const url = typeof x?.url === "string" ? x.url : ""; const t2 = typeof x?.text === "string" ? x.text : ""; return url ? { texto: url, dato: t2 && t2 !== url ? { texto: t2 } : undefined } : { texto: "" }; }
+    case "timeline": { const d = fechaIso(String(x?.from ?? "")); const h = fechaIso(String(x?.to ?? "")); return d && h ? { texto: `${d} → ${h}`, dato: { desde: d, hasta: h } } : { texto: "" }; }
+    case "people": {
+      const ps = personasDeValor(v?.valor).map((id) => personas[id]).filter((q): q is PersonaIW => !!q);
+      const unicas = [...new Map(ps.map((q) => [q.id, q])).values()];
+      return unicas.length ? { texto: unicas.map((q) => q.nombre).join(", "), dato: unicas.map((q) => q.id) } : { texto: "" };
+    }
+    case "dropdown": case "tags": { const xs = texto.split(",").map((s) => s.trim()).filter(Boolean); return xs.length ? { texto: xs.join(", "), dato: xs } : { texto: "" }; }
+    case "rating": return { texto: /^\d+$/.test(texto) && texto !== "0" ? texto : "" };
+    default: return { texto };
+  }
 }
 
 /** El historial de cada ítem, listo para guardar en el portal. */

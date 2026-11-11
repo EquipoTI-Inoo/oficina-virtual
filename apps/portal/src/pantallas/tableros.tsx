@@ -7,6 +7,8 @@
 import { useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { LuChevronDown, LuChevronLeft, LuChevronRight, LuHistory, LuPlus, LuTrash2 } from "react-icons/lu";
 import { HistorialMonday } from "./monday";
+import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
+import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso } from "../componentes";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
@@ -181,6 +183,8 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
   const [historial, setHistorial] = useState<Item | null>(null);
+  const [biblioteca, setBiblioteca] = useState(false);
+  const [configurando, setConfigurando] = useState<Tablero["columnas"][number] | null>(null);
   const alternar = (s: Set<string>, id: string) => {
     const n = new Set(s);
     if (n.has(id)) n.delete(id);
@@ -197,7 +201,8 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
     if (!window.confirm(`¿Borrar «${i.nombre}»${i.subitems.length ? " con sus subítems" : ""}? También se borra en InooWork.`)) return;
     void cambiar(`/items/${i.id}`, "DELETE");
   };
-  const columnas = 7 + t.columnas.length;
+  const columnas = 7 + t.columnas.length + (editable ? 1 : 0);
+  const conPie = t.columnas.some((c) => c.tipo === "number");
 
   return (
     <div className="pila" style={{ gap: 18 }}>
@@ -237,7 +242,14 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                       <th style={{ width: 110 }}>Prioridad</th>
                       <th style={{ width: 140 }}>Fecha límite</th>
                       <th style={{ minWidth: 180 }}>Descripción</th>
-                      {t.columnas.map((c) => <th key={c.id} style={{ minWidth: 120 }}>{c.nombre}</th>)}
+                      {t.columnas.map((c) => (
+                        <th key={c.id} style={{ minWidth: c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120 }} title={info(c.tipo)?.nombre ?? c.tipo}>
+                          {editable
+                            ? <button type="button" className="boton-texto" style={{ font: "inherit", color: "inherit", textTransform: "inherit", letterSpacing: "inherit" }} aria-label={`Configurar la columna ${c.nombre}`} onClick={() => setConfigurando(c)}>{c.nombre}</button>
+                            : c.nombre}
+                        </th>
+                      ))}
+                      {editable && <th style={{ width: 36 }}><button className="boton-icono" aria-label="Agregar columna" title="Agregar columna" onClick={() => setBiblioteca(true)}><LuPlus size={14} /></button></th>}
                       {editable && <th style={{ width: 36 }} />}
                     </tr>
                   </thead>
@@ -264,8 +276,9 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                           <td><Fecha valor={i.fecha ?? null} vencido={i.vencido} editable={editable} etiqueta={`Fecha límite de ${i.nombre}`} guardar={(fecha) => void item(i, { fecha })} /></td>
                           <td><Texto valor={i.notas} editable={editable} etiqueta={`Descripción de ${i.nombre}`} placeholder="Agregar" guardar={(notas) => void item(i, { notas })} /></td>
                           {t.columnas.map((c) => (
-                            <td key={c.id}><Texto valor={String(i.valores[c.id] ?? "")} editable={editable} etiqueta={`${c.nombre} de ${i.nombre}`} placeholder="—" guardar={(v) => void item(i, { valores: { [c.id]: v } })} /></td>
+                            <td key={c.id}><CeldaColumna t={t} col={c} item={i} cambiar={cambiar} editable={editable} /></td>
                           ))}
+                          {editable && <td />}
                           {editable && <td><button className="boton-icono" aria-label={`Borrar ${i.nombre}`} onClick={() => borrarItem(i)}><LuTrash2 size={13} /></button></td>}
                         </tr>,
                         ...(abierto
@@ -278,7 +291,7 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                                   <td><Pildora valor={s.estado as EstadoItem} opciones={ESTADOS_ITEM} color={(v) => COLOR_ESTADO[v]} editable={editable} etiqueta={`Estado de ${s.nombre}`} guardar={(estado) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { estado })} /></td>
                                   <td />
                                   <td><Fecha valor={s.fecha ?? null} vencido={s.vencido} editable={editable} etiqueta={`Fecha límite de ${s.nombre}`} guardar={(fecha) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { fecha })} /></td>
-                                  <td colSpan={1 + t.columnas.length} />
+                                  <td colSpan={1 + t.columnas.length + (editable ? 1 : 0)} />
                                   {editable && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
                                 </tr>
                               )),
@@ -288,6 +301,13 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                       ];
                     })}
                     {editable && <FilaNueva columnas={columnas} etiqueta={`Nuevo ítem en ${g.nombre}`} texto="+ Agregar ítem" crear={(nombre) => cambiar("/items", "POST", { nombre, grupoId: g.id })} />}
+                    {conPie && suyos.length > 0 && (
+                      <tr className="fila-pie">
+                        <td colSpan={7} />
+                        {t.columnas.map((c) => <td key={c.id}><PieNumeros col={c} items={suyos} /></td>)}
+                        {editable && <td colSpan={2} />}
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -301,6 +321,8 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
         </button>
       )}
       {historial && <HistorialMonday proyectoId={t.id} item={historial} alCerrar={() => setHistorial(null)} />}
+      {biblioteca && <BibliotecaColumnas t={t} cambiar={cambiar} cerrar={() => setBiblioteca(false)} />}
+      {configurando && <ConfigurarColumna t={t} col={configurando} cambiar={cambiar} cerrar={() => setConfigurando(null)} />}
     </div>
   );
 }

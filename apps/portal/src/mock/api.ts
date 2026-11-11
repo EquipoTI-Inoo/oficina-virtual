@@ -44,6 +44,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
+import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { descripcionPrueba } from "../dominio/pruebas";
@@ -150,6 +151,8 @@ interface Estado {
   /** Importación de Monday (9 nov): tableros ya importados y el historial de cada ítem. */
   importacionesMonday: { tableroId: string; nombre: string; proyectoId: string; en: string }[];
   historialMonday: (FilaHistorial & { proyectoId: string })[];
+  /** Columna «Archivos» de los tableros (11 nov). */
+  archivosTablero: { id: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array }[];
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
@@ -238,7 +241,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -1572,7 +1575,7 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
 
 const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores));
 /** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
-const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx) });
+const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx), usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre });
 
 // ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
 
@@ -1635,6 +1638,43 @@ ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, req) => {
 ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarGrupo(p.id, p.grupo, yoTablero(ctx));
+});
+
+const ARCHIVOS_TABLERO = crearArchivosTablero((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+const repoArchivosTablero: RepoArchivosTablero = {
+  guardar: async (a, contenido) => { E.archivosTablero.push({ id: a.id, proyectoId: a.proyectoId, nombre: a.nombre, mime: a.mime, contenido }); },
+  leer: async (proyectoId, id) => E.archivosTablero.find((x) => x.id === id && x.proyectoId === proyectoId) ?? null,
+  borrar: async (proyectoId, id) => { E.archivosTablero = E.archivosTablero.filter((x) => !(x.id === id && x.proyectoId === proyectoId)); },
+};
+// ───────────────────────────── Columnas de los tableros (11 nov): la biblioteca de tipos de Monday
+
+ruta("POST", "/tableros/:id/columnas", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearColumna(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("PATCH", "/tableros/:id/columnas/:col", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarColumna(p.id, p.col, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/columnas/:col", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarColumna(p.id, p.col, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.accion(p.id, p.item, p.col, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.subir(repoArchivosTablero, p.id, p.item, p.col, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.quitar(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.bajar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx));
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN

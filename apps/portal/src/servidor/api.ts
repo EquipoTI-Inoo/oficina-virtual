@@ -57,6 +57,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
+import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUEBAS, permitidoACuentaPruebas } from "../dominio/pruebas";
@@ -5120,9 +5121,9 @@ const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi
 /** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
 async function yoTablero(ctx: Ctx): Promise<Yo> {
   // En pruebas, el set de demo con el empleado de demo de esa persona.
-  if (ctx.u.esPrueba) return { empleadoId: EMPLEADO_DE_PRUEBA[ctx.u.email.toLowerCase()] ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN", prueba: true };
+  if (ctx.u.esPrueba) return { empleadoId: EMPLEADO_DE_PRUEBA[ctx.u.email.toLowerCase()] ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN", prueba: true, usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre };
   const r = (await ctx.c.query<{ inoowork_empleado_id: string | null }>("SELECT inoowork_empleado_id FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0];
-  return { empleadoId: r?.inoowork_empleado_id ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN" };
+  return { empleadoId: r?.inoowork_empleado_id ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN", usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre };
 }
 
 // ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
@@ -5190,6 +5191,60 @@ ruta("PATCH", "/tableros/:id/grupos/:grupo", async (ctx, p, _q, cuerpo) => {
 ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarGrupo(p.id, p.grupo, await yoTablero(ctx));
+});
+
+const ARCHIVOS_TABLERO = crearArchivosTablero((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+function repoArchivosTablero(ctx: Ctx): RepoArchivosTablero {
+  const bucket = almacenOpcional();
+  return {
+    guardar: async (a, contenido) => {
+      const clave = bucket ? `tableros/${a.proyectoId}/${a.id}` : null;
+      if (bucket && clave) await bucket.subir(clave, a.mime, contenido);
+      await ctx.c.query(
+        "INSERT INTO archivo_tablero (id, proyecto_iw_id, item_iw_id, columna_id, nombre, mime, bytes, contenido, clave, subido_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        [a.id, a.proyectoId, a.itemId, a.columnaId, a.nombre, a.mime, a.bytes, clave ? null : Buffer.from(contenido), clave, ctx.u.usuarioId]);
+    },
+    leer: async (proyectoId, id) => {
+      const f = (await ctx.c.query<{ nombre: string; mime: string; contenido: Uint8Array | null; clave: string | null }>(
+        "SELECT nombre, mime, contenido, clave FROM archivo_tablero WHERE id = $1 AND proyecto_iw_id = $2", [id, proyectoId])).rows[0];
+      if (!f) return null;
+      const contenido = f.clave ? (bucket ? await bucket.leer(f.clave) : null) : f.contenido;
+      return contenido ? { nombre: f.nombre, mime: f.mime, contenido: new Uint8Array(contenido) } : null;
+    },
+    borrar: async (proyectoId, id) => {
+      await ctx.c.query("DELETE FROM archivo_tablero WHERE id = $1 AND proyecto_iw_id = $2", [id, proyectoId]);
+    },
+  };
+}
+// ───────────────────────────── Columnas de los tableros (11 nov): la biblioteca de tipos de Monday
+
+ruta("POST", "/tableros/:id/columnas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearColumna(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("PATCH", "/tableros/:id/columnas/:col", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarColumna(p.id, p.col, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/columnas/:col", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarColumna(p.id, p.col, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.accion(p.id, p.item, p.col, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.subir(repoArchivosTablero(ctx), p.id, p.item, p.col, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.quitar(repoArchivosTablero(ctx), p.id, p.item, p.col, p.archivo, await yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.bajar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx));
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN

@@ -4763,6 +4763,148 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/columnas:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: crearColumnaTablero
+      summary: 'Agrega una columna de la biblioteca (los tipos de Monday) a todas las vistas del tablero'
+      description: |
+        El texto visible de cada valor se guarda en el ítem de InooWork (que lo muestra como texto); lo demás va en
+        `item[col.id + "__d"]`. Las calculadas (fórmula, espejo, progreso, registro de creación, última actualización,
+        ID y autonumeración) se calculan al leer el tablero.
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, tipo]
+              properties:
+                nombre: { type: string, maxLength: 80 }
+                tipo: { type: string }
+                config: { $ref: '#/components/schemas/ConfigColumna' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/columnas/{columnaId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarColumnaTablero
+      summary: 'Cambia el nombre o la configuración de una columna (etiquetas, opciones, fórmula…)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre: { type: string, maxLength: 80 }
+                config: { $ref: '#/components/schemas/ConfigColumna' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+    delete:
+      tags: [Tableros]
+      operationId: borrarColumnaTablero
+      summary: 'Borra una columna personalizada (y sus valores) de todas las vistas'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/accion:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: accionColumnaTablero
+      summary: 'Votos (votar o quitar el voto), control de tiempo (iniciar o pausar) y botón (aplica su acción)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/archivos:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: subirArchivoColumna
+      summary: 'Sube un archivo a una celda de la columna «Archivos» (hasta 15 MB, 30 por celda)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, base64]
+              properties:
+                nombre: { type: string, maxLength: 200 }
+                mime: { type: string }
+                base64: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/archivos/{archivoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Tableros]
+      operationId: quitarArchivoColumna
+      summary: 'Quita un archivo de la celda'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/archivos/{archivoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: bajarArchivoColumna
+      summary: 'Descarga un archivo de la columna «Archivos» (lo ve quien ve el tablero)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: El archivo, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /monday/tableros:
     get:
       tags: [Tableros]
@@ -7294,7 +7436,7 @@ components:
         vencido: { type: boolean }
     ItemTablero:
       type: object
-      required: [id, nombre, estado, responsable, fecha, prioridad, notas, grupoId, valores, subitems, vencido, deMonday]
+      required: [id, nombre, estado, responsable, fecha, prioridad, notas, grupoId, valores, datos, subitems, vencido, deMonday]
       properties:
         id: { type: string }
         deMonday: { type: boolean, description: 'Vino de Monday (9 nov): tiene historial (actualizaciones y archivos) en el portal.' }
@@ -7307,8 +7449,27 @@ components:
         grupoId: { type: string }
         creadoEn: { type: [string, 'null'] }
         vencido: { type: boolean }
-        valores: { type: object, additionalProperties: { type: [string, number] }, description: 'Columnas personalizadas, por id de columna' }
+        valores: { type: object, additionalProperties: { type: [string, number] }, description: 'Texto visible de cada columna personalizada (también las calculadas), por id de columna' }
+        datos: { type: object, additionalProperties: true, description: 'Lo que el portal guarda además del texto: ids de personas, archivos, votos, cronómetro, documento…' }
         subitems: { type: array, items: { $ref: '#/components/schemas/SubitemTablero' } }
+    ConfigColumna:
+      type: object
+      description: Configuración de una columna según su tipo.
+      properties:
+        etiquetas: { type: array, items: { type: object, required: [texto, color], properties: { texto: { type: string }, color: { type: string }, hecho: { type: boolean } } } }
+        opciones: { type: array, items: { type: string } }
+        unidad: { type: string }
+        unidadAntes: { type: boolean }
+        resumen: { type: string, enum: [SUMA, PROMEDIO, MINIMO, MAXIMO, NINGUNO] }
+        decimales: { type: integer }
+        maximo: { type: integer }
+        texto: { type: string }
+        accion: { type: object, required: [columnaId, valor], properties: { columnaId: { type: string }, valor: { type: string } } }
+        tableroId: { type: string }
+        conexionId: { type: string }
+        columnaEspejo: { type: string }
+        expresion: { type: string }
+        columnas: { type: array, items: { type: string } }
     ImportacionMonday:
       type: [object, 'null']
       required: [proyectoId, en]
@@ -7431,14 +7592,15 @@ components:
               color: { type: string }
         columnas:
           type: array
-          description: 'Columnas personalizadas de las vistas de InooWork'
+          description: 'Columnas personalizadas de las vistas de InooWork (11 nov: con los tipos de la biblioteca de Monday)'
           items:
             type: object
-            required: [id, nombre, tipo]
+            required: [id, nombre, tipo, config]
             properties:
               id: { type: string }
               nombre: { type: string }
-              tipo: { type: string }
+              tipo: { type: string, description: 'text, long_text, number, etiqueta, dropdown, date, people, checkbox, tags, timeline, week, hour, time_tracking, world_clock, email, phone, link, country, location, rating, vote, color_picker, file, doc, button, dependency, board_relation, mirror, formula, progress, creation_log, last_updated, item_id, auto_number' }
+              config: { oneOf: [ { $ref: '#/components/schemas/ConfigColumna' }, { type: 'null' } ] }
         vistas:
           type: array
           items:

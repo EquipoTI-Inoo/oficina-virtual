@@ -42,6 +42,7 @@ import { pruebasPersonas } from "./flujo-personas";
 import { pruebasTranscripciones } from "./flujo-transcripciones";
 import { pruebasTableros } from "./flujo-tableros";
 import { pruebasMonday } from "./flujo-monday";
+import { pruebasColumnas } from "./flujo-columnas";
 import { reiniciarTablerosSimulados } from "../../src/servidor/tableros";
 import { usarFetchIngreso } from "../../src/servidor/sesion-inoowork";
 import { usarFetchInooWork } from "../../src/servidor/inoowork";
@@ -121,6 +122,7 @@ before(async () => {
   await db.exec(sql("migraciones/0050_conexiones_personales.sql"));
   await db.exec(sql("migraciones/0051_boveda_personal.sql"));
   await db.exec(sql("migraciones/0052_importacion_monday.sql"));
+  await db.exec(sql("migraciones/0053_archivos_tablero.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -177,6 +179,7 @@ pruebasPersonas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasTranscripciones("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasTableros("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasMonday("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasColumnas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 
 describe("catálogo: la migración 0005 y src/dominio/servicios.ts dicen lo mismo", () => {
   test("servicios activos y sus variantes", async () => {

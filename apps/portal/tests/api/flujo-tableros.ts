@@ -45,7 +45,7 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
 
       const t = (await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json;
       assert.deepEqual(t.grupos.map((g: any) => g.nombre), ["Octubre", "Noviembre"]);
-      assert.deepEqual(t.columnas, [{ id: "col-canal", nombre: "Canal", tipo: "text" }]);
+      assert.deepEqual(t.columnas, [{ id: "col-canal", nombre: "Canal", tipo: "text", config: null }]);
       assert.deepEqual(t.vistas.map((v: any) => v.tipo), ["TABLA", "KANBAN", "LINEA_TIEMPO", "CALENDARIO"]);
       assert.deepEqual(t.personas.map((x: any) => x.nombre), ["Diego Castro", "Camila Paredes"]);
       const cal = t.items.find((i: any) => i.id === "item-mkt-1");

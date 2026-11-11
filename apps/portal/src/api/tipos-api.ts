@@ -3300,6 +3300,135 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/columnas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Agrega una columna de la biblioteca (los tipos de Monday) a todas las vistas del tablero
+         * @description El texto visible de cada valor se guarda en el ítem de InooWork (que lo muestra como texto); lo demás va en
+         *     `item[col.id + "__d"]`. Las calculadas (fórmula, espejo, progreso, registro de creación, última actualización,
+         *     ID y autonumeración) se calculan al leer el tablero.
+         */
+        post: operations["crearColumnaTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/columnas/{columnaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una columna personalizada (y sus valores) de todas las vistas */
+        delete: operations["borrarColumnaTablero"];
+        options?: never;
+        head?: never;
+        /** Cambia el nombre o la configuración de una columna (etiquetas, opciones, fórmula…) */
+        patch: operations["cambiarColumnaTablero"];
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/accion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Votos (votar o quitar el voto), control de tiempo (iniciar o pausar) y botón (aplica su acción) */
+        post: operations["accionColumnaTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/archivos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sube un archivo a una celda de la columna «Archivos» (hasta 15 MB, 30 por celda) */
+        post: operations["subirArchivoColumna"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/archivos/{archivoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita un archivo de la celda */
+        delete: operations["quitarArchivoColumna"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/archivos/{archivoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        /** Descarga un archivo de la columna «Archivos» (lo ve quien ve el tablero) */
+        get: operations["bajarArchivoColumna"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/monday/tableros": {
         parameters: {
             query?: never;
@@ -5740,11 +5869,40 @@ export interface components {
             grupoId: string;
             creadoEn?: string | null;
             vencido: boolean;
-            /** @description Columnas personalizadas, por id de columna */
+            /** @description Texto visible de cada columna personalizada (también las calculadas), por id de columna */
             valores: {
                 [key: string]: string | number;
             };
+            /** @description Lo que el portal guarda además del texto: ids de personas, archivos, votos, cronómetro, documento… */
+            datos: {
+                [key: string]: unknown;
+            };
             subitems: components["schemas"]["SubitemTablero"][];
+        };
+        /** @description Configuración de una columna según su tipo. */
+        ConfigColumna: {
+            etiquetas?: {
+                texto: string;
+                color: string;
+                hecho?: boolean;
+            }[];
+            opciones?: string[];
+            unidad?: string;
+            unidadAntes?: boolean;
+            /** @enum {string} */
+            resumen?: "SUMA" | "PROMEDIO" | "MINIMO" | "MAXIMO" | "NINGUNO";
+            decimales?: number;
+            maximo?: number;
+            texto?: string;
+            accion?: {
+                columnaId: string;
+                valor: string;
+            };
+            tableroId?: string;
+            conexionId?: string;
+            columnaEspejo?: string;
+            expresion?: string;
+            columnas?: string[];
         };
         ImportacionMonday: {
             proyectoId: string;
@@ -5838,11 +5996,13 @@ export interface components {
                 nombre: string;
                 color: string;
             }[];
-            /** @description Columnas personalizadas de las vistas de InooWork */
+            /** @description Columnas personalizadas de las vistas de InooWork (11 nov: con los tipos de la biblioteca de Monday) */
             columnas: {
                 id: string;
                 nombre: string;
+                /** @description text, long_text, number, etiqueta, dropdown, date, people, checkbox, tags, timeline, week, hour, time_tracking, world_clock, email, phone, link, country, location, rating, vote, color_picker, file, doc, button, dependency, board_relation, mirror, formula, progress, creation_log, last_updated, item_id, auto_number */
                 tipo: string;
+                config: components["schemas"]["ConfigColumna"] | null;
             }[];
             vistas: {
                 /** @enum {string} */
@@ -14619,6 +14779,254 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    crearColumnaTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    tipo: string;
+                    config?: components["schemas"]["ConfigColumna"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    borrarColumnaTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarColumnaTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre?: string;
+                    config?: components["schemas"]["ConfigColumna"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accionColumnaTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    subirArchivoColumna: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    mime?: string;
+                    base64: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quitarArchivoColumna: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bajarArchivoColumna: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El archivo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     listarTablerosMonday: {

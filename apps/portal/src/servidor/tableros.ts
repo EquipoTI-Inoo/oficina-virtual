@@ -14,6 +14,8 @@ import {
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
+import { accionColumna, agregarColumna, borrarColumna, cambiarColumna, guardarValor, marcarCambio, type CambioColumna, type ColumnaIW, type Conectados, type Quien } from "../dominio/tableros";
+import { info, valorCalculado, type ItemCalc } from "../dominio/columnas";
 import { PROYECTOS_DEMO } from "../mock/inoowork-demo";
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
@@ -83,7 +85,8 @@ async function crearIW(p: ProyectoIW, prueba?: boolean) {
 
 // ───────────────────────────── vistas para el portal
 
-export interface Yo { empleadoId: string | null; esAdmin: boolean; prueba?: boolean }
+export interface Yo { empleadoId: string | null; esAdmin: boolean; prueba?: boolean; usuarioId?: string; nombre?: string }
+const quienDe = (yo: Yo): Quien => ({ id: yo.usuarioId ?? yo.empleadoId, nombre: yo.nombre ?? null });
 /** Para crear (6 nov): quién lo crea, su departamento en InooWork y cómo pasar ids del portal a fichas de InooWork. */
 export interface DatosCreacion {
   lider: PersonaIW | null;
@@ -91,21 +94,36 @@ export interface DatosCreacion {
   /** Ids de usuario del portal → personas de InooWork; los que no tienen ficha no vuelven. */
   miembros: (usuarioIds: string[]) => Promise<PersonaIW[]>;
 }
+/** Los ítems de los tableros conectados (columna «Conectar tableros»); solo los que el usuario puede ver. */
+async function conectadosDe(p: ProyectoIW, yo: Yo): Promise<Record<string, ProyectoIW["items"]>> {
+  const ids = [...new Set(columnasPersonalizadas(p).filter((c) => c.type === "board_relation" && c.config?.tableroId).map((c) => c.config!.tableroId!))];
+  if (!ids.length) return {};
+  const todos = await listarIW(yo.prueba);
+  return Object.fromEntries(ids.map((id) => {
+    const x = todos.find((q) => q.id === id && !q.deleted && veProyecto(q, yo.empleadoId, yo.esAdmin));
+    return [id, x?.items ?? []];
+  }));
+}
+const soloNombres = (c: Record<string, ProyectoIW["items"]>): Conectados => Object.fromEntries(Object.entries(c).map(([k, xs]) => [k, (xs ?? []).map((i) => ({ id: i.id, name: i.name }))]));
+
 type Fallar = (status: number, codigo: string, titulo: string, errores?: { campo: string; mensaje: string }[]) => Error;
 
 const persona = (id?: string, nombre?: string) => (id ? { id, nombre: nombre || id } : null);
 const TIPO_VISTA: Record<string, string> = { table: "TABLA", kanban: "KANBAN", calendar: "CALENDARIO", timeline: "LINEA_TIEMPO", chart: "GRAFICO" };
 
-function itemVista(p: ProyectoIW, it: ItemIW, cols: { id: string }[]) {
+function itemVista(p: ProyectoIW, it: ItemIW, cols: ColumnaIW[], conectados: Record<string, ProyectoIW["items"]>) {
+  const calc = { cols: cols.map((c) => ({ id: c.id, label: c.label, tipo: c.type, config: c.config })), items: (p.items ?? []) as ItemCalc[], conectados: conectados as Record<string, ItemCalc[]> };
+  const valor = (c: ColumnaIW) => (info(c.type)?.calculada ? valorCalculado(it as ItemCalc, calc.cols.find((x) => x.id === c.id)!, calc) : it[c.id] ?? "");
   return {
+    datos: Object.fromEntries(cols.filter((c) => it[`${c.id}__d`] !== undefined).map((c) => [c.id, it[`${c.id}__d`]])),
     id: it.id, nombre: it.name, estado: it.status, responsable: persona(it.assignee, it.assigneeName), fecha: it.dueDate || null,
     prioridad: it.priority || "Media", notas: it.notes || "", grupoId: it.groupId, creadoEn: it.createdAt || null, vencido: itemVencido(it), deMonday: !!it.mondayId,
-    valores: Object.fromEntries(cols.map((c) => [c.id, it[c.id] ?? ""]).filter(([, v]) => v !== "")) as Record<string, string | number>,
+    valores: Object.fromEntries(cols.map((c) => [c.id, valor(c)]).filter(([, v]) => v !== "")) as Record<string, string | number>,
     subitems: (it.subitems ?? []).map((s) => ({ id: s.id, nombre: s.name, estado: s.status, responsable: persona(s.assignee, s.assigneeName), fecha: s.dueDate || null, vencido: itemVencido(s) })),
   };
 }
 
-function tableroVista(p: ProyectoIW, yo: Yo) {
+function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, ProyectoIW["items"]> = {}) {
   const cols = columnasPersonalizadas(p);
   const tipos = [...new Set((p.views ?? []).map((v) => TIPO_VISTA[v.type]).filter(Boolean))];
   return {
@@ -113,9 +131,9 @@ function tableroVista(p: ProyectoIW, yo: Yo) {
     completadoEn: p.completadoEn ?? null,
     lider: persona(p.leaderId, p.leaderName), personas: personasDelProyecto(p),
     grupos: (p.groups ?? []).map((g) => ({ id: g.id, nombre: g.name, color: g.color })),
-    columnas: cols.map((c) => ({ id: c.id, nombre: c.label, tipo: c.type })),
+    columnas: cols.map((c) => ({ id: c.id, nombre: c.label, tipo: c.type, config: c.config ?? null })),
     vistas: (tipos.length ? tipos : ["TABLA"]).map((t) => ({ tipo: t })),
-    items: (p.items ?? []).map((it) => itemVista(p, it, cols)),
+    items: (p.items ?? []).map((it) => itemVista(p, it, cols, conectados)),
     puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),
   };
 }
@@ -135,13 +153,14 @@ export function crearTableros(fallar: Fallar) {
     return p;
   };
   /** Vuelve a leer, revisa permisos, aplica el cambio y guarda. */
-  const cambiar = (id: string, yo: Yo, fn: (p: ProyectoIW) => void) =>
+  const cambiar = (id: string, yo: Yo, fn: (p: ProyectoIW, conectados: Conectados) => void | Promise<void>) =>
     protegido(async () => {
       const p = await visible(id, yo);
       if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder y los miembros del proyecto lo pueden cambiar");
-      fn(p);
+      const antes = await conectadosDe(p, yo);
+      await fn(p, soloNombres(antes));
       await guardarIW(p, yo.prueba);
-      return tableroVista(p, yo);
+      return tableroVista(p, yo, await conectadosDe(p, yo));
     });
   const validar = (errores: { campo: string; mensaje: string }[]) => {
     if (errores.length) throw fallar(422, "VALIDACION", "Revisa los campos marcados", errores);
@@ -175,7 +194,37 @@ export function crearTableros(fallar: Fallar) {
       await crearIW(p, yo.prueba);
       return tableroVista(p, yo);
     }),
-    ver: (id: string, yo: Yo) => protegido(async () => tableroVista(await visible(id, yo), yo)),
+    ver: (id: string, yo: Yo) => protegido(async () => {
+      const p = await visible(id, yo);
+      return tableroVista(p, yo, await conectadosDe(p, yo));
+    }),
+    /** Columnas (11 nov): la biblioteca de tipos de Monday. */
+    crearColumna: (id: string, yo: Yo, b: CambioColumna) => cambiar(id, yo, (p) => {
+      const r = agregarColumna(p, b);
+      validar(r.errores);
+    }),
+    cambiarColumna: (id: string, colId: string, yo: Yo, b: CambioColumna) => cambiar(id, yo, (p) => {
+      if (!columnasPersonalizadas(p).some((c) => c.id === colId)) throw fallar(404, "NO_ENCONTRADO", "No encontramos esa columna");
+      validar(cambiarColumna(p, colId, b));
+    }),
+    borrarColumna: (id: string, colId: string, yo: Yo) => cambiar(id, yo, (p) => {
+      const e = borrarColumna(p, colId);
+      if (e) throw fallar(404, "NO_ENCONTRADO", e);
+    }),
+    /** Votar, iniciar o pausar el cronómetro, apretar el botón. */
+    accion: (id: string, itemId: string, colId: string, yo: Yo) => cambiar(id, yo, (p) => {
+      const e = accionColumna(p, itemId, colId, quienDe(yo));
+      if (e) throw fallar(e.startsWith("No encontramos") ? 404 : 409, e.startsWith("No encontramos") ? "NO_ENCONTRADO" : "ACCION_NO_VALIDA", e);
+    }),
+    /** Para los archivos de una columna: aplica un cambio al dato del ítem (texto y lista de archivos). */
+    cambiarDatoColumna: (id: string, itemId: string, colId: string, yo: Yo, fn: (dato: unknown) => { texto: string; dato: unknown }) => cambiar(id, yo, (p) => {
+      const it = item(p, itemId);
+      const col = columnasPersonalizadas(p).find((c) => c.id === colId);
+      if (!col || col.type !== "file") throw fallar(404, "NO_ENCONTRADO", "No encontramos esa columna de archivos");
+      const r = fn(it[`${colId}__d`]);
+      guardarValor(it, colId, r.texto, r.dato);
+      marcarCambio(it, quienDe(yo));
+    }),
     /** Importación de Monday (9 nov): crea el proyecto ya armado. */
     importar: (p: ProyectoIW, yo: Yo) => protegido(async () => {
       await crearIW(p, yo.prueba);
@@ -218,14 +267,14 @@ export function crearTableros(fallar: Fallar) {
       }
       return { fechados, archivados };
     }),
-    crearItem: (id: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p) => {
-      validar(validarItem(b, p, true));
-      aplicarItem(p, b, null);
+    crearItem: (id: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p, con) => {
+      validar(validarItem(b, p, true, con));
+      aplicarItem(p, b, null, quienDe(yo), con);
     }),
-    cambiarItem: (id: string, itemId: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p) => {
+    cambiarItem: (id: string, itemId: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p, con) => {
       item(p, itemId);
-      validar(validarItem(b, p, false));
-      aplicarItem(p, b, itemId);
+      validar(validarItem(b, p, false, con, itemId));
+      aplicarItem(p, b, itemId, quienDe(yo), con);
     }),
     borrarItem: (id: string, itemId: string, yo: Yo) => cambiar(id, yo, (p) => {
       item(p, itemId);
