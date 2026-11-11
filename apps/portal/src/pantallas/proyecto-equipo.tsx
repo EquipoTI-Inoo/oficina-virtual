@@ -149,7 +149,7 @@ function ProyectoEquipo() {
             {vista === "CALENDARIO" && <CalendarioEquipo d={d} />}
             {vista === "TABLA" && (
               <div className="tabla-envoltura">
-                <table className="tabla" style={{ fontSize: 12 }}>
+                <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
                   <thead>
                     <tr>
                       <th>Etapa</th>

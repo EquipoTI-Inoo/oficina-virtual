@@ -258,7 +258,7 @@ function CalendarioEquipo() {
           {err && !cambios && <div style={{ marginTop: 12 }}><Aviso tono="alerta" icono={<LuTriangleAlert size={16} />}>{err}</Aviso></div>}
           <div className="tarjeta seccion" style={{ padding: "18px 14px" }}>
             <div className="tabla-envoltura">
-              <table className="tabla" style={{ fontSize: 12 }}>
+              <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
                 <thead>
                   <tr>
                     <th>Fecha</th>
@@ -372,7 +372,7 @@ function CostosIa() {
       <div className="tarjeta seccion" style={{ padding: "22px 18px" }}>
         <h2 className="tarjeta-titulo" style={{ marginBottom: 16 }}>Por cliente</h2>
         <div className="tabla-envoltura">
-          <table className="tabla" style={{ fontSize: 12 }}>
+          <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
             <thead>
               <tr>
                 <th>Cliente</th>
@@ -416,7 +416,7 @@ function CostosIa() {
           <Cargando />
         ) : (
           <div className="tabla-envoltura">
-            <table className="tabla" style={{ fontSize: 12 }}>
+            <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
               <thead>
                 <tr>
                   <th>Inicio</th>

@@ -55,7 +55,7 @@ function Soporte() {
       <div className="aviso" style={{ padding: "22px 20px" }}>
         <LuClock size={20} />
         <div>
-          <strong style={{ color: "var(--c-primario)" }}>respuesta en menos de 1 día hábil</strong>
+          <strong style={{ color: "var(--c-primario)" }}>Respuesta en menos de 1 día hábil</strong>
           <span className="texto-xs" style={{ color: "var(--c-primario)" }}>Te avisaremos en el portal cuando haya una respuesta de tu equipo.</span>
         </div>
       </div>
@@ -91,7 +91,7 @@ function Soporte() {
           <Cargando />
         ) : (
           <div className="tarjeta tabla-envoltura" style={{ padding: 0, overflow: "hidden" }}>
-            <table className="tabla">
+            <table className="tabla tabla--tarjetas">
               <thead>
                 <tr>
                   <th style={{ width: "48%" }}>Ticket / asunto</th>
@@ -263,7 +263,7 @@ function CrearTicket() {
         cuerpo: { asunto, categoria, descripcion, archivoIds: adjunto ? [adjunto.id] : [] },
         idempotente: true,
       });
-      avisar({ titulo: "Ticket enviado", texto: `Recibimos tu solicitud ${t.codigo}. respuesta en menos de 1 día hábil` });
+      avisar({ titulo: "Ticket enviado", texto: `Recibimos tu solicitud ${t.codigo}. Te respondemos en menos de 1 día hábil.` });
       ir("/soporte");
     } catch (x) {
       const p = x as ProblemaApi;
@@ -354,7 +354,7 @@ function CrearTicket() {
         <aside className="pila">
           <div className="aviso" style={{ display: "grid", gap: 12, padding: "22px 20px", borderRadius: 20, fontSize: 12 }}>
             <LuClock size={20} />
-            <strong style={{ color: "var(--c-primario)", fontSize: 14 }}>respuesta en menos de 1 día hábil</strong>
+            <strong style={{ color: "var(--c-primario)", fontSize: 14 }}>Respuesta en menos de 1 día hábil</strong>
             <span style={{ lineHeight: 1.6 }}>Tu equipo revisará la solicitud y te notificará cuando tenga una respuesta.</span>
             <span style={{ lineHeight: 1.6, fontSize: 12 }}>
               Horario de atención
@@ -398,7 +398,7 @@ function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas
         <span className="texto-xs texto-muted">{filas.length === 1 ? "1 cuenta" : `${filas.length} cuentas`}</span>
       </div>
       <div className="tabla-envoltura">
-        <table className="tabla" style={{ fontSize: 12 }}>
+        <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
           <thead>
             <tr>
               {["Cliente", "Estado", "Proyectos activos", "Atrasadas", "Por aprobar", "Acción"].map((h, i) => (

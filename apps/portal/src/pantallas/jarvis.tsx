@@ -49,7 +49,7 @@ export function JarvisPorArea() {
         Cada área tiene un tope diario y uno mensual. Al llegar a cualquiera, los Jarvis del área se pausan hasta el día o el mes siguiente; puedes ampliarlo cuando quieras.
       </p>
       <div className="tabla-envoltura">
-        <table className="tabla" style={{ fontSize: 12 }}>
+        <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
           <thead>
             <tr>
               <th>Área</th>

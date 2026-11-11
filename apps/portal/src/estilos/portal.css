@@ -2626,3 +2626,13 @@ main, .contenido, .principal { min-width: 0; }
   .jarvis-cabecera { flex-wrap: wrap; row-gap: 6px; padding: 10px 14px; }
   .jarvis-cabecera > :first-child { flex: 1 1 100%; }
 }
+
+/* Tablas que en el celular pasan a tarjetas: la primera celda arriba y las demás en una línea debajo. */
+@media (max-width: 640px) {
+  .tabla--tarjetas thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tabla--tarjetas, .tabla--tarjetas tbody { display: block; width: 100%; }
+  .tabla--tarjetas tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 14px 16px; border-bottom: 1px solid var(--c-borde); }
+  .tabla--tarjetas td { display: block; padding: 0 !important; border: 0 !important; width: auto !important; }
+  .tabla--tarjetas td:first-child { flex: 1 1 100%; }
+  .tabla--tarjetas td:last-child:empty { display: none; }
+}

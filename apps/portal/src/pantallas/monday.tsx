@@ -62,7 +62,7 @@ function ImportarMonday() {
         <p className="texto-sm texto-muted">{r.datos.datos.length && !verImportados && !q ? "Ya están todos importados. Ya pueden dejar Monday." : "Ningún tablero coincide."}</p>
       ) : (
         <div className="tabla-envoltura">
-          <table className="tabla">
+          <table className="tabla tabla--tarjetas">
             <thead><tr><th>Tablero</th><th>Espacio</th><th style={{ width: 80 }}>Ítems</th><th style={{ width: 220 }} /></tr></thead>
             <tbody>
               {xs.map((t) => (

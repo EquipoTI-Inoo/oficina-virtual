@@ -115,7 +115,7 @@ function Personas() {
         </p>
       )}
       <div className="tabla-envoltura">
-        <table className="tabla">
+        <table className="tabla tabla--tarjetas">
           <thead>
             <tr>
               <th>Persona</th>
