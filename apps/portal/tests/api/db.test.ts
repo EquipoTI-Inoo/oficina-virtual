@@ -123,6 +123,7 @@ before(async () => {
   await db.exec(sql("migraciones/0051_boveda_personal.sql"));
   await db.exec(sql("migraciones/0052_importacion_monday.sql"));
   await db.exec(sql("migraciones/0053_archivos_tablero.sql"));
+  await db.exec(sql("migraciones/0054_actualizaciones_tablero.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",

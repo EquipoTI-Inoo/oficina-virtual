@@ -58,6 +58,7 @@ import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
+import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
 import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { tablerosDelPanel } from "../dominio/tableros";
@@ -5296,6 +5297,59 @@ ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.comentar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+
+const ACTUALIZACIONES = crearActualizaciones((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+type FilaActDb = { id: string; padre_id: string | null; autor_id: string | null; autor: string; texto: string; menciones: string[] | string; creado_en: Date; editado_en: Date | null; item_iw_id: string };
+const filaAct = (r: FilaActDb) => ({
+  id: r.id, padreId: r.padre_id, autorId: r.autor_id, autor: r.autor, texto: r.texto, itemId: r.item_iw_id,
+  menciones: Array.isArray(r.menciones) ? r.menciones : String(r.menciones ?? "").replace(/[{}]/g, "").split(",").filter(Boolean),
+  creadoEn: new Date(r.creado_en).toISOString(), editadoEn: r.editado_en ? new Date(r.editado_en).toISOString() : null,
+});
+function repoActualizaciones(ctx: Ctx): RepoActualizaciones {
+  return {
+    listar: async (proyectoId, itemId) => (await ctx.c.query<FilaActDb>(
+      "SELECT * FROM actualizacion_tablero WHERE proyecto_iw_id = $1 AND item_iw_id = $2 ORDER BY creado_en, id", [proyectoId, itemId])).rows.map(filaAct),
+    conteo: async (proyectoId) => Object.fromEntries((await ctx.c.query<{ item_iw_id: string; n: number }>(
+      "SELECT item_iw_id, count(*)::int AS n FROM actualizacion_tablero WHERE proyecto_iw_id = $1 GROUP BY item_iw_id", [proyectoId])).rows.map((r) => [r.item_iw_id, r.n])),
+    crear: async (a) => (await ctx.c.query<{ id: string }>(
+      "INSERT INTO actualizacion_tablero (proyecto_iw_id, item_iw_id, padre_id, autor_id, autor, texto, menciones) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[]) RETURNING id",
+      [a.proyectoId, a.itemId, a.padreId, ctx.u.usuarioId, (ctx.u.nombre ?? "Alguien del equipo").slice(0, 200), a.texto, a.menciones])).rows[0].id,
+    una: async (proyectoId, id) => {
+      if (!esUuid(id)) return null;
+      const r = (await ctx.c.query<FilaActDb>("SELECT * FROM actualizacion_tablero WHERE proyecto_iw_id = $1 AND id = $2", [proyectoId, id])).rows[0];
+      return r ? filaAct(r) : null;
+    },
+    borrar: async (proyectoId, id) => { await ctx.c.query("DELETE FROM actualizacion_tablero WHERE proyecto_iw_id = $1 AND id = $2", [proyectoId, id]); },
+    editar: async (proyectoId, id, texto) => { await ctx.c.query("UPDATE actualizacion_tablero SET texto = $3, editado_en = now() WHERE proyecto_iw_id = $1 AND id = $2", [proyectoId, id, texto]); },
+    equipo: async () => (await ctx.c.query<{ id: string; nombre: string; empleado: string | null }>(
+      "SELECT id, nombre, inoowork_empleado_id AS empleado FROM usuario WHERE tipo = 'EQUIPO' AND activo ORDER BY nombre")).rows.map((r) => ({ id: r.id, nombre: r.nombre, empleadoId: r.empleado })),
+    avisar: async (usuarioId, titulo, cuerpo, enlace) => {
+      await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)", [usuarioId, ctx.u.usuarioId, titulo.slice(0, 200), cuerpo.slice(0, 500), enlace]);
+    },
+  };
+}
+// ───────────────────────────── Actualizaciones de los ítems (12 nov): la conversación de cada ítem, como en Monday
+
+ruta("GET", "/tableros/:id/actualizaciones", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.conteo(repoActualizaciones(ctx), p.id, await yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id/items/:item/actualizaciones", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.listar(repoActualizaciones(ctx), p.id, p.item, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/actualizaciones", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.crear(repoActualizaciones(ctx), p.id, p.item, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("PATCH", "/tableros/:id/items/:item/actualizaciones/:act", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.editar(repoActualizaciones(ctx), p.id, p.item, p.act, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/items/:item/actualizaciones/:act", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.borrar(repoActualizaciones(ctx), p.id, p.item, p.act, await yoTablero(ctx));
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN

@@ -5,8 +5,8 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
-import { LuChevronDown, LuChevronLeft, LuChevronRight, LuHistory, LuPlus, LuTrash2 } from "react-icons/lu";
-import { HistorialMonday } from "./monday";
+import { LuChevronDown, LuChevronLeft, LuChevronRight, LuMessageSquare, LuPlus, LuTrash2 } from "react-icons/lu";
+import { PanelItem } from "./panel-item";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
@@ -69,6 +69,9 @@ function TableroProyecto() {
   const [texto, setTexto] = useState("");
   const [responsable, setResponsable] = useState("");
   const [estado, setEstado] = useState("");
+  // 12 nov: el panel del ítem (conversación, archivos, Monday). «?item=» lo abre directo (los avisos de la campana).
+  const [panel, setPanel] = useState<string | null>(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("item")));
+  const conteo = useConsulta<{ datos: Record<string, number> }>(`/tableros/${params.id}/actualizaciones`);
   const t = r.datos;
   const items = useMemo(
     () => (t?.items ?? []).filter((i) =>
@@ -91,7 +94,8 @@ function TableroProyecto() {
     }
   };
   const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO"])];
-  const ctx = { t, items, cambiar, editable: t.puedeEditar };
+  const ctx = { t, items, cambiar, editable: t.puedeEditar, abrir: (i: Item) => setPanel(i.id), conteo: conteo.datos?.datos ?? {} };
+  const enPanel = panel ? t.items.find((i) => i.id === panel) : undefined;
 
   return (
     <>
@@ -129,11 +133,12 @@ function TableroProyecto() {
       {vista === "CALENDARIO" && <VistaCalendario items={items} />}
       {vista === "LINEA_TIEMPO" && <VistaLinea t={t} items={items} />}
       {vista === "GRAFICO" && <VistaGrafico items={items} />}
+      {enPanel && <PanelItem t={t} item={enPanel} cerrar={() => setPanel(null)} alActualizar={() => void conteo.recargar()} />}
     </>
   );
 }
 
-type Ctx = { t: Tablero; items: Item[]; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean>; editable: boolean };
+type Ctx = { t: Tablero; items: Item[]; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean>; editable: boolean; abrir: (i: Item) => void; conteo: Record<string, number> };
 
 // ───────────────────────────── celdas
 
@@ -179,10 +184,9 @@ function Fecha({ valor, guardar, editable, etiqueta, vencido }: { valor: string 
 
 // ───────────────────────────── tabla (como el workspace de InooWork)
 
-function VistaTabla({ t, items, cambiar, editable }: Ctx) {
+function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
-  const [historial, setHistorial] = useState<Item | null>(null);
   const [biblioteca, setBiblioteca] = useState(false);
   const [configurando, setConfigurando] = useState<Tablero["columnas"][number] | null>(null);
   const alternar = (s: Set<string>, id: string) => {
@@ -267,7 +271,9 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                             <span className="fila" style={{ gap: 6 }}>
                               <Texto valor={i.nombre} editable={editable} etiqueta={`Nombre de ${i.nombre}`} guardar={(nombre) => void item(i, { nombre })} />
                               {i.subitems.length > 0 && <span className="contador-sub">{i.subitems.length}</span>}
-                              {i.deMonday && <button className="boton-icono" aria-label={`Historial de Monday de ${i.nombre}`} title="Historial de Monday" onClick={() => setHistorial(i)}><LuHistory size={13} /></button>}
+                              <button className={`boton-conversacion${conteo[i.id] ? " boton-conversacion--con" : ""}`} aria-label={`Abrir ${i.nombre}${conteo[i.id] ? ` (${conteo[i.id]} actualizaciones)` : ""}`} title="Actualizaciones, archivos e historial" onClick={() => abrir(i)}>
+                                <LuMessageSquare size={14} />{conteo[i.id] ? <span>{conteo[i.id]}</span> : null}
+                              </button>
                             </span>
                           </td>
                           <td><Persona t={t} valor={i.responsable} editable={editable} etiqueta={`Responsable de ${i.nombre}`} guardar={(responsableId) => void item(i, { responsableId })} /></td>
@@ -320,7 +326,6 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
           <LuPlus size={14} /> Nuevo grupo
         </button>
       )}
-      {historial && <HistorialMonday proyectoId={t.id} item={historial} alCerrar={() => setHistorial(null)} />}
       {biblioteca && <BibliotecaColumnas t={t} cambiar={cambiar} cerrar={() => setBiblioteca(false)} />}
       {configurando && <ConfigurarColumna t={t} col={configurando} cambiar={cambiar} cerrar={() => setConfigurando(null)} />}
     </div>
@@ -366,7 +371,7 @@ function FilaNueva({ columnas, etiqueta, texto, crear, sangria }: { columnas: nu
 
 // ───────────────────────────── kanban (por estado; se arrastra para cambiarlo)
 
-function VistaKanban({ t, items, cambiar, editable }: Ctx) {
+function VistaKanban({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
   const [sobre, setSobre] = useState<string | null>(null);
   const soltar = (e: DragEvent, estado: string) => {
     e.preventDefault();
@@ -384,7 +389,8 @@ function VistaKanban({ t, items, cambiar, editable }: Ctx) {
             onDragOver={(e) => { if (editable) { e.preventDefault(); setSobre(estado); } }} onDragLeave={() => setSobre(null)} onDrop={(e) => soltar(e, estado)}>
             <header className="kanban-cabecera" style={{ background: COLOR_ESTADO[estado] }}>{estado} <span>{suyos.length}</span></header>
             {suyos.map((i) => (
-              <article key={i.id} className="tarjeta kanban-item" draggable={editable} onDragStart={(e) => e.dataTransfer.setData("text/plain", i.id)}>
+              <article key={i.id} className="tarjeta kanban-item" draggable={editable} onDragStart={(e) => e.dataTransfer.setData("text/plain", i.id)}
+                role="button" tabIndex={0} aria-label={`Abrir ${i.nombre}`} onClick={() => abrir(i)} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), abrir(i))} style={{ cursor: "pointer" }}>
                 <span className="texto-xs texto-muted">{t.grupos.find((g) => g.id === i.grupoId)?.nombre}</span>
                 <span className="negrita texto-sm">{i.nombre}</span>
                 <span className="fila entre texto-xs" style={{ gap: 6 }}>
@@ -394,6 +400,7 @@ function VistaKanban({ t, items, cambiar, editable }: Ctx) {
                 <span className="fila" style={{ gap: 6 }}>
                   <span className="pildora pildora--chica" style={{ background: COLOR_PRIORIDAD[i.prioridad as PrioridadItem] }}>{i.prioridad}</span>
                   {i.subitems.length > 0 && <span className="texto-xs texto-muted">{i.subitems.filter((s) => s.estado === "Completado").length}/{i.subitems.length} subítems</span>}
+                  {conteo[i.id] ? <span className="texto-xs texto-muted fila" style={{ gap: 3 }}><LuMessageSquare size={11} /> {conteo[i.id]}</span> : null}
                 </span>
               </article>
             ))}

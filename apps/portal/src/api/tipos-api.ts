@@ -3431,6 +3431,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros/{proyectoId}/actualizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        /** Cuántas actualizaciones tiene cada ítem del tablero (para el globito de la tabla) */
+        get: operations["conteoActualizacionesTablero"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/actualizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        /** La conversación del ítem (actualizaciones y respuestas), como en Monday */
+        get: operations["actualizacionesItem"];
+        put?: never;
+        /** Escribe una actualización o responde una; avisa a los mencionados, al responsable del ítem y a quien se responde */
+        post: operations["crearActualizacionItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/actualizaciones/{actualizacionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                actualizacionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una actualización (y sus respuestas): quien la escribió o un admin */
+        delete: operations["borrarActualizacionItem"];
+        options?: never;
+        head?: never;
+        /** Edita la propia actualización */
+        patch: operations["editarActualizacionItem"];
+        trace?: never;
+    };
     "/tableros/{proyectoId}/archivos/{archivoId}/comentarios": {
         parameters: {
             query?: never;
@@ -5926,6 +5988,29 @@ export interface components {
                 [key: string]: unknown;
             };
             subitems: components["schemas"]["SubitemTablero"][];
+        };
+        ActualizacionesItem: {
+            datos: {
+                id: string;
+                padreId: string | null;
+                autor: {
+                    id: string | null;
+                    nombre: string;
+                };
+                texto: string;
+                menciones: {
+                    id: string;
+                    nombre: string;
+                }[];
+                creadoEn: string;
+                editadoEn: string | null;
+                esMia: boolean;
+            }[];
+            /** @description A quiénes se puede mencionar. */
+            equipo: {
+                id: string;
+                nombre: string;
+            }[];
         };
         ComentariosArchivo: {
             archivo: {
@@ -15113,6 +15198,153 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    conteoActualizacionesTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: {
+                            [key: string]: number;
+                        };
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    actualizacionesItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActualizacionesItem"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    crearActualizacionItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                    /** @description La actualización que se responde (solo un nivel) */
+                    padreId?: string | null;
+                    mencionIds?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActualizacionesItem"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarActualizacionItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                actualizacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActualizacionesItem"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    editarActualizacionItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                actualizacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActualizacionesItem"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
         };
     };

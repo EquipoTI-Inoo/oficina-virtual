@@ -2636,3 +2636,23 @@ main, .contenido, .principal { min-width: 0; }
   .tabla--tarjetas td:first-child { flex: 1 1 100%; }
   .tabla--tarjetas td:last-child:empty { display: none; }
 }
+
+/* Panel del ítem (12 nov): al costado, como en Monday. */
+.velo--lateral { justify-content: flex-end; align-items: stretch; padding: 0; }
+.panel-lateral { width: min(620px, 100%); height: 100%; background: var(--c-blanco); display: flex; flex-direction: column; box-shadow: var(--sombra-flotante); animation: entrar-lateral 0.2s ease-out; }
+@keyframes entrar-lateral { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.panel-lateral-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 20px 20px 14px; }
+.panel-lateral-cuerpo { flex: 1; overflow-y: auto; padding: 0 20px 24px; }
+.panel-lateral .segmentado button { display: inline-flex; align-items: center; gap: 5px; }
+.actualizacion { border: 1px solid var(--c-borde); border-radius: 12px; padding: 12px 14px; background: var(--c-blanco); }
+.actualizacion--respuesta { margin-left: 28px; background: var(--c-fondo); }
+.actualizacion .avatar { width: 30px; height: 30px; font-size: 12px; flex: none; }
+.mencion { color: var(--c-primario); font-weight: 600; background: var(--c-primario-suave); border-radius: 4px; padding: 0 3px; }
+.sugerencias-mencion { position: absolute; left: 8px; top: 100%; z-index: 30; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--c-blanco); border: 1px solid var(--c-borde); border-radius: 10px; box-shadow: var(--sombra-flotante); min-width: 220px; }
+.sugerencias-mencion button { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; border: 0; background: none; border-radius: 7px; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.sugerencias-mencion [aria-selected="true"] button, .sugerencias-mencion button:hover { background: var(--c-primario-suave); color: var(--c-primario); }
+.vacio-suave { display: grid; justify-items: center; gap: 6px; text-align: center; padding: 28px 16px; color: var(--c-muted); border: 1px dashed var(--c-borde); border-radius: 12px; }
+.boton-conversacion { display: inline-flex; align-items: center; gap: 3px; border: 0; background: none; color: var(--c-tenue); padding: 3px 5px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; flex: none; }
+.boton-conversacion:hover { background: var(--c-primario-suave); color: var(--c-primario); }
+.boton-conversacion--con { color: var(--c-primario); font-weight: 600; }
+@media (max-width: 640px) { .panel-lateral { width: 100%; } .actualizacion--respuesta { margin-left: 14px; } }

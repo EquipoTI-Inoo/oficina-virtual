@@ -45,6 +45,7 @@ import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
+import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
 import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -156,6 +157,9 @@ interface Estado {
   /** Columna «Archivos» de los tableros (11 nov). */
   archivosTablero: { id: string; archivoId: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array }[];
   comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string }[];
+  /** Actualizaciones de los ítems de los tableros (12 nov) y los avisos de la campana que generan. */
+  actualizacionesTablero: (FilaActualizacion & { proyectoId: string; itemId: string })[];
+  avisosEquipo: { id: string; usuarioId: string; titulo: string; cuerpo: string; enlace: string; creadoEn: string }[];
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
@@ -244,7 +248,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -705,7 +709,12 @@ function ticketVista(t: Estado["tickets"][number]): S<"Ticket"> {
   };
 }
 
-function notificaciones(): S<"Notificacion">[] {
+function notificaciones(ctx?: Ctx): S<"Notificacion">[] {
+  // 12 nov: al equipo le llegan los avisos de los tableros (menciones, respuestas, su ítem).
+  if (ctx?.esEquipo) {
+    return E.avisosEquipo.filter((a) => a.usuarioId === ctx.usuario.id).reverse()
+      .map((a) => ({ id: a.id, tipo: "AVISO", titulo: a.titulo, cuerpo: a.cuerpo, enlace: a.enlace, leida: E.notificacionesLeidas.has(a.id), creadoEn: a.creadoEn })) as S<"Notificacion">[];
+  }
   return [
     {
       id: D.uid(13, 1),
@@ -756,11 +765,11 @@ ruta("GET", "/me", (ctx) => {
           nombre: E.clientes.find((c) => c.id === m.clienteId)!.nombre,
           rol: m.rol,
         })),
-    notificacionesSinLeer: ctx.esEquipo ? 0 : notificaciones().filter((n) => !n.leida).length,
+    notificacionesSinLeer: notificaciones(ctx).filter((n) => !n.leida).length,
   };
   return sesion;
 });
-ruta("GET", "/me/notificaciones", () => ({ datos: notificaciones(), paginacion: { siguienteCursor: null } }));
+ruta("GET", "/me/notificaciones", (ctx) => ({ datos: notificaciones(ctx), paginacion: { siguienteCursor: null } }));
 ruta("POST", "/me/clave", async (ctx, _p, _q, req) => {
   if (ctx.usuario.tipo !== "CLIENTE" || ctx.enNombreDe) throw new ErrorApi(409, "NO_DISPONIBLE", "Esta cuenta cambia su contraseña en InooWork");
   const b = await cuerpo<{ actual?: unknown; nueva?: unknown }>(req);
@@ -772,8 +781,8 @@ ruta("POST", "/me/clave", async (ctx, _p, _q, req) => {
   return { token: `demo.${ctx.usuario.id}`, expiraEn: new Date(Date.now() + 7 * 86_400_000).toISOString() };
 });
 
-ruta("POST", "/me/notificaciones/leer", () => {
-  notificaciones().forEach((n) => E.notificacionesLeidas.add(n.id));
+ruta("POST", "/me/notificaciones/leer", (ctx) => {
+  notificaciones(ctx).forEach((n) => E.notificacionesLeidas.add(n.id));
   return null;
 });
 
@@ -1723,6 +1732,44 @@ ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+
+const ACTUALIZACIONES = crearActualizaciones((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+const repoActualizaciones = (ctx: Ctx): RepoActualizaciones => ({
+  listar: async (proyectoId, itemId) => E.actualizacionesTablero.filter((a) => a.proyectoId === proyectoId && a.itemId === itemId),
+  conteo: async (proyectoId) => E.actualizacionesTablero.filter((a) => a.proyectoId === proyectoId).reduce<Record<string, number>>((r, a) => ({ ...r, [a.itemId]: (r[a.itemId] ?? 0) + 1 }), {}),
+  crear: async (a) => {
+    const id = crypto.randomUUID();
+    E.actualizacionesTablero.push({ id, proyectoId: a.proyectoId, itemId: a.itemId, padreId: a.padreId, autorId: ctx.usuario.id, autor: ctx.usuario.nombre, texto: a.texto, menciones: a.menciones, creadoEn: new Date().toISOString(), editadoEn: null });
+    return id;
+  },
+  una: async (proyectoId, id) => E.actualizacionesTablero.find((a) => a.proyectoId === proyectoId && a.id === id) ?? null,
+  borrar: async (proyectoId, id) => { E.actualizacionesTablero = E.actualizacionesTablero.filter((a) => !(a.proyectoId === proyectoId && (a.id === id || a.padreId === id))); },
+  editar: async (proyectoId, id, texto) => { const a = E.actualizacionesTablero.find((x) => x.proyectoId === proyectoId && x.id === id); if (a) Object.assign(a, { texto, editadoEn: new Date().toISOString() }); },
+  equipo: async () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false).map((u) => ({ id: u.id, nombre: u.nombre, empleadoId: u.inooworkEmpleadoId ?? null })),
+  avisar: async (usuarioId, titulo, cuerpo, enlace) => { E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId, titulo, cuerpo, enlace, creadoEn: new Date().toISOString() }); },
+});
+// ───────────────────────────── Actualizaciones de los ítems (12 nov): la conversación de cada ítem, como en Monday
+
+ruta("GET", "/tableros/:id/actualizaciones", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.conteo(repoActualizaciones(ctx), p.id, yoTablero(ctx));
+});
+ruta("GET", "/tableros/:id/items/:item/actualizaciones", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.listar(repoActualizaciones(ctx), p.id, p.item, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/items/:item/actualizaciones", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.crear(repoActualizaciones(ctx), p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("PATCH", "/tableros/:id/items/:item/actualizaciones/:act", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.editar(repoActualizaciones(ctx), p.id, p.item, p.act, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/items/:item/actualizaciones/:act", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ACTUALIZACIONES.borrar(repoActualizaciones(ctx), p.id, p.item, p.act, yoTablero(ctx));
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN

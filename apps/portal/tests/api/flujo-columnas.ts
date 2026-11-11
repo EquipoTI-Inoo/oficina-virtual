@@ -23,6 +23,33 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
   const it = (t: any, id = "item-mkt-1") => t.items.find((i: any) => i.id === id);
 
   describe(`Columnas de los tableros · ${nombre}`, () => {
+    test("actualizaciones del ítem: escribir, responder y mencionar avisan en la campana", async () => {
+      await reiniciar();
+      const ruta = `/tableros/${T}/items/item-mkt-1/actualizaciones`;
+      assert.equal((await llamar("POST", ruta, DIEGO, { texto: " " })).status, 422);
+      assert.equal((await llamar("POST", ruta, DIEGO, { texto: "x", mencionIds: [uid(1, 1)] })).status, 422, "una clienta no es del equipo");
+      assert.equal((await llamar("GET", ruta, VALERIA)).status, 403);
+      const r = await llamar("POST", ruta, DIEGO, { texto: "@Camila Paredes ¿subes el carrusel hoy?", mencionIds: [uid(1, 6)] });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const a = r.json.datos[0];
+      assert.deepEqual([a.autor.nombre, a.menciones.map((m: any) => m.nombre), a.esMia], ["Diego Castro", ["Camila Paredes"], true]);
+      const resp = await llamar("POST", ruta, CAMILA, { texto: "Sí, a las 4", padreId: a.id });
+      assert.deepEqual(resp.json.datos.map((x: any) => [x.texto, x.padreId === a.id, x.esMia]), [["@Camila Paredes ¿subes el carrusel hoy?", false, false], ["Sí, a las 4", true, true]]);
+      assert.equal((await llamar("POST", ruta, DIEGO, { texto: "x", padreId: resp.json.datos[1].id })).status, 422, "solo un nivel de respuestas");
+      assert.deepEqual((await llamar("GET", `/tableros/${T}/actualizaciones`, DIEGO)).json.datos, { "item-mkt-1": 2 });
+
+      // Avisos: a Camila por la mención; a Diego porque le respondieron (y es el responsable del ítem).
+      const avisos = async (t: string) => (await llamar("GET", "/me/notificaciones", t)).json.datos.map((n: any) => n.titulo);
+      assert.ok((await avisos(CAMILA)).some((x: string) => x.startsWith("Diego Castro te mencionó")));
+      assert.ok((await avisos(DIEGO)).some((x: string) => x.startsWith("Camila Paredes respondió tu actualización")));
+      assert.ok(!(await avisos(DIEGO)).some((x: string) => x.includes("Diego Castro")), "nunca a uno mismo");
+
+      assert.equal((await llamar("PATCH", `${ruta}/${a.id}`, CAMILA, { texto: "otra" })).status, 403, "solo quien la escribió edita");
+      assert.equal((await llamar("PATCH", `${ruta}/${a.id}`, DIEGO, { texto: "Editada" })).json.datos[0].editadoEn !== null, true);
+      assert.equal((await llamar("DELETE", `${ruta}/${a.id}`, CAMILA)).status, 403);
+      assert.deepEqual((await llamar("DELETE", `${ruta}/${a.id}`, DIEGO)).json.datos, [], "se borra con sus respuestas");
+    });
+
     test("el cliente de un tablero se empareja con el del portal o se crea solo; la carpeta de Drive se puede poner a mano", async () => {
       await reiniciar();
       const clientes = async () => (await llamar("GET", "/clientes?limite=100", DIEGO)).json.datos.map((c: any) => c.nombre);

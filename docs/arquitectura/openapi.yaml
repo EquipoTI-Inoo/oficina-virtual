@@ -4920,6 +4920,84 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /tableros/{proyectoId}/actualizaciones:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: conteoActualizacionesTablero
+      summary: 'Cuántas actualizaciones tiene cada ítem del tablero (para el globito de la tabla)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: object, additionalProperties: { type: integer } } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /tableros/{proyectoId}/items/{itemId}/actualizaciones:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: actualizacionesItem
+      summary: 'La conversación del ítem (actualizaciones y respuestas), como en Monday'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActualizacionesItem' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Tableros]
+      operationId: crearActualizacionItem
+      summary: 'Escribe una actualización o responde una; avisa a los mencionados, al responsable del ítem y a quien se responde'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, maxLength: 5000 }
+                padreId: { type: [string, 'null'], description: 'La actualización que se responde (solo un nivel)' }
+                mencionIds: { type: array, maxItems: 30, items: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActualizacionesItem' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tableros/{proyectoId}/items/{itemId}/actualizaciones/{actualizacionId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: actualizacionId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Tableros]
+      operationId: editarActualizacionItem
+      summary: 'Edita la propia actualización'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [texto], properties: { texto: { type: string, maxLength: 5000 } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActualizacionesItem' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Tableros]
+      operationId: borrarActualizacionItem
+      summary: 'Borra una actualización (y sus respuestas): quien la escribió o un admin'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActualizacionesItem' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /tableros/{proyectoId}/archivos/{archivoId}/comentarios:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
@@ -7517,6 +7595,28 @@ components:
         valores: { type: object, additionalProperties: { type: [string, number] }, description: 'Texto visible de cada columna personalizada (también las calculadas), por id de columna' }
         datos: { type: object, additionalProperties: true, description: 'Lo que el portal guarda además del texto: ids de personas, archivos, votos, cronómetro, documento…' }
         subitems: { type: array, items: { $ref: '#/components/schemas/SubitemTablero' } }
+    ActualizacionesItem:
+      type: object
+      required: [datos, equipo]
+      properties:
+        datos:
+          type: array
+          items:
+            type: object
+            required: [id, padreId, autor, texto, menciones, creadoEn, editadoEn, esMia]
+            properties:
+              id: { type: string }
+              padreId: { type: [string, 'null'] }
+              autor: { type: object, required: [id, nombre], properties: { id: { type: [string, 'null'] }, nombre: { type: string } } }
+              texto: { type: string }
+              menciones: { type: array, items: { type: object, required: [id, nombre], properties: { id: { type: string }, nombre: { type: string } } } }
+              creadoEn: { type: string }
+              editadoEn: { type: [string, 'null'] }
+              esMia: { type: boolean }
+        equipo:
+          type: array
+          description: A quiénes se puede mencionar.
+          items: { type: object, required: [id, nombre], properties: { id: { type: string }, nombre: { type: string } } }
     ComentariosArchivo:
       type: object
       required: [archivo, datos]
