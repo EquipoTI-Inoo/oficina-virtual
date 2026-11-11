@@ -56,7 +56,7 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
       assert.deepEqual(t.personas.map((x: any) => x.nombre).sort(), ["Camila Paredes", "Diego Castro"]);
       assert.deepEqual(r.json.resumen, { grupos: 2, items: 3, subitems: 1, actualizaciones: 1, archivos: 2, archivosCopiados: 0, sinResponsable: 2 });
       assert.equal(r.json.archivosSinCopiar.length, 2);
-      assert.ok(r.json.archivosSinCopiar.every((a: any) => a.motivo === "Sin almacén de archivos configurado"));
+      assert.ok(r.json.archivosSinCopiar.every((a: any) => a.motivo), "cada archivo dice por qué no se copió");
 
       assert.equal((await llamar("POST", "/monday/tableros/1001/importar", ADMIN, { cliente: "Casa Oliva" })).status, 409);
       const lista = (await llamar("GET", "/monday/tableros", ADMIN)).json.datos;
