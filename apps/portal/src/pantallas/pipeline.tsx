@@ -119,7 +119,7 @@ function PipelineProyectos() {
             const xs = d.datos.filter((p) => p.columna === c.clave);
             const ts = tableros.filter((t) => columnaDeTablero(t.estado, t.items) === c.clave);
             return (
-              <section key={c.clave} className="pipeline-columna" data-columna={c.clave} role="listitem" aria-label={`${c.titulo}: ${xs.length + ts.length}`}>
+              <section key={c.clave} className="pipeline-columna" data-columna={c.clave} data-vacia={!xs.length && !ts.length || undefined} role="listitem" aria-label={`${c.titulo}: ${xs.length + ts.length}`}>
                 <header className="pipeline-cab">
                   <span className="negrita">{c.titulo}</span>
                   <span className="pipeline-contador">{xs.length + ts.length}</span>

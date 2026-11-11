@@ -2579,3 +2579,27 @@ main, .contenido, .principal { min-width: 0; }
 .boton-icono.boton--ocupado, .chip.boton--ocupado { color: transparent !important; }
 .boton-icono.boton--ocupado > *, .chip.boton--ocupado > * { visibility: hidden; }
 .boton-icono.boton--ocupado::after, .chip.boton--ocupado::after { position: absolute; inset: 0; margin: auto; color: var(--c-primario); border-color: var(--c-primario); border-right-color: transparent; }
+
+/* Rediseño (11 nov): el pipeline de proyectos se acomoda al ancho; las columnas vacías ocupan menos y en el celular
+   las etapas van una debajo de otra (antes se cortaban a la derecha). */
+.pipeline { display: flex; align-items: flex-start; grid-auto-flow: unset; }
+.pipeline-columna { flex: 1 1 230px; min-width: 210px; }
+.pipeline-columna[data-vacia] { flex: 0 1 170px; min-width: 150px; }
+.pipeline-columna[data-vacia] .pipeline-vacio { padding: 10px 0; text-align: center; }
+@media (max-width: 640px) {
+  .pipeline { flex-direction: column; overflow: visible; }
+  .pipeline-columna, .pipeline-columna[data-vacia] { flex: none; width: 100%; min-width: 0; }
+  .pipeline-columna[data-vacia] > p.texto-xs { display: none; }
+}
+
+/* Acción destructiva: rojo y separada de las demás (antes, una equis suelta sin texto). */
+.boton--peligro { color: var(--c-semaforo-rojo-intenso); border-color: #f3c7c2; background: var(--c-blanco); }
+.boton--peligro:hover { background: var(--c-semaforo-rojo-suave); border-color: var(--c-semaforo-rojo); }
+/* Las filas de historial se leen alineadas a la izquierda (antes, la descripción salía centrada). */
+.fila-suave.rejilla > p { text-align: left; }
+@media (max-width: 640px) { .fila-suave.rejilla { grid-template-columns: 1fr !important; gap: 6px; } .fila-suave.rejilla > div[style*="justify-self"] { justify-self: start !important; } }
+.fila-suave.rejilla { display: grid; grid-template-columns: var(--columnas, 1fr); align-items: center; }
+@media (max-width: 640px) {
+  .fila-suave.rejilla { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+  .fila-suave.rejilla > * { text-align: left; }
+}

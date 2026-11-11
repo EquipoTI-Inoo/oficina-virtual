@@ -148,7 +148,7 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
       </div>
       {!lista.datos.datos.length && <p className="texto-xs texto-muted">Todavía nadie del cliente tiene acceso.</p>}
       {lista.datos.datos.map((m) => (
-        <div key={m.usuarioId} className="fila entre texto-sm" style={{ gap: 8, flexWrap: "wrap" }}>
+        <div key={m.usuarioId} className="fila entre texto-sm" style={{ gap: 8, flexWrap: "wrap", paddingBottom: 10, borderBottom: "1px solid var(--c-borde)" }}>
           <span>
             <span className="negrita" style={{ display: "block" }}>{m.nombre}</span>
             <span className="texto-xs texto-muted" style={{ display: "block" }}>{m.email}</span>
@@ -160,7 +160,7 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
           <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
             <button className="boton boton--chico" onClick={() => void enviarPorWhatsApp(m)} aria-label={`Enviar enlace de acceso de ${m.nombre} por WhatsApp`}><LuMessageCircle size={13} /> WhatsApp</button>
             <button className="boton boton--chico" onClick={() => void copiarEnlace(m)} aria-label={`Copiar enlace de acceso de ${m.nombre}`}><LuLink size={13} /> Copiar enlace</button>
-            <button className="boton-icono" onClick={() => void quitarAcceso(m)} aria-label={`Quitarle el acceso a ${m.nombre}`}><LuX size={14} /></button>
+            <button className="boton boton--chico boton--peligro" onClick={() => void quitarAcceso(m)} aria-label={`Quitarle el acceso a ${m.nombre}`}><LuX size={13} /> Quitar</button>
           </span>
         </div>
       ))}
