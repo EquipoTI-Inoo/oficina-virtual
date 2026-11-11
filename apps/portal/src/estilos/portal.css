@@ -2603,3 +2603,26 @@ main, .contenido, .principal { min-width: 0; }
   .fila-suave.rejilla { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
   .fila-suave.rejilla > * { text-align: left; }
 }
+
+/* Celular (11 nov): las filas con estado y acción bajan la acción a otra línea en vez de exprimir el título. */
+@media (max-width: 640px) {
+  .fila-req { flex-wrap: wrap; row-gap: 8px; }
+  .fila-req > :first-child { flex: 1 1 100%; }
+  .fila-req > :last-child { width: 100%; justify-content: space-between; padding-left: 24px; }
+}
+/* Calendario en el celular: primero la agenda; el mes chico y los filtros, después. */
+@media (max-width: 900px) {
+  .calendario { display: flex; flex-direction: column; }
+  .calendario-lateral { order: 2; }
+  .calendario-lateral .mini-mes, .calendario-lateral > :first-child { max-width: 340px; }
+}
+
+/* Selectores de vista (Tabla, Kanban, Línea de tiempo…): una sola línea; en pantallas chicas se deslizan. */
+.segmentado { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.segmentado::-webkit-scrollbar { display: none; }
+.segmentado button { white-space: nowrap; flex: 0 0 auto; }
+/* Cabecera del bot de Jarvis en el celular: el nombre arriba, el estado y el autor debajo. */
+@media (max-width: 640px) {
+  .jarvis-cabecera { flex-wrap: wrap; row-gap: 6px; padding: 10px 14px; }
+  .jarvis-cabecera > :first-child { flex: 1 1 100%; }
+}

@@ -61,7 +61,9 @@ function tituloDe(vista: Vista, ancla: string) {
 function leerVista(): Vista {
   try {
     const v = localStorage.getItem("inoo.calendario.vista");
-    return v === "MES" || v === "SEMANA" || v === "DIA" ? v : "SEMANA";
+    // 11 nov: en el celular la semana no entra (7 columnas); si no eligió otra, abre en el día.
+    const porDefecto: Vista = window.innerWidth < 640 ? "DIA" : "SEMANA";
+    return v === "MES" || v === "SEMANA" || v === "DIA" ? v : porDefecto;
   } catch {
     return "SEMANA";
   }

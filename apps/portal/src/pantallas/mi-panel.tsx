@@ -55,7 +55,7 @@ function MiPanel() {
         <div className="tarjeta kpi">
           <div className="kpi-cab">Tareas abiertas</div>
           <div className="kpi-valor">{r.tareasAbiertas}</div>
-          <div className="kpi-pie" style={r.tareasVencidas ? { color: "var(--c-alerta)" } : undefined}>{r.tareasVencidas ? `${r.tareasVencidas} vencidas` : "Ninguna vencida"}</div>
+          <div className="kpi-pie" style={r.tareasVencidas ? { color: "var(--c-alerta)" } : undefined}>{r.tareasVencidas ? `${r.tareasVencidas} vencida${r.tareasVencidas === 1 ? "" : "s"}` : "Ninguna vencida"}</div>
         </div>
         <div className="tarjeta kpi">
           <div className="kpi-cab">Proyectos activos</div>
@@ -159,7 +159,7 @@ function MiArea({ gente }: { gente: NonNullable<S<"PanelColaborador">["miArea"]>
             </span>
             <span className="texto-xs" style={{ flex: "1 1 220px" }}>
               {g.tareasAbiertas} {g.tareasAbiertas === 1 ? "tarea abierta" : "tareas abiertas"}
-              {g.tareasVencidas > 0 && <span style={{ color: "var(--c-alerta)" }}> · {g.tareasVencidas} vencidas</span>}
+              {g.tareasVencidas > 0 && <span style={{ color: "var(--c-alerta)" }}> · {g.tareasVencidas} vencida{g.tareasVencidas === 1 ? "" : "s"}</span>}
               {" · "}{g.proyectos} {g.proyectos === 1 ? "proyecto" : "proyectos"}
             </span>
             <span className="fila" style={{ gap: 10 }}>
