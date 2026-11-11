@@ -4,8 +4,8 @@
  * su propio estilo y guarda cada cambio por la API de InooWork (src/servidor/tableros.ts). Vistas: tabla
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
-import { useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
-import { LuChevronDown, LuChevronLeft, LuChevronRight, LuMessageSquare, LuPlus, LuTrash2 } from "react-icons/lu";
+import { useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuMessageSquare, LuPlus, LuTrash2, LuX } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
@@ -207,12 +207,39 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
   };
   const columnas = 7 + t.columnas.length + (editable ? 1 : 0);
   const conPie = t.columnas.some((c) => c.tipo === "number");
+  // 12 nov, como en Monday: agrupar por otra columna, ordenar con el encabezado y elegir varios para cambiarlos juntos.
+  const [agrupar, setAgrupar] = useState<Agrupar>("GRUPO");
+  const [orden, setOrden] = useState<{ col: string; dir: 1 | -1 } | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const secciones = useMemo(() => seccionesDe(t, items, agrupar), [t, items, agrupar]);
+  const ordenar = (xs: Item[]) => (orden ? [...xs].sort((a, b) => comparar(a, b, orden.col) * orden.dir) : xs);
+  const alOrdenar = (col: string) => setOrden((o) => (!o || o.col !== col ? { col, dir: 1 } : o.dir === 1 ? { col, dir: -1 } : null));
+  const Th = ({ col, children, style }: { col: string; children: ReactNode; style?: CSSProperties }) => (
+    <th style={style} aria-sort={orden?.col === col ? (orden.dir === 1 ? "ascending" : "descending") : undefined}>
+      <button type="button" className="th-orden" onClick={() => alOrdenar(col)} title="Ordenar">
+        {children} {orden?.col === col ? (orden.dir === 1 ? <LuArrowUp size={11} /> : <LuArrowDown size={11} />) : <LuArrowUpDown size={11} className="th-orden-icono" />}
+      </button>
+    </th>
+  );
+  const vivos = new Set(items.map((i) => i.id));
+  const elegidos = [...sel].filter((id) => vivos.has(id));
 
   return (
     <div className="pila" style={{ gap: 18 }}>
-      {t.grupos.map((g) => {
-        const suyos = items.filter((i) => i.grupoId === g.id);
+      <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+        <label className="fila texto-sm" style={{ gap: 6 }}>
+          <span className="texto-muted">Agrupar por</span>
+          <select className="input" style={{ width: 170, height: 34 }} value={agrupar} onChange={(e) => setAgrupar(e.target.value as Agrupar)}>
+            {(Object.keys(NOMBRE_AGRUPAR) as Agrupar[]).map((a) => <option key={a} value={a}>{NOMBRE_AGRUPAR[a]}</option>)}
+          </select>
+        </label>
+        {orden && <button className="boton boton--chico" onClick={() => setOrden(null)}>Quitar orden</button>}
+      </div>
+      {secciones.map((g) => {
+        const suyos = ordenar(g.items);
         const plegado = plegados.has(g.id);
+        const real = g.real && agrupar === "GRUPO";
+        const todos = editable && suyos.length > 0 && suyos.every((i) => sel.has(i.id));
         return (
           <section key={g.id} className="tablero-grupo" style={{ borderLeftColor: g.color }} aria-label={`Grupo ${g.nombre}`}>
             <header className="fila" style={{ gap: 8, marginBottom: 6 }}>
@@ -220,10 +247,10 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                 <LuChevronDown size={16} style={{ transform: plegado ? "rotate(-90deg)" : undefined }} />
               </button>
               <span className="tablero-grupo-nombre" style={{ color: g.color }}>
-                <Texto valor={g.nombre} editable={editable} etiqueta={`Nombre del grupo ${g.nombre}`} guardar={(nombre) => void cambiar(`/grupos/${g.id}`, "PATCH", { nombre })} />
+                {real ? <Texto valor={g.nombre} editable={editable} etiqueta={`Nombre del grupo ${g.nombre}`} guardar={(nombre) => void cambiar(`/grupos/${g.id}`, "PATCH", { nombre })} /> : <span style={{ padding: "4px 6px" }}>{g.nombre}</span>}
               </span>
               <span className="texto-xs texto-muted">{suyos.length} {suyos.length === 1 ? "ítem" : "ítems"}</span>
-              {editable && (
+              {editable && real && (
                 <>
                   <span className="fila" style={{ gap: 3 }}>
                     {COLORES_GRUPO.map((c) => (
@@ -239,12 +266,15 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                 <table className="tabla tabla-tablero">
                   <thead>
                     <tr>
-                      <th style={{ width: 28 }} />
-                      <th style={{ minWidth: 280 }}>Ítem</th>
-                      <th style={{ minWidth: 170 }}>Responsable</th>
-                      <th style={{ width: 150 }}>Estado</th>
-                      <th style={{ width: 110 }}>Prioridad</th>
-                      <th style={{ width: 140 }}>Fecha límite</th>
+                      <th style={{ width: 52 }}>
+                        {editable && <input type="checkbox" aria-label={`Elegir todos los ítems de ${g.nombre}`} checked={todos}
+                          onChange={(e) => setSel((s) => { const n = new Set(s); for (const i of suyos) (e.target.checked ? n.add(i.id) : n.delete(i.id)); return n; })} />}
+                      </th>
+                      <Th col="nombre" style={{ minWidth: 280 }}>Ítem</Th>
+                      <Th col="responsable" style={{ minWidth: 170 }}>Responsable</Th>
+                      <Th col="estado" style={{ width: 150 }}>Estado</Th>
+                      <Th col="prioridad" style={{ width: 110 }}>Prioridad</Th>
+                      <Th col="fecha" style={{ width: 140 }}>Fecha límite</Th>
                       <th style={{ minWidth: 180 }}>Descripción</th>
                       {t.columnas.map((c) => (
                         <th key={c.id} style={{ minWidth: c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120 }} title={info(c.tipo)?.nombre ?? c.tipo}>
@@ -261,11 +291,14 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                     {suyos.map((i) => {
                       const abierto = abiertos.has(i.id);
                       return [
-                        <tr key={i.id}>
+                        <tr key={i.id} className={sel.has(i.id) ? "fila-elegida" : undefined}>
                           <td>
-                            <button className="boton-icono" aria-label={abierto ? `Ocultar subítems de ${i.nombre}` : `Ver subítems de ${i.nombre}`} aria-expanded={abierto} onClick={() => setAbiertos(alternar(abiertos, i.id))}>
-                              <LuChevronRight size={14} style={{ transform: abierto ? "rotate(90deg)" : undefined }} />
-                            </button>
+                            <span className="fila" style={{ gap: 2 }}>
+                              {editable && <input type="checkbox" aria-label={`Elegir ${i.nombre}`} checked={sel.has(i.id)} onChange={() => setSel((s) => alternar(s, i.id))} />}
+                              <button className="boton-icono" aria-label={abierto ? `Ocultar subítems de ${i.nombre}` : `Ver subítems de ${i.nombre}`} aria-expanded={abierto} onClick={() => setAbiertos(alternar(abiertos, i.id))}>
+                                <LuChevronRight size={14} style={{ transform: abierto ? "rotate(90deg)" : undefined }} />
+                              </button>
+                            </span>
                           </td>
                           <td>
                             <span className="fila" style={{ gap: 6 }}>
@@ -306,7 +339,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                           : []),
                       ];
                     })}
-                    {editable && <FilaNueva columnas={columnas} etiqueta={`Nuevo ítem en ${g.nombre}`} texto="+ Agregar ítem" crear={(nombre) => cambiar("/items", "POST", { nombre, grupoId: g.id })} />}
+                    {editable && real && <FilaNueva columnas={columnas} etiqueta={`Nuevo ítem en ${g.nombre}`} texto="+ Agregar ítem" crear={(nombre) => cambiar("/items", "POST", { nombre, grupoId: g.id })} />}
                     {conPie && suyos.length > 0 && (
                       <tr className="fila-pie">
                         <td colSpan={7} />
@@ -321,13 +354,83 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
           </section>
         );
       })}
-      {editable && (
+      {editable && agrupar === "GRUPO" && (
         <button className="boton boton--chico" style={{ justifySelf: "start" }} onClick={() => void nuevoGrupo()}>
           <LuPlus size={14} /> Nuevo grupo
         </button>
       )}
+      {elegidos.length > 0 && <BarraLote t={t} ids={elegidos} cambiar={cambiar} limpiar={() => setSel(new Set())} />}
       {biblioteca && <BibliotecaColumnas t={t} cambiar={cambiar} cerrar={() => setBiblioteca(false)} />}
       {configurando && <ConfigurarColumna t={t} col={configurando} cambiar={cambiar} cerrar={() => setConfigurando(null)} />}
+    </div>
+  );
+}
+
+// ───────────────────────────── agrupar, ordenar y lote (12 nov)
+
+type Agrupar = "GRUPO" | "ESTADO" | "RESPONSABLE" | "PRIORIDAD" | "MES";
+const NOMBRE_AGRUPAR: Record<Agrupar, string> = { GRUPO: "Grupo", ESTADO: "Estado", RESPONSABLE: "Responsable", PRIORIDAD: "Prioridad", MES: "Mes de vencimiento" };
+const ORDEN_PRIORIDAD: Record<string, number> = { Urgente: 0, Alta: 1, Media: 2, Baja: 3 };
+
+function seccionesDe(t: Tablero, items: Item[], agrupar: Agrupar): { id: string; nombre: string; color: string; items: Item[]; real: boolean }[] {
+  if (agrupar === "GRUPO") return t.grupos.map((g) => ({ id: g.id, nombre: g.nombre, color: g.color, items: items.filter((i) => i.grupoId === g.id), real: true }));
+  const clave = (i: Item): [string, string, string] => {
+    if (agrupar === "ESTADO") return [i.estado, i.estado, COLOR_ESTADO[i.estado as EstadoItem] ?? "#c4c4c4"];
+    if (agrupar === "PRIORIDAD") return [i.prioridad, i.prioridad, COLOR_PRIORIDAD[i.prioridad as PrioridadItem] ?? "#c4c4c4"];
+    if (agrupar === "RESPONSABLE") return [i.responsable?.id ?? "", i.responsable?.nombre ?? "Sin responsable", i.responsable ? "#579bfc" : "#c4c4c4"];
+    const m = i.fecha?.slice(0, 7) ?? "";
+    return [m || "~", m ? new Date(`${m}-15T12:00:00`).toLocaleDateString("es-PE", { month: "long", year: "numeric" }) : "Sin fecha", m ? "#a25ddc" : "#c4c4c4"];
+  };
+  const m = new Map<string, { id: string; nombre: string; color: string; items: Item[]; real: boolean }>();
+  for (const i of items) {
+    const [k, nombre, color] = clave(i);
+    if (!m.has(k)) m.set(k, { id: `v-${k}`, nombre, color, items: [], real: false });
+    m.get(k)!.items.push(i);
+  }
+  const orden = (k: string) => (agrupar === "ESTADO" ? ESTADOS_ITEM.indexOf(k as EstadoItem) : agrupar === "PRIORIDAD" ? ORDEN_PRIORIDAD[k] ?? 9 : 0);
+  return [...m.entries()].sort(([a, x], [b, y]) => orden(a) - orden(b) || (agrupar === "MES" ? a.localeCompare(b) : x.nombre.localeCompare(y.nombre, "es"))).map(([, v]) => v);
+}
+
+function comparar(a: Item, b: Item, col: string): number {
+  const v = (i: Item): string | number => {
+    if (col === "nombre") return i.nombre.toLowerCase();
+    if (col === "responsable") return i.responsable?.nombre.toLowerCase() ?? "~";
+    if (col === "estado") return ESTADOS_ITEM.indexOf(i.estado as EstadoItem);
+    if (col === "prioridad") return ORDEN_PRIORIDAD[i.prioridad] ?? 9;
+    if (col === "fecha") return i.fecha ?? "9999";
+    return String(i.valores[col] ?? "");
+  };
+  const x = v(a), y = v(b);
+  return typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "es", { numeric: true });
+}
+
+/** La barra de acciones en lote: el mismo cambio a todos los elegidos, en un solo guardado. */
+function BarraLote({ t, ids, cambiar, limpiar }: { t: Tablero; ids: string[]; cambiar: Ctx["cambiar"]; limpiar: () => void }) {
+  const lote = async (cuerpo: Record<string, unknown>) => { if (await cambiar("/items-lote", "POST", { ids, ...cuerpo })) limpiar(); };
+  const elegir = (e: ChangeEvent<HTMLSelectElement>, campo: string) => {
+    const v = e.target.value;
+    e.target.value = "";
+    if (v === "") return;
+    void lote({ cambio: { [campo]: v === "__nadie" ? null : v } });
+  };
+  return (
+    <div className="barra-lote" role="region" aria-label="Acciones con los ítems elegidos">
+      <span className="negrita texto-sm">{ids.length} elegido{ids.length === 1 ? "" : "s"}</span>
+      <select className="input" aria-label="Cambiar el estado" defaultValue="" onChange={(e) => elegir(e, "estado")}>
+        <option value="">Estado…</option>{ESTADOS_ITEM.map((x) => <option key={x}>{x}</option>)}
+      </select>
+      <select className="input" aria-label="Cambiar el responsable" defaultValue="" onChange={(e) => elegir(e, "responsableId")}>
+        <option value="">Responsable…</option><option value="__nadie">Sin asignar</option>{t.personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+      </select>
+      <select className="input" aria-label="Cambiar la prioridad" defaultValue="" onChange={(e) => elegir(e, "prioridad")}>
+        <option value="">Prioridad…</option>{PRIORIDADES_ITEM.map((x) => <option key={x}>{x}</option>)}
+      </select>
+      <select className="input" aria-label="Mover a otro grupo" defaultValue="" onChange={(e) => elegir(e, "grupoId")}>
+        <option value="">Mover a…</option>{t.grupos.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+      </select>
+      <input type="date" className="input" aria-label="Cambiar la fecha límite" onChange={(e) => e.target.value && void lote({ cambio: { fecha: e.target.value } })} />
+      <button className="boton boton--chico boton--peligro" onClick={() => window.confirm(`¿Borrar ${ids.length} ítem${ids.length === 1 ? "" : "s"}? También se borran en InooWork.`) && void lote({ borrar: true })}><LuTrash2 size={13} /> Borrar</button>
+      <button className="boton-icono" aria-label="Quitar la selección" onClick={limpiar}><LuX size={14} /></button>
     </div>
   );
 }

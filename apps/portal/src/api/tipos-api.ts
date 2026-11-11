@@ -3300,6 +3300,25 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/items-lote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acciones en lote: el mismo cambio (estado, responsable, prioridad, fecha o grupo) a varios ítems, o borrarlos, en un solo guardado */
+        post: operations["loteItemsTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/columnas": {
         parameters: {
             query?: never;
@@ -14933,6 +14952,52 @@ export interface operations {
                 "application/json": {
                     nombre?: string;
                     color?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    loteItemsTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ids: string[];
+                    borrar?: boolean;
+                    cambio?: {
+                        estado?: string;
+                        responsableId?: string | null;
+                        prioridad?: string;
+                        fecha?: string | null;
+                        grupoId?: string;
+                    };
                 };
             };
         };

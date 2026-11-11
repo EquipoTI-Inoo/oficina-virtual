@@ -2661,3 +2661,11 @@ main, .contenido, .principal { min-width: 0; }
 .mi-trabajo-fila { text-decoration: none; color: inherit; padding: 12px 14px; }
 .mi-trabajo-fila:hover { background: var(--c-primario-suave); }
 @media (max-width: 640px) { .mi-trabajo-fila { flex-wrap: wrap; } .mi-trabajo-fila > :first-child { flex: 1 1 100%; } }
+
+/* Tablero: ordenar por columna y acciones en lote (12 nov). */
+.th-orden { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.th-orden-icono { opacity: 0; transition: opacity 0.15s; }
+.th-orden:hover .th-orden-icono, .th-orden:focus-visible .th-orden-icono { opacity: 0.7; }
+.fila-elegida td { background: var(--c-primario-suave); }
+.barra-lote { position: sticky; bottom: 16px; z-index: 20; justify-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; background: var(--c-blanco); border: 1px solid var(--c-primario-borde); border-radius: 14px; box-shadow: var(--sombra-flotante); max-width: 100%; }
+.barra-lote .input { width: auto; height: 34px; min-width: 120px; }

@@ -23,6 +23,20 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
   const it = (t: any, id = "item-mkt-1") => t.items.find((i: any) => i.id === id);
 
   describe(`Columnas de los tableros · ${nombre}`, () => {
+    test("acciones en lote: cambiar varios ítems de una vez o borrarlos", async () => {
+      await reiniciar();
+      const ids = ["item-mkt-1", "item-mkt-2"];
+      assert.equal((await llamar("POST", `/tableros/${T}/items-lote`, DIEGO, { ids: [] , cambio: { estado: "Bloqueado" } })).status, 422);
+      assert.equal((await llamar("POST", `/tableros/${T}/items-lote`, DIEGO, { ids: ["no-existe"], cambio: { estado: "Bloqueado" } })).status, 404);
+      assert.equal((await llamar("POST", `/tableros/${T}/items-lote`, DIEGO, { ids, cambio: { nombre: "x" } })).status, 422, "el nombre no va en lote");
+      const r = await llamar("POST", `/tableros/${T}/items-lote`, DIEGO, { ids, cambio: { estado: "Bloqueado", prioridad: "Urgente", grupoId: "g-mkt-sig" } });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      for (const id of ids) assert.deepEqual([it(r.json, id).estado, it(r.json, id).prioridad, it(r.json, id).grupoId], ["Bloqueado", "Urgente", "g-mkt-sig"]);
+      assert.equal((await llamar("POST", `/tableros/${T}/items-lote`, CAMILA, { ids, cambio: { estado: "Completado" } })).status, 200, "Camila es miembro");
+      const b = await llamar("POST", `/tableros/${T}/items-lote`, DIEGO, { ids, borrar: true });
+      assert.ok(ids.every((id) => !b.json.items.some((i: any) => i.id === id)));
+    });
+
     test("mi trabajo y aviso de asignación", async () => {
       await reiniciar();
       const mio = (await llamar("GET", "/mi-trabajo", DIEGO)).json.datos;

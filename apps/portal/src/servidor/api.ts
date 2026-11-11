@@ -5211,6 +5211,10 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
   if (b.responsableId) await avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t);
   return t;
 });
+ruta("POST", "/tableros/:id/items-lote", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.lote(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
 ruta("DELETE", "/tableros/:id/items/:item", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarItem(p.id, p.item, await yoTablero(ctx));

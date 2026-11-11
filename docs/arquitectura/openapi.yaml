@@ -4763,6 +4763,39 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/items-lote:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: loteItemsTablero
+      summary: 'Acciones en lote: el mismo cambio (estado, responsable, prioridad, fecha o grupo) a varios ítems, o borrarlos, en un solo guardado'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 500, items: { type: string } }
+                borrar: { type: boolean }
+                cambio:
+                  type: object
+                  properties:
+                    estado: { type: string }
+                    responsableId: { type: [string, 'null'] }
+                    prioridad: { type: string }
+                    fecha: { type: [string, 'null'] }
+                    grupoId: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
   /tableros/{proyectoId}/columnas:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }

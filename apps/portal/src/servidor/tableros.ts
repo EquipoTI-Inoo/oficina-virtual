@@ -305,6 +305,24 @@ export function crearTableros(fallar: Fallar) {
       validar(validarItem(b, p, false, con, itemId));
       aplicarItem(p, b, itemId, quienDe(yo), con);
     }),
+    /**
+     * Acciones en lote (12 nov), como en Monday: el mismo cambio a varios ítems (estado, responsable, prioridad, fecha,
+     * grupo) o borrarlos, en un solo guardado en InooWork.
+     */
+    lote: (id: string, yo: Yo, b: { ids?: unknown; cambio?: unknown; borrar?: unknown }) => cambiar(id, yo, (p, con) => {
+      const ids = Array.isArray(b.ids) ? [...new Set(b.ids as unknown[])] : [];
+      if (!ids.length || ids.length > 500 || ids.some((x) => typeof x !== "string")) validar([{ campo: "ids", mensaje: "Elige entre 1 y 500 ítems" }]);
+      for (const x of ids as string[]) item(p, x);
+      if (b.borrar === true) {
+        p.items = (p.items ?? []).filter((x) => !(ids as string[]).includes(x.id));
+        return;
+      }
+      const c = (b.cambio ?? {}) as CambioItem;
+      if (typeof c !== "object" || c.nombre !== undefined || c.valores !== undefined) validar([{ campo: "cambio", mensaje: "En lote se cambia estado, responsable, prioridad, fecha o grupo" }]);
+      if (!Object.keys(c).length) validar([{ campo: "cambio", mensaje: "Di qué cambiar" }]);
+      validar(validarItem(c, p, false, con));
+      for (const x of ids as string[]) aplicarItem(p, c, x, quienDe(yo), con);
+    }),
     borrarItem: (id: string, itemId: string, yo: Yo) => cambiar(id, yo, (p) => {
       item(p, itemId);
       p.items = (p.items ?? []).filter((x) => x.id !== itemId);
