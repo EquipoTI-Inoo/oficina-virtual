@@ -4,7 +4,7 @@
  * su propio estilo y guarda cada cambio por la API de InooWork (src/servidor/tableros.ts). Vistas: tabla
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
-import { useMemo, useState, type DragEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
 import { LuChevronDown, LuChevronLeft, LuChevronRight, LuHistory, LuPlus, LuTrash2 } from "react-icons/lu";
 import { HistorialMonday } from "./monday";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
@@ -329,15 +329,36 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
 
 function FilaNueva({ columnas, etiqueta, texto, crear, sangria }: { columnas: number; etiqueta: string; texto: string; crear: (nombre: string) => Promise<boolean>; sangria?: boolean }) {
   const [valor, setValor] = useState("");
-  const enviar = async () => {
-    if (!valor.trim()) return;
-    if (await crear(valor.trim())) setValor("");
+  // 11 nov: Enter y salir del campo llegaban juntos (o un segundo Enter antes de que respondiera InooWork) y el ítem se
+  // creaba dos veces. Ahora se crea una sola vez: el campo se vacía al instante y vuelve si no se pudo guardar.
+  const ocupado = useRef(false);
+  const enviar = async (nombres: string[]) => {
+    const xs = nombres.map((x) => x.trim()).filter(Boolean);
+    if (!xs.length || ocupado.current) return;
+    ocupado.current = true;
+    setValor("");
+    try {
+      for (const [n, x] of xs.entries()) {
+        if (!(await crear(x))) { setValor(xs.slice(n).join(" ")); break; }
+      }
+    } finally {
+      ocupado.current = false;
+    }
+  };
+  /** Pegar varias líneas (de Excel o de Monday) crea un ítem por línea, como en Monday. */
+  const pegar = (e: ClipboardEvent<HTMLInputElement>) => {
+    const lineas = e.clipboardData.getData("text").split(/\r?\n/).map((x) => x.split("\t")[0].trim()).filter(Boolean);
+    if (lineas.length < 2) return;
+    e.preventDefault();
+    if (lineas.length > 100) return void window.alert("Pega hasta 100 líneas a la vez.");
+    if (window.confirm(`¿Crear ${lineas.length} ítems, uno por línea?`)) void enviar(lineas);
   };
   return (
     <tr className="fila-nueva">
       <td />
       <td colSpan={columnas} style={sangria ? { paddingLeft: 26 } : undefined}>
-        <input className="celda-texto" aria-label={etiqueta} placeholder={texto} value={valor} onChange={(e) => setValor(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void enviar()} onBlur={() => void enviar()} />
+        <input className="celda-texto" aria-label={etiqueta} placeholder={texto} value={valor} onChange={(e) => setValor(e.target.value)} onPaste={pegar}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void enviar([valor]); } }} onBlur={() => void enviar([valor])} />
       </td>
     </tr>
   );
