@@ -100,7 +100,7 @@ export function AvanceLineal({ avance: a, compacto }: { avance: S<"AvanceProyect
       </div>
       <Barra pct={a.porcentaje} tono={etapa?.atrasada ? "ambar" : undefined} />
       {etapa?.atrasada && (
-        <span className="texto-xs" style={{ color: "var(--c-alerta)", fontSize: 10.5 }}>
+        <span className="texto-xs" style={{ color: "var(--c-alerta)", fontSize: 12 }}>
           Esta etapa va con retraso{etapa.fechaEstimada ? ` (prevista para el ${etapa.fechaEstimada.slice(8)}/${etapa.fechaEstimada.slice(5, 7)})` : ""}.
         </span>
       )}
@@ -156,7 +156,18 @@ export function Aviso({ icono, titulo, children, tono, elevado }: { icono: React
   );
 }
 
-export const Cargando = () => <div className="cargando" aria-busy="true">Cargando…</div>;
+/** 11 nov (revisión UX): un esqueleto del contenido en vez de «Cargando…» suelto, para que no parezca colgado. */
+export const Cargando = () => (
+  <div className="esqueleto" aria-busy="true" aria-live="polite">
+    <span className="sr-only">Cargando…</span>
+    <span className="esqueleto-linea" style={{ width: "28%", height: 12 }} />
+    <span className="esqueleto-linea" style={{ width: "46%", height: 28 }} />
+    <span className="esqueleto-linea" style={{ width: "62%", height: 14 }} />
+    <div className="esqueleto-tarjetas">
+      <span className="esqueleto-bloque" /><span className="esqueleto-bloque" /><span className="esqueleto-bloque" />
+    </div>
+  </div>
+);
 export function ErrorCarga({ error, reintentar }: { error: { titulo: string; detalle?: string }; reintentar?: () => void }) {
   return (
     <div className="tarjeta vacio" role="alert">

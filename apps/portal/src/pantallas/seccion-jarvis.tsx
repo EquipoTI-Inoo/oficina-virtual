@@ -91,6 +91,7 @@ function SeccionJarvis() {
   };
   return (
     <div className="pila" style={{ gap: 12 }}>
+    <h1 className="sr-only">Jarvis</h1>
     {d.espacios.length > 1 && (
       <div className="pestanas" role="tablist" aria-label="Áreas de Jarvis">
         {d.espacios.map((e) => (
@@ -128,7 +129,7 @@ function SeccionJarvis() {
                   onClick={() => abrir(b.id, b.prestadoDe ? crypto.randomUUID() : sesionConfiguracion(b.id))} title={b.prestadoDe ? `Prestado por ${b.prestadoDe.nombre}: abre un chat` : "Configurar el bot"}>
                   <AvatarBot bot={b} tam={26} />
                   <span className="jarvis-item-nombre">{b.nombre}</span>
-                  {b.prestadoDe && <span className="etiqueta etiqueta--gris" style={{ fontSize: 10.5, padding: "1px 6px" }}>de {b.prestadoDe.nombre}</span>}
+                  {b.prestadoDe && <span className="etiqueta etiqueta--gris" style={{ fontSize: 12, padding: "1px 6px" }}>de {b.prestadoDe.nombre}</span>}
                 </button>
                 <button className="boton-icono" aria-expanded={abierto} aria-label={`${abierto ? "Ocultar" : "Ver"} los chats de ${b.nombre}`}
                   onClick={() => setAbiertos((xs) => (abierto ? xs.filter((x) => x !== b.id) : [...xs, b.id]))}>
@@ -203,6 +204,7 @@ function ChatsDelBot({ bot, espacio, activa, version, alAbrir, alNuevo }: { bot:
     }
   };
   const borrar = async (c: S<"ConversacionJarvis">) => {
+    if (!window.confirm(`¿Borrar el chat «${c.titulo}»? No se puede deshacer.`)) return;
     try {
       await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "DELETE" });
       if (c.id === activa) alNuevo();
@@ -252,6 +254,7 @@ function CompartirBot({ bot, conGerencia, alCerrar, alCambiar }: { bot: Bot; con
     }
   };
   const quitar = async (clave: string) => {
+    if (!window.confirm("¿Dejar de prestar este bot a esa área?")) return;
     try {
       await api(`/jarvis/bots/${bot.id}/compartir/${clave}`, { metodo: "DELETE" });
       setPrestamos((xs) => xs.filter((x) => x.clave !== clave));

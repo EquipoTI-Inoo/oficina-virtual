@@ -133,14 +133,14 @@ function Biblioteca() {
             <h2 className="tarjeta-titulo">Agregar a tu biblioteca</h2>
             {puedeSubir ? (
               <>
-                <label className="casilla" style={{ alignItems: "flex-start", fontSize: 11.5, lineHeight: 1.6 }}>
+                <label className="casilla" style={{ alignItems: "flex-start", fontSize: 12, lineHeight: 1.6 }}>
                   <input type="checkbox" checked={derechos} onChange={(e) => setDerechos(e.target.checked)} style={{ marginTop: 3 }} />
                   Declaro que tengo los derechos de uso de este material y autorizo a Inoo a usarlo en contenidos y anuncios de la marca. *
                 </label>
                 <div className="zona-carga" role="button" tabIndex={0} aria-disabled={subiendo} onClick={() => archivo.current?.click()} onKeyDown={(e) => e.key === "Enter" && archivo.current?.click()} style={{ padding: 24 }}>
                   <LuUpload size={18} />
-                  <strong className="texto-primario" style={{ fontSize: 11.5 }}>{subiendo ? "Subiendo…" : "Selecciona una foto o video"}</strong>
-                  <span style={{ fontSize: 9.5 }}>JPG, PNG o MP4 · Máximo 100 MB</span>
+                  <strong className="texto-primario" style={{ fontSize: 12 }}>{subiendo ? "Subiendo…" : "Selecciona una foto o video"}</strong>
+                  <span style={{ fontSize: 12 }}>JPG, PNG o MP4 · Máximo 100 MB</span>
                   <input ref={archivo} type="file" hidden accept=".jpg,.jpeg,.png,.mp4" onChange={(e) => void subir(e.target.files?.[0])} />
                 </div>
                 <Ayuda error={error ?? undefined} />
@@ -279,7 +279,7 @@ function CalendarioEquipo() {
                         <EtiquetaPieza p={p} />
                       </td>
                       <td>
-                        <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: 11 }}>
+                        <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: 12 }}>
                           Abrir →
                         </Enlace>
                       </td>
@@ -385,7 +385,7 @@ function CostosIa() {
                 <tr key={c.clienteId} style={{ cursor: "default" }}>
                   <td className="negrita">{c.nombre}</td>
                   <td>
-                    <p className="negrita" style={{ fontSize: 11 }}>
+                    <p className="negrita" style={{ fontSize: 12 }}>
                       {usd(c.gastoUsd)} / {usd(c.limiteUsd)} · {String(c.pctLimite).replace(".", ",")} %
                     </p>
                     <div style={{ marginTop: 6 }}>

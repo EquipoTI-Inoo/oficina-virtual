@@ -640,7 +640,7 @@ function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
       {linea && <p className="negrita" style={{ fontSize: 12.5, marginTop: -4 }}>{linea}</p>}
       <AvanceOConsumo s={s} />
       {p && (
-        <span className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>
+        <span className="texto-xs texto-muted" style={{ fontSize: 12 }}>
           Este mes: {p.aprobadas} aprobados · {p.porRevisar} por revisar · {p.enProduccion} en producción
         </span>
       )}
@@ -923,7 +923,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           ) : (
             <>
               <Miniatura diseno={p.diseno} alto={322} grande />
-              <div className="fila entre" style={{ padding: "10px 16px", borderBottom: "1px solid var(--c-borde)", fontSize: 11, color: "var(--c-muted)" }}>
+              <div className="fila entre" style={{ padding: "10px 16px", borderBottom: "1px solid var(--c-borde)", fontSize: 12, color: "var(--c-muted)" }}>
                 <button className="enlace" style={{ color: "var(--c-texto)" }} aria-label="Anterior" onClick={() => setDiapositiva(Math.max(0, diapositiva - 1))}>
                   <LuChevronLeft size={16} />
                 </button>
@@ -1012,7 +1012,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                 </button>
                 {!puedeDecidir && <p className="texto-xs texto-muted">Tu rol permite comentar, pero no aprobar.</p>}
                 {anterior && (
-                  <p className="fila texto-xs texto-muted" style={{ alignItems: "flex-start", gap: 8, fontSize: 10.5 }}>
+                  <p className="fila texto-xs texto-muted" style={{ alignItems: "flex-start", gap: 8, fontSize: 12 }}>
                     <LuInfo size={14} style={{ flex: "none" }} /> La aprobación anterior corresponde a la versión {anterior.numero}, no a esta pieza actual.
                   </p>
                 )}
@@ -1047,7 +1047,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                 <span className="avatar">{cm.autor.nombre.split(" ").slice(0, 2).map((x) => x[0]).join("")}</span>
                 <div>
                   <p className="negrita" style={{ fontSize: 12 }}>{cm.autor.nombre}</p>
-                  <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>
+                  <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>
                     {fDiaHora(cm.creadoEn)} · Versión {cm.version}
                   </p>
                 </div>
@@ -1078,7 +1078,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                     <p style={{ fontSize: 12 }}>
                       {x.decision.estado === "APROBADO_CLIENTE" ? "Aprobada" : "Cambios pedidos"} por {x.decision.usuarioNombre} · {fCorta(x.decision.fecha!)}, {fDiaHora(x.decision.fecha!).split(" · ")[1]}
                     </p>
-                    {!x.actual && <p style={{ fontSize: 10, marginTop: 4 }}>Esta aprobación no aplica a la versión actual.</p>}
+                    {!x.actual && <p style={{ fontSize: 12, marginTop: 4 }}>Esta aprobación no aplica a la versión actual.</p>}
                   </>
                 ) : (
                   <p style={{ fontSize: 12 }}>Sin aprobación todavía</p>
@@ -1112,8 +1112,8 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           Confirmaremos tu aprobación y el equipo Inoo podrá programar esta pieza.
         </p>
         <div style={{ background: "var(--c-fondo)", borderRadius: 12, padding: "12px 14px" }}>
-          <p className="negrita" style={{ fontSize: 11.5 }}>Se registrará a nombre de {nombreUsuario}</p>
-          <p className="texto-xs texto-muted" style={{ fontSize: 10.5, marginTop: 4 }}>
+          <p className="negrita" style={{ fontSize: 12 }}>Se registrará a nombre de {nombreUsuario}</p>
+          <p className="texto-xs texto-muted" style={{ fontSize: 12, marginTop: 4 }}>
             Solo se aprobará la versión {p.versionCliente} de este entregable.
           </p>
         </div>

@@ -445,7 +445,7 @@ function CapturasMarcadas({ nombre, capturas, marcas, alCambiar }: { nombre: str
             style={{ position: "relative", width: c.tipo === "MOVIL" ? 96 : 330, maxHeight: 240, overflow: "hidden", borderRadius: 8, border: "1px solid var(--c-borde)", cursor: elegida !== null ? "crosshair" : "default" }}>
             <img src={c.url} alt={`Captura ${c.tipo === "MOVIL" ? "móvil" : "de escritorio"} de ${nombre}`} style={{ width: "100%", display: "block" }} />
             {marcas.map((m, i) => m.captura === c.tipo && (
-              <span key={i} aria-hidden style={{ position: "absolute", left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)", width: 20, height: 20, borderRadius: "50%", background: COLOR_MARCA[m.tipo], color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", boxShadow: elegida === i ? "0 0 0 3px #111" : "0 1px 4px #0006" }}>{numeros.get(i)}</span>
+              <span key={i} aria-hidden style={{ position: "absolute", left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)", width: 20, height: 20, borderRadius: "50%", background: COLOR_MARCA[m.tipo], color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", boxShadow: elegida === i ? "0 0 0 3px #111" : "0 1px 4px #0006" }}>{numeros.get(i)}</span>
             ))}
           </div>
         ))}
@@ -453,7 +453,7 @@ function CapturasMarcadas({ nombre, capturas, marcas, alCambiar }: { nombre: str
       {marcas.map((m, i) => (
         <div key={i} className="fila" style={{ gap: 6 }}>
           <button type="button" className="boton-icono" aria-pressed={elegida === i} title="Elegir y tocar la captura para moverla" onClick={() => setElegida(elegida === i ? null : i)}
-            style={{ background: COLOR_MARCA[m.tipo], color: "#fff", borderRadius: "50%", width: 24, height: 24, fontSize: 11, fontWeight: 700, outline: elegida === i ? "2px solid #111" : undefined }}>{numeros.get(i)}</button>
+            style={{ background: COLOR_MARCA[m.tipo], color: "#fff", borderRadius: "50%", width: 24, height: 24, fontSize: 12, fontWeight: 700, outline: elegida === i ? "2px solid #111" : undefined }}>{numeros.get(i)}</button>
           <select className="input" aria-label={`Tipo de la marca ${numeros.get(i)}`} value={m.tipo} onChange={(e) => set(i, { tipo: e.target.value as Marca["tipo"] })} style={{ width: 120, height: 32 }}>
             <option value="TOMAR">Tomamos</option>
             <option value="EVITAR">Evitamos</option>
@@ -1212,7 +1212,7 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
         </div>
         {!conClaude && <details className="texto-sm">
           <summary style={{ cursor: "pointer" }}>DESIGN.md que recibe Stitch (el contenido del PDF)</summary>
-          <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: 11, maxHeight: 320, overflow: "auto" }}>{t.prototipo.designMd}</pre>
+          <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: 12, maxHeight: 320, overflow: "auto" }}>{t.prototipo.designMd}</pre>
           <span className="ayuda-campo">Se arma con lo guardado. Stitch no recibe archivos por su API: las capturas del PDF van como la plantilla que las generó. Si quieres que vea las imágenes, sube el PDF a mano en Stitch.</span>
         </details>}
         {sitio && (
@@ -1236,7 +1236,7 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
                 {p.prompt && (
                   <details className="texto-xs">
                     <summary style={{ cursor: "pointer" }}>Prompt que recibió</summary>
-                    <pre style={{ whiteSpace: "pre-wrap", margin: "6px 0 0", fontSize: 11 }}>{p.prompt}</pre>
+                    <pre style={{ whiteSpace: "pre-wrap", margin: "6px 0 0", fontSize: 12 }}>{p.prompt}</pre>
                   </details>
                 )}
               </div>
@@ -1275,6 +1275,7 @@ function Demos({ t, paso, ocupado, alCambiar }: { t: Taller; paso: Paso; ocupado
   const vigente = (d: Taller["demos"][number]) => !d.revocada && new Date(d.venceEn) > new Date();
   const absoluta = (url: string) => (typeof window === "undefined" ? url : `${window.location.origin}${url}`);
   const revocar = async (id: string) => {
+    if (!window.confirm("¿Dar de baja este link? Quien lo tenga ya no podrá ver el demo.")) return;
     try {
       alCambiar(await api<Taller>(`/servicios-contratados/${t.servicioContratadoId}/taller-web/demos/${id}`, { metodo: "DELETE" }));
       avisar({ titulo: "Link dado de baja" });

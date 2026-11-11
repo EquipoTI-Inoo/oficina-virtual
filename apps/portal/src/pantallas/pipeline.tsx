@@ -260,7 +260,7 @@ function TarjetaTablero({ t }: { t: S<"TableroResumen"> }) {
           {t.items.vencidos > 0 && <span className="pipeline-dato pipeline-dato--rojo"><LuListTodo size={12} /> {t.items.vencidos} vencido{t.items.vencidos === 1 ? "" : "s"}</span>}
         </span>
         {t.lider && (
-          <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }} title={`Líder: ${t.lider.nombre}`}>
+          <span className="avatar" style={{ width: 26, height: 26, fontSize: 12 }} title={`Líder: ${t.lider.nombre}`}>
             {iniciales(t.lider.nombre)}
           </span>
         )}
@@ -301,7 +301,7 @@ function TarjetaProyecto({ p }: { p: S<"ProyectoPipeline"> }) {
           )}
         </span>
         {p.responsable && (
-          <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }} title={`Lleva la cuenta: ${p.responsable.nombre}`}>
+          <span className="avatar" style={{ width: 26, height: 26, fontSize: 12 }} title={`Lleva la cuenta: ${p.responsable.nombre}`}>
             {iniciales(p.responsable.nombre)}
           </span>
         )}

@@ -170,10 +170,50 @@ async function renovarSesion(s: SesionLocal): Promise<boolean> {
   return true;
 }
 
+// ───────────────────────────── botón ocupado (11 nov, revisión UX)
+// Cuando un clic (o un Enter en un formulario) dispara algo que guarda en el servidor, ese botón se desactiva y muestra que
+// está trabajando hasta que termina: nadie hace doble clic y duplica cosas, y se ve que algo pasa. Cubre todos los botones.
+let ultimoBoton: { boton: HTMLButtonElement; en: number } | null = null;
+if (typeof window !== "undefined") {
+  const recordar = (b: Element | null | undefined) => {
+    const boton = b?.closest?.("button");
+    if (boton) ultimoBoton = { boton, en: Date.now() };
+  };
+  window.addEventListener("click", (e) => recordar(e.target as Element), true);
+  window.addEventListener("submit", (e) => recordar((e as SubmitEvent).submitter ?? (e.target as HTMLFormElement).querySelector("button[type=submit], button:not([type])")), true);
+}
+function ocuparBoton(): () => void {
+  const u = ultimoBoton;
+  if (!u || Date.now() - u.en > 1500 || !u.boton.isConnected || u.boton.disabled) return () => {};
+  const b = u.boton;
+  b.disabled = true;
+  b.setAttribute("aria-busy", "true");
+  b.classList.add("boton--ocupado");
+  return () => {
+    b.disabled = false;
+    b.removeAttribute("aria-busy");
+    b.classList.remove("boton--ocupado");
+  };
+}
+
 export async function api<T = unknown>(
   camino: string,
   opciones: { metodo?: string; cuerpo?: unknown; idempotente?: boolean; /** Para pausar lo que tarda (IA). */ senal?: AbortSignal } = {},
   reintento = false,
+): Promise<T> {
+  const metodo = (opciones.metodo ?? "GET").toUpperCase();
+  const soltar = metodo !== "GET" && !reintento ? ocuparBoton() : () => {};
+  try {
+    return await pedir<T>(camino, opciones, reintento);
+  } finally {
+    soltar();
+  }
+}
+
+async function pedir<T>(
+  camino: string,
+  opciones: { metodo?: string; cuerpo?: unknown; idempotente?: boolean; senal?: AbortSignal },
+  reintento: boolean,
 ): Promise<T> {
   const sesion = leerSesion();
   const headers: Record<string, string> = { accept: "application/json" };
@@ -194,7 +234,7 @@ export async function api<T = unknown>(
     const p = tipo.includes("json") ? await res.json() : {};
     if (res.status === 401 && typeof window !== "undefined" && !camino.startsWith("/__pruebas") && !camino.startsWith("/sesion/")) {
       // Con Cognito el token vence a la hora: se renueva una vez y se repite la llamada.
-      if (!reintento && sesion && (await renovarSesion(sesion))) return api<T>(camino, opciones, true);
+      if (!reintento && sesion && (await renovarSesion(sesion))) return pedir<T>(camino, opciones, true);
       cerrarSesion();
     }
     throw new ProblemaApi(res.status, p.codigo ?? "ERROR", p.title ?? "No pudimos completar la acción", p.detail, p.errores ?? []);

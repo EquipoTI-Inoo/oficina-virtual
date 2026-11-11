@@ -90,9 +90,9 @@ function Proyecto() {
               </>
             )}
             {d.siguientePaso && (
-              <div className="fila-suave" style={{ marginTop: 18, fontSize: 11 }}>
+              <div className="fila-suave" style={{ marginTop: 18, fontSize: 12 }}>
                 <span className="texto-muted">{d.siguientePaso.texto}</span>
-                <span className="texto-primario" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>{d.siguientePaso.responsable?.nombre} · Inoo</span>
+                <span className="texto-primario" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{d.siguientePaso.responsable?.nombre} · Inoo</span>
               </div>
             )}
           </section>
@@ -410,7 +410,7 @@ function Comentarios({ servicioId }: { servicioId: string }) {
               {c.autor.nombre}
               {c.deEquipo && <span className="texto-primario"> · Inoo</span>}
             </p>
-            <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>{fDiaHora(c.creadoEn)}</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>{fDiaHora(c.creadoEn)}</p>
             <p className="texto-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>{c.texto}</p>
           </div>
         </div>

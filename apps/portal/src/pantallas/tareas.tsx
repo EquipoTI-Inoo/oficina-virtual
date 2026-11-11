@@ -337,6 +337,7 @@ function DetalleTarea({
     }
   };
   const borrar = async () => {
+    if (!window.confirm(`¿Eliminar la tarea «${t.titulo}»?`)) return;
     try {
       await api(`/tareas/${t.id}`, { metodo: "DELETE" });
       avisar({ titulo: "Tarea eliminada" });

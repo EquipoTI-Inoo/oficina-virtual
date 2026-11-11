@@ -21,7 +21,7 @@ export function EstadoArea({ a }: { a: S<"ConsumoArea"> }) {
 export function GastoContraTope({ gasto, tope, p }: { gasto: number; tope: number; p: number }) {
   return (
     <>
-      <p className="negrita" style={{ fontSize: 11 }}>
+      <p className="negrita" style={{ fontSize: 12 }}>
         {usd(gasto)} / {usd(tope)} · {pct(p)}
       </p>
       <div style={{ marginTop: 6 }}>

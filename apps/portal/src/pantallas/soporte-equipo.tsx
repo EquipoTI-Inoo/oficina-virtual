@@ -107,9 +107,9 @@ function Soporte() {
                 {datos.datos.map((t) => (
                   <tr key={t.id} onClick={() => setAbierto(t.id)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setAbierto(t.id)}>
                     <td>
-                      <p className="texto-primario negrita" style={{ fontSize: 10.5 }}>{t.codigo}</p>
+                      <p className="texto-primario negrita" style={{ fontSize: 12 }}>{t.codigo}</p>
                       <p className="negrita" style={{ fontSize: 13.5, margin: "6px 0 5px" }}>{t.asunto}</p>
-                      <p className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>{t.resumenEstado}</p>
+                      <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>{t.resumenEstado}</p>
                     </td>
                     <td className="texto-muted">{CATEGORIA_TICKET[t.categoria]}</td>
                     <td>
@@ -290,7 +290,7 @@ function CrearTicket() {
           <h2 className="tarjeta-titulo">Detalles de tu solicitud</h2>
           <div className="fila" style={{ marginTop: -4 }}>
             <Etiqueta tono="gris">Nuevo ticket</Etiqueta>
-            <span className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>
+            <span className="texto-xs texto-muted" style={{ fontSize: 12 }}>
               {[sesion?.clientes[0]?.nombre, sesion?.usuario.nombre].filter(Boolean).join(" · ")}
             </span>
           </div>
@@ -323,16 +323,16 @@ function CrearTicket() {
             <span className="rotulo">Adjunto · Opcional</span>
             <div className="zona-carga" role="button" tabIndex={0} onClick={() => archivo.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void subir(e.dataTransfer.files[0]); }} style={{ padding: 26 }}>
               <LuUpload size={18} />
-              <strong className="texto-primario" style={{ fontSize: 11.5 }}>Arrastra un archivo o selecciónalo</strong>
-              <span style={{ fontSize: 9.5 }}>PDF, JPG, PNG o DOCX · Máximo 10 MB</span>
+              <strong className="texto-primario" style={{ fontSize: 12 }}>Arrastra un archivo o selecciónalo</strong>
+              <span style={{ fontSize: 12 }}>PDF, JPG, PNG o DOCX · Máximo 10 MB</span>
               <input ref={archivo} type="file" hidden accept=".pdf,.jpg,.jpeg,.png,.docx" onChange={(e) => void subir(e.target.files?.[0])} />
             </div>
             {adjunto && (
               <div className="fila" style={{ background: "var(--c-exito-suave)", borderRadius: 10, padding: "12px 14px", gap: 10 }}>
                 <LuFile size={16} color="var(--c-exito)" />
                 <span style={{ flex: 1 }}>
-                  <span className="negrita" style={{ display: "block", fontSize: 11.5 }}>{adjunto.nombre}</span>
-                  <span style={{ fontSize: 9.5, color: "var(--c-exito)" }}>{fBytes(adjunto.bytes)} · Archivo cargado</span>
+                  <span className="negrita" style={{ display: "block", fontSize: 12 }}>{adjunto.nombre}</span>
+                  <span style={{ fontSize: 12, color: "var(--c-exito)" }}>{fBytes(adjunto.bytes)} · Archivo cargado</span>
                 </span>
                 <button type="button" className="enlace" style={{ color: "var(--c-texto)" }} aria-label="Quitar adjunto" onClick={() => setAdjunto(null)}>
                   <LuX size={16} />
@@ -341,7 +341,7 @@ function CrearTicket() {
             )}
             {errores.adjunto && ayudaError("adjunto", "")}
           </div>
-          <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>* Campos obligatorios. El ticket se creará al enviar tu solicitud.</p>
+          <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>* Campos obligatorios. El ticket se creará al enviar tu solicitud.</p>
           <div className="fila" style={{ justifyContent: "flex-end", gap: 10 }}>
             <Enlace a="/soporte" className="boton">
               Cancelar
@@ -352,11 +352,11 @@ function CrearTicket() {
           </div>
         </form>
         <aside className="pila">
-          <div className="aviso" style={{ display: "grid", gap: 12, padding: "22px 20px", borderRadius: 20, fontSize: 11 }}>
+          <div className="aviso" style={{ display: "grid", gap: 12, padding: "22px 20px", borderRadius: 20, fontSize: 12 }}>
             <LuClock size={20} />
             <strong style={{ color: "var(--c-primario)", fontSize: 14 }}>respuesta en menos de 1 día hábil</strong>
             <span style={{ lineHeight: 1.6 }}>Tu equipo revisará la solicitud y te notificará cuando tenga una respuesta.</span>
-            <span style={{ lineHeight: 1.6, fontSize: 10.5 }}>
+            <span style={{ lineHeight: 1.6, fontSize: 12 }}>
               Horario de atención
               <br />
               Lunes a viernes · 9:00 a 18:00
@@ -402,7 +402,7 @@ function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas
           <thead>
             <tr>
               {["Cliente", "Estado", "Proyectos activos", "Atrasadas", "Por aprobar", "Acción"].map((h, i) => (
-                <th key={h} style={{ textTransform: "none", fontSize: 10.5, padding: "10px 14px", background: "var(--c-fondo)", borderBottom: 0, borderRadius: i === 0 ? "10px 0 0 10px" : i === 5 ? "0 10px 10px 0" : 0 }}>
+                <th key={h} style={{ textTransform: "none", fontSize: 12, padding: "10px 14px", background: "var(--c-fondo)", borderBottom: 0, borderRadius: i === 0 ? "10px 0 0 10px" : i === 5 ? "0 10px 10px 0" : 0 }}>
                   {h}
                 </th>
               ))}
@@ -415,7 +415,7 @@ function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas
                 <tr key={f.cliente.id} style={{ cursor: "default" }}>
                   <td style={{ padding: "26px 14px" }}>
                     <p className="negrita" style={{ fontSize: 13 }}>{f.cliente.nombre}</p>
-                    <p className="texto-xs texto-muted" style={{ fontSize: 10, marginTop: 5 }}>{f.contactoPrincipalNombre}</p>
+                    <p className="texto-xs texto-muted" style={{ fontSize: 12, marginTop: 5 }}>{f.contactoPrincipalNombre}</p>
                   </td>
                   <td>
                     <div style={{ display: "grid", gap: 6, justifyItems: "start" }}>
@@ -429,7 +429,7 @@ function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas
                   <td style={{ fontSize: 15, color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
                   <td style={{ fontSize: 15, color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
                   <td>
-                    <Enlace a={`/equipo/clientes/${f.cliente.id}`} className="enlace" style={{ fontSize: 11 }}>
+                    <Enlace a={`/equipo/clientes/${f.cliente.id}`} className="enlace" style={{ fontSize: 12 }}>
                       Ver ficha →
                     </Enlace>
                   </td>
@@ -583,7 +583,7 @@ function ActividadCliente({ a }: { a: S<"InactividadCliente"> }) {
   return (
     <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 8 }}>
       <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Actividad del cliente</h3>
-      <p className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>Último ingreso al portal: {dias}.</p>
+      <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>Último ingreso al portal: {dias}.</p>
     </div>
   );
 }
@@ -670,9 +670,9 @@ function Ficha() {
             <h3 className="tarjeta-titulo">Perfil de marca</h3>
             <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px", lineHeight: 1.7 }}>{d.marca?.descripcion}</p>
             <div style={{ background: "var(--c-crema)", borderRadius: 14, padding: "18px 14px", display: "grid", gap: 10 }}>
-              <span style={{ fontSize: 9.5, letterSpacing: "0.03em" }}>MENSAJE CENTRAL</span>
+              <span style={{ fontSize: 12, letterSpacing: "0.03em" }}>MENSAJE CENTRAL</span>
               <strong style={{ color: "var(--c-oliva)", fontSize: 21 }}>{d.marca?.mensajeCentral}</strong>
-              <span style={{ fontSize: 10.5 }}>{d.marca?.campanaActual}</span>
+              <span style={{ fontSize: 12 }}>{d.marca?.campanaActual}</span>
             </div>
           </div>
           <div className="grid-2">
@@ -684,15 +684,15 @@ function Ficha() {
                 ))}
               </div>
               <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>{d.tono?.descripcion}</p>
-              <p className="negrita" style={{ fontSize: 10.5 }}>Ejemplo de voz</p>
-              <p className="texto-xs" style={{ fontSize: 10.5 }}>{d.tono?.ejemplo}</p>
+              <p className="negrita" style={{ fontSize: 12 }}>Ejemplo de voz</p>
+              <p className="texto-xs" style={{ fontSize: 12 }}>{d.tono?.ejemplo}</p>
             </div>
             <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 12, alignContent: "start" }}>
               <h3 className="tarjeta-titulo">Público y enfoque</h3>
               <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>{d.publico?.descripcion}</p>
-              <p className="negrita" style={{ fontSize: 10.5 }}>Intereses editoriales</p>
+              <p className="negrita" style={{ fontSize: 12 }}>Intereses editoriales</p>
               <p className="texto-xs texto-muted">{d.publico?.intereses?.join(" · ")}</p>
-              <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>{d.publico?.segmentos ?? "No se han definido segmentos demográficos adicionales."}</p>
+              <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>{d.publico?.segmentos ?? "No se han definido segmentos demográficos adicionales."}</p>
             </div>
           </div>
           <div className="tarjeta" style={{ padding: "22px 16px" }}>
@@ -710,8 +710,8 @@ function Ficha() {
                 <div key={x.servicioContratadoId} className="fila">
                   <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
                   <span style={{ flex: 1 }}>
-                    <Enlace a={`/equipo/proyectos/${x.servicioContratadoId}`} className="negrita enlace" style={{ display: "block", fontSize: 11.5 }}>{x.titulo}</Enlace>
-                    <span className="texto-xs texto-muted" style={{ fontSize: 9.5 }}>
+                    <Enlace a={`/equipo/proyectos/${x.servicioContratadoId}`} className="negrita enlace" style={{ display: "block", fontSize: 12 }}>{x.titulo}</Enlace>
+                    <span className="texto-xs texto-muted" style={{ fontSize: 12 }}>
                       {[detalleServicio(x), x.avance.etapaActual ? `${x.avance.porcentaje} % · ${x.avance.etapaActual.nombre}` : `${x.avance.porcentaje} %`, x.responsable && `Responsable: ${x.responsable.nombre}`].filter(Boolean).join(" · ")}
                     </span>
                   </span>
@@ -734,8 +734,8 @@ function Ficha() {
           {ref && (
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5, paddingLeft: 4 }}>Referencias de marca</h3>
-            <p className="negrita" style={{ fontSize: 11, paddingLeft: 4 }}>{ref?.titulo}</p>
-            <p className="texto-xs texto-muted" style={{ fontSize: 10, paddingLeft: 4, lineHeight: 1.6 }}>{ref?.notas}</p>
+            <p className="negrita" style={{ fontSize: 12, paddingLeft: 4 }}>{ref?.titulo}</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: 12, paddingLeft: 4, lineHeight: 1.6 }}>{ref?.notas}</p>
             <div className="fila" style={{ gap: 8, paddingLeft: 4 }}>
               {ref?.paleta?.map((p) => (
                 <span key={p} title={p} style={{ width: 22, height: 22, borderRadius: 6, background: p }} />
@@ -746,20 +746,20 @@ function Ficha() {
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Carpeta de Drive</h3>
             <LuFolder size={20} color="var(--c-primario)" />
-            <p className="negrita" style={{ fontSize: 11 }}>{d.nombre} / Contenido</p>
-            <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>Originales, versiones y entregables.</p>
+            <p className="negrita" style={{ fontSize: 12 }}>{d.nombre} / Contenido</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>Originales, versiones y entregables.</p>
             {d.driveUrl ? (
               <a className="boton boton--chico" href={d.driveUrl} target="_blank" rel="noreferrer">
                 <LuExternalLink size={16} /> Abrir carpeta en Drive
               </a>
             ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
             <CarpetaManual clienteId={d.id} actual={d.driveUrl ?? null} alCambiar={() => void c.recargar()} />
-            <p className="texto-xs texto-muted" style={{ fontSize: 9 }}>Acceso del equipo de agencia.</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>Acceso del equipo de agencia.</p>
           </div>
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Responsable de cuenta</h3>
-            <p className="negrita" style={{ fontSize: 11 }}>{d.accountManager?.nombre} · Inoo</p>
-            <p className="texto-xs texto-muted" style={{ fontSize: 10 }}>Coordinación de contenidos y seguimiento de aprobaciones.</p>
+            <p className="negrita" style={{ fontSize: 12 }}>{d.accountManager?.nombre} · Inoo</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>Coordinación de contenidos y seguimiento de aprobaciones.</p>
           </div>
         </aside>
       </div>
@@ -778,20 +778,20 @@ function Ficha() {
       )}
       <div className="tarjeta seccion" style={{ padding: "22px 16px" }}>
         <h3 className="tarjeta-titulo">Historial de la cuenta</h3>
-        <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px", fontSize: 10.5 }}>Actividad de marca y versiones. Cada aprobación corresponde a una versión concreta.</p>
+        <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px", fontSize: 12 }}>Actividad de marca y versiones. Cada aprobación corresponde a una versión concreta.</p>
         <div className="lista-suave">
           {act.datos?.datos.map((a, i) => {
             const [t, tono] = ETQ[a.etiqueta ?? ""] ?? ["", "gris"];
             return (
               <div key={i} className="fila-suave rejilla" style={{ ["--columnas" as string]: "160px 1fr 120px", padding: "16px 10px" }}>
                 <div>
-                  <p className="negrita" style={{ fontSize: 10.5 }}>
+                  <p className="negrita" style={{ fontSize: 12 }}>
                     {fCorta(a.fecha)}
                     {(a as { sinHora?: boolean }).sinHora ? "" : ` · ${fDiaHora(a.fecha).split(" · ")[1]}`}
                   </p>
-                  <p className="texto-xs texto-muted" style={{ fontSize: 9.5, marginTop: 4 }}>{a.usuarioNombre}</p>
+                  <p className="texto-xs texto-muted" style={{ fontSize: 12, marginTop: 4 }}>{a.usuarioNombre}</p>
                 </div>
-                <p className="texto-xs texto-muted" style={{ fontSize: 10.5 }}>{a.descripcion}</p>
+                <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>{a.descripcion}</p>
                 <div style={{ justifySelf: "end" }}>{tono === "gris" ? <span className="etiqueta" style={{ background: "transparent" }}>{t}</span> : <Etiqueta tono={tono}>{t}</Etiqueta>}</div>
               </div>
             );
@@ -822,7 +822,7 @@ export function PantallaMuestras() {
             <p className="texto-sm texto-muted">«Tu ritual, tu momento» · Versión 2</p>
             <p className="texto-sm texto-muted">Confirmaremos tu aprobación y el equipo Inoo podrá programar esta pieza.</p>
             <div style={{ background: "var(--c-fondo)", borderRadius: 12, padding: "12px 14px" }}>
-              <p className="negrita" style={{ fontSize: 11.5 }}>Se registrará a nombre de Valeria Mendoza</p>
+              <p className="negrita" style={{ fontSize: 12 }}>Se registrará a nombre de Valeria Mendoza</p>
               <p className="texto-xs texto-muted">Solo se aprobará la versión 2 de este entregable.</p>
             </div>
             <div className="grid-2" style={{ gap: 10 }}>

@@ -205,6 +205,7 @@ export function EquipoAsignado({ ruta, titulo, ayuda, soloNivelCuenta }: { ruta:
     }
   };
   const quitar = async (a: S<"AccesoPersona">) => {
+    if (!window.confirm(`¿Quitarle el acceso a ${a.persona.nombre}?`)) return;
     try {
       await api(`${ruta}/${a.persona.id}`, { metodo: "DELETE" });
       avisar({ titulo: `${a.persona.nombre} ya no tiene acceso` });

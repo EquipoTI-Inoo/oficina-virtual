@@ -6,7 +6,7 @@
  * El plan de contenido mensual sigue en «Planes de contenido» (/equipo/calendarios).
  */
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { LuCalendarPlus, LuCheck, LuChevronLeft, LuChevronRight, LuExternalLink, LuPencil, LuPlus, LuTrash2, LuUsers } from "react-icons/lu";
+import { LuCalendarPlus, LuCheck, LuChevronLeft, LuChevronRight, LuExternalLink, LuPencil, LuPlus, LuTrash2, LuUsers, LuTriangleAlert } from "react-icons/lu";
 import { api, Enlace, HOY_PORTAL, ProblemaApi, useConsulta, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import type { TipoAgenda } from "../dominio/agenda";
@@ -249,7 +249,7 @@ function Chip({ e, alAbrir }: { e: Evento; alAbrir: (e: Evento) => void }) {
     >
       {!lleno && <span className="punto" style={{ background: COLOR[e.tipo] }} />}
       {e.horaInicio && <span className="chip-hora">{e.horaInicio}</span>}
-      <span className="chip-texto">{e.vencido ? "⚠ " : ""}{e.titulo}</span>
+      {e.vencido && <LuTriangleAlert size={11} aria-label="Vencido" style={{ flex: "none", color: "var(--c-semaforo-rojo)" }} />}<span className="chip-texto">{e.titulo}</span>
     </button>
   );
 }

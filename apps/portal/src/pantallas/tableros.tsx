@@ -292,7 +292,7 @@ function VistaTabla({ t, items, cambiar, editable }: Ctx) {
                                   <td />
                                   <td><Fecha valor={s.fecha ?? null} vencido={s.vencido} editable={editable} etiqueta={`Fecha límite de ${s.nombre}`} guardar={(fecha) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { fecha })} /></td>
                                   <td colSpan={1 + t.columnas.length + (editable ? 1 : 0)} />
-                                  {editable && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
+                                  {editable && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => window.confirm(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
                                 </tr>
                               )),
                               ...(editable ? [<FilaNueva key={`${i.id}-nuevo`} columnas={columnas} sangria etiqueta={`Nuevo subítem en ${i.nombre}`} texto="+ Agregar subítem" crear={(nombre) => cambiar(`/items/${i.id}/subitems`, "POST", { nombre })} />] : []),
