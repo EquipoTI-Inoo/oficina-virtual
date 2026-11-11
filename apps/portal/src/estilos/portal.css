@@ -2656,3 +2656,8 @@ main, .contenido, .principal { min-width: 0; }
 .boton-conversacion:hover { background: var(--c-primario-suave); color: var(--c-primario); }
 .boton-conversacion--con { color: var(--c-primario); font-weight: 600; }
 @media (max-width: 640px) { .panel-lateral { width: 100%; } .actualizacion--respuesta { margin-left: 14px; } }
+/* Mi trabajo (12 nov). */
+.mi-trabajo-grupo { border-left: 3px solid var(--c-borde); padding-left: 14px; }
+.mi-trabajo-fila { text-decoration: none; color: inherit; padding: 12px 14px; }
+.mi-trabajo-fila:hover { background: var(--c-primario-suave); }
+@media (max-width: 640px) { .mi-trabajo-fila { flex-wrap: wrap; } .mi-trabajo-fila > :first-child { flex: 1 1 100%; } }

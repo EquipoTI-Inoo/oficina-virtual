@@ -23,6 +23,20 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
   const it = (t: any, id = "item-mkt-1") => t.items.find((i: any) => i.id === id);
 
   describe(`Columnas de los tableros · ${nombre}`, () => {
+    test("mi trabajo y aviso de asignación", async () => {
+      await reiniciar();
+      const mio = (await llamar("GET", "/mi-trabajo", DIEGO)).json.datos;
+      assert.ok(mio.some((x: any) => x.itemId === "item-mkt-1" && x.como === "RESPONSABLE"), "su ítem en curso");
+      assert.ok(mio.every((x: any) => x.estado !== "Completado"), "sin lo completado");
+      assert.ok(mio.every((x: any, i: number) => !i || (mio[i - 1].fecha ?? "9999") <= (x.fecha ?? "9999")), "por fecha");
+      assert.equal((await llamar("GET", "/mi-trabajo", VALERIA)).status, 403);
+      const camila = (await llamar("GET", `/tableros/${T}`, DIEGO)).json.personas.find((p: any) => p.nombre === "Camila Paredes").id;
+      await llamar("PATCH", `/tableros/${T}/items/item-mkt-2`, DIEGO, { responsableId: camila });
+      const avisos = (await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.map((n: any) => n.titulo);
+      assert.ok(avisos.includes("Diego Castro te asignó un ítem"));
+      assert.ok((await llamar("GET", "/mi-trabajo", CAMILA)).json.datos.some((x: any) => x.itemId === "item-mkt-2"));
+    });
+
     test("actualizaciones del ítem: escribir, responder y mencionar avisan en la campana", async () => {
       await reiniciar();
       const ruta = `/tableros/${T}/items/item-mkt-1/actualizaciones`;

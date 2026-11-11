@@ -172,6 +172,35 @@ export function crearTableros(fallar: Fallar) {
   };
 
   return {
+    /**
+     * Mi trabajo (12 nov), como en Monday: lo asignado a mí en todos los tableros que veo (responsable, una columna de
+     * personas o un subítem), sin lo completado.
+     */
+    miTrabajo: (yo: Yo) => protegido(async () => {
+      if (!yo.empleadoId) return { datos: [] as unknown[] };
+      const yoId = yo.empleadoId;
+      const datos: { tableroId: string; tablero: string; cliente: string | null; itemId: string; nombre: string; padre: string | null; grupo: string | null;
+        estado: string; prioridad: string | null; fecha: string | null; vencido: boolean; como: "RESPONSABLE" | "PERSONAS" | "SUBITEM" }[] = [];
+      for (const p of await listarIW(yo.prueba)) {
+        if (p.archived || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) continue;
+        const cols = columnasPersonalizadas(p).filter((c) => c.type === "people");
+        for (const it of p.items ?? []) {
+          const grupo = (p.groups ?? []).find((g) => g.id === it.groupId)?.name ?? null;
+          const enPersonas = cols.some((c) => Array.isArray(it[`${c.id}__d`]) && (it[`${c.id}__d`] as string[]).includes(yoId));
+          if (it.status !== "Completado" && (it.assignee === yoId || enPersonas)) {
+            datos.push({ tableroId: p.id, tablero: p.name, cliente: p.clientName?.trim() || null, itemId: it.id, nombre: it.name, padre: null, grupo, estado: it.status,
+              prioridad: it.priority || null, fecha: it.dueDate || null, vencido: itemVencido(it), como: it.assignee === yoId ? "RESPONSABLE" : "PERSONAS" });
+          }
+          for (const s of it.subitems ?? []) {
+            if (s.status === "Completado" || s.assignee !== yoId) continue;
+            datos.push({ tableroId: p.id, tablero: p.name, cliente: p.clientName?.trim() || null, itemId: it.id, nombre: s.name, padre: it.name, grupo, estado: s.status,
+              prioridad: null, fecha: s.dueDate || null, vencido: itemVencido(s), como: "SUBITEM" });
+          }
+        }
+      }
+      datos.sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es"));
+      return { datos };
+    }),
     listar: (yo: Yo) => protegido(async () => ({
       conectado: tablerosConectados() && !yo.prueba,
       datos: (await listarIW(yo.prueba))

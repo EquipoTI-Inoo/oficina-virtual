@@ -5047,6 +5047,42 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /mi-trabajo:
+    get:
+      tags: [Tableros]
+      operationId: miTrabajo
+      summary: 'Mi trabajo (12 nov), como en Monday: lo asignado a mí en todos los tableros que veo, sin lo completado, por fecha'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      type: object
+                      required: [tableroId, tablero, cliente, itemId, nombre, padre, grupo, estado, prioridad, fecha, vencido, como]
+                      properties:
+                        tableroId: { type: string }
+                        tablero: { type: string }
+                        cliente: { type: [string, 'null'] }
+                        itemId: { type: string }
+                        nombre: { type: string }
+                        padre: { type: [string, 'null'], description: 'Si es un subítem, el ítem al que pertenece' }
+                        grupo: { type: [string, 'null'] }
+                        estado: { type: string }
+                        prioridad: { type: [string, 'null'] }
+                        fecha: { type: [string, 'null'] }
+                        vencido: { type: boolean }
+                        como: { type: string, enum: [RESPONSABLE, PERSONAS, SUBITEM] }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: InooWork no respondió }
+
   /monday/tableros:
     get:
       tags: [Tableros]

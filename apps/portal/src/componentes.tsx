@@ -3,8 +3,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard,
-} from "react-icons/lu";
+  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks } from "react-icons/lu";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
@@ -379,6 +378,8 @@ const NAV_CLIENTE = [
 const NAV_EQUIPO = [
   // 2 nov: «Panel general» se unió con «Mi panel»; el calendario es de cada colaborador (no solo contenido).
   { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound /> },
+  // 12 nov: Mi trabajo, como en Monday (lo asignado a cada uno en todos los tableros).
+  { a: "/equipo/mi-trabajo", texto: "Mi trabajo", icono: <LuListChecks /> },
   { a: "/equipo/calendario", texto: "Calendario", icono: <LuCalendarDays /> },
   // Jarvis (2 nov): los agentes de IA del equipo por área y el chat con el propio.
   { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot /> },

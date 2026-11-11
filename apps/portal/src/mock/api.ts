@@ -1647,9 +1647,23 @@ ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   return TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
+/** 12 nov: a quien le asignan un ítem o subítem de un tablero le llega un aviso (nunca a uno mismo). */
+function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }) {
+  if (typeof empleadoId !== "string" || !empleadoId) return;
+  const u = E.usuarios.find((x) => x.inooworkEmpleadoId === empleadoId && x.tipo === "EQUIPO" && x.activo !== false);
+  if (!u || u.id === ctx.usuario.id) return;
+  E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: u.id, titulo: `${ctx.usuario.nombre} te asignó un ítem`, cuerpo: `${titulo} (${tablero.nombre})`, enlace: `/equipo/proyectos/tableros/${proyectoId}`, creadoEn: new Date().toISOString() });
+}
+ruta("GET", "/mi-trabajo", async (ctx) => {
+  soloEquipo(ctx);
+  return TABLEROS.miTrabajo(yoTablero(ctx));
+});
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  const b = await cuerpo<Record<string, unknown>>(req);
+  const t = await TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), b);
+  if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t);
+  return t;
 });
 ruta("DELETE", "/tableros/:id/items/:item", async (ctx, p) => {
   soloEquipo(ctx);
@@ -1661,7 +1675,11 @@ ruta("POST", "/tableros/:id/items/:item/subitems", async (ctx, p, _q, req) => {
 });
 ruta("PATCH", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return TABLEROS.cambiarSubitem(p.id, p.item, p.sub, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  const b = await cuerpo<Record<string, unknown>>(req);
+  const t = await TABLEROS.cambiarSubitem(p.id, p.item, p.sub, yoTablero(ctx), b);
+  const it = t.items.find((i) => i.id === p.item);
+  if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, `${it?.subitems.find((s) => s.id === p.sub)?.nombre ?? "Un subítem"} · en ${it?.nombre ?? ""}`, t);
+  return t;
 });
 ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
   soloEquipo(ctx);
