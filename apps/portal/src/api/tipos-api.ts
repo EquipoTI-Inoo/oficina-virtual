@@ -15280,7 +15280,10 @@ export interface operations {
             content: {
                 "application/json": {
                     nombre?: string;
-                    cliente: string;
+                    /** @description Vacío o sin mandar = por asignar (el tablero avisa «Falta el cliente») */
+                    cliente?: string;
+                    /** @description false = los archivos quedan solo con su nombre en el historial (no ocupan el Drive). Por defecto, true */
+                    copiarArchivos?: boolean;
                     /** @description Etiqueta de Monday → estado de InooWork. */
                     estados?: {
                         [key: string]: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "Bloqueado";

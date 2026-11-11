@@ -5040,10 +5040,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [cliente]
               properties:
                 nombre: { type: string, maxLength: 120 }
-                cliente: { type: string, maxLength: 120 }
+                cliente: { type: string, maxLength: 120, description: 'Vacío o sin mandar = por asignar (el tablero avisa «Falta el cliente»)' }
+                copiarArchivos: { type: boolean, description: 'false = los archivos quedan solo con su nombre en el historial (no ocupan el Drive). Por defecto, true' }
                 estados:
                   type: object
                   description: Etiqueta de Monday → estado de InooWork.

@@ -264,16 +264,18 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
       const estados: Record<string, EstadoItem> = Object.fromEntries(previa.estados.map((e) => [e.etiqueta, e.sugerido]));
       for (const [k, v] of Object.entries((b.estados ?? {}) as Record<string, string>)) if (ESTADOS_ITEM.includes(v as EstadoItem)) estados[k] = v as EstadoItem;
       const { proyecto, items } = convertirTablero(t, {
-        nombre: typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim() : t.nombre, cliente: String(b.cliente).trim(),
+        nombre: typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim() : t.nombre, cliente: typeof b.cliente === "string" ? b.cliente.trim() : "",
         estados, personas, lider, miembros, departamento: yo.departamento,
       });
 
-      // Archivos: se copian al almacén del portal (los enlaces de Monday vencen). De a 4 a la vez.
+      // Archivos: se copian al almacén del portal, Google Drive (los enlaces de Monday vencen). De a 4 a la vez.
+      // Con copiarArchivos: false quedan solo con su nombre en el historial (para no llenar el Drive).
       const historial = historialDe(t);
       const unicos = new Map<string, ArchivoMonday>();
       for (const h of historial) for (const a of h.archivos) unicos.set(a.id, a);
       const copiados = new Map<string, ArchivoGuardado>();
       const cola = [...unicos.values()];
+      if (b.copiarArchivos === false) for (const a of cola.splice(0)) copiados.set(a.id, { id: a.id, nombre: a.nombre, bytes: a.bytes, clave: null, error: "Se importó sin copiar los archivos" });
       await Promise.all(Array.from({ length: Math.min(4, cola.length) }, async () => {
         for (let a = cola.shift(); a; a = cola.shift()) copiados.set(a.id, await copiar(a, `monday/${proyecto.id}/${a.id}-${nombreArchivo(a.nombre)}`, repo.almacen));
       }));

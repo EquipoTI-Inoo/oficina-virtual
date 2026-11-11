@@ -4,7 +4,7 @@
  * la cuenta de Monday, revisa cada uno (cómo se traducen los estados y quién del equipo es cada persona) y lo
  * importa: queda como tablero de InooWork con su historial (actualizaciones, respuestas y archivos).
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LuCheck, LuSearch } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
@@ -32,6 +32,7 @@ function ImportarMonday() {
   const [texto, setTexto] = useState("");
   const [abierto, setAbierto] = useState<string | null>(null);
   const [verImportados, setVerImportados] = useState(false);
+  const [todos, setTodos] = useState(false);
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const q = texto.trim().toLowerCase();
@@ -55,6 +56,7 @@ function ImportarMonday() {
           <input type="checkbox" checked={verImportados} onChange={(e) => setVerImportados(e.target.checked)} /> Mostrar los ya importados
         </label>
         <span className="texto-sm texto-muted" style={{ marginLeft: "auto" }}>{hechos} de {r.datos.datos.length} importados</span>
+        {hechos < r.datos.datos.length && <button className="boton boton--primario" onClick={() => setTodos(true)}>Importar todos ({r.datos.datos.length - hechos})</button>}
       </div>
       {!xs.length ? (
         <p className="texto-sm texto-muted">{r.datos.datos.length && !verImportados && !q ? "Ya están todos importados. Ya pueden dejar Monday." : "Ningún tablero coincide."}</p>
@@ -80,6 +82,7 @@ function ImportarMonday() {
         </div>
       )}
       {abierto && <Revision id={abierto} alCerrar={() => setAbierto(null)} alImportar={() => void r.recargar()} />}
+      {todos && <ImportarTodos tableros={r.datos.datos.filter((t) => !t.importado)} alCerrar={() => { setTodos(false); void r.recargar(); }} />}
     </>
   );
 }
@@ -93,6 +96,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
   const [estados, setEstados] = useState<Record<string, EstadoItem>>({});
   const [personas, setPersonas] = useState<Record<string, string | null>>({});
   const [liderId, setLiderId] = useState("");
+  const [copiarArchivos, setCopiarArchivos] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [hecho, setHecho] = useState<Resultado | null>(null);
@@ -106,7 +110,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
     try {
       const res = await api<Resultado>(`/monday/tableros/${id}/importar`, {
         metodo: "POST",
-        cuerpo: { nombre: (nombre ?? d.tablero.nombre).trim(), cliente: cliente.trim(), estados, personas, ...(liderId ? { liderId } : {}) },
+        cuerpo: { nombre: (nombre ?? d.tablero.nombre).trim(), cliente: cliente.trim(), estados, personas, copiarArchivos, ...(liderId ? { liderId } : {}) },
       });
       setHecho(res);
       alImportar();
@@ -217,14 +221,97 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
             <p className="texto-xs texto-muted">Los archivos de las columnas de archivo van al historial del ítem. Las automatizaciones de Monday no se pasan.</p>
           </details>
 
+          {d.conteo.archivos > 0 && (
+            <label className="fila texto-sm" style={{ gap: 8 }}>
+              <input type="checkbox" checked={copiarArchivos} onChange={(e) => setCopiarArchivos(e.target.checked)} />
+              Copiar los {d.conteo.archivos} archivos al Drive (si no, quedan solo con su nombre en el historial)
+            </label>
+          )}
           <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
             <button className="boton" onClick={alCerrar}>Cancelar</button>
-            <button className="boton boton--primario" disabled={enviando || !!d.importado || !cliente.trim()} onClick={() => void importar()}>
+            <button className="boton boton--primario" disabled={enviando || !!d.importado} onClick={() => void importar()}>
               {enviando ? "Importando… (los archivos pueden tardar)" : "Importar"}
             </button>
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+// ───────────────────────────── importar todos de un tirón (11 nov)
+
+type EstadoFila = { estado: "ESPERA" | "IMPORTANDO" | "LISTO" | "ERROR"; detalle?: string; proyectoId?: string };
+
+/** Uno por uno desde el navegador (cada tablero es un pedido corto), con lo sugerido: personas por correo o nombre,
+ * estados traducidos y el cliente por asignar. Se puede detener y retomar: lo ya importado no se repite. */
+function ImportarTodos({ tableros, alCerrar }: { tableros: Lista["datos"]; alCerrar: () => void }) {
+  const [copiar, setCopiar] = useState(false);
+  const [filas, setFilas] = useState<Record<string, EstadoFila>>({});
+  const [corriendo, setCorriendo] = useState(false);
+  const parar = useRef(false);
+  const hechos = Object.values(filas).filter((f) => f.estado === "LISTO").length;
+  const errores = Object.values(filas).filter((f) => f.estado === "ERROR").length;
+
+  const empezar = async () => {
+    parar.current = false;
+    setCorriendo(true);
+    for (const t of tableros) {
+      if (parar.current) break;
+      if (filas[t.id]?.estado === "LISTO") continue;
+      setFilas((x) => ({ ...x, [t.id]: { estado: "IMPORTANDO" } }));
+      try {
+        const r = await api<Resultado>(`/monday/tableros/${t.id}/importar`, { metodo: "POST", cuerpo: { copiarArchivos: copiar } });
+        setFilas((x) => ({ ...x, [t.id]: { estado: "LISTO", proyectoId: r.tablero.id, detalle: `${r.resumen.items} ítems · ${r.resumen.actualizaciones} actualizaciones${copiar ? ` · ${r.resumen.archivosCopiados}/${r.resumen.archivos} archivos` : ""}` } }));
+      } catch (e) {
+        const ya = e instanceof ProblemaApi && e.codigo === "YA_IMPORTADO";
+        setFilas((x) => ({ ...x, [t.id]: ya ? { estado: "LISTO", detalle: "Ya estaba importado" } : { estado: "ERROR", detalle: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : "No se pudo" } }));
+      }
+    }
+    setCorriendo(false);
+  };
+
+  return (
+    <Modal abierto alCerrar={() => { if (!corriendo || window.confirm("¿Detener la importación? Lo ya importado se queda.")) { parar.current = true; alCerrar(); } }} etiqueta="Importar todos los tableros" ancho={760}>
+      <div className="pila" style={{ gap: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Importar {tableros.length} tableros de un tirón</h2>
+          <p className="texto-sm texto-muted">
+            Se importan uno por uno con lo sugerido: cada persona emparejada por correo o nombre, los estados traducidos y el cliente por asignar
+            (cada tablero avisa «Falta el cliente» y se pone después). Deja esta ventana abierta hasta que termine; si se corta, vuelve a darle y sigue donde quedó.
+          </p>
+        </div>
+        <label className="fila texto-sm" style={{ gap: 8 }}>
+          <input type="checkbox" checked={copiar} disabled={corriendo} onChange={(e) => setCopiar(e.target.checked)} />
+          Copiar también los archivos al Drive (tarda mucho más y ocupa espacio en el Drive; sin esto quedan solo con su nombre)
+        </label>
+        <div className="fila" style={{ gap: 8 }}>
+          {!corriendo
+            ? <button className="boton boton--primario" onClick={() => void empezar()}>{hechos || errores ? "Seguir" : "Empezar"}</button>
+            : <button className="boton" onClick={() => { parar.current = true; }}>Detener después del actual</button>}
+          <span className="texto-sm texto-muted">{hechos} de {tableros.length} listos{errores ? ` · ${errores} con error` : ""}</span>
+        </div>
+        <div className="tabla-envoltura" style={{ maxHeight: 380, overflow: "auto" }}>
+          <table className="tabla">
+            <tbody>
+              {tableros.map((t) => {
+                const f = filas[t.id];
+                return (
+                  <tr key={t.id}>
+                    <td className="negrita texto-sm">{t.nombre}<span className="texto-xs texto-muted"> · {t.items} ítems</span></td>
+                    <td className="texto-sm" style={{ width: 300 }}>
+                      {!f ? <span className="texto-muted">En espera</span>
+                        : f.estado === "IMPORTANDO" ? "Importando…"
+                          : f.estado === "LISTO" ? <span><LuCheck size={13} /> {f.proyectoId ? <Enlace a={`/equipo/proyectos/tableros/${f.proyectoId}`}>{f.detalle}</Enlace> : f.detalle}</span>
+                            : <span style={{ color: "var(--c-alerta)" }}>{f.detalle}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </Modal>
   );
 }

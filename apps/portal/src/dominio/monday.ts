@@ -171,12 +171,14 @@ export function emparejarPersonas<E extends { id: string; nombre: string; email:
 
 // ───────────────────────────── qué manda el admin al importar
 
-export interface PedidoImportacion { nombre?: unknown; cliente?: unknown; estados?: unknown; personas?: unknown; liderId?: unknown }
+export interface PedidoImportacion { nombre?: unknown; cliente?: unknown; estados?: unknown; personas?: unknown; liderId?: unknown; copiarArchivos?: unknown }
 
 export function validarImportacion(b: PedidoImportacion, previa: PreviaMonday): Errores {
   const e: Errores = [];
   if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 120)) e.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 120 caracteres)" });
-  if (!(typeof b.cliente === "string" && b.cliente.trim().length >= 1 && b.cliente.trim().length <= 120)) e.push({ campo: "cliente", mensaje: "Elige o escribe el cliente del proyecto" });
+  // 11 nov: en la importación de todos de un tirón el cliente puede quedar por asignar (el tablero avisa «Falta el cliente»).
+  if (b.cliente !== undefined && b.cliente !== null && !(typeof b.cliente === "string" && b.cliente.trim().length <= 120)) e.push({ campo: "cliente", mensaje: "El cliente, hasta 120 caracteres" });
+  if (b.copiarArchivos !== undefined && typeof b.copiarArchivos !== "boolean") e.push({ campo: "copiarArchivos", mensaje: "Sí o no" });
   const estados = (b.estados ?? {}) as Record<string, unknown>;
   if (typeof estados !== "object" || Array.isArray(estados) || Object.values(estados).some((v) => !ESTADOS_ITEM.includes(v as EstadoItem))) e.push({ campo: "estados", mensaje: `Cada estado debe ser uno de: ${ESTADOS_ITEM.join(", ")}` });
   const personas = (b.personas ?? {}) as Record<string, unknown>;

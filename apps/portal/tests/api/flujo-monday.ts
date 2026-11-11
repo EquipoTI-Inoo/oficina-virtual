@@ -36,7 +36,7 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
 
     test("importar crea el tablero en InooWork con todo y guarda el historial; no se importa dos veces", async () => {
       await reiniciar();
-      const mal = await llamar("POST", "/monday/tableros/1001/importar", ADMIN, { cliente: " ", estados: { Stuck: "Otro" } });
+      const mal = await llamar("POST", "/monday/tableros/1001/importar", ADMIN, { cliente: 5, estados: { Stuck: "Otro" } });
       assert.deepEqual(mal.json.errores.map((e: any) => e.campo).sort(), ["cliente", "estados"]);
       const cliente = await llamar("POST", "/monday/tableros/1001/importar", ADMIN, { cliente: "Casa Oliva", personas: { "503": uid(1, 1) } });
       assert.equal(cliente.status, 422, "una clienta no es del equipo");
@@ -56,6 +56,7 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
       assert.deepEqual(t.personas.map((x: any) => x.nombre).sort(), ["Camila Paredes", "Diego Castro"]);
       assert.deepEqual(r.json.resumen, { grupos: 2, items: 3, subitems: 1, actualizaciones: 1, archivos: 2, archivosCopiados: 0, sinResponsable: 2 });
       assert.equal(r.json.archivosSinCopiar.length, 2);
+      assert.ok(r.json.archivosSinCopiar.every((a: any) => a.motivo === "Sin almacén de archivos configurado"));
 
       assert.equal((await llamar("POST", "/monday/tableros/1001/importar", ADMIN, { cliente: "Casa Oliva" })).status, 409);
       const lista = (await llamar("GET", "/monday/tableros", ADMIN)).json.datos;
@@ -78,7 +79,8 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
 
     test("sin dueño en Monday el líder es quien importa; la línea de tiempo da la fecha", async () => {
       await reiniciar();
-      const r = await llamar("POST", "/monday/tableros/1002/importar", ADMIN, { cliente: "Inoo", nombre: "Contenido de noviembre" });
+      const r = await llamar("POST", "/monday/tableros/1002/importar", ADMIN, { nombre: "Contenido de noviembre", copiarArchivos: false });
+      assert.equal(r.json.tablero?.cliente, null, "sin cliente: queda por asignar");
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.deepEqual([r.json.tablero.nombre, r.json.tablero.lider?.nombre], ["Contenido de noviembre", "Admin Inoo"]);
       assert.deepEqual([r.json.tablero.items[0].fecha, r.json.tablero.items[0].estado], ["2026-11-15", "Sin Iniciar"]);
