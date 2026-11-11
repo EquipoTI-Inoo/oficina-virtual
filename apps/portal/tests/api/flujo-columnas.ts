@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { analizarFormula, evaluarFormula, TIPOS_COLUMNA, valorDeColumna } from "../../src/dominio/columnas";
-import { crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
+import { CASA_OLIVA, crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
+import { claveCliente, clienteEnTexto } from "../../src/dominio/clientes-tablero";
+import { carpetaDeDrive } from "../../src/dominio/carpeta-drive";
 import { uid } from "../../src/mock/datos";
 
 const CAMILA = `demo.${uid(1, 6)}`;
@@ -21,6 +23,28 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
   const it = (t: any, id = "item-mkt-1") => t.items.find((i: any) => i.id === id);
 
   describe(`Columnas de los tableros · ${nombre}`, () => {
+    test("el cliente de un tablero se empareja con el del portal o se crea solo; la carpeta de Drive se puede poner a mano", async () => {
+      await reiniciar();
+      const clientes = async () => (await llamar("GET", "/clientes?limite=100", DIEGO)).json.datos.map((c: any) => c.nombre);
+      const antes = (await clientes()).length;
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { cliente: "casa oliva s.a.c." })).json.cliente, "Casa Oliva", "el mismo cliente, escrito distinto");
+      assert.equal((await clientes()).length, antes, "no se crea otro");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { cliente: "Tecnillaves" })).json.cliente, "Tecnillaves");
+      assert.ok((await clientes()).includes("Tecnillaves"), "se crea la ficha en el portal");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { cliente: "TECNILLAVES E.I.R.L." })).json.cliente, "Tecnillaves");
+      assert.equal((await clientes()).length, antes + 1, "una sola vez");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { cliente: "inoo" })).json.cliente, "Inoo", "Inoo es interno: no es un cliente");
+
+      // Carpeta de Drive existente, a mano; n8n después no la reemplaza.
+      const mal = await llamar("PATCH", `/clientes/${CASA_OLIVA}`, DIEGO, { driveUrl: "https://dropbox.com/x" });
+      assert.deepEqual([mal.status, mal.json.errores?.[0]?.campo], [422, "driveUrl"]);
+      const ok = await llamar("PATCH", `/clientes/${CASA_OLIVA}`, DIEGO, { driveUrl: "https://drive.google.com/drive/u/0/folders/1AbCdEfGhIjKlMnOp?usp=sharing" });
+      assert.equal(ok.json.driveUrl, "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp");
+      await llamar("PATCH", `/clientes/${CASA_OLIVA}`, undefined, { driveUrl: "https://drive.google.com/drive/folders/otra-de-n8n" }, { "x-api-key": "demo-n8n" });
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}`, DIEGO)).json.driveUrl, "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp");
+      assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}`, VALERIA, { driveUrl: null })).status, 403);
+    });
+
     test("se agregan columnas de la biblioteca y cada valor se valida según su tipo", async () => {
       await reiniciar();
       assert.equal((await llamar("POST", `/tableros/${T}/columnas`, DIEGO, { nombre: "X", tipo: "inventado" })).status, 422);
@@ -155,6 +179,19 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
     });
   });
 }
+
+describe("Clientes de los tableros · reglas", () => {
+  test("nombres comparables y cliente dentro del nombre del tablero", () => {
+    assert.equal(claveCliente("Casa Olíva S.A.C."), "casa oliva");
+    assert.equal(claveCliente("Tecnillaves E.I.R.L"), "tecnillaves");
+    const cs = [{ nombre: "Casa Oliva" }, { nombre: "Oliva" }, { nombre: "Inoo" }];
+    assert.equal(clienteEnTexto("Web Casa Oliva 2026", cs)?.nombre, "Casa Oliva", "el más largo");
+    assert.equal(clienteEnTexto("Contenido mensual", cs), undefined);
+    assert.equal(clienteEnTexto("Marketing interno Inoo", cs), undefined, "Inoo no es un cliente");
+    assert.deepEqual(carpetaDeDrive("https://drive.google.com/open?id=1AbCdEfGhIjK"), { url: "https://drive.google.com/drive/folders/1AbCdEfGhIjK", id: "1AbCdEfGhIjK" });
+    assert.ok("error" in carpetaDeDrive("https://drive.google.com/file/d/1AbCdEfGhIjK/view"), "un archivo no es una carpeta");
+  });
+});
 
 describe("Columnas · reglas", () => {
   test("la biblioteca tiene los tipos de Monday", () => {

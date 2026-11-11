@@ -32,6 +32,7 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal(p.personas.find((x: any) => x.id === "501").esDueno, true);
       assert.deepEqual(p.columnas.map((c: any) => c.uso), ["RESPONSABLE", "ESTADO", "PRIORIDAD", "FECHA", "COLUMNA", "NO_SE_PASA", "NO_SE_PASA"]);
       assert.equal((await llamar("GET", "/monday/tableros/9999", ADMIN)).status, 404);
+      assert.equal(p.clienteSugerido, "Casa Oliva", "el cliente del portal que aparece en el nombre del tablero");
     });
 
     test("importar crea el tablero en InooWork con todo y guarda el historial; no se importa dos veces", async () => {

@@ -6227,6 +6227,7 @@ components:
         pilaresContenido: { type: array, items: { type: string } }
         canales: { type: array, items: { type: string, enum: [INSTAGRAM, FACEBOOK, LINKEDIN, TIKTOK, YOUTUBE, BLOG, WEB] } }
         wordpressUrl: { type: [string, 'null'], format: uri }
+        driveUrl: { type: [string, 'null'], description: '11 nov: la carpeta de Drive que el cliente ya tenía (enlace de carpeta de Google Drive). Si se pone, n8n no crea otra ni la reemplaza; null la quita' }
         fechaAniversario: { type: [string, 'null'], format: date, description: 'Desde cuándo trabajamos juntos (día del aniversario)' }
         contacto:
           type: object
@@ -7579,7 +7580,7 @@ components:
         en: { type: string, format: date-time }
     PreviaMonday:
       type: object
-      required: [tablero, conteo, columnas, estados, personas, equipo, importado]
+      required: [tablero, conteo, columnas, estados, personas, equipo, importado, clienteSugerido]
       properties:
         tablero:
           type: object
@@ -7639,6 +7640,7 @@ components:
               nombre: { type: string }
               conFicha: { type: boolean, description: Tiene ficha en InooWork (puede ser responsable). }
         importado: { $ref: '#/components/schemas/ImportacionMonday' }
+        clienteSugerido: { type: [string, 'null'], description: 'Un cliente del portal cuyo nombre aparece en el tablero o en su espacio' }
     EntradaHistorialMonday:
       type: object
       required: [id, tipo, autor, fecha, texto, respuestas, archivos]

@@ -588,6 +588,37 @@ function ActividadCliente({ a }: { a: S<"InactividadCliente"> }) {
   );
 }
 
+/** 11 nov: si el cliente ya tenía su carpeta de Drive, se pega el enlace (y n8n no crea otra ni la reemplaza). */
+function CarpetaManual({ clienteId, actual, alCambiar }: { clienteId: string; actual: string | null; alCambiar: () => void }) {
+  const avisar = useAviso();
+  const [abierto, setAbierto] = useState(false);
+  const [url, setUrl] = useState(actual ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const guardar = async (valor: string | null) => {
+    setError(null);
+    try {
+      await api(`/clientes/${clienteId}`, { metodo: "PATCH", cuerpo: { driveUrl: valor } });
+      setAbierto(false);
+      alCambiar();
+    } catch (e) {
+      if (e instanceof ProblemaApi && e.status === 403) avisar({ titulo: "Solo el responsable de la cuenta o un admin puede cambiar la carpeta" });
+      else setError(e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : "No se pudo guardar");
+    }
+  };
+  if (!abierto) return <button className="boton-texto texto-xs" onClick={() => setAbierto(true)}>{actual ? "Cambiar carpeta" : "Usar una carpeta que ya existe"}</button>;
+  return (
+    <div className="pila" style={{ gap: 6 }}>
+      <input className="input" aria-label="Enlace de la carpeta de Drive" placeholder="https://drive.google.com/drive/folders/…" value={url} onChange={(e) => setUrl(e.target.value)} />
+      {error && <span className="texto-xs" style={{ color: "var(--c-alerta)" }}>{error}</span>}
+      <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+        <button className="boton boton--chico boton--primario" disabled={!url.trim()} onClick={() => void guardar(url.trim())}>Guardar</button>
+        {actual && <button className="boton boton--chico" onClick={() => window.confirm("¿Quitar la carpeta de este cliente? La carpeta en Drive no se borra.") && void guardar(null)}>Quitar</button>}
+        <button className="boton boton--chico" onClick={() => setAbierto(false)}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function Ficha() {
   const { params } = useNavegacion();
   const avisar = useAviso();
@@ -722,6 +753,7 @@ function Ficha() {
                 <LuExternalLink size={16} /> Abrir carpeta en Drive
               </a>
             ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
+            <CarpetaManual clienteId={d.id} actual={d.driveUrl ?? null} alCambiar={() => void c.recargar()} />
             <p className="texto-xs texto-muted" style={{ fontSize: 9 }}>Acceso del equipo de agencia.</p>
           </div>
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>

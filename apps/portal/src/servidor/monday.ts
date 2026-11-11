@@ -9,6 +9,7 @@
 import { convertirTablero, emparejarPersonas, historialDe, nombreArchivo, previaMonday, TABLEROS_MONDAY_DEMO, validarImportacion,
   type ArchivoMonday, type ColumnaMonday, type ItemMonday, type PedidoImportacion, type PersonaMonday, type RespuestaMonday, type TableroMonday, type TableroMondayResumen } from "../dominio/monday";
 import { ESTADOS_ITEM, type EstadoItem, type PersonaIW } from "../dominio/tableros";
+import { clienteEnTexto } from "../dominio/clientes-tablero";
 import type { Almacen } from "./almacen";
 import type { crearTableros, Yo } from "./tableros";
 
@@ -163,6 +164,10 @@ export interface RepoMonday {
   historial(proyectoId: string, itemId: string): Promise<FilaHistorial[]>;
   archivo(proyectoId: string, archivoId: string): Promise<ArchivoGuardado | null>;
   almacen: Almacen | null;
+  /** Los clientes del portal (para sugerir el del tablero). */
+  clientes(): Promise<{ id: string; nombre: string }[]>;
+  /** El nombre exacto del cliente en el portal; si no existe, lo crea (11 nov). */
+  asegurarCliente(nombre: string): Promise<string>;
 }
 type Fallar = (status: number, codigo: string, titulo: string, errores?: { campo: string; mensaje: string }[]) => Error;
 type Tableros = ReturnType<typeof crearTableros>;
@@ -230,6 +235,7 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
         personas: p.personas.map((x) => ({ ...x, sugeridoId: sugeridas[x.id] })),
         equipo: equipo.map((e) => ({ id: e.id, nombre: e.nombre, conFicha: !!e.empleadoId })),
         importado: imp ? { proyectoId: imp.proyectoId, en: imp.en } : null,
+        clienteSugerido: clienteEnTexto(`${t.nombre} ${t.espacio ?? ""}`, await repo.clientes())?.nombre ?? null,
       };
     }),
 
@@ -261,10 +267,15 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
       const miembros = [...new Map(Object.values(personas).filter((x): x is PersonaIW => !!x).map((x) => [x.id, x])).values()];
       if (!lider && !miembros.length) throw fallar(422, "VALIDACION", "Revisa los campos marcados", [{ campo: "liderId", mensaje: "Elige un líder: ningún proyecto queda sin una persona de Inoo" }]);
 
+      // El cliente (11 nov): el que se eligió (y si no existe en el portal, se crea) o uno del portal que aparezca en el
+      // nombre del tablero o de su espacio; si no hay, queda por asignar.
+      const cliente = typeof b.cliente === "string" && b.cliente.trim()
+        ? await repo.asegurarCliente(b.cliente.trim())
+        : clienteEnTexto(`${t.nombre} ${t.espacio ?? ""}`, await repo.clientes())?.nombre ?? "";
       const estados: Record<string, EstadoItem> = Object.fromEntries(previa.estados.map((e) => [e.etiqueta, e.sugerido]));
       for (const [k, v] of Object.entries((b.estados ?? {}) as Record<string, string>)) if (ESTADOS_ITEM.includes(v as EstadoItem)) estados[k] = v as EstadoItem;
       const { proyecto, items } = convertirTablero(t, {
-        nombre: typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim() : t.nombre, cliente: typeof b.cliente === "string" ? b.cliente.trim() : "",
+        nombre: typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim() : t.nombre, cliente,
         estados, personas, lider, miembros, departamento: yo.departamento,
       });
 

@@ -45,6 +45,8 @@ import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
+import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { descripcionPrueba } from "../dominio/pruebas";
@@ -1587,10 +1589,36 @@ ruta("GET", "/tableros", async (ctx) => {
   soloEquipo(ctx);
   return { ...(await TABLEROS.listar(yoTablero(ctx))), equipo: equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) };
 });
+/** 11 nov: el cliente de un tablero es una ficha del portal; si no existe, se crea con ese nombre. */
+function asegurarClienteMock(ctx: Ctx, nombre: unknown): unknown {
+  if (typeof nombre !== "string" || !nombre.trim() || nombre.trim().length > 120) return nombre;
+  const n = nombre.trim();
+  if (esClienteInterno(n)) return "Inoo";
+  const ya = clienteExistente(n, E.clientes);
+  if (ya) return ya.nombre;
+  const slug = slugDe(n);
+  if (!slug || E.clientes.some((c) => c.slug === slug)) return n;
+  const am = ctx.usuario.rolEquipo === "ACCOUNT_MANAGER" || nivelDe(ctx.usuario) === "CUENTA" ? ctx.usuario.id : null;
+  const c = {
+    id: nuevoId(2), nombre: n, slug, iniciales: n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(), contactoPrincipalId: null, contactoNombre: "Sin contacto",
+    fechaAniversario: null, limiteGastoIaUsd: 25, gastoIaUsd: 0, resumenFijo: undefined, estado: "ACTIVO", creadoEn: new Date().toISOString(), accountManagerId: am, ingreso: null,
+  } as unknown as D.ClienteDemo;
+  E.clientes.push(c);
+  E.fichas[c.id] = {
+    marca: { descripcion: "", mensajeCentral: "", campanaActual: "" }, tono: { etiquetas: [], descripcion: "", ejemplo: "" }, publico: { descripcion: "", intereses: [], segmentos: null },
+    canales: [], driveUrl: "", plan: { id: nuevoId(3), nombre: "Sin plan", fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: "", tieneContrato: false }, wordpressUrl: null,
+  } as Ficha;
+  emitir("cliente.creado", c.id, { clienteId: c.id, nombre: n, slug, canales: [], accountManagerId: am, contactoId: null, origen: "TABLERO" });
+  if (!ctx.esServicio && nivelDe(ctx.usuario) !== "ADMIN" && am !== ctx.usuario.id) E.accesosCuenta.push({ usuarioId: ctx.usuario.id, clienteId: c.id, asignadoPorId: ctx.usuario.id });
+  return n;
+}
+
 ruta("POST", "/tableros", async (ctx, _p, _q, req) => {
   soloEquipo(ctx);
   const u = ctx.usuario;
-  return TABLEROS.crear(yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), {
+  const b = await cuerpo<Record<string, unknown>>(req);
+  b.cliente = asegurarClienteMock(ctx, b.cliente);
+  return TABLEROS.crear(yoTablero(ctx), b, {
     lider: u.inooworkEmpleadoId ? { id: u.inooworkEmpleadoId, nombre: u.nombre } : null,
     departamento: departamentoDe({ area: u.area ?? null, rolEquipo: u.rolEquipo ?? null }),
     miembros: async (ids) => equipoInooWork().filter((x) => ids.includes(x.id)).map((x) => ({ id: x.inooworkEmpleadoId!, nombre: x.nombre })),
@@ -1602,7 +1630,9 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
 });
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return TABLEROS.cambiarProyecto(p.id, yoTablero(ctx), await cuerpo<{ cliente?: unknown; estado?: unknown }>(req));
+  const b = await cuerpo<{ cliente?: unknown; estado?: unknown }>(req);
+  if (b.cliente !== undefined) b.cliente = asegurarClienteMock(ctx, b.cliente);
+  return TABLEROS.cambiarProyecto(p.id, yoTablero(ctx), b);
 });
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
@@ -1708,9 +1738,13 @@ const repoMonday = (): RepoMonday => ({
   historial: async (proyectoId, itemId) => E.historialMonday.filter((h) => h.proyectoId === proyectoId && h.itemId === itemId),
   archivo: async (proyectoId, archivoId) => E.historialMonday.filter((h) => h.proyectoId === proyectoId).flatMap((h) => h.archivos).find((a) => a.id === archivoId) ?? null,
   almacen: null,
+  clientes: async () => E.clientes.filter((c) => c.estado !== "BAJA").map((c) => ({ id: c.id, nombre: c.nombre })),
+  asegurarCliente: async (nombre) => String(asegurarClienteMock(ctxMonday!, nombre)),
 });
+let ctxMonday: Ctx | null = null;
 const soloAdminMonday = (ctx: Ctx) => {
   soloEquipo(ctx);
+  ctxMonday = ctx;
   if (!esNivelAdmin(ctx)) throw new ErrorApi(403, "SIN_PERMISO", "La importación de Monday la hace el nivel Admin");
 };
 ruta("GET", "/monday/tableros", async (ctx) => {
@@ -2145,6 +2179,8 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   }
   const slug = slugDe(b.nombre!);
   if (E.clientes.some((c) => c.slug === slug)) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
+  const carpeta = b.driveUrl ? carpetaDeDrive(b.driveUrl) : null;
+  if (carpeta && "error" in carpeta) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "driveUrl", mensaje: carpeta.error }]);
   // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
   const k = b.contacto;
   if (k) {
@@ -2180,8 +2216,8 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     tono: { etiquetas: b.tono?.etiquetas ?? [], descripcion: b.tono?.descripcion ?? "", ejemplo: b.tono?.ejemplo ?? "" },
     publico: { descripcion: b.publico?.descripcion ?? "", intereses: b.pilaresContenido ?? b.publico?.intereses ?? [], segmentos: null },
     canales: (b.canales ?? []).map((k) => k.charAt(0) + k.slice(1).toLowerCase()),
-    // La carpeta la crea n8n al recibir cliente.creado (CU-01); hasta entonces no hay enlace.
-    driveUrl: "",
+    // La carpeta la crea n8n al recibir cliente.creado (CU-01); hasta entonces no hay enlace (salvo que ya tuviera una).
+    driveUrl: carpeta && !("error" in carpeta) ? carpeta.url : "",
     plan: { id: nuevoId(3), nombre: "Sin plan", fechaInicio: new Date().toISOString().slice(0, 10), fechaFin: "", tieneContrato: false },
     wordpressUrl: b.wordpressUrl ?? null,
   } as Ficha;
@@ -2190,7 +2226,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     registrarCorreo(contacto.email, `Te damos la bienvenida al portal de ${c.nombre}`, "miembro.invitado");
   }
   if (contacto) emitir("miembro.invitado", c.id, { usuarioId: contacto.id, email: contacto.email, nombre: contacto.nombre, rol: "ADMIN_CLIENTE", invitadoPor: ctx.usuario.id });
-  emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId, contactoId: contacto?.id ?? null });
+  emitir("cliente.creado", c.id, { clienteId: c.id, nombre: c.nombre, slug: c.slug, canales: b.canales ?? [], accountManagerId: c.accountManagerId, contactoId: contacto?.id ?? null, driveCarpetaId: carpeta && !("error" in carpeta) ? carpeta.id : null });
   // Quien lo crea (un lead, por ejemplo) sigue viendo la cuenta aunque no sea su AM.
   if (!ctx.esServicio && nivelDe(ctx.usuario) !== "ADMIN" && c.accountManagerId !== ctx.usuario.id) E.accesosCuenta.push({ usuarioId: ctx.usuario.id, clienteId: c.id, asignadoPorId: ctx.usuario.id });
   // Cada servicio por la misma ruta que «Nuevo servicio»: mismas validaciones, etapas y requerimientos.
@@ -2228,8 +2264,17 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
   if (b.canales) f.canales = b.canales.map((k) => k.charAt(0) + k.slice(1).toLowerCase());
   if (b.wordpressUrl !== undefined) f.wordpressUrl = b.wordpressUrl;
   if (b.fechaAniversario !== undefined) c.fechaAniversario = b.fechaAniversario;
-  // driveUrl lo escribe n8n después de crear las carpetas (no es parte de ClienteEntrada para personas).
-  if (ctx.esServicio && b.driveUrl) f.driveUrl = b.driveUrl;
+  // driveUrl lo escribe n8n solo si no hay carpeta; el equipo puede poner a mano una que ya existía (11 nov).
+  if (ctx.esServicio) {
+    if (b.driveUrl && !f.driveUrl) f.driveUrl = b.driveUrl;
+  } else if (b.driveUrl !== undefined) {
+    if (b.driveUrl === null || b.driveUrl === "") f.driveUrl = "";
+    else {
+      const carpeta = carpetaDeDrive(b.driveUrl);
+      if ("error" in carpeta) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "driveUrl", mensaje: carpeta.error }]);
+      f.driveUrl = carpeta.url;
+    }
+  }
   return clienteVista(ctx, c);
 });
 

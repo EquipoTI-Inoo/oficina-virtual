@@ -58,6 +58,8 @@ import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, type Yo } from "./tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
+import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUEBAS, permitidoACuentaPruebas } from "../dominio/pruebas";
@@ -5139,10 +5141,37 @@ ruta("GET", "/tableros", async (ctx) => {
   const [tableros, equipo] = await Promise.all([TABLEROS.listar(await yoTablero(ctx)), equipoInooWork(ctx)]);
   return { ...tableros, equipo: equipo.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area })) };
 });
+/**
+ * 11 nov: el cliente de un tablero es una ficha del portal. Si el nombre ya existe (aunque esté escrito distinto) se usa
+ * el exacto; si no, se crea la ficha con ese nombre (estado ACTIVO; n8n le crea las carpetas de Drive con cliente.creado).
+ */
+async function asegurarClienteDb(ctx: Ctx, nombre: unknown): Promise<unknown> {
+  if (typeof nombre !== "string" || !nombre.trim() || nombre.trim().length > 120) return nombre;
+  const n = nombre.trim();
+  if (esClienteInterno(n)) return "Inoo";
+  const clientes = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente")).rows;
+  const ya = clienteExistente(n, clientes);
+  if (ya) return ya.nombre;
+  const slug = slugDe(n);
+  if (!slug || (await ctx.c.query("SELECT 1 FROM cliente WHERE slug = $1", [slug])).rows.length) return n;
+  const am = ctx.u.rolEquipo === "ACCOUNT_MANAGER" || ctx.u.nivelAcceso === "CUENTA" ? ctx.u.usuarioId : null;
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO cliente (nombre, slug, estado, account_manager_id, es_prueba) VALUES ($1, $2, 'ACTIVO', $3, $4) RETURNING id", [n, slug, am, !!ctx.u.esPrueba],
+  )).rows[0].id;
+  await emitirOutbox(ctx, "cliente.creado", id, { clienteId: id, nombre: n, slug, canales: [], accountManagerId: am, contactoId: null, origen: "TABLERO" });
+  if (!ctx.esServicio && ctx.u.nivelAcceso !== "ADMIN" && am !== ctx.u.usuarioId) {
+    await ctx.c.query("INSERT INTO acceso_cuenta (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $1) ON CONFLICT DO NOTHING", [ctx.u.usuarioId, id]);
+  }
+  alcances.delete(ctx);
+  return n;
+}
+
 ruta("POST", "/tableros", async (ctx, _p, _q, cuerpo) => {
   soloEquipo(ctx);
   const yo = await yoTablero(ctx);
-  return TABLEROS.crear(yo, (await cuerpo()) as Record<string, unknown>, {
+  const b = (await cuerpo()) as Record<string, unknown>;
+  b.cliente = await asegurarClienteDb(ctx, b.cliente);
+  return TABLEROS.crear(yo, b, {
     lider: yo.empleadoId ? { id: yo.empleadoId, nombre: ctx.u.nombre } : null,
     departamento: departamentoDe({ area: ctx.u.area ?? null, rolEquipo: ctx.u.rolEquipo }),
     miembros: async (ids) => (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id)).map((x) => ({ id: x.empleado, nombre: x.nombre })),
@@ -5154,7 +5183,9 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
 });
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  return TABLEROS.cambiarProyecto(p.id, await yoTablero(ctx), (await cuerpo()) as { cliente?: unknown; estado?: unknown });
+  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown };
+  if (b.cliente !== undefined) b.cliente = await asegurarClienteDb(ctx, b.cliente);
+  return TABLEROS.cambiarProyecto(p.id, await yoTablero(ctx), b);
 });
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
@@ -5302,6 +5333,8 @@ function repoMonday(ctx: Ctx): RepoMonday {
       return r?.a ?? null;
     },
     almacen: almacenOpcional(),
+    clientes: async () => (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente WHERE estado <> 'BAJA'")).rows,
+    asegurarCliente: async (nombre) => String(await asegurarClienteDb(ctx, nombre)),
   };
 }
 const soloAdminMonday = (ctx: Ctx) => {
@@ -5691,6 +5724,9 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   const nombre = b.nombre!.trim();
   const slug = slugDe(nombre);
   if ((await ctx.c.query("SELECT 1 FROM cliente WHERE slug = $1", [slug])).rows.length) throw new ErrorApi(409, "CLIENTE_DUPLICADO", "Ya existe un cliente con ese nombre");
+  // 11 nov: si el cliente ya tiene su carpeta de Drive, se pega aquí y n8n no crea otra.
+  const carpeta = b.driveUrl ? carpetaDeDrive(b.driveUrl) : null;
+  if (carpeta && "error" in carpeta) validacion([{ campo: "driveUrl", mensaje: carpeta.error }]);
   // Responsable del cliente (reunión 12 oct): al crear el cliente se crea también su acceso al portal.
   const k = b.contacto;
   if (k) {
@@ -5709,8 +5745,10 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
     ],
   )).rows[0].id;
   if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
+  if (carpeta && !("error" in carpeta)) await ctx.c.query("UPDATE cliente SET drive_url = $2, drive_carpeta_id = $3 WHERE id = $1", [id, carpeta.url, carpeta.id]);
   // n8n crea las carpetas de Drive al recibir cliente.creado y completa driveUrl con PATCH /clientes/{id}.
-  await emitirOutbox(ctx, "cliente.creado", id, { clienteId: id, nombre, slug, canales: b.canales ?? [], accountManagerId: am, contactoId });
+  // Con carpeta propia, el evento lleva driveCarpetaId para que n8n no cree otra.
+  await emitirOutbox(ctx, "cliente.creado", id, { clienteId: id, nombre, slug, canales: b.canales ?? [], accountManagerId: am, contactoId, driveCarpetaId: carpeta && !("error" in carpeta) ? carpeta.id : null });
   // Quien lo crea (un lead, por ejemplo) sigue viendo la cuenta aunque no sea su AM.
   if (!ctx.esServicio && ctx.u.nivelAcceso !== "ADMIN" && am !== ctx.u.usuarioId) {
     await ctx.c.query("INSERT INTO acceso_cuenta (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $1) ON CONFLICT DO NOTHING", [ctx.u.usuarioId, id]);
@@ -5751,11 +5789,22 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
   if (b.accountManagerId !== undefined) cambios.push(["account_manager_id", b.accountManagerId]);
   if (b.limiteGastoIaUsd !== undefined) cambios.push(["limite_gasto_ia_usd", b.limiteGastoIaUsd]);
   if (b.estado !== undefined) cambios.push(["estado", b.estado, "$::estado_cliente"]);
-  // driveUrl lo escribe n8n después de crear las carpetas (no es parte de ClienteEntrada para personas).
+  // driveUrl lo escribe n8n después de crear las carpetas, solo si el cliente no tiene una (11 nov: el equipo puede
+  // poner a mano una carpeta que ya existía, y n8n no la reemplaza).
   if (ctx.esServicio) {
     if (!ctx.u.scopes?.includes("clientes:write")) throw new ErrorApi(403, "SIN_PERMISO", "La llave no tiene el scope clientes:write");
-    if (b.driveUrl) cambios.push(["drive_url", b.driveUrl]);
-    if (b.driveCarpetaId) cambios.push(["drive_carpeta_id", b.driveCarpetaId]);
+    const ya = (await ctx.c.query<{ drive_url: string | null }>("SELECT drive_url FROM cliente WHERE id = $1", [p.id])).rows[0]?.drive_url;
+    if (!ya) {
+      if (b.driveUrl) cambios.push(["drive_url", b.driveUrl]);
+      if (b.driveCarpetaId) cambios.push(["drive_carpeta_id", b.driveCarpetaId]);
+    }
+  } else if (b.driveUrl !== undefined) {
+    if (b.driveUrl === null || b.driveUrl === "") cambios.push(["drive_url", null], ["drive_carpeta_id", null]);
+    else {
+      const carpeta = carpetaDeDrive(b.driveUrl);
+      if ("error" in carpeta) validacion([{ campo: "driveUrl", mensaje: carpeta.error }]);
+      else cambios.push(["drive_url", carpeta.url], ["drive_carpeta_id", carpeta.id]);
+    }
   }
   if (cambios.length) {
     const sets = cambios.map(([col, , expr], i) => `${col} = ${(expr ?? "$").replace("$", `$${i + 2}`)}`);

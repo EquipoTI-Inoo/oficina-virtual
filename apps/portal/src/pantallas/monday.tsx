@@ -92,7 +92,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes?limite=100");
   const avisar = useAviso();
   const [nombre, setNombre] = useState<string | null>(null);
-  const [cliente, setCliente] = useState("");
+  const [cliente, setCliente] = useState<string | null>(null);
   const [estados, setEstados] = useState<Record<string, EstadoItem>>({});
   const [personas, setPersonas] = useState<Record<string, string | null>>({});
   const [liderId, setLiderId] = useState("");
@@ -110,7 +110,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
     try {
       const res = await api<Resultado>(`/monday/tableros/${id}/importar`, {
         metodo: "POST",
-        cuerpo: { nombre: (nombre ?? d.tablero.nombre).trim(), cliente: cliente.trim(), estados, personas, copiarArchivos, ...(liderId ? { liderId } : {}) },
+        cuerpo: { nombre: (nombre ?? d.tablero.nombre).trim(), cliente: (cliente ?? d.clienteSugerido ?? "").trim(), estados, personas, copiarArchivos, ...(liderId ? { liderId } : {}) },
       });
       setHecho(res);
       alImportar();
@@ -162,7 +162,8 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
             </label>
             <label className="pila" style={{ gap: 4 }}>
               <span className="texto-sm negrita">Cliente</span>
-              <input className="input" list="monday-clientes" value={cliente} maxLength={120} placeholder="Elige un cliente, o Inoo si es interno" onChange={(e) => setCliente(e.target.value)} />
+              <input className="input" list="monday-clientes" value={cliente ?? d.clienteSugerido ?? ""} maxLength={120} placeholder="Elige un cliente, o Inoo si es interno" onChange={(e) => setCliente(e.target.value)} />
+              <span className="texto-xs texto-muted">Si no está en el portal, se crea su ficha sola. Vacío = por asignar.</span>
               <datalist id="monday-clientes">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
               {errores.cliente && <span className="texto-xs" style={{ color: "var(--c-alerta)" }}>{errores.cliente}</span>}
             </label>

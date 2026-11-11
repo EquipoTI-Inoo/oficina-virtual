@@ -463,6 +463,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const [canales, setCanales] = useState<string[]>(["INSTAGRAM"]);
   const [contacto, setContacto] = useState({ nombre: "", email: "", cargo: "" });
   const [aniversario, setAniversario] = useState("");
+  const [carpeta, setCarpeta] = useState("");
   // Ingreso de cliente (antes, el formulario de Monday que llenaba Comercial): preguntas con caminos según el servicio.
   const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>(abierto ? "/formularios/ingreso-cliente" : null);
   const [ingreso, setIngreso] = useState<Record<string, unknown>>({});
@@ -517,7 +518,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
       const c = await api<S<"Cliente">>("/clientes", {
         metodo: "POST",
         cuerpo: {
-          nombre, limiteGastoIaUsd: Number(limite), canales, fechaAniversario: aniversario || undefined,
+          nombre, limiteGastoIaUsd: Number(limite), canales, fechaAniversario: aniversario || undefined, driveUrl: carpeta.trim() || undefined,
           ingreso: formulario ? Object.fromEntries(Object.entries(ingreso).filter(([, v]) => !respuestaVacia(v))) : undefined,
           responsableProyectosId: conProyecto.length && responsableProyectos ? responsableProyectos : undefined,
           contacto: contacto.nombre || contacto.email ? { nombre: contacto.nombre, email: contacto.email, cargo: contacto.cargo || undefined } : undefined,
@@ -591,6 +592,13 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
             <input id="nc-aniversario" type="date" value={aniversario} onChange={(e) => setAniversario(e.target.value)} />
           </div>
           <Ayuda texto="Cada año, ese día el portal le saluda por el aniversario." />
+        </div>
+        <div className="campo">
+          <label htmlFor="nc-carpeta">Carpeta de Drive que ya tiene (opcional)</label>
+          <div className="entrada">
+            <input id="nc-carpeta" value={carpeta} placeholder="https://drive.google.com/drive/folders/…" onChange={(e) => setCarpeta(e.target.value)} aria-invalid={!!err.driveUrl} />
+          </div>
+          <Ayuda error={err.driveUrl} texto="Si el cliente ya tiene su carpeta, pega el enlace y no se crea otra. Si lo dejas vacío, se crea sola." />
         </div>
         <div className="campo">
           <label htmlFor="nc-limite">Límite mensual de IA (US$)</label>

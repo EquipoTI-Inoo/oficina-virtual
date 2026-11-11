@@ -4484,6 +4484,8 @@ export interface components {
             canales?: ("INSTAGRAM" | "FACEBOOK" | "LINKEDIN" | "TIKTOK" | "YOUTUBE" | "BLOG" | "WEB")[];
             /** Format: uri */
             wordpressUrl?: string | null;
+            /** @description 11 nov: la carpeta de Drive que el cliente ya tenía (enlace de carpeta de Google Drive). Si se pone, n8n no crea otra ni la reemplaza; null la quita */
+            driveUrl?: string | null;
             /**
              * Format: date
              * @description Desde cuándo trabajamos juntos (día del aniversario)
@@ -6023,6 +6025,8 @@ export interface components {
                 conFicha: boolean;
             }[];
             importado: components["schemas"]["ImportacionMonday"];
+            /** @description Un cliente del portal cuyo nombre aparece en el tablero o en su espacio */
+            clienteSugerido: string | null;
         };
         EntradaHistorialMonday: {
             id: string;
