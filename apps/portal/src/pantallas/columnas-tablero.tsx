@@ -50,6 +50,7 @@ function numeroConUnidad(v: string | number | undefined, c: ConfigColumna) {
 export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; col: Columna; item: Item; cambiar: Cambiar; editable: boolean }) {
   const avisar = useAviso();
   const [abierto, setAbierto] = useState(false);
+  const [visor, setVisor] = useState<string | null>(null);
   const c = cfg(col);
   const v = item.valores[col.id];
   const texto = v === undefined ? "" : String(v);
@@ -211,30 +212,19 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
       );
     }
     case "file": {
-      const xs = Array.isArray(dato) ? (dato as { id: string; nombre: string; bytes: number }[]) : [];
-      const bajar = async (a: { id: string; nombre: string }) => {
-        try {
-          const r = await api<Blob | string>(`/tableros/${t.id}/archivos/${a.id}`);
-          const url = URL.createObjectURL(r instanceof Blob ? r : new Blob([r]));
-          const enl = document.createElement("a");
-          enl.href = url;
-          enl.download = a.nombre;
-          enl.click();
-          setTimeout(() => URL.revokeObjectURL(url), 5000);
-        } catch (e) {
-          avisar({ titulo: "No se pudo descargar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
-        }
-      };
+      const xs = Array.isArray(dato) ? (dato as { id: string; nombre: string; bytes: number; version?: number }[]) : [];
       const subir = async (f: File) => {
-        if (f.size > 15 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 15 MB" });
+        if (f.size > 50 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 50 MB" });
         await cambiar(`/items/${item.id}/columnas/${col.id}/archivos`, "POST", { nombre: f.name, mime: f.type || "application/octet-stream", base64: await enBase64(f) });
       };
       return (
         <span className="fila" style={{ gap: 4, flexWrap: "wrap" }}>
           {xs.map((a) => (
             <span key={a.id} className="chip" style={{ padding: "1px 6px", gap: 4 }}>
-              <button type="button" className="texto-xs" style={{ background: "none", border: 0, cursor: "pointer", padding: 0 }} onClick={() => void bajar(a)} title={`Descargar ${a.nombre}`}>{a.nombre}</button>
-              {editable && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={() => window.confirm(`¿Quitar «${a.nombre}»?`) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
+              <button type="button" className="texto-xs" style={{ background: "none", border: 0, cursor: "pointer", padding: 0 }} onClick={() => setVisor(a.id)} title={`Ver ${a.nombre}`}>
+                {a.nombre}{(a.version ?? 1) > 1 && <span className="texto-muted"> · V{a.version}</span>}
+              </button>
+              {editable && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={() => window.confirm(`¿Quitar «${a.nombre}» con todas sus versiones y comentarios?`) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
             </span>
           ))}
           {editable && (
@@ -244,6 +234,7 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
             </label>
           )}
           {!xs.length && !editable && vacio}
+          {visor && <VisorArchivo t={t} col={col} item={item} archivoId={visor} editable={editable} cambiar={cambiar} cerrar={() => setVisor(null)} />}
         </span>
       );
     }
@@ -389,6 +380,150 @@ function EditorLista({ t, col, item, elegidos, cerrar, guardar }: { t: Tablero; 
           </div>
         )}
     </Editor>
+  );
+}
+
+// ═════════════════════════════════════════════ visor de archivos: versiones y comentarios (como en Monday)
+
+type Comentarios = S<"ComentariosArchivo">;
+const pesoArchivo = (b: number) => (b > 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+const fechaCorta = (f: string) => (f ? new Date(f).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" }) : "");
+
+function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { t: Tablero; col: Columna; item: Item; archivoId: string; editable: boolean; cambiar: Cambiar; cerrar: () => void }) {
+  const avisar = useAviso();
+  const r = useConsulta<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`);
+  const [verId, setVerId] = useState<string | null>(null);
+  const [pestana, setPestana] = useState<"VERSIONES" | "COMENTARIOS">("COMENTARIOS");
+  const [url, setUrl] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [subiendo, setSubiendo] = useState(false);
+  const a = r.datos?.archivo;
+  const v = a?.versiones.find((x) => x.id === verId) ?? a?.versiones[a.versiones.length - 1];
+  const tipo = v?.mime ?? "";
+  const vista = /^image\//.test(tipo) ? "IMAGEN" : /^video\//.test(tipo) ? "VIDEO" : /^audio\//.test(tipo) ? "AUDIO" : tipo === "application/pdf" ? "PDF" : null;
+
+  useEffect(() => {
+    if (!v || !vista) return;
+    let vivo = true;
+    let creada: string | null = null;
+    setCargando(true);
+    setUrl(null);
+    api<Blob | string>(`/tableros/${t.id}/archivos/${v.id}?enLinea=1`)
+      .then((b) => { if (!vivo) return; creada = URL.createObjectURL(b instanceof Blob ? b : new Blob([b], { type: tipo })); setUrl(creada); })
+      .catch(() => vivo && setUrl(null))
+      .finally(() => vivo && setCargando(false));
+    return () => { vivo = false; if (creada) URL.revokeObjectURL(creada); };
+  }, [t.id, v?.id, vista, tipo]);
+
+  const descargar = async (x: { id: string; nombre: string }) => {
+    try {
+      const b = await api<Blob | string>(`/tableros/${t.id}/archivos/${x.id}`);
+      const u = URL.createObjectURL(b instanceof Blob ? b : new Blob([b]));
+      const enl = document.createElement("a");
+      enl.href = u;
+      enl.download = x.nombre;
+      enl.click();
+      setTimeout(() => URL.revokeObjectURL(u), 5000);
+    } catch (e) {
+      avisar({ titulo: "No se pudo descargar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+  const nuevaVersion = async (f: File) => {
+    if (f.size > 50 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 50 MB" });
+    setSubiendo(true);
+    try {
+      if (await cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${archivoId}/versiones`, "POST", { nombre: f.name, mime: f.type || "application/octet-stream", base64: await enBase64(f) })) {
+        setVerId(null);
+        await r.recargar();
+      }
+    } finally {
+      setSubiendo(false);
+    }
+  };
+  const comentar = async () => {
+    if (!texto.trim() || !v) return;
+    try {
+      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`, { metodo: "POST", cuerpo: { texto: texto.trim(), version: v.version } }));
+      setTexto("");
+    } catch (e) {
+      avisar({ titulo: "No se pudo comentar", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
+    }
+  };
+
+  return (
+    <Modal abierto alCerrar={cerrar} etiqueta={`Archivo ${a?.nombre ?? ""}`} ancho={1180}>
+      {r.error ? <p className="texto-sm">No pudimos abrir el archivo.</p> : !a || !v ? <p className="texto-sm texto-muted">Cargando…</p> : (
+        <div className="visor-archivo">
+          <div className="visor-archivo-principal">
+            <div className="fila entre" style={{ gap: 8, marginBottom: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.nombre}</h3>
+                <span className="texto-xs texto-muted">{item.nombre} · {col.nombre}</span>
+              </div>
+              <span className="fila" style={{ gap: 6 }}>
+                <span className="etiqueta-version">V{v.version}{v.version === a.version ? " · actual" : ""}</span>
+                <button className="boton boton--chico" onClick={() => void descargar(v)}>Descargar</button>
+              </span>
+            </div>
+            <div className="visor-archivo-lienzo">
+              {!vista ? (
+                <div className="pila" style={{ gap: 8, alignItems: "center", color: "#cbd5e1" }}>
+                  <span className="texto-sm">Este tipo de archivo no tiene vista previa.</span>
+                  <button className="boton boton--chico" onClick={() => void descargar(v)}>Descargar {pesoArchivo(v.bytes)}</button>
+                </div>
+              ) : cargando || !url ? <span className="texto-sm" style={{ color: "#cbd5e1" }}>{cargando ? "Cargando la vista previa…" : "No se pudo cargar la vista previa"}</span>
+                : vista === "IMAGEN" ? <img src={url} alt={v.nombre} />
+                  : vista === "VIDEO" ? <video src={url} controls />
+                    : vista === "AUDIO" ? <audio src={url} controls />
+                      : <iframe src={url} title={v.nombre} />}
+            </div>
+          </div>
+          <aside className="visor-archivo-lado">
+            <div className="segmentado" role="tablist" aria-label="Panel del archivo" style={{ marginBottom: 10 }}>
+              <button role="tab" aria-selected={pestana === "COMENTARIOS"} className={pestana === "COMENTARIOS" ? "activo" : undefined} onClick={() => setPestana("COMENTARIOS")}>Comentarios ({r.datos!.datos.length})</button>
+              <button role="tab" aria-selected={pestana === "VERSIONES"} className={pestana === "VERSIONES" ? "activo" : undefined} onClick={() => setPestana("VERSIONES")}>Versiones ({a.versiones.length})</button>
+            </div>
+            {pestana === "VERSIONES" ? (
+              <div className="pila" style={{ gap: 8 }}>
+                {editable && (
+                  <label className="boton boton--chico boton--primario" style={{ justifySelf: "start", cursor: "pointer" }}>
+                    {subiendo ? "Subiendo…" : "Agregar versión"}
+                    <input type="file" hidden disabled={subiendo} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void nuevaVersion(f); }} />
+                  </label>
+                )}
+                {[...a.versiones].reverse().map((x) => (
+                  <button key={x.id} type="button" className={`version-archivo${x.id === v.id ? " version-archivo--activa" : ""}`} onClick={() => setVerId(x.id)}>
+                    <span className="fila entre" style={{ gap: 6 }}>
+                      <span className="negrita texto-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.nombre}</span>
+                      <span className="etiqueta-version">V{x.version}</span>
+                    </span>
+                    <span className="texto-xs texto-muted">{[x.por, fechaCorta(x.en), pesoArchivo(x.bytes)].filter(Boolean).join(" · ")}{x.version === a.version ? " · actual" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="pila" style={{ gap: 8 }}>
+                <div className="pila" style={{ gap: 8, maxHeight: 380, overflow: "auto" }}>
+                  {!r.datos!.datos.length && <p className="texto-sm texto-muted">Todavía no hay comentarios.</p>}
+                  {r.datos!.datos.map((x) => (
+                    <div key={x.id} className="comentario-archivo">
+                      <span className="fila entre texto-xs" style={{ gap: 6 }}>
+                        <span><span className="negrita">{x.autor}</span> <span className="texto-muted">· {fechaCorta(x.en)}</span></span>
+                        <button type="button" className="etiqueta-version" onClick={() => setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null)} title="Ver esa versión">V{x.version}</button>
+                      </span>
+                      <p className="texto-sm" style={{ whiteSpace: "pre-wrap", marginTop: 2 }}>{x.texto}</p>
+                    </div>
+                  ))}
+                </div>
+                <textarea className="input" style={{ minHeight: 70 }} aria-label="Comentario" placeholder={`Comentar la V${v.version}…`} value={texto} maxLength={5000} onChange={(e) => setTexto(e.target.value)} />
+                <button className="boton boton--chico boton--primario" style={{ justifySelf: "end" }} disabled={!texto.trim()} onClick={() => void comentar()}>Comentar en la V{v.version}</button>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
+    </Modal>
   );
 }
 

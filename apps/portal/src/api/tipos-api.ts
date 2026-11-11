@@ -3409,7 +3409,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tableros/{proyectoId}/archivos/{archivoId}": {
+    "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/archivos/{archivoId}/versiones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sube una versión nueva del archivo (V2, V3…); las anteriores se conservan */
+        post: operations["nuevaVersionArchivoColumna"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/archivos/{archivoId}/comentarios": {
         parameters: {
             query?: never;
             header?: never;
@@ -3419,7 +3441,31 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Descarga un archivo de la columna «Archivos» (lo ve quien ve el tablero) */
+        /** El archivo (con sus versiones) y sus comentarios */
+        get: operations["comentariosArchivoColumna"];
+        put?: never;
+        /** Comenta el archivo; queda marcado con la versión que se estaba viendo (por defecto, la última) */
+        post: operations["comentarArchivoColumna"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/archivos/{archivoId}": {
+        parameters: {
+            query?: {
+                /** @description Para el visor: imágenes, videos, audio y PDF se muestran en vez de descargarse */
+                enLinea?: "1";
+            };
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        /** Descarga una versión de un archivo de la columna «Archivos» (por el id de la versión; lo ve quien ve el tablero) */
         get: operations["bajarArchivoColumna"];
         put?: never;
         post?: never;
@@ -5878,6 +5924,31 @@ export interface components {
                 [key: string]: unknown;
             };
             subitems: components["schemas"]["SubitemTablero"][];
+        };
+        ComentariosArchivo: {
+            archivo: {
+                id: string;
+                nombre: string;
+                mime: string;
+                bytes: number;
+                version: number;
+                versiones: {
+                    id: string;
+                    version: number;
+                    nombre: string;
+                    mime: string;
+                    bytes: number;
+                    en: string;
+                    por: string | null;
+                }[];
+            };
+            datos: {
+                id: string;
+                version: number;
+                autor: string;
+                texto: string;
+                en: string;
+            }[];
         };
         /** @description Configuración de una columna según su tipo. */
         ConfigColumna: {
@@ -15004,9 +15075,107 @@ export interface operations {
             };
         };
     };
-    bajarArchivoColumna: {
+    nuevaVersionArchivoColumna: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    mime?: string;
+                    base64: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    comentariosArchivoColumna: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentariosArchivo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    comentarArchivoColumna: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                    version?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentariosArchivo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    bajarArchivoColumna: {
+        parameters: {
+            query?: {
+                /** @description Para el visor: imágenes, videos, audio y PDF se muestran en vez de descargarse */
+                enLinea?: "1";
+            };
             header?: never;
             path: {
                 proyectoId: string;

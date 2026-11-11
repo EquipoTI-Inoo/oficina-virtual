@@ -5201,8 +5201,8 @@ function repoArchivosTablero(ctx: Ctx): RepoArchivosTablero {
       const clave = bucket ? `tableros/${a.proyectoId}/${a.id}` : null;
       if (bucket && clave) await bucket.subir(clave, a.mime, contenido);
       await ctx.c.query(
-        "INSERT INTO archivo_tablero (id, proyecto_iw_id, item_iw_id, columna_id, nombre, mime, bytes, contenido, clave, subido_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-        [a.id, a.proyectoId, a.itemId, a.columnaId, a.nombre, a.mime, a.bytes, clave ? null : Buffer.from(contenido), clave, ctx.u.usuarioId]);
+        "INSERT INTO archivo_tablero (id, archivo_id, version, proyecto_iw_id, item_iw_id, columna_id, nombre, mime, bytes, contenido, clave, subido_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        [a.id, a.archivoId, a.version, a.proyectoId, a.itemId, a.columnaId, a.nombre, a.mime, a.bytes, clave ? null : Buffer.from(contenido), clave, ctx.u.usuarioId]);
     },
     leer: async (proyectoId, id) => {
       const f = (await ctx.c.query<{ nombre: string; mime: string; contenido: Uint8Array | null; clave: string | null }>(
@@ -5211,8 +5211,16 @@ function repoArchivosTablero(ctx: Ctx): RepoArchivosTablero {
       const contenido = f.clave ? (bucket ? await bucket.leer(f.clave) : null) : f.contenido;
       return contenido ? { nombre: f.nombre, mime: f.mime, contenido: new Uint8Array(contenido) } : null;
     },
-    borrar: async (proyectoId, id) => {
-      await ctx.c.query("DELETE FROM archivo_tablero WHERE id = $1 AND proyecto_iw_id = $2", [id, proyectoId]);
+    borrar: async (proyectoId, archivoId) => {
+      await ctx.c.query("DELETE FROM archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
+      await ctx.c.query("DELETE FROM comentario_archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
+    },
+    comentarios: async (proyectoId, archivoId) => (await ctx.c.query<{ id: string; version: number; autor: string; texto: string; creado_en: Date }>(
+      "SELECT id, version, autor, texto, creado_en FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 AND archivo_id = $2 ORDER BY creado_en, id", [proyectoId, archivoId])).rows
+      .map((r) => ({ id: r.id, version: r.version, autor: r.autor, texto: r.texto, en: new Date(r.creado_en).toISOString() })),
+    comentar: async (c) => {
+      await ctx.c.query("INSERT INTO comentario_archivo_tablero (proyecto_iw_id, archivo_id, version, usuario_id, autor, texto) VALUES ($1, $2, $3, $4, $5, $6)",
+        [c.proyectoId, c.archivoId, c.version, ctx.u.usuarioId, c.autor.slice(0, 200), c.texto]);
     },
   };
 }
@@ -5242,9 +5250,21 @@ ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", asyn
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.quitar(repoArchivosTablero(ctx), p.id, p.item, p.col, p.archivo, await yoTablero(ctx));
 });
-ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p) => {
+ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p, q) => {
   soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.bajar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx));
+  return ARCHIVOS_TABLERO.bajar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), q.get("enLinea") === "1");
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versiones", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero(ctx), p.id, p.item, p.col, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN

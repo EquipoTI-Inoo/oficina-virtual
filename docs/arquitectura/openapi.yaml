@@ -4891,14 +4891,78 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '502': { description: InooWork no respondió }
 
-  /tableros/{proyectoId}/archivos/{archivoId}:
+  /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/archivos/{archivoId}/versiones:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: nuevaVersionArchivoColumna
+      summary: 'Sube una versión nueva del archivo (V2, V3…); las anteriores se conservan'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, base64]
+              properties:
+                nombre: { type: string, maxLength: 200 }
+                mime: { type: string }
+                base64: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tableros/{proyectoId}/archivos/{archivoId}/comentarios:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
       - { name: archivoId, in: path, required: true, schema: { type: string } }
     get:
       tags: [Tableros]
+      operationId: comentariosArchivoColumna
+      summary: 'El archivo (con sus versiones) y sus comentarios'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentariosArchivo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Tableros]
+      operationId: comentarArchivoColumna
+      summary: 'Comenta el archivo; queda marcado con la versión que se estaba viendo (por defecto, la última)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texto]
+              properties:
+                texto: { type: string, maxLength: 5000 }
+                version: { type: integer }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentariosArchivo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tableros/{proyectoId}/archivos/{archivoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+      - { name: enLinea, in: query, required: false, schema: { type: string, enum: ['1'] }, description: 'Para el visor: imágenes, videos, audio y PDF se muestran en vez de descargarse' }
+    get:
+      tags: [Tableros]
       operationId: bajarArchivoColumna
-      summary: 'Descarga un archivo de la columna «Archivos» (lo ve quien ve el tablero)'
+      summary: 'Descarga una versión de un archivo de la columna «Archivos» (por el id de la versión; lo ve quien ve el tablero)'
       x-roles: [EQUIPO]
       responses:
         '200': { description: El archivo, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
@@ -7452,6 +7516,43 @@ components:
         valores: { type: object, additionalProperties: { type: [string, number] }, description: 'Texto visible de cada columna personalizada (también las calculadas), por id de columna' }
         datos: { type: object, additionalProperties: true, description: 'Lo que el portal guarda además del texto: ids de personas, archivos, votos, cronómetro, documento…' }
         subitems: { type: array, items: { $ref: '#/components/schemas/SubitemTablero' } }
+    ComentariosArchivo:
+      type: object
+      required: [archivo, datos]
+      properties:
+        archivo:
+          type: object
+          required: [id, nombre, mime, bytes, version, versiones]
+          properties:
+            id: { type: string }
+            nombre: { type: string }
+            mime: { type: string }
+            bytes: { type: integer }
+            version: { type: integer }
+            versiones:
+              type: array
+              items:
+                type: object
+                required: [id, version, nombre, mime, bytes, en, por]
+                properties:
+                  id: { type: string }
+                  version: { type: integer }
+                  nombre: { type: string }
+                  mime: { type: string }
+                  bytes: { type: integer }
+                  en: { type: string }
+                  por: { type: [string, 'null'] }
+        datos:
+          type: array
+          items:
+            type: object
+            required: [id, version, autor, texto, en]
+            properties:
+              id: { type: string }
+              version: { type: integer }
+              autor: { type: string }
+              texto: { type: string }
+              en: { type: string }
     ConfigColumna:
       type: object
       description: Configuración de una columna según su tipo.

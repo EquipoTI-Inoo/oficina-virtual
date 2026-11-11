@@ -118,6 +118,26 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.deepEqual([baja.status, await baja.text()], [200, "hola mundo"]);
       const ajena = await manejar(new Request(`http://x/api/v1/tableros/PROJ-OPS01/archivos/${f.id}`, { headers: { authorization: `Bearer ${DIEGO}` } }));
       assert.equal(ajena.status, 404, "el archivo es de otro tablero");
+
+      // Versiones (V2) y comentarios por archivo, como en Monday.
+      const v2 = await llamar("POST", `${ruta}/${f.id}/versiones`, CAMILA, { nombre: "brief-v2.txt", mime: "text/plain", base64: Buffer.from("versión dos").toString("base64") });
+      assert.equal(v2.status, 200, JSON.stringify(v2.json));
+      const a2 = it(v2.json).datos[arch.id][0];
+      assert.deepEqual([a2.id, a2.nombre, a2.version, a2.versiones.map((x: any) => [x.version, x.por])], [f.id, "brief-v2.txt", 2, [[1, "Diego Castro"], [2, "Camila Paredes"]]]);
+      assert.equal(it(v2.json).valores[arch.id], "brief-v2.txt");
+      const bajarV = async (id: string) => (await manejar(new Request(`http://x/api/v1/tableros/${T}/archivos/${id}?enLinea=1`, { headers: { authorization: `Bearer ${DIEGO}` } })));
+      const r1 = await bajarV(a2.versiones[0].id);
+      assert.deepEqual([await r1.text(), r1.headers.get("content-type")], ["hola mundo", "application/octet-stream"], "texto: nunca en línea");
+      assert.equal(await (await bajarV(a2.versiones[1].id)).text(), "versión dos");
+      const com = `/tableros/${T}/archivos/${f.id}/comentarios`;
+      assert.equal((await llamar("POST", com, DIEGO, { texto: " " })).status, 422);
+      assert.equal((await llamar("POST", com, DIEGO, { texto: "x", version: 9 })).status, 422);
+      await llamar("POST", com, DIEGO, { texto: "En la V1 faltaba el logo", version: 1 });
+      const c = await llamar("POST", com, CAMILA, { texto: "Listo en la V2" });
+      assert.deepEqual(c.json.datos.map((x: any) => [x.version, x.autor, x.texto]), [[1, "Diego Castro", "En la V1 faltaba el logo"], [2, "Camila Paredes", "Listo en la V2"]]);
+      assert.equal((await llamar("GET", com, VALERIA)).status, 403);
+      assert.equal((await llamar("GET", `/tableros/PROJ-OPS01/archivos/${f.id}/comentarios`, DIEGO)).status, 404, "no es de ese tablero");
+
       const sin = await llamar("DELETE", `${ruta}/${f.id}`, DIEGO);
       assert.equal(it(sin.json).valores[arch.id], undefined);
       assert.equal((await manejar(new Request(`http://x/api/v1/tableros/${T}/archivos/${f.id}`, { headers: { authorization: `Bearer ${DIEGO}` } }))).status, 404);

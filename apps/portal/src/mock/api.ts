@@ -152,7 +152,8 @@ interface Estado {
   importacionesMonday: { tableroId: string; nombre: string; proyectoId: string; en: string }[];
   historialMonday: (FilaHistorial & { proyectoId: string })[];
   /** Columna «Archivos» de los tableros (11 nov). */
-  archivosTablero: { id: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array }[];
+  archivosTablero: { id: string; archivoId: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array }[];
+  comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string }[];
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
@@ -241,7 +242,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -1642,9 +1643,14 @@ ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
 
 const ARCHIVOS_TABLERO = crearArchivosTablero((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
 const repoArchivosTablero: RepoArchivosTablero = {
-  guardar: async (a, contenido) => { E.archivosTablero.push({ id: a.id, proyectoId: a.proyectoId, nombre: a.nombre, mime: a.mime, contenido }); },
+  guardar: async (a, contenido) => { E.archivosTablero.push({ id: a.id, archivoId: a.archivoId, proyectoId: a.proyectoId, nombre: a.nombre, mime: a.mime, contenido }); },
   leer: async (proyectoId, id) => E.archivosTablero.find((x) => x.id === id && x.proyectoId === proyectoId) ?? null,
-  borrar: async (proyectoId, id) => { E.archivosTablero = E.archivosTablero.filter((x) => !(x.id === id && x.proyectoId === proyectoId)); },
+  borrar: async (proyectoId, archivoId) => {
+    E.archivosTablero = E.archivosTablero.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
+    E.comentariosArchivo = E.comentariosArchivo.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
+  },
+  comentarios: async (proyectoId, archivoId) => E.comentariosArchivo.filter((x) => x.proyectoId === proyectoId && x.archivoId === archivoId).map(({ id, version, autor, texto, en }) => ({ id, version, autor, texto, en })),
+  comentar: async (c) => { E.comentariosArchivo.push({ ...c, id: crypto.randomUUID(), en: new Date().toISOString() }); },
 };
 // ───────────────────────────── Columnas de los tableros (11 nov): la biblioteca de tipos de Monday
 
@@ -1672,9 +1678,21 @@ ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", asyn
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.quitar(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx));
 });
-ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p) => {
+ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p, q) => {
   soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.bajar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx));
+  return ARCHIVOS_TABLERO.bajar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), q.get("enLinea") === "1");
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versiones", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx));
+});
+ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN
