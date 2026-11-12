@@ -360,8 +360,8 @@ test("equipo: el selector de cuentas lleva a la ficha del cliente y a mis cuenta
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
   await menu.getByRole("button", { name: "Cambiar de cuenta" }).click({ timeout: 30_000 });
   await menu.getByLabel("Buscar cliente").fill("oliva");
-  // 2 nov: el nombre abre «ver como cliente»; la ficha, el ícono de al lado.
-  await menu.getByRole("button", { name: "Ficha de Casa Oliva" }).click();
+  // 13 nov: el nombre abre la ficha; «ver como cliente», el ojo de al lado.
+  await menu.getByRole("menuitem", { name: "Casa Oliva" }).click();
   await expect(page).toHaveURL(/\/equipo\/clientes\/00000000-0000-4000-8002-000000000001$/, { timeout: 30_000 });
   await expect(menu.getByRole("button", { name: "Cambiar de cuenta" })).toContainText("Casa Oliva");
   await expect(page.locator(".cargando")).toHaveCount(0, { timeout: 30_000 });
@@ -377,7 +377,7 @@ test("ver como cliente: desde el selector de cuentas entra al portal del cliente
   await page.goto("/equipo/mi-panel");
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
   await menu.getByRole("button", { name: "Cambiar de cuenta" }).click({ timeout: 30_000 });
-  await menu.getByRole("menuitem", { name: "Casa Oliva" }).click();
+  await menu.getByRole("button", { name: "Ver el portal de Casa Oliva como el cliente" }).click();
   await expect(page).toHaveURL(/\/inicio$/, { timeout: 30_000 });
   await expect(page.getByRole("status").filter({ hasText: "Estás viendo el portal de Casa Oliva" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/en nombre del cliente/).first()).toBeVisible();

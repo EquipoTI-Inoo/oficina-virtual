@@ -264,6 +264,20 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.equal((await llamar("DELETE", `/entregables/${e}`, DIEGO)).status, 204);
       assert.equal((await llamar("GET", `/entregables/${e}`, DIEGO)).status, 404);
     });
+    test("ficha completa editable (13 nov): marca, tono, público, pilares, canales y web", async () => {
+      await reiniciar();
+      const r = await llamar("PATCH", `/clientes/${CASA_OLIVA}`, DIEGO, {
+        marca: { descripcion: "Cosmética natural", valores: ["Calma", "Origen"] }, tono: { ejemplo: "«Respira.»" },
+        publico: { descripcion: "Mujeres de 25 a 45", intereses: ["Bienestar"], segmentos: null },
+        pilaresContenido: ["Rituales", "Ingredientes"], canales: ["INSTAGRAM", "WEB"], wordpressUrl: "https://casaoliva.pe",
+      });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const c = (await llamar("GET", `/clientes/${CASA_OLIVA}`, DIEGO)).json;
+      assert.deepEqual([c.marca.descripcion, c.marca.valores, c.marca.mensajeCentral?.length > 0, c.tono.ejemplo, c.publico.intereses, c.pilaresContenido, c.canales, c.wordpressUrl],
+        ["Cosmética natural", ["Calma", "Origen"], true, "«Respira.»", ["Bienestar"], ["Rituales", "Ingredientes"], ["Instagram", "Web"], "https://casaoliva.pe"], "se combina con lo que ya había");
+      assert.deepEqual((await llamar("PATCH", `/clientes/${CASA_OLIVA}`, DIEGO, { wordpressUrl: "casaoliva.pe" })).json.errores.map((e: any) => e.campo), ["wordpressUrl"]);
+      assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}`, CAMILA, { pilaresContenido: ["x"] })).status, 404, "quien trabaja por proyecto no edita la ficha");
+    });
     test("áreas que lidera (9 nov): solo un super usuario las cambia y queda en el historial", async () => {
       await reiniciar();
       const DIEGO_ID = uid(1, 3);

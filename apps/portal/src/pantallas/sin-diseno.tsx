@@ -700,79 +700,133 @@ export function IngresoDelCliente({ cliente, editable, alGuardar }: { cliente: S
   );
 }
 
-type FichaEditable = S<"Cliente"> & { marca?: { mensajeCentral?: string; campanaActual?: string; descripcion?: string } };
+type FichaEditable = S<"Cliente">;
 
+const CANALES_FICHA: [string, string][] = [["INSTAGRAM", "Instagram"], ["FACEBOOK", "Facebook"], ["LINKEDIN", "LinkedIn"], ["TIKTOK", "TikTok"], ["YOUTUBE", "YouTube"], ["BLOG", "Blog"], ["WEB", "Web"]];
+const lista = (t: string) => t.split(",").map((x) => x.trim()).filter(Boolean);
+
+/**
+ * 13 nov (auditoría): la ficha completa se edita aquí (antes solo mensaje, campaña y tono). Sin «límite de IA»: la IA
+ * del cliente se eliminó el 30 oct.
+ */
 export function EditarFicha({ cliente, abierto, alCerrar, alGuardar }: { cliente: FichaEditable; abierto: boolean; alCerrar: () => void; alGuardar: () => void }) {
-  const [mensaje, setMensaje] = useState(cliente.marca?.mensajeCentral ?? "");
-  const [campana, setCampana] = useState(cliente.marca?.campanaActual ?? "");
-  const [tono, setTono] = useState((cliente.tono?.etiquetas ?? []).join(", "));
-  const [tonoDesc, setTonoDesc] = useState(cliente.tono?.descripcion ?? "");
-  const [limite, setLimite] = useState(String(cliente.limiteGastoIaUsd ?? ""));
-  const [aniversario, setAniversario] = useState(cliente.fechaAniversario ?? "");
+  const miembros = useConsulta<{ datos: S<"Miembro">[] }>(`/clientes/${cliente.id}/miembros`);
+  const [f, setF] = useState({
+    nombre: cliente.nombre,
+    contacto: cliente.contactoPrincipal?.id ?? "",
+    aniversario: cliente.fechaAniversario ?? "",
+    web: cliente.wordpressUrl ?? "",
+    descripcion: cliente.marca?.descripcion ?? "",
+    mensaje: cliente.marca?.mensajeCentral ?? "",
+    campana: cliente.marca?.campanaActual ?? "",
+    valores: (cliente.marca?.valores ?? []).join(", "),
+    tono: (cliente.tono?.etiquetas ?? []).join(", "),
+    tonoDesc: cliente.tono?.descripcion ?? "",
+    ejemplo: cliente.tono?.ejemplo ?? "",
+    publico: cliente.publico?.descripcion ?? "",
+    intereses: (cliente.publico?.intereses ?? []).join(", "),
+    segmentos: cliente.publico?.segmentos ?? "",
+    pilares: (cliente.pilaresContenido ?? []).join(", "),
+    // Se guardan con su nombre visible («Instagram»); las casillas usan la clave.
+    canales: (cliente.canales ?? []).map((c) => c.toUpperCase()),
+  });
   const [err, setErr] = useState<Record<string, string>>({});
+  const [ocupado, setOcupado] = useState(false);
+  const cambiar = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
   const guardar = async (e: FormEvent) => {
     e.preventDefault();
     setErr({});
+    setOcupado(true);
     try {
       await api(`/clientes/${cliente.id}`, {
         metodo: "PATCH",
         cuerpo: {
-          marca: { mensajeCentral: mensaje, campanaActual: campana },
-          tono: { etiquetas: tono.split(",").map((t) => t.trim()).filter(Boolean), descripcion: tonoDesc },
-          ...(limite ? { limiteGastoIaUsd: Number(limite) } : {}),
-          fechaAniversario: aniversario || null,
+          nombre: f.nombre,
+          ...(f.contacto ? { contactoPrincipalId: f.contacto } : {}),
+          fechaAniversario: f.aniversario || null,
+          wordpressUrl: f.web.trim() || null,
+          marca: { descripcion: f.descripcion, mensajeCentral: f.mensaje, campanaActual: f.campana, valores: lista(f.valores) },
+          tono: { etiquetas: lista(f.tono), descripcion: f.tonoDesc, ejemplo: f.ejemplo },
+          publico: { descripcion: f.publico, intereses: lista(f.intereses), segmentos: f.segmentos.trim() || null },
+          pilaresContenido: lista(f.pilares),
+          canales: f.canales,
         },
       });
       alGuardar();
     } catch (x) {
       const p = x as ProblemaApi;
       setErr(p.errores.length ? errores(x) : { general: p.titulo });
+    } finally {
+      setOcupado(false);
     }
   };
+  const campo = (id: string, etiqueta: string, k: keyof typeof f, o: { area?: boolean; tipo?: string; ayuda?: string; error?: string } = {}) => (
+    <div className="campo">
+      <label htmlFor={id}>{etiqueta}</label>
+      <div className="entrada">
+        {o.area
+          ? <textarea id={id} rows={3} value={f[k] as string} onChange={cambiar(k)} />
+          : <input id={id} type={o.tipo ?? "text"} value={f[k] as string} onChange={cambiar(k)} aria-invalid={!!o.error} />}
+      </div>
+      <Ayuda error={o.error} texto={o.ayuda} />
+    </div>
+  );
   return (
-    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Editar ficha">
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Editar ficha" ancho={720}>
       <form onSubmit={guardar} noValidate style={{ display: "grid", gap: 14 }}>
         <h2 style={{ fontSize: 20, fontWeight: 600 }}>Editar ficha de {cliente.nombre}</h2>
-        <div className="campo">
-          <label htmlFor="ef-mensaje">Mensaje central</label>
-          <div className="entrada">
-            <input id="ef-mensaje" value={mensaje} onChange={(e) => setMensaje(e.target.value)} />
+
+        <h3 className="ficha-seccion">Datos de la cuenta</h3>
+        <div className="grid-2">
+          {campo("ef-nombre", "Nombre del cliente", "nombre", { error: err.nombre })}
+          <div className="campo">
+            <label htmlFor="ef-contacto">Contacto principal</label>
+            <select id="ef-contacto" className="input" value={f.contacto} onChange={cambiar("contacto")}>
+              {!f.contacto && <option value="">Sin contacto principal</option>}
+              {(miembros.datos?.datos ?? []).map((m) => <option key={m.usuarioId} value={m.usuarioId}>{m.nombre}</option>)}
+              {f.contacto && !miembros.datos?.datos.some((m) => m.usuarioId === f.contacto) && <option value={f.contacto}>{cliente.contactoPrincipal?.nombre}</option>}
+            </select>
+            <Ayuda error={err.contactoPrincipalId} texto="Una de las personas con acceso al portal." />
           </div>
+          {campo("ef-aniversario", "Aniversario (empezamos a trabajar juntos)", "aniversario", { tipo: "date", error: err.fechaAniversario })}
+          {campo("ef-web", "Sitio web", "web", { tipo: "url", error: err.wordpressUrl, ayuda: "https://…" })}
         </div>
-        <div className="campo">
-          <label htmlFor="ef-campana">Campaña actual</label>
-          <div className="entrada">
-            <input id="ef-campana" value={campana} onChange={(e) => setCampana(e.target.value)} />
+
+        <h3 className="ficha-seccion">Perfil de marca</h3>
+        {campo("ef-desc", "Quiénes son", "descripcion", { area: true })}
+        <div className="grid-2">
+          {campo("ef-mensaje", "Mensaje central", "mensaje")}
+          {campo("ef-campana", "Campaña actual", "campana")}
+        </div>
+        {campo("ef-valores", "Valores de marca", "valores", { ayuda: "Separados por comas" })}
+
+        <h3 className="ficha-seccion">Tono de voz</h3>
+        {campo("ef-tono", "Cómo suena (etiquetas)", "tono", { ayuda: "Separadas por comas: Cercano, Sereno…" })}
+        <div className="grid-2">
+          {campo("ef-tono-desc", "Cómo hablamos", "tonoDesc", { area: true })}
+          {campo("ef-ejemplo", "Ejemplo de voz", "ejemplo", { area: true })}
+        </div>
+
+        <h3 className="ficha-seccion">Público y contenido</h3>
+        {campo("ef-publico", "A quién le hablamos", "publico", { area: true })}
+        <div className="grid-2">
+          {campo("ef-intereses", "Intereses", "intereses", { ayuda: "Separados por comas" })}
+          {campo("ef-segmentos", "Segmentos", "segmentos")}
+        </div>
+        {campo("ef-pilares", "Pilares de contenido", "pilares", { ayuda: "Separados por comas" })}
+        <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+          <legend style={{ marginBottom: 6 }}>Canales</legend>
+          <div className="fila" style={{ gap: 14, flexWrap: "wrap" }}>
+            {CANALES_FICHA.map(([k, t]) => (
+              <label key={k} className="fila texto-sm" style={{ gap: 6 }}>
+                <input type="checkbox" checked={f.canales.includes(k)} onChange={(e) => setF((x) => ({ ...x, canales: e.target.checked ? [...x.canales, k] : x.canales.filter((c) => c !== k) }))} /> {t}
+              </label>
+            ))}
           </div>
-        </div>
-        <div className="campo">
-          <label htmlFor="ef-tono">Tono de voz (separado por comas)</label>
-          <div className="entrada">
-            <input id="ef-tono" value={tono} onChange={(e) => setTono(e.target.value)} />
-          </div>
-        </div>
-        <div className="campo">
-          <label htmlFor="ef-tono-desc">Cómo hablamos</label>
-          <div className="entrada">
-            <textarea id="ef-tono-desc" value={tonoDesc} onChange={(e) => setTonoDesc(e.target.value)} />
-          </div>
-        </div>
-        <div className="campo">
-          <label htmlFor="ef-limite">Límite mensual de IA (US$)</label>
-          <div className="entrada">
-            <input id="ef-limite" type="number" min={1} value={limite} onChange={(e) => setLimite(e.target.value)} aria-invalid={!!err.limiteGastoIaUsd} />
-          </div>
-          <Ayuda error={err.limiteGastoIaUsd} />
-        </div>
-        <div className="campo">
-          <label htmlFor="ef-aniversario">Aniversario (empezamos a trabajar juntos)</label>
-          <div className="entrada">
-            <input id="ef-aniversario" type="date" value={aniversario} onChange={(e) => setAniversario(e.target.value)} />
-          </div>
-          <Ayuda error={err.fechaAniversario} />
-        </div>
+          <Ayuda error={err.canales} />
+        </fieldset>
         <Ayuda error={err.general} />
-        <button className="boton boton--primario">Guardar cambios</button>
+        <button className="boton boton--primario" disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar cambios"}</button>
       </form>
     </Modal>
   );

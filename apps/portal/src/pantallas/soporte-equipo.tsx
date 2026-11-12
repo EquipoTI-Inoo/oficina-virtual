@@ -396,13 +396,47 @@ const ESTADO_OPERATIVO: Record<string, [string, "azul" | "ambar" | "verde"]> = {
 };
 const usd = (n: number) => `US$ ${Math.round(n)}`;
 
-function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas: boolean }) {
+type OrdenClientes = "NOMBRE" | "ATRASADAS" | "POR_APROBAR" | "PROYECTOS";
+const ORDEN_CLIENTES: Record<OrdenClientes, [string, (a: S<"FilaPanelCliente">, b: S<"FilaPanelCliente">) => number]> = {
+  NOMBRE: ["Nombre (A–Z)", (a, b) => a.cliente.nombre.localeCompare(b.cliente.nombre, "es")],
+  ATRASADAS: ["Más atrasadas", (a, b) => b.atrasadas - a.atrasadas],
+  POR_APROBAR: ["Más por aprobar", (a, b) => b.porAprobar - a.porAprobar],
+  PROYECTOS: ["Más proyectos activos", (a, b) => (b.proyectosActivos ?? 0) - (a.proyectosActivos ?? 0)],
+};
+
+/** 13 nov (auditoría): con búsqueda, orden y filtro por estado; la fila entera abre la ficha. */
+function TablaClientes({ filas: todasLasFilas, todas }: { filas: S<"FilaPanelCliente">[]; todas: boolean }) {
+  const { ir } = useNavegacion();
+  const [q, setQ] = useState("");
+  const [orden, setOrden] = useState<OrdenClientes>("NOMBRE");
+  const [estado, setEstado] = useState("");
+  const texto = q.trim().toLowerCase();
+  const filas = todasLasFilas
+    .filter((f) => !texto || f.cliente.nombre.toLowerCase().includes(texto) || (f.contactoPrincipalNombre ?? "").toLowerCase().includes(texto))
+    .filter((f) => !estado || f.estadoOperativo === estado)
+    .sort((a, b) => ORDEN_CLIENTES[orden][1](a, b) || a.cliente.nombre.localeCompare(b.cliente.nombre, "es"));
+  const estados = [...new Set(todasLasFilas.map((f) => f.estadoOperativo))];
   return (
     <div className="tarjeta" style={{ padding: "26px 18px 16px" }}>
-      <div className="fila entre" style={{ marginBottom: 18 }}>
+      <div className="fila entre" style={{ marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <h2 className="tarjeta-titulo">{todas ? "Todos los clientes" : "Tus cuentas"}</h2>
-        <span className="texto-xs texto-muted">{filas.length === 1 ? "1 cuenta" : `${filas.length} cuentas`}</span>
+        <span className="texto-xs texto-muted">{filas.length === todasLasFilas.length ? (filas.length === 1 ? "1 cuenta" : `${filas.length} cuentas`) : `${filas.length} de ${todasLasFilas.length} cuentas`}</span>
       </div>
+      <div className="fila" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <div className="entrada" style={{ flex: "1 1 220px" }}>
+          <input aria-label="Buscar cliente" placeholder="Buscar por cliente o contacto…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {estados.length > 1 && (
+          <select className="input" style={{ width: 190 }} aria-label="Filtrar por estado" value={estado} onChange={(e) => setEstado(e.target.value)}>
+            <option value="">Todos los estados</option>
+            {estados.map((x) => <option key={x} value={x}>{ESTADO_OPERATIVO[x][0]}</option>)}
+          </select>
+        )}
+        <select className="input" style={{ width: 200 }} aria-label="Ordenar" value={orden} onChange={(e) => setOrden(e.target.value as OrdenClientes)}>
+          {(Object.keys(ORDEN_CLIENTES) as OrdenClientes[]).map((k) => <option key={k} value={k}>{ORDEN_CLIENTES[k][0]}</option>)}
+        </select>
+      </div>
+      {!filas.length && <p className="texto-sm texto-muted" style={{ padding: "18px 4px" }}>Ninguna cuenta coincide con la búsqueda.</p>}
       <div className="tabla-envoltura">
         <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
           <thead>
@@ -418,7 +452,7 @@ function TablaClientes({ filas, todas }: { filas: S<"FilaPanelCliente">[]; todas
             {filas.map((f) => {
               const [et, tono] = ESTADO_OPERATIVO[f.estadoOperativo];
               return (
-                <tr key={f.cliente.id} style={{ cursor: "default" }}>
+                <tr key={f.cliente.id} className="fila-clic" onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) ir(`/equipo/clientes/${f.cliente.id}`); }}>
                   <td style={{ padding: "26px 14px" }}>
                     <p className="negrita" style={{ fontSize: 13 }}>{f.cliente.nombre}</p>
                     <p className="texto-xs texto-muted" style={{ fontSize: 12, marginTop: 5 }}>{f.contactoPrincipalNombre}</p>
@@ -506,7 +540,7 @@ function TusCuentas({ todas }: { todas: boolean }) {
         alCerrar={() => setNuevo(false)}
         alCrear={(id) => {
           setNuevo(false);
-          avisar({ titulo: "Cliente creado", texto: "n8n está preparando su carpeta en Drive." });
+          avisar({ titulo: "Cliente creado" });
           ir(`/equipo/clientes/${id}`);
         }}
       />
@@ -680,6 +714,8 @@ function Ficha() {
               <strong style={{ color: "var(--c-oliva)", fontSize: 21 }}>{d.marca?.mensajeCentral}</strong>
               <span style={{ fontSize: 12 }}>{d.marca?.campanaActual}</span>
             </div>
+            {!!d.marca?.valores?.length && <p className="texto-xs texto-muted" style={{ marginTop: 12 }}><span className="negrita">Valores:</span> {d.marca.valores.join(" · ")}</p>}
+            {d.wordpressUrl && <p className="texto-xs" style={{ marginTop: 8 }}><a className="enlace" href={d.wordpressUrl} target="_blank" rel="noreferrer">{d.wordpressUrl.replace(/^https?:\/\//, "")}</a></p>}
           </div>
           <div className="grid-2">
             <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 14, alignContent: "start" }}>
@@ -699,6 +735,9 @@ function Ficha() {
               <p className="negrita" style={{ fontSize: 12 }}>Intereses editoriales</p>
               <p className="texto-xs texto-muted">{d.publico?.intereses?.join(" · ")}</p>
               <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>{d.publico?.segmentos ?? "No se han definido segmentos demográficos adicionales."}</p>
+              {/* 13 nov: lo que se edita en la ficha también se ve. */}
+              {!!d.pilaresContenido?.length && <><p className="negrita" style={{ fontSize: 12 }}>Pilares de contenido</p><p className="texto-xs texto-muted">{d.pilaresContenido.join(" · ")}</p></>}
+              {!!d.canales?.length && <><p className="negrita" style={{ fontSize: 12 }}>Canales</p><p className="texto-xs texto-muted">{d.canales.join(" · ")}</p></>}
             </div>
           </div>
           <div className="tarjeta" style={{ padding: "22px 16px" }}>

@@ -429,14 +429,15 @@ function CuentaEquipo({ alNavegar }: { alNavegar?: () => void }) {
             {clientes.datos && !lista.length && <span className="texto-xs texto-muted" style={{ padding: 8 }}>Ningún cliente se llama así</span>}
             {lista.map((c) => (
               <div key={c.id} className="fila entre" style={{ gap: 4 }}>
-                <button role="menuitem" aria-current={c.id === actualId} style={{ flex: 1 }} title="Ver su portal como el cliente" onClick={() => { entrarComoCliente(c.id); setAbierto(false); alNavegar?.(); ir("/inicio"); }}>
+                {/* 13 nov (auditoría): el nombre abre la ficha (lo esperado); «ver como cliente» va en el ojo. */}
+                <button role="menuitem" aria-current={c.id === actualId} style={{ flex: 1 }}
+                  title={c.acceso !== "PROYECTOS" ? "Ficha del cliente" : "Ver su portal como el cliente"}
+                  onClick={() => c.acceso !== "PROYECTOS" ? elegir(`/equipo/clientes/${c.id}`) : (entrarComoCliente(c.id), setAbierto(false), alNavegar?.(), ir("/inicio"))}>
                   {c.nombre}
                 </button>
-                {c.acceso !== "PROYECTOS" && (
-                  <button className="boton-icono" aria-label={`Ficha de ${c.nombre}`} title="Ficha del cliente" onClick={() => elegir(`/equipo/clientes/${c.id}`)}>
-                    <LuIdCard size={14} />
-                  </button>
-                )}
+                <button className="boton-icono" aria-label={`Ver el portal de ${c.nombre} como el cliente`} title="Ver como cliente" onClick={() => { entrarComoCliente(c.id); setAbierto(false); alNavegar?.(); ir("/inicio"); }}>
+                  <LuEye size={14} />
+                </button>
               </div>
             ))}
           </div>

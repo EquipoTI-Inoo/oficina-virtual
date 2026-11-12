@@ -174,7 +174,7 @@ interface Estado {
     id: string; clienteId: string; solicitadoPorId: string; nombre: string; email: string; telefono: string; cargo: string | null; motivo: string | null;
     quitarAccesoAnterior: boolean; estado: "PENDIENTE" | "APROBADA" | "RECHAZADA"; notaEquipo: string | null; decididoEn: string | null; creadoEn: string;
   }[];
-  fichas: Record<string, typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null }>;
+  fichas: Record<string, typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null; pilares?: string[] }>;
   calendarios: Record<string, { estado: S<"EstadoCalendario">; version: number; resumen: string | null; aprobadoPorId: string | null; aprobadoEn: string | null }>;
   eventosPieza: { piezaId: string; deEstado: D.Estado | null; aEstado: D.Estado; version: number | null; usuarioId: string | null; canal: S<"CanalDecision">; comentario: string | null; creadoEn: string }[];
   biblioteca: { id: string; clienteId: string; nombre: string; mime: string; bytes: number; categoria: string | null; etiquetas: string[]; estado: "PENDIENTE_SUBIDA" | "SUBIDO" | "DISPONIBLE" | "ELIMINADO"; creadoEn: string }[];
@@ -685,7 +685,7 @@ function servicioVista(s: D.ServicioContratadoDemo, periodo = D.PERIODO): S<"Ser
 }
 /** Los clientes de prueba sin ficha propia muestran la de Casa Oliva (como en el panel de Figma). */
 const fichaDe = (clienteId: string): Ficha => E.fichas[clienteId] ?? D.FICHA_CASA_OLIVA;
-type Ficha = typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null };
+type Ficha = typeof D.FICHA_CASA_OLIVA & { wordpressUrl?: string | null; pilares?: string[] };
 
 function ticketVista(t: Estado["tickets"][number]): S<"Ticket"> {
   return {
@@ -807,7 +807,8 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
     marca: f.marca,
     tono: f.tono,
     publico: f.publico,
-    pilaresContenido: f.publico.intereses,
+    // 13 nov: pilares e intereses eran el mismo dato en la simulada; ahora van aparte (como en Postgres).
+    pilaresContenido: f.pilares ?? f.publico.intereses,
     canales: f.canales,
     wordpressUrl: f.wordpressUrl ?? null,
     fechaAniversario: c.fechaAniversario ?? null,
@@ -2338,7 +2339,8 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   E.fichas[c.id] = {
     marca: { descripcion: b.marca?.descripcion ?? "", mensajeCentral: b.marca?.mensajeCentral ?? "", campanaActual: b.marca?.campanaActual ?? "" },
     tono: { etiquetas: b.tono?.etiquetas ?? [], descripcion: b.tono?.descripcion ?? "", ejemplo: b.tono?.ejemplo ?? "" },
-    publico: { descripcion: b.publico?.descripcion ?? "", intereses: b.pilaresContenido ?? b.publico?.intereses ?? [], segmentos: null },
+    publico: { descripcion: b.publico?.descripcion ?? "", intereses: b.publico?.intereses ?? [], segmentos: null },
+    pilares: b.pilaresContenido ?? [],
     canales: (b.canales ?? []).map((k) => k.charAt(0) + k.slice(1).toLowerCase()),
     // La carpeta la crea n8n al recibir cliente.creado (CU-01); hasta entonces no hay enlace (salvo que ya tuviera una).
     driveUrl: carpeta && !("error" in carpeta) ? carpeta.url : "",
@@ -2384,7 +2386,7 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
   if (b.marca) Object.assign(f.marca, b.marca);
   if (b.tono) Object.assign(f.tono, b.tono);
   if (b.publico) Object.assign(f.publico, b.publico);
-  if (b.pilaresContenido) f.publico.intereses = b.pilaresContenido;
+  if (b.pilaresContenido) f.pilares = b.pilaresContenido;
   if (b.canales) f.canales = b.canales.map((k) => k.charAt(0) + k.slice(1).toLowerCase());
   if (b.wordpressUrl !== undefined) f.wordpressUrl = b.wordpressUrl;
   if (b.fechaAniversario !== undefined) c.fechaAniversario = b.fechaAniversario;

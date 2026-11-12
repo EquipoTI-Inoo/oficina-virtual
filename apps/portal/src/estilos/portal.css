@@ -2691,3 +2691,10 @@ main, .contenido, .principal { min-width: 0; }
 .panel-campos .pildora { height: 34px; }
 .panel-campo-ancho { grid-column: 1 / -1; }
 .panel-lateral-cab > div { flex: 1; }
+
+/* Editar ficha por secciones (13 nov). */
+.ficha-seccion { font-size: 13px; font-weight: 600; color: var(--c-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--c-borde, #e6e8ef); }
+
+/* Filas de tabla que abren su detalle (13 nov). */
+.fila-clic { cursor: pointer; }
+.fila-clic:hover td { background: var(--c-fondo); }
