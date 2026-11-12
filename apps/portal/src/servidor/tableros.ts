@@ -276,6 +276,8 @@ export function crearTableros(fallar: Fallar) {
       await crearIW(p, yo.prueba);
       return tableroVista(p, yo);
     }),
+    /** Los ids de todos los proyectos que existen (sin borrar), de una sola lectura (13 nov: la importación masiva). */
+    existentes: (yo: Yo) => protegido(async () => new Set((await listarIW(yo.prueba)).filter((p) => !p.deleted).map((p) => p.id))),
     /** ¿Sigue existiendo (y sin borrar) ese proyecto? Para no importar dos veces el mismo tablero. */
     existe: (id: string, yo: Yo) => protegido(async () => {
       const p = await obtenerIW(id, yo.prueba);

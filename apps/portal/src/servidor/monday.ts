@@ -322,8 +322,9 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
      */
     importarPendientes: (repo: RepoMonday, yo: Yo & { usuarioId: string; departamento: string | null }, o: { limite: number; liderRespaldo: string | null; archivarAntesDe?: string | null }) => protegido(async () => {
       const [xs, imps] = await Promise.all([listarTablerosMonday(yo.prueba), repo.importaciones()]);
-      const hechos = new Set<string>();
-      for (const i of imps) if (await tableros.existe(i.proyectoId, yo)) hechos.add(i.tableroId);
+      // Una sola lectura de InooWork por vuelta (antes, una por cada tablero ya importado: cada vez más lento).
+      const existen = await tableros.existentes(yo);
+      const hechos = new Set(imps.filter((i) => existen.has(i.proyectoId)).map((i) => i.tableroId));
       const faltan = xs.filter((t) => !hechos.has(t.id));
       const importados: { tableroId: string; nombre: string; proyectoId: string; items: number; cliente: string | null; archivado: boolean }[] = [];
       const errores: { tableroId: string; nombre: string; motivo: string }[] = [];
