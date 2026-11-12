@@ -2704,3 +2704,7 @@ main, .contenido, .principal { min-width: 0; }
 .resumen-errores:focus-visible { box-shadow: 0 0 0 3px rgba(143, 94, 18, 0.35); }
 .resumen-errores ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13px; }
 .resumen-errores .enlace { color: inherit; text-decoration: underline; font-weight: 600; }
+
+/* Versiones anteriores del taller (13 nov). */
+.versiones-anteriores summary { cursor: pointer; }
+.versiones-anteriores[open] { border: 1px solid var(--c-borde); border-radius: 10px; padding: 8px 10px; }

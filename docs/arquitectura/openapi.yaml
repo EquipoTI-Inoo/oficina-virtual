@@ -5792,10 +5792,39 @@ paths:
       tags: [Taller web]
       operationId: generarEstrategiaWeb
       summary: 'Fase 1 (9 nov): la IA escribe el copywriting (3 heros, textos por página, botones, microcopys y preguntas frecuentes), la matriz de funcionalidades y los pendientes; y la propuesta de valor y los KPIs si faltan'
+      description: 'Lo que había antes queda en el historial (13 nov). Con `parte` se rehace solo esa parte.'
       x-roles: [EQUIPO]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parte: { type: [string, 'null'], enum: [COPY, FUNCIONALIDADES, PENDIENTES, null], description: '13 nov: solo esa parte; sin ella, todo' }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ResultadoTallerWeb' } } } }
         '409': { $ref: '#/components/responses/Conflicto' }
+
+  /servicios-contratados/{servicioContratadoId}/taller-web/restaurar:
+    parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+    post:
+      tags: [Taller web]
+      operationId: restaurarTallerWeb
+      summary: 'Vuelve a una versión guardada antes de regenerar (13 nov): análisis, flujograma o estrategia. La actual queda en el historial'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [historialId]
+              properties:
+                historialId: { type: string, format: uuid }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ResultadoTallerWeb' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /servicios-contratados/{servicioContratadoId}/taller-web/materiales:
     parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
@@ -6881,6 +6910,22 @@ components:
         servicioTitulo: { type: string }
         variante: { type: [string, 'null'] }
         version: { type: integer, description: 'Para PUT: 409 VERSION_DESACTUALIZADA si otra persona guardó antes' }
+        historial:
+          type: array
+          description: '13 nov: lo que había antes de regenerar (las 3 últimas de cada tipo), lo más nuevo primero'
+          items:
+            type: object
+            required: [id, tipo, guardadoEn]
+            properties:
+              id: { type: string, format: uuid }
+              tipo: { type: string, enum: [ANALISIS, FLUJOGRAMA, ESTRATEGIA] }
+              guardadoEn: { type: string, format: date-time }
+        relleno:
+          type: object
+          description: '13 nov: si el último PDF o la última demo salieron con contenido de relleno (revisar antes de enviarlos)'
+          properties:
+            documento: { type: boolean }
+            demo: { type: boolean }
         insumos:
           type: object
           required: [marca, objetivo, publico, secciones, resumenReunion, alcance, cms, mensajeCentral, tono, paleta, tipografias]

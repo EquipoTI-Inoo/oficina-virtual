@@ -397,6 +397,40 @@ export function pruebasTallerWeb(nombre: string, manejar: Manejador, reiniciar: 
       assert.ok(!sin.json.taller.insumosEditados.includes("logoUrl"), "sin el archivo, el logo vuelve a salir del brief");
       assert.equal((await llamar("DELETE", `${RUTA}/materiales/no-existe`, DIEGO)).status, 404);
     });
+    test("13 nov: antes de regenerar queda el historial, se puede volver; se rehace una parte; el relleno queda marcado", async () => {
+      await reiniciar();
+      await llamar("POST", `${RUTA}/capturas`, DIEGO);
+      await llamar("POST", `${RUTA}/analisis`, DIEGO);
+      const f1 = (await llamar("POST", `${RUTA}/flujograma`, DIEGO)).json.taller;
+      assert.deepEqual(f1.historial, [], "el primer análisis y el primer flujograma no tienen nada que guardar");
+      // El equipo cambia el flujograma a mano y lo vuelve a proponer: lo suyo queda guardado.
+      const editado = f1.flujograma.map((x: any, i: number) => (i === 0 ? { ...x, titulo: "Portada a mano" } : x));
+      await llamar("PUT", RUTA, DIEGO, { version: f1.version, flujograma: editado });
+      const f2 = (await llamar("POST", `${RUTA}/flujograma`, DIEGO)).json.taller;
+      const guardado = f2.historial.find((h: any) => h.tipo === "FLUJOGRAMA");
+      assert.ok(guardado, "el flujograma anterior quedó en el historial");
+      assert.ok(!f2.flujograma.some((x: any) => x.titulo === "Portada a mano"));
+      const r = (await llamar("POST", `${RUTA}/restaurar`, DIEGO, { historialId: guardado.id })).json.taller;
+      assert.equal(r.flujograma[0].titulo, "Portada a mano", "volvió el que había hecho el equipo");
+      assert.equal(r.historial.filter((h: any) => h.tipo === "FLUJOGRAMA").length, 1, "y el propuesto quedó guardado (para deshacer)");
+      assert.equal((await llamar("POST", `${RUTA}/restaurar`, DIEGO, { historialId: guardado.id })).status, 404);
+
+      // Estrategia por partes: solo los pendientes cambian.
+      const e1 = (await llamar("POST", `${RUTA}/estrategia`, DIEGO)).json.taller;
+      const conCopy = { ...e1.estrategia, copy: { ...e1.estrategia.copy, ctas: ["Escríbenos hoy"] }, pendientes: ["Pendiente del equipo"] };
+      await llamar("PUT", RUTA, DIEGO, { version: e1.version, estrategia: conCopy });
+      const e2 = (await llamar("POST", `${RUTA}/estrategia`, DIEGO, { parte: "PENDIENTES" })).json.taller;
+      assert.deepEqual(e2.estrategia.copy.ctas, ["Escríbenos hoy"], "el copy corregido no se toca");
+      assert.notDeepEqual(e2.estrategia.pendientes, ["Pendiente del equipo"], "los pendientes se rehicieron");
+      assert.ok(e2.historial.some((h: any) => h.tipo === "ESTRATEGIA"));
+      assert.equal((await llamar("POST", `${RUTA}/estrategia`, DIEGO, { parte: "TODO" })).status, 422);
+
+      // Sin navegador ni IA reales, el PDF sale de relleno y queda marcado para el equipo.
+      const d = (await llamar("POST", `${RUTA}/documento`, DIEGO)).json.taller;
+      assert.equal(d.relleno.documento, true);
+      const cliente = JSON.stringify((await llamar("GET", `/entregables/${FLUJOGRAMA}`, DIEGO)).json);
+      assert.ok(!/relleno/i.test(cliente), "la marca es solo del taller");
+    });
     test("fase 1 (9 nov): especificaciones, copy, matriz, pendientes y marcas; el prototipo espera la aprobación del cliente", async () => {
       await reiniciar();
       const v0 = (await llamar("GET", RUTA, DIEGO)).json;

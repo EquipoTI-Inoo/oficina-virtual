@@ -4043,8 +4043,30 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Fase 1 (9 nov): la IA escribe el copywriting (3 heros, textos por página, botones, microcopys y preguntas frecuentes), la matriz de funcionalidades y los pendientes; y la propuesta de valor y los KPIs si faltan */
+        /**
+         * Fase 1 (9 nov): la IA escribe el copywriting (3 heros, textos por página, botones, microcopys y preguntas frecuentes), la matriz de funcionalidades y los pendientes; y la propuesta de valor y los KPIs si faltan
+         * @description Lo que había antes queda en el historial (13 nov). Con `parte` se rehace solo esa parte.
+         */
         post: operations["generarEstrategiaWeb"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/taller-web/restaurar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Vuelve a una versión guardada antes de regenerar (13 nov): análisis, flujograma o estrategia. La actual queda en el historial */
+        post: operations["restaurarTallerWeb"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5071,6 +5093,20 @@ export interface components {
             variante: string | null;
             /** @description Para PUT: 409 VERSION_DESACTUALIZADA si otra persona guardó antes */
             version: number;
+            /** @description 13 nov: lo que había antes de regenerar (las 3 últimas de cada tipo), lo más nuevo primero */
+            historial?: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                tipo: "ANALISIS" | "FLUJOGRAMA" | "ESTRATEGIA";
+                /** Format: date-time */
+                guardadoEn: string;
+            }[];
+            /** @description 13 nov: si el último PDF o la última demo salieron con contenido de relleno (revisar antes de enviarlos) */
+            relleno?: {
+                documento?: boolean;
+                demo?: boolean;
+            };
             insumos: {
                 marca: string;
                 mensajeCentral: string | null;
@@ -16762,7 +16798,17 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description 13 nov: solo esa parte; sin ella, todo
+                     * @enum {string|null}
+                     */
+                    parte?: "COPY" | "FUNCIONALIDADES" | "PENDIENTES" | null;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -16774,6 +16820,36 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflicto"];
+        };
+    };
+    restaurarTallerWeb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    historialId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoTallerWeb"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
         };
     };
     subirMaterialTaller: {

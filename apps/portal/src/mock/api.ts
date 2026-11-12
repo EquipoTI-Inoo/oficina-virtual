@@ -2950,6 +2950,7 @@ ruta("POST", "/servicios-contratados/:id/taller-web/materiales", (ctx, p, _q, re
 ruta("DELETE", "/servicios-contratados/:id/taller-web/materiales/:materialId", (ctx, p) => taller(ctx, p.id, "QUITAR_MATERIAL", undefined, p.materialId));
 ruta("POST", "/servicios-contratados/:id/taller-web/brief-desde-transcripcion", (ctx, p, _q, req) => taller(ctx, p.id, "BRIEF_TRANSCRIPCION", req));
 ruta("POST", "/servicios-contratados/:id/taller-web/estrategia", (ctx, p, _q, req) => taller(ctx, p.id, "ESTRATEGIA", req));
+ruta("POST", "/servicios-contratados/:id/taller-web/restaurar", (ctx, p, _q, req) => taller(ctx, p.id, "RESTAURAR", req));
 
 /**
  * GET /publico/{token} y /demo/{token}: los archivos del taller por su enlace, sin sesión. Las demos

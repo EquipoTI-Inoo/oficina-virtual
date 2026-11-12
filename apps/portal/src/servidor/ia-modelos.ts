@@ -11,6 +11,7 @@
  *  · Cada llamada real deja una línea en el log con tokens y costo.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export type ModeloIa = "GEMINI_FLASH" | "CLAUDE_SONNET";
 export type MotivoSimulado = "MODO_SIMULADO" | "SIN_CLAVE" | "TOPE_DIARIO";
@@ -51,6 +52,16 @@ export function motivoSimulado(modelo: ModeloIa): MotivoSimulado | null {
   return null;
 }
 
+/** 13 nov (auditoría): lo que gastó cada llamada real, para cobrarlo al cliente en «Costos de IA». */
+export interface ConsumoIa { proveedor: string; modelo: string; tokensEntrada: number; tokensSalida: number; costoUsd: number }
+const recolector = new AsyncLocalStorage<ConsumoIa[]>();
+/** Corre `fn` y junta lo que gastaron las llamadas a la IA que hizo (en cualquier profundidad). */
+export async function conConsumo<T>(fn: () => Promise<T>): Promise<{ valor: T; consumos: ConsumoIa[] }> {
+  const consumos: ConsumoIa[] = [];
+  const valor = await recolector.run(consumos, fn);
+  return { valor, consumos };
+}
+
 export async function generar(p: {
   modelo: ModeloIa;
   sistema: string;
@@ -73,6 +84,7 @@ export async function generar(p: {
   const precio = PRECIOS[p.modelo];
   const costoUsd = (r.tokensEntrada * precio.entrada + r.tokensSalida * precio.salida) / 1_000_000;
   gastoHoy().usd += costoUsd;
+  recolector.getStore()?.push({ proveedor: p.modelo === "GEMINI_FLASH" ? "google" : "anthropic", modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd });
   console.info(JSON.stringify({ ia: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: Number(costoUsd.toFixed(6)), gastoDelDiaUsd: Number(gastoHoy().usd.toFixed(4)) }));
   return { ...r, simulado: false, costoUsd };
 }

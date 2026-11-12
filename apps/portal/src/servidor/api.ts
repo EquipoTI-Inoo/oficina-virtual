@@ -78,6 +78,7 @@ import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable,
 import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
+import { conConsumo } from "./ia-modelos";
 import {
   type DemoGuardada, dentroDelLimite, ErrorTaller, type EstadoTaller, ipDe, type OperacionTaller, operarTaller, type RepoTaller, respuestaPublica,
   type ResumenEntregable, type TipoArchivo, tokenDeUrl, urlArchivo as urlArchivoTaller,
@@ -2077,7 +2078,21 @@ async function tallerDb(ctx: Ctx, servicioId: string, op: OperacionTaller, cuerp
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, servicioId);
   try {
-    return await operarTaller(repoTallerDb(ctx, s), op, cuerpo ? await cuerpo() : {}, demoId);
+    // 13 nov (auditoría): lo que gasta el taller en IA se cobra al cliente (sale en «Costos de IA» como «taller-web»).
+    const { valor, consumos } = await conConsumo(async () => operarTaller(repoTallerDb(ctx, s), op, cuerpo ? await cuerpo() : {}, demoId));
+    if (consumos.length) {
+      const ej = (await ctx.c.query<{ id: string }>(
+        "INSERT INTO ejecucion_agente (cliente_id, agente, n8n_execution_id, estado, finalizado_en) VALUES ($1, 'taller-web', $2, 'OK', now()) RETURNING id",
+        [s.cliente_id, `taller-${crypto.randomUUID()}`],
+      )).rows[0].id;
+      for (const k of consumos) {
+        await ctx.c.query(
+          "INSERT INTO consumo_modelo (ejecucion_id, cliente_id, proveedor, modelo, tokens_entrada, tokens_salida, imagenes, costo_usd) VALUES ($1, $2, $3, $4, $5, $6, 0, $7)",
+          [ej, s.cliente_id, k.proveedor, k.modelo, k.tokensEntrada, k.tokensSalida, k.costoUsd.toFixed(6)],
+        );
+      }
+    }
+    return valor;
   } catch (e) {
     if (e instanceof ErrorTaller) throw new ErrorApi(e.status, e.codigo, e.titulo, e.detalle, e.errores);
     throw e;
@@ -2099,6 +2114,7 @@ ruta("POST", "/servicios-contratados/:id/taller-web/materiales", (ctx, p, _q, cu
 ruta("DELETE", "/servicios-contratados/:id/taller-web/materiales/:materialId", (ctx, p) => tallerDb(ctx, p.id, "QUITAR_MATERIAL", undefined, p.materialId));
 ruta("POST", "/servicios-contratados/:id/taller-web/brief-desde-transcripcion", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "BRIEF_TRANSCRIPCION", cuerpo));
 ruta("POST", "/servicios-contratados/:id/taller-web/estrategia", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "ESTRATEGIA", cuerpo));
+ruta("POST", "/servicios-contratados/:id/taller-web/restaurar", (ctx, p, _q, cuerpo) => tallerDb(ctx, p.id, "RESTAURAR", cuerpo));
 
 /**
  * GET /publico/{token} y /demo/{token}, sin sesión: se busca el archivo por su token con una sesión de

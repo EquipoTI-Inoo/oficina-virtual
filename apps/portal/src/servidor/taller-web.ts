@@ -410,10 +410,31 @@ export interface EstadoTaller {
     materiales?: MaterialGuardado[];
     /** 9 nov (fase 1): lo que pide el proyecto, el copywriting, la matriz de funcionalidades y los pendientes. */
     estrategia?: Estrategia;
+    /** 13 nov (auditoría): lo que había antes de regenerar (las 3 últimas de cada tipo), para volver atrás. */
+    historial?: HistorialTaller[];
+    /** 13 nov (auditoría): si el último PDF o la última demo salieron con contenido de relleno. */
+    relleno?: { documento?: boolean; demo?: boolean };
   };
   documentoEntregableId: string | null;
   demoEntregableId: string | null;
   actualizadoEn: string;
+}
+
+export type TipoHistorial = "ANALISIS" | "FLUJOGRAMA" | "ESTRATEGIA";
+export interface HistorialTaller { id: string; tipo: TipoHistorial; guardadoEn: string; datos: unknown }
+const MAX_HISTORIAL_POR_TIPO = 3;
+const PARTES_ESTRATEGIA = ["COPY", "FUNCIONALIDADES", "PENDIENTES"] as const;
+
+/** Guarda lo que hay antes de reemplazarlo (si hay algo) y deja solo las últimas de ese tipo. */
+function conHistorial(e: EstadoTaller, tipo: TipoHistorial): HistorialTaller[] {
+  const previo = e.prototipo.historial ?? [];
+  const datos = tipo === "ANALISIS" ? (e.hallazgos.length || e.recomendaciones.length ? { referencias: e.referencias, hallazgos: e.hallazgos, recomendaciones: e.recomendaciones } : null)
+    : tipo === "FLUJOGRAMA" ? (e.flujograma.length ? { flujograma: e.flujograma } : null)
+    : e.prototipo.estrategia?.copy || e.prototipo.estrategia?.funcionalidades?.length ? { estrategia: e.prototipo.estrategia } : null;
+  if (!datos) return previo;
+  const nuevo: HistorialTaller = { id: crypto.randomUUID(), tipo, guardadoEn: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), datos };
+  const mismos = [nuevo, ...previo.filter((h) => h.tipo === tipo)].slice(0, MAX_HISTORIAL_POR_TIPO);
+  return [...previo.filter((h) => h.tipo !== tipo), ...mismos];
 }
 
 export interface ResumenEntregable { id: string; titulo: string; estado: "EN_PREPARACION" | "LISTO_REVISION" | "CAMBIOS_SOLICITADOS" | "APROBADO"; version: number; formato: "PDF" | "IMAGEN" | "ENLACE" | "PROTOTIPO" | "DOCUMENTO" }
@@ -529,6 +550,8 @@ export async function vistaTaller(repo: RepoTaller, e: EstadoTaller) {
       navegador: navegadorReal() ? ("REAL" as const) : ("SIMULADO" as const),
       stitch: stitchDisponible() ? ("REAL" as const) : ("SIMULADO" as const),
     },
+    historial: (e.prototipo.historial ?? []).map(({ id, tipo, guardadoEn }) => ({ id, tipo, guardadoEn })).sort((a, b) => b.guardadoEn.localeCompare(a.guardadoEn)),
+    relleno: { documento: !!e.prototipo.relleno?.documento, demo: !!e.prototipo.relleno?.demo },
     actualizadoEn: e.actualizadoEn,
   };
 }
@@ -565,7 +588,7 @@ function nota(v: unknown): string | null {
   return t;
 }
 
-export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO" | "MATERIAL" | "QUITAR_MATERIAL" | "BRIEF_TRANSCRIPCION" | "ESTRATEGIA";
+export type OperacionTaller = "VER" | "EDITAR" | "CAPTURAS" | "ANALISIS" | "FLUJOGRAMA" | "BOCETO" | "DOCUMENTO" | "PROTOTIPO" | "DEMO" | "REVOCAR_DEMO" | "MATERIAL" | "QUITAR_MATERIAL" | "BRIEF_TRANSCRIPCION" | "ESTRATEGIA" | "RESTAURAR";
 
 /**
  * Todas las operaciones del taller (rutas /servicios-contratados/{id}/taller-web/*). El backend ya validó
@@ -610,6 +633,11 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
 
       // 9 nov (fase 1): copywriting, matriz de funcionalidades, pendientes, propuesta de valor y KPIs.
       case "ESTRATEGIA": {
+        // 13 nov (auditoría): «parte» rehace solo el copy, la matriz o los pendientes; el resto queda como está.
+        const parte = b.parte === undefined || b.parte === null ? null : (b.parte as string);
+        if (parte !== null && !(PARTES_ESTRATEGIA as readonly string[]).includes(parte)) {
+          throw new ErrorTaller(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "parte", mensaje: "Usa COPY, FUNCIONALIDADES o PENDIENTES" }]);
+        }
         const ins = await insumosDe(repo, e);
         const previa = e.prototipo.estrategia ?? estrategiaVacia();
         const paginas = e.flujograma.map((p) => `${"  ".repeat(p.nivel)}- ${p.titulo}: ${p.secciones.join(" · ")}`).join("\n");
@@ -628,13 +656,21 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         const copy = normalizarCopy(j.copy) ?? sim.copy;
         const funcionalidades = normalizarFuncionalidades(j.funcionalidades);
         const pendientes = Array.isArray(j.pendientes) ? (j.pendientes as unknown[]).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim().slice(0, 300)).slice(0, 20) : sim.pendientes;
-        const estrategia: Estrategia = { ...previa, copy, funcionalidades: funcionalidades.length ? funcionalidades : sim.funcionalidades, pendientes, generadaEn: ahoraIso() };
-        // La propuesta de valor y los KPIs solo se llenan si el equipo no los escribió.
+        const nuevaFuncionalidades = funcionalidades.length ? funcionalidades : sim.funcionalidades;
+        const estrategia: Estrategia = parte === null
+          ? { ...previa, copy, funcionalidades: nuevaFuncionalidades, pendientes, generadaEn: ahoraIso() }
+          : { ...previa, ...(parte === "COPY" ? { copy } : parte === "FUNCIONALIDADES" ? { funcionalidades: nuevaFuncionalidades } : { pendientes }), generadaEn: ahoraIso() };
+        const historial = conHistorial(e, "ESTRATEGIA");
+        // La propuesta de valor y los KPIs solo se llenan si el equipo no los escribió (y al generar todo).
         const ajustes: AjustesTaller = { ...(e.prototipo.ajustes ?? {}) };
+        if (parte !== null) {
+          e = await guardar(repo, e, { prototipo: { ...e.prototipo, estrategia, historial } });
+          return resultado(e, { simulado: r.simulado });
+        }
         if (!ins.propuestaValor && typeof j.propuestaValor === "string" && j.propuestaValor.trim()) ajustes.propuestaValor = j.propuestaValor.trim().slice(0, 600);
         const kpis = Array.isArray(j.kpis) ? (j.kpis as unknown[]).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim().slice(0, 160)).slice(0, 8) : [];
         if (!ins.kpis?.length && kpis.length) ajustes.kpis = kpis;
-        e = await guardar(repo, e, { prototipo: { ...e.prototipo, estrategia, ajustes: Object.keys(ajustes).length ? ajustes : null } });
+        e = await guardar(repo, e, { prototipo: { ...e.prototipo, estrategia, historial, ajustes: Object.keys(ajustes).length ? ajustes : null } });
         return resultado(e, { simulado: r.simulado });
       }
 
@@ -726,13 +762,13 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
         if (!e.referencias.length) throw new ErrorTaller(409, "TALLER_SIN_REFERENCIAS", "Agrega al menos un sitio de referencia");
         const r = await analizarBenchmark(e.referencias, dimensionesPara(repo.servicio.variante), await insumosDe(repo, e), repo.almacen);
         const sinCapturas = r.referencias.filter((x) => !x.capturas.some((c) => !c.simulada)).map((x) => ({ referenciaId: x.id, mensaje: `${x.nombre} se calificó sin capturas reales: revisa sus puntajes` }));
-        e = await guardar(repo, e, { referencias: r.referencias, hallazgos: r.hallazgos, recomendaciones: r.recomendaciones });
+        e = await guardar(repo, e, { referencias: r.referencias, hallazgos: r.hallazgos, recomendaciones: r.recomendaciones, prototipo: { ...e.prototipo, historial: conHistorial(e, "ANALISIS") } });
         return resultado(e, { avisos: r.simulado ? [] : sinCapturas, simulado: r.simulado });
       }
 
       case "FLUJOGRAMA": {
         const r = await generarFlujograma(await insumosDe(repo, e), e.recomendaciones);
-        e = await guardar(repo, e, { flujograma: r.paginas });
+        e = await guardar(repo, e, { flujograma: r.paginas, prototipo: { ...e.prototipo, historial: conHistorial(e, "FLUJOGRAMA") } });
         return resultado(e, { simulado: r.simulado });
       }
 
@@ -772,7 +808,9 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
           etapa: /arquitectura|benchmark|estrategia/i, titulo: "Fase 1 · Estrategia y alcance", patron: /benchmark|flujograma|estrategia|fase 1/i, formato: doc.formato,
           descripcion: "La estrategia, la arquitectura, el benchmark, el copy y el alcance de tu sitio. Apruébalo para que pasemos al diseño.", url: archivo.url, nombreArchivo: doc.nombre, nota: notaCliente,
         });
-        e = await guardar(repo, e, { documentoEntregableId: id });
+        // Relleno: sin PDF real o con capturas de relleno en lo que va al documento.
+        const rellenoDoc = doc.formato !== "PDF" || e.prototipo.bocetos.some((x) => x.aprobado && x.simulada);
+        e = await guardar(repo, e, { documentoEntregableId: id, prototipo: { ...e.prototipo, relleno: { ...(e.prototipo.relleno ?? {}), documento: rellenoDoc } } });
         return { __status: 201, ...(await resultado(e, { simulado: doc.formato !== "PDF", entregableId: id })) };
       }
 
@@ -827,8 +865,20 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
           etapa: /^prototipo|alta fidelidad|dise[ñn]o/i, titulo: "Prototipo en alta fidelidad", patron: /prototipo|demo/i, formato: "PROTOTIPO",
           descripcion: "Recorre tu sitio como si ya estuviera publicado y cuéntanos qué ajustar.", url: demo.url, nombreArchivo: null, nota: notaCliente,
         });
-        e = await guardar(repo, e, { demoEntregableId: id });
+        e = await guardar(repo, e, { demoEntregableId: id, prototipo: { ...e.prototipo, relleno: { ...(e.prototipo.relleno ?? {}), demo: r.simulado } } });
         return { __status: 201, ...(await resultado(e, { simulado: r.simulado, entregableId: id })) };
+      }
+
+      // 13 nov (auditoría): vuelve a una versión guardada antes de regenerar (y guarda la actual, para deshacer).
+      case "RESTAURAR": {
+        const h = (e.prototipo.historial ?? []).find((x) => x.id === b.historialId);
+        if (!h) throw new ErrorTaller(404, "NO_ENCONTRADO", "No encontramos esa versión guardada");
+        const historial = conHistorial(e, h.tipo).filter((x) => x.id !== h.id);
+        const d = h.datos as { referencias?: Referencia[]; hallazgos?: Punto[]; recomendaciones?: Punto[]; flujograma?: PaginaFlujo[]; estrategia?: Estrategia };
+        if (h.tipo === "ANALISIS") e = await guardar(repo, e, { referencias: d.referencias ?? e.referencias, hallazgos: d.hallazgos ?? [], recomendaciones: d.recomendaciones ?? [], prototipo: { ...e.prototipo, historial } });
+        else if (h.tipo === "FLUJOGRAMA") e = await guardar(repo, e, { flujograma: d.flujograma ?? [], prototipo: { ...e.prototipo, historial } });
+        else e = await guardar(repo, e, { prototipo: { ...e.prototipo, estrategia: d.estrategia ?? e.prototipo.estrategia, historial } });
+        return resultado(e);
       }
 
       case "REVOCAR_DEMO": {

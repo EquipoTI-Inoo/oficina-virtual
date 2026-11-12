@@ -250,9 +250,9 @@ function TallerWeb() {
               <Benchmark t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />
             </>
           )}
-          {pestana === "FLUJOGRAMA" && <Flujograma b={b} editar={editar} paso={paso} ocupado={ocupado} />}
+          {pestana === "FLUJOGRAMA" && <Flujograma t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "FLUJOGRAMA" && <Especificaciones b={b} editar={editar} />}
-          {pestana === "COPY" && <CopyYAlcance b={b} editar={editar} paso={paso} ocupado={ocupado} />}
+          {pestana === "COPY" && <CopyYAlcance t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
           {pestana === "CAPTURAS" && <Capturas t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} pausa={pausa} />}
           {(pestana === "PROTOTIPO" || pestana === "DEMO") && <AvisoFase1 t={t} sinAprobacion={sinAprobacion} alCambiar={setSinAprobacion} />}
           {pestana === "PROTOTIPO" && <Prototipo t={t} b={b} editar={editar} paso={paso} ocupado={ocupado} />}
@@ -268,25 +268,57 @@ type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, ex
 
 // ───────────────────────────── lateral: insumos y entregables
 
+/**
+ * 13 nov (auditoría): regenerar reemplaza lo que hay (con lo que corrigió el equipo). Antes de hacerlo se avisa, y lo
+ * anterior queda en «Versiones anteriores» para volver.
+ */
+const confirmarRegenerar = (hay: boolean, que: string) =>
+  !hay || window.confirm(`Se reemplaza ${que} actual, incluido lo que corregiste a mano. Queda guardado en «Versiones anteriores» y puedes volver a él. ¿Seguimos?`);
+
+function VersionesAnteriores({ t, tipo, paso, ocupado }: { t: Taller; tipo: "ANALISIS" | "FLUJOGRAMA" | "ESTRATEGIA"; paso: Paso; ocupado: string | null }) {
+  const xs = (t.historial ?? []).filter((h) => h.tipo === tipo);
+  if (!xs.length) return null;
+  return (
+    <details className="versiones-anteriores">
+      <summary className="texto-xs texto-muted">Versiones anteriores ({xs.length})</summary>
+      <div className="pila" style={{ gap: 4, marginTop: 6 }}>
+        {xs.map((h) => (
+          <span key={h.id} className="fila entre texto-xs" style={{ gap: 8 }}>
+            <span>Guardada el {fDiaHora(h.guardadoEn)}</span>
+            <button className="boton boton--chico" disabled={!!ocupado}
+              onClick={() => window.confirm("¿Volver a esta versión? La actual queda guardada en su lugar.") && void paso("restaurar", "/restaurar", { historialId: h.id }, () => "Volviste a la versión anterior")}>
+              <LuRotateCcw size={12} /> Volver a esta
+            </button>
+          </span>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function Lateral({ t }: { t: Taller }) {
-  const entregable = (titulo: string, e: Taller["documento"]) => (
-    <div className="fila entre texto-sm" style={{ gap: 8 }}>
-      <span>{titulo}</span>
-      {e ? (
-        <Enlace a={`/equipo/entregables/${e.id}`} className="enlace">
-          v{e.version} · {ESTADO_ENTREGABLE[e.estado]}
-        </Enlace>
-      ) : (
-        <span className="texto-muted">Sin generar</span>
-      )}
+  const entregable = (titulo: string, e: Taller["documento"], relleno?: boolean) => (
+    <div className="pila" style={{ gap: 2 }}>
+      <div className="fila entre texto-sm" style={{ gap: 8 }}>
+        <span>{titulo}</span>
+        {e ? (
+          <Enlace a={`/equipo/entregables/${e.id}`} className="enlace">
+            v{e.version} · {ESTADO_ENTREGABLE[e.estado]}
+          </Enlace>
+        ) : (
+          <span className="texto-muted">Sin generar</span>
+        )}
+      </div>
+      {/* 13 nov (auditoría): avisa si la última versión salió con contenido de relleno, antes de enviarla. */}
+      {e && relleno && <span className="texto-xs" style={{ color: "var(--c-alerta)" }}>Tiene contenido de relleno: revísalo antes de enviarlo al cliente.</span>}
     </div>
   );
   return (
     <aside className="pila">
       <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 10 }}>
         <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>Entregables al cliente</h2>
-        {entregable("Propuesta (PDF)", t.documento)}
-        {entregable("Demo navegable", t.demoEntregable)}
+        {entregable("Propuesta (PDF)", t.documento, t.relleno?.documento)}
+        {entregable("Demo navegable", t.demoEntregable, t.relleno?.demo)}
         <p className="texto-xs texto-muted" style={{ margin: 0 }}>Se revisan y se envían desde el entregable, como cualquier otro.</p>
       </section>
       <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 8 }}>
@@ -506,14 +538,24 @@ function Especificaciones({ b, editar }: { b: Borrador; editar: (c: Partial<Borr
 }
 
 /** Fase 1: copywriting, matriz de funcionalidades y pendientes. La IA los escribe; el equipo los corrige. */
-function CopyYAlcance({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
+function CopyYAlcance({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
   const e = b.estrategia;
   const copy = e.copy ?? { heros: [], paginas: [], ctas: [], microcopys: [], faq: [] };
   const setE = (c: Partial<Estrategia>) => editar({ estrategia: { ...e, ...c } });
   const setCopy = (c: Partial<NonNullable<Estrategia["copy"]>>) => setE({ copy: { ...copy, ...c } });
   const heros = [0, 1, 2].map((n) => copy.heros[n] ?? { titulo: "", subtitulo: "", cta: "" });
   const setHero = (n: number, c: Partial<(typeof heros)[number]>) => setCopy({ heros: heros.map((h, j) => (j === n ? { ...h, ...c } : h)).filter((h) => h.titulo || h.subtitulo || h.cta) });
-  const generar = () => paso("estrategia", "/estrategia", {}, (r) => (r.simulado ? "Base de ejemplo lista (la IA no estaba disponible): ajústala" : "Copy, matriz y pendientes listos: revísalos"));
+  const generar = () => confirmarRegenerar(!!e.copy, "el copy, la matriz y los pendientes") &&
+    paso("estrategia", "/estrategia", {}, (r) => (r.simulado ? "Base de ejemplo lista (la IA no estaba disponible): ajústala" : "Copy, matriz y pendientes listos: revísalos"));
+  // 13 nov (auditoría): rehacer una sola parte sin perder lo corregido en las otras.
+  const rehacer = (parte: "COPY" | "FUNCIONALIDADES" | "PENDIENTES", que: string) => (
+    e.copy ? (
+      <button type="button" className="boton boton--chico" disabled={!!ocupado}
+        onClick={() => confirmarRegenerar(true, que) && void paso("estrategia", "/estrategia", { parte }, () => `Listo: ${que} nuevo`)}>
+        <LuWandSparkles size={12} /> Rehacer solo esto
+      </button>
+    ) : null
+  );
   return (
     <>
       <section className="tarjeta" style={{ display: "grid", gap: 10 }}>
@@ -527,10 +569,11 @@ function CopyYAlcance({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: P
           </button>
         </div>
         {e.generadaEn && <span className="texto-xs texto-muted">Generado el {fDiaHora(e.generadaEn)}. Lo que corrijas se guarda con «Guardar cambios».</span>}
+        <VersionesAnteriores t={t} tipo="ESTRATEGIA" paso={paso} ocupado={ocupado} />
       </section>
 
       <section className="tarjeta" style={{ display: "grid", gap: 12 }} aria-label="Opciones de hero">
-        <h2 className="tarjeta-titulo">Opciones de hero</h2>
+        <div className="fila entre" style={{ gap: 8 }}><h2 className="tarjeta-titulo">Opciones de hero</h2>{rehacer("COPY", "el copy")}</div>
         <div className="rejilla" style={{ "--columnas": "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 } as React.CSSProperties}>
           {heros.map((h, n) => (
             <div key={n} style={{ display: "grid", gap: 6, border: "1px solid var(--c-borde)", borderRadius: 10, padding: 10 }}>
@@ -567,7 +610,7 @@ function CopyYAlcance({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: P
       </section>
 
       <section className="tarjeta" style={{ display: "grid", gap: 10 }} aria-label="Matriz de funcionalidades">
-        <h2 className="tarjeta-titulo">Matriz de funcionalidades</h2>
+        <div className="fila entre" style={{ gap: 8 }}><h2 className="tarjeta-titulo">Matriz de funcionalidades</h2>{rehacer("FUNCIONALIDADES", "la matriz")}</div>
         <p className="texto-sm texto-muted" style={{ margin: 0 }}>Lo imprescindible define el alcance real; lo deseable queda para después.</p>
         {e.funcionalidades.map((f, i) => (
           <div key={i} className="fila" style={{ gap: 6, alignItems: "flex-start" }}>
@@ -583,7 +626,7 @@ function CopyYAlcance({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: P
       </section>
 
       <section className="tarjeta" style={{ display: "grid", gap: 8 }} aria-label="Pendientes por validar">
-        <h2 className="tarjeta-titulo">Pendientes y supuestos por validar</h2>
+        <div className="fila entre" style={{ gap: 8 }}><h2 className="tarjeta-titulo">Pendientes y supuestos por validar</h2>{rehacer("PENDIENTES", "los pendientes")}</div>
         <div className="entrada"><textarea aria-label="Pendientes por validar (uno por línea)" rows={5} value={e.pendientes.join("\n")} placeholder="Uno por línea" onChange={(x) => setE({ pendientes: lineas(x.target.value) })} /></div>
       </section>
     </>
@@ -724,11 +767,12 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
             <button className="boton boton--chico" disabled={!!ocupado || !b.referencias.length} onClick={() => void paso("capturas", "/capturas", {}, () => "Capturas listas")}>
               <LuCamera size={14} /> {ocupado === "capturas" ? "Capturando…" : "Sacar capturas"}
             </button>
-            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !b.referencias.length} onClick={() => void paso("analisis", "/analisis", {}, () => "Benchmark analizado")}>
+            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !b.referencias.length} onClick={() => confirmarRegenerar(t.hallazgos.length > 0 || t.recomendaciones.length > 0, "el análisis") && void paso("analisis", "/analisis", {}, () => "Benchmark analizado")}>
               <LuSparkles size={14} /> {ocupado === "analisis" ? "Analizando…" : "Analizar con IA"}
             </button>
           </span>
         </div>
+        <VersionesAnteriores t={t} tipo="ANALISIS" paso={paso} ocupado={ocupado} />
         {b.referencias.length === 0 && <div className="vacio">Todavía no hay referencias. Agrega la primera abajo.</div>}
         {b.referencias.map((r, i) => {
           const o = original(r.id);
@@ -808,7 +852,7 @@ function ListaPuntos({ titulo, ayuda, puntos, alCambiar }: { titulo: string; ayu
 
 // ───────────────────────────── 2. flujograma
 
-function Flujograma({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
+function Flujograma({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; editar: (c: Partial<Borrador>) => void; paso: Paso; ocupado: string | null }) {
   const [vista, setVista] = useState<"NAVEGACION" | "ESTRUCTURAL" | "EDITAR">("NAVEGACION");
   const ps = b.flujograma;
   const niveles = [0, 1, 2, 3].map((n) => ps.filter((p) => p.nivel === n)).filter((xs) => xs.length);
@@ -827,11 +871,12 @@ function Flujograma({ b, editar, paso, ocupado }: { b: Borrador; editar: (c: Par
               </button>
             ))}
           </div>
-          <button className="boton boton--chico boton--primario" disabled={!!ocupado} onClick={() => void paso("flujograma", "/flujograma", {}, () => "Flujograma propuesto")}>
+          <button className="boton boton--chico boton--primario" disabled={!!ocupado} onClick={() => confirmarRegenerar(ps.length > 0, "el flujograma") && void paso("flujograma", "/flujograma", {}, () => "Flujograma propuesto")}>
             <LuWandSparkles size={14} /> {ocupado === "flujograma" ? "Pensando…" : ps.length ? "Proponer de nuevo" : "Proponer con IA"}
           </button>
         </span>
       </div>
+      <VersionesAnteriores t={t} tipo="FLUJOGRAMA" paso={paso} ocupado={ocupado} />
       {ps.length === 0 && <div className="vacio">Sale del brief, la reunión de brief, el alcance y las recomendaciones del benchmark.</div>}
 
       {ps.length > 0 && vista === "NAVEGACION" && (
