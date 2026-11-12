@@ -90,6 +90,7 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_
 import {
   correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
 } from "../dominio/requerimientos";
+import { accionPorRevisar, enlacePorRevisar, ordenarPorRevisar } from "../dominio/por-revisar";
 import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
@@ -4398,6 +4399,28 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
       proyectosCerrados: suyos.length - activos.length, rebotes, conRetraso,
     },
   } satisfies S<"PanelColaborador">;
+});
+
+// 13 nov (auditoría): bandeja «Por revisar» del AM: lo que espera al equipo en sus cuentas o proyectos.
+ruta("GET", "/panel/por-revisar", async (ctx) => {
+  soloEquipo(ctx);
+  const mio = await deMisProyectos(ctx);
+  const { rows } = await ctx.c.query<{ tipo: "REQUERIMIENTO" | "ENTREGABLE"; id: string; titulo: string; estado: string; cliente_id: string; cliente_nombre: string;
+    servicio_contratado_id: string; servicio_nombre: string; marca: string | null; fecha: Date; rebotes: number }>(`
+    SELECT 'REQUERIMIENTO' AS tipo, r.id, r.titulo, r.estado::text AS estado, r.cliente_id, c.nombre AS cliente_nombre, r.servicio_contratado_id,
+           s.nombre AS servicio_nombre, sc.marca, coalesce(r.enviado_en, r.emitido_en) AS fecha, 0 AS rebotes
+      FROM requerimiento r JOIN servicio_contratado sc ON sc.id = r.servicio_contratado_id JOIN servicio s ON s.id = sc.servicio_id JOIN cliente c ON c.id = r.cliente_id
+     WHERE r.estado = 'ENVIADO'
+    UNION ALL
+    SELECT 'ENTREGABLE', e.id, e.titulo, e.estado::text, e.cliente_id, c.nombre, e.servicio_contratado_id, s.nombre, sc.marca, e.actualizado_en, e.rebotes
+      FROM entregable e JOIN servicio_contratado sc ON sc.id = e.servicio_contratado_id JOIN servicio s ON s.id = sc.servicio_id JOIN cliente c ON c.id = e.cliente_id
+     WHERE e.estado <> 'APROBADO' AND sc.estado <> 'FINALIZADO'`);
+  const datos = rows.filter((r) => mio(r.servicio_contratado_id, r.cliente_id)).map((r) => ({
+    tipo: r.tipo, id: r.id, titulo: r.titulo, estado: r.estado, accion: accionPorRevisar(r.tipo, r.estado)!,
+    cliente: { id: r.cliente_id, nombre: r.cliente_nombre }, servicioContratadoId: r.servicio_contratado_id,
+    proyecto: tituloServicio(r.servicio_nombre, r.marca ?? r.cliente_nombre), fecha: iso(r.fecha)!, rebotes: Number(r.rebotes), enlace: enlacePorRevisar(r.tipo, r.id),
+  })).filter((x) => x.accion);
+  return { datos: ordenarPorRevisar(datos) } satisfies { datos: S<"PorRevisar">[] };
 });
 
 ruta("GET", "/panel/equipo", async (ctx) => {

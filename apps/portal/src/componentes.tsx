@@ -4,6 +4,7 @@ import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks } from "react-icons/lu";
+import { pideAccion } from "./dominio/por-revisar";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, comoCliente, rolCliente, cuentaActiva } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
@@ -376,6 +377,8 @@ const NAV_EQUIPO = [
   { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound /> },
   // 12 nov: Mi trabajo, como en Monday (lo asignado a cada uno en todos los tableros).
   { a: "/equipo/mi-trabajo", texto: "Mi trabajo", icono: <LuListChecks /> },
+  // 13 nov (auditoría): la bandeja del AM (requerimientos enviados y entregables por enviar o corregir).
+  { a: "/equipo/por-revisar", texto: "Por revisar", icono: <LuFileCheck />, contador: "porRevisar" },
   { a: "/equipo/calendario", texto: "Calendario", icono: <LuCalendarDays /> },
   // Jarvis (2 nov): los agentes de IA del equipo por área y el chat con el propio.
   { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot /> },
@@ -549,7 +552,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
       <nav className="nav" onClick={alNavegar}>
         {nav.map((n, i) => {
           const activo = ruta === n.a || ruta.startsWith(`${n.a}/`) || (n.a === "/equipo/clientes" && ruta.startsWith("/equipo/clientes"));
-          const grupo = "grupo" in n ? n.grupo : undefined;
+          const grupo = "grupo" in n ? (n.grupo as string | undefined) : undefined;
           const anterior = i > 0 && "grupo" in nav[i - 1] ? (nav[i - 1] as { grupo?: string }).grupo : undefined;
           return (
             <Fragment key={n.a}>
@@ -682,6 +685,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const sesionLocal = typeof window !== "undefined" ? leerSesion() : null;
   const me = useConsulta<S<"Sesion">>(sesionLocal ? "/me" : null);
   const inicio = useConsulta<S<"InicioCliente">>(sesionLocal && espacio === "cliente" ? `/clientes/${clienteActivo()}/inicio` : null);
+  const porRevisar = useConsulta<{ datos: S<"PorRevisar">[] }>(sesionLocal && espacio === "equipo" ? "/panel/por-revisar" : null);
   const [leidas, setLeidas] = useState(false);
 
   useEffect(() => {
@@ -702,7 +706,8 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   }, [me.datos, ir]);
 
   const porAprobar = inicio.datos?.indicadores.porAprobar ?? 0;
-  const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
+  const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0,
+    porRevisar: porRevisar.datos?.datos.filter((x) => pideAccion(x.accion)).length ?? 0 };
   const aviso = inicio.datos?.avisos?.[0];
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
   const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? cuentaActiva(me.datos)?.nombre ?? "" : "Equipo Inoo";

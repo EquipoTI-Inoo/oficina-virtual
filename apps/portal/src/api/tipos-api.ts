@@ -1880,6 +1880,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/panel/por-revisar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bandeja «Por revisar» (13 nov): requerimientos enviados por el cliente y entregables sin aprobar, en las cuentas o proyectos de quien mira
+         * @description Acción de cada fila: REVISAR (requerimiento ENVIADO) · CORREGIR (entregable con cambios pedidos) · ENVIAR (entregable en
+         *     preparación) · ESPERA_CLIENTE (entregable enviado, sin decisión). Lo más antiguo primero. No incluye servicios finalizados.
+         */
+        get: operations["bandejaPorRevisar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/consumo": {
         parameters: {
             query?: never;
@@ -6383,6 +6404,31 @@ export interface components {
                 /** @description Proyectos suyos con una etapa atrasada */
                 conRetraso: number;
             };
+        };
+        PorRevisar: {
+            /** @enum {string} */
+            tipo: "REQUERIMIENTO" | "ENTREGABLE";
+            /** Format: uuid */
+            id: string;
+            titulo: string;
+            estado: string;
+            /** @enum {string} */
+            accion: "REVISAR" | "CORREGIR" | "ENVIAR" | "ESPERA_CLIENTE";
+            cliente: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+            };
+            /** Format: uuid */
+            servicioContratadoId: string;
+            proyecto: string;
+            /**
+             * Format: date-time
+             * @description Desde cuándo espera (envío del cliente, envío al cliente o última decisión)
+             */
+            fecha: string;
+            rebotes: number;
+            enlace: string;
         };
         ProyectoPipeline: {
             /** Format: uuid */
@@ -11894,6 +11940,29 @@ export interface operations {
                             titulo: string;
                         }[];
                         datos: components["schemas"]["ProyectoPipeline"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    bandejaPorRevisar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PorRevisar"][];
                     };
                 };
             };

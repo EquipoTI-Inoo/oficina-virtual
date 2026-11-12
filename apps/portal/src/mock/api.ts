@@ -54,6 +54,7 @@ import { tablerosDelPanel } from "../dominio/tableros";
 import { descripcionPrueba } from "../dominio/pruebas";
 import { esPropuestaJarvis, MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type EstadoAccionJarvis, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, validarEvento, validarRango } from "../dominio/agenda";
+import { accionPorRevisar, enlacePorRevisar, ordenarPorRevisar } from "../dominio/por-revisar";
 import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, PLANTILLAS, reunionesOptimas, servicioDeCatalogo, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
 import { decisionInactividad, DIAS_AVISO_STANDBY, DIAS_STANDBY, diasInactivo, fechaStandby, ROLES_GESTION } from "../dominio/equipo";
 
@@ -2950,6 +2951,26 @@ function enviarAInooWork(u: D.UsuarioDemo) {
   u.inooworkEstado = "SIMULADO";
   u.inooworkError = null;
 }
+
+// 13 nov (auditoría): bandeja «Por revisar» del AM.
+ruta("GET", "/panel/por-revisar", (ctx) => {
+  soloEquipo(ctx);
+  const mio = deMisProyectos(ctx);
+  const servicio = (id: string) => E.servicios.find((s) => s.id === id)!;
+  const cliente = (id: string) => ({ id, nombre: E.clientes.find((c) => c.id === id)?.nombre ?? "" });
+  const datos: S<"PorRevisar">[] = [
+    ...E.requerimientos.filter((r) => r.estado === "ENVIADO" && mio(r.servicioContratadoId, r.clienteId)).map((r) => ({
+      tipo: "REQUERIMIENTO" as const, id: r.id, titulo: r.titulo, estado: r.estado, accion: accionPorRevisar("REQUERIMIENTO", r.estado)!, cliente: cliente(r.clienteId),
+      servicioContratadoId: r.servicioContratadoId, proyecto: tituloDe(servicio(r.servicioContratadoId)), fecha: r.enviadoEn ?? r.emitidoEn, rebotes: 0, enlace: enlacePorRevisar("REQUERIMIENTO", r.id),
+    })),
+    ...E.entregables.filter((e) => e.estado !== "APROBADO" && servicio(e.servicioContratadoId).estado !== "FINALIZADO" && mio(e.servicioContratadoId, e.clienteId)).map((e) => ({
+      tipo: "ENTREGABLE" as const, id: e.id, titulo: e.titulo, estado: e.estado, accion: accionPorRevisar("ENTREGABLE", e.estado)!, cliente: cliente(e.clienteId),
+      servicioContratadoId: e.servicioContratadoId, proyecto: tituloDe(servicio(e.servicioContratadoId)),
+      fecha: e.versiones.at(-1)?.enviadaEn ?? e.decisiones.at(-1)?.fecha ?? e.creadoEn, rebotes: e.rebotes, enlace: enlacePorRevisar("ENTREGABLE", e.id),
+    })),
+  ];
+  return { datos: ordenarPorRevisar(datos) };
+});
 
 ruta("GET", "/panel/equipo", (ctx) => {
   soloEquipo(ctx);

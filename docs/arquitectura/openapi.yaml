@@ -2759,6 +2759,27 @@ paths:
                   datos: { type: array, items: { $ref: '#/components/schemas/ProyectoPipeline' } }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /panel/por-revisar:
+    get:
+      tags: [Panel interno]
+      operationId: bandejaPorRevisar
+      summary: 'Bandeja «Por revisar» (13 nov): requerimientos enviados por el cliente y entregables sin aprobar, en las cuentas o proyectos de quien mira'
+      description: |
+        Acción de cada fila: REVISAR (requerimiento ENVIADO) · CORREGIR (entregable con cambios pedidos) · ENVIAR (entregable en
+        preparación) · ESPERA_CLIENTE (entregable enviado, sin decisión). Lo más antiguo primero. No incluye servicios finalizados.
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/PorRevisar' } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /servicios-contratados/{servicioContratadoId}/consumo:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -8069,6 +8090,21 @@ components:
             proyectosCerrados: { type: integer, description: 'Finalizados donde fue responsable' }
             rebotes: { type: integer, description: 'Pedidos de cambio del cliente en los entregables de sus proyectos' }
             conRetraso: { type: integer, description: 'Proyectos suyos con una etapa atrasada' }
+    PorRevisar:
+      type: object
+      required: [tipo, id, titulo, estado, accion, cliente, servicioContratadoId, proyecto, fecha, rebotes, enlace]
+      properties:
+        tipo: { type: string, enum: [REQUERIMIENTO, ENTREGABLE] }
+        id: { type: string, format: uuid }
+        titulo: { type: string }
+        estado: { type: string }
+        accion: { type: string, enum: [REVISAR, CORREGIR, ENVIAR, ESPERA_CLIENTE] }
+        cliente: { type: object, required: [id, nombre], properties: { id: { type: string, format: uuid }, nombre: { type: string } } }
+        servicioContratadoId: { type: string, format: uuid }
+        proyecto: { type: string }
+        fecha: { type: string, format: date-time, description: 'Desde cuándo espera (envío del cliente, envío al cliente o última decisión)' }
+        rebotes: { type: integer }
+        enlace: { type: string }
     ProyectoPipeline:
       type: object
       required: [servicioContratadoId, clienteId, clienteNombre, titulo, codigo, estado, columna, avance, tareas, requerimientosPendientes, requerimientosAtrasados]

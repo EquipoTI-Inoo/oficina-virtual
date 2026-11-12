@@ -214,6 +214,28 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       const detalle = (await llamar("GET", `/entregables/${e}`, VALERIA)).json;
       assert.equal(detalle.decisiones[0].usuario.nombre, "Diego Castro (Inoo), en nombre del cliente");
     });
+    test("bandeja «Por revisar» (13 nov): lo enviado por el cliente y lo devuelto, solo de sus cuentas o proyectos", async () => {
+      await reiniciar();
+      const bandeja = async (quien: string) => (await llamar("GET", "/panel/por-revisar", quien)).json.datos as any[];
+      assert.equal((await llamar("GET", "/panel/por-revisar", VALERIA)).status, 403, "el cliente no la ve");
+      const id = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: WEB })).json.id;
+      assert.ok(!(await bandeja(DIEGO)).some((x) => x.id === id), "pendiente del cliente: todavía no es del equipo");
+      const base = { marca: "Casa Oliva", contacto: "Av. La Mar 1234, Miraflores", situacion: "Diseño web nuevo a partir de una página web existente", objetivos: "Mejorar el diseño en general", paises: "Perú" };
+      assert.equal((await llamar("PUT", `/requerimientos/${id}/respuesta`, VALERIA, { respuestas: base, enviar: true })).status, 200);
+      const fila = (await bandeja(DIEGO)).find((x) => x.id === id);
+      assert.deepEqual([fila?.accion, fila?.tipo, fila?.cliente.id, fila?.enlace], ["REVISAR", "REQUERIMIENTO", CASA_OLIVA, `/requerimientos/${id}`]);
+      assert.ok((await bandeja(CAMILA)).some((x) => x.id === id), "Camila está en el e-commerce");
+      assert.ok((await bandeja(CAMILA)).every((x) => [SOCIAL, WEB].includes(x.servicioContratadoId)), "y solo ve sus proyectos");
+
+      const e = (await llamar("POST", `/servicios-contratados/${WEB}/entregables`, DIEGO, { titulo: "Mapa del sitio", formato: "PDF", url: "https://drive.google.com/file/d/demo/view" })).json.id;
+      assert.equal((await bandeja(DIEGO)).find((x) => x.id === e)?.accion, "ENVIAR");
+      await llamar("POST", `/entregables/${e}/enviar`, DIEGO);
+      assert.equal((await bandeja(DIEGO)).find((x) => x.id === e)?.accion, "ESPERA_CLIENTE");
+      await llamar("POST", `/entregables/${e}/decision`, VALERIA, { decision: "CAMBIOS_SOLICITADOS", comentario: "El menú debe ir arriba" });
+      assert.equal((await bandeja(DIEGO)).find((x) => x.id === e)?.accion, "CORREGIR");
+      await llamar("POST", `/requerimientos/${id}/revision`, DIEGO, { decision: "APROBADO" });
+      assert.ok(!(await bandeja(DIEGO)).some((x) => x.id === id), "aprobado: sale de la bandeja");
+    });
     test("áreas que lidera (9 nov): solo un super usuario las cambia y queda en el historial", async () => {
       await reiniciar();
       const DIEGO_ID = uid(1, 3);
