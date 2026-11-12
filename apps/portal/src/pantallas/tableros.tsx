@@ -16,9 +16,10 @@ import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PRO
 
 type Tablero = S<"TableroInooWork">;
 type Item = S<"ItemTablero">;
-type Vista = S<"TableroInooWork">["vistas"][number]["tipo"];
+// 13 nov: «Carga» (cuánto tiene cada persona) es del portal; las demás vistas vienen de InooWork.
+type Vista = S<"TableroInooWork">["vistas"][number]["tipo"] | "CARGA";
 
-const NOMBRE_VISTA: Record<Vista, string> = { TABLA: "Tabla", KANBAN: "Kanban", CALENDARIO: "Calendario", LINEA_TIEMPO: "Línea de tiempo", GRAFICO: "Gráfico" };
+const NOMBRE_VISTA: Record<Vista, string> = { TABLA: "Tabla", KANBAN: "Kanban", CALENDARIO: "Calendario", LINEA_TIEMPO: "Línea de tiempo", GRAFICO: "Resumen", CARGA: "Carga" };
 const fecha = (f: string | null | undefined) => (f ? new Date(`${f}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
 
 // ═════════════════════════════════════════════ tablero
@@ -135,7 +136,7 @@ function TableroProyecto() {
       avisar({ titulo: "No se pudo borrar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
     }
   };
-  const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO"])];
+  const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO", "CARGA"])];
   const ctx = { t, items, cambiar, editable: t.puedeEditar, abrir: (i: Item) => setPanel(i.id), conteo: conteo.datos?.datos ?? {} };
   const enPanel = panel ? t.items.find((i) => i.id === panel) : undefined;
 
@@ -187,6 +188,7 @@ function TableroProyecto() {
       {vista === "CALENDARIO" && <VistaCalendario items={items} />}
       {vista === "LINEA_TIEMPO" && <VistaLinea t={t} items={items} />}
       {vista === "GRAFICO" && <VistaGrafico items={items} />}
+      {vista === "CARGA" && <VistaCarga t={t} items={items} />}
       {enPanel && <PanelItem t={t} item={enPanel} cambiar={cambiar} cerrar={() => setPanel(null)} alActualizar={() => void conteo.recargar()} />}
     </>
   );
@@ -688,16 +690,88 @@ function VistaLinea({ t, items }: { t: Tablero; items: Item[] }) {
 
 // ───────────────────────────── gráfico (cuántos ítems por estado y por persona)
 
+const masDiasT = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const hoyT = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
+
+/** 13 nov: «Resumen» (antes «Gráfico»), como un dashboard de Monday: cifras clave y cómo se reparte el trabajo. */
 function VistaGrafico({ items }: { items: Item[] }) {
+  const hoy = hoyT();
+  const abiertos = items.filter((i) => i.estado !== "Completado");
+  const completados = items.length - abiertos.length;
+  const cifras: [string, number | string, string?][] = [
+    ["Ítems", items.length],
+    ["Completados", items.length ? `${Math.round((completados / items.length) * 100)} %` : "—", `${completados} de ${items.length}`],
+    ["Vencidos", abiertos.filter((i) => i.vencido).length],
+    ["Vencen esta semana", abiertos.filter((i) => i.fecha && i.fecha >= hoy && i.fecha <= masDiasT(hoy, 7)).length],
+    ["Sin responsable", abiertos.filter((i) => !i.responsable).length],
+  ];
   const porEstado = ESTADOS_ITEM.map((e) => ({ nombre: e, n: items.filter((i) => i.estado === e).length, color: COLOR_ESTADO[e] }));
+  const porPrioridad = PRIORIDADES_ITEM.map((x) => ({ nombre: x, n: abiertos.filter((i) => i.prioridad === x).length, color: COLOR_PRIORIDAD[x] }));
   const personas = new Map<string, number>();
-  for (const i of items) personas.set(i.responsable?.nombre ?? "Sin asignar", (personas.get(i.responsable?.nombre ?? "Sin asignar") ?? 0) + 1);
+  for (const i of abiertos) personas.set(i.responsable?.nombre ?? "Sin asignar", (personas.get(i.responsable?.nombre ?? "Sin asignar") ?? 0) + 1);
   const porPersona = [...personas.entries()].sort((a, b) => b[1] - a[1]).map(([nombre, n]) => ({ nombre, n, color: "var(--c-primario)" }));
   return (
-    <div className="grid-2" style={{ gap: 16 }}>
-      <Barras titulo="Ítems por estado" filas={porEstado} />
-      <Barras titulo="Ítems por persona" filas={porPersona} />
+    <div className="pila" style={{ gap: 16 }}>
+      <div className="resumen-cifras">
+        {cifras.map(([t, v, sub]) => (
+          <div key={t} className="tarjeta resumen-cifra">
+            <span className="texto-xs texto-muted">{t}</span>
+            <strong>{v}</strong>
+            {sub && <span className="texto-xs texto-muted">{sub}</span>}
+          </div>
+        ))}
+      </div>
+      <div className="grid-2" style={{ gap: 16 }}>
+        <Barras titulo="Ítems por estado" filas={porEstado} />
+        <Barras titulo="Abiertos por persona" filas={porPersona} />
+        <Barras titulo="Abiertos por prioridad" filas={porPrioridad} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * 13 nov: «Carga» (como la vista Workload de Monday): lo abierto de cada persona del tablero, separado en vencido,
+ * esta semana, más adelante y sin fecha. Sirve para ver a quién se le está cargando el trabajo.
+ */
+function VistaCarga({ t, items }: { t: Tablero; items: Item[] }) {
+  const hoy = hoyT();
+  const semana = masDiasT(hoy, 7);
+  const tramos = [
+    { clave: "vencido", nombre: "Vencido", color: "var(--c-semaforo-rojo)", es: (i: Item) => !!i.vencido },
+    { clave: "semana", nombre: "Esta semana", color: "var(--c-primario)", es: (i: Item) => !i.vencido && !!i.fecha && i.fecha <= semana },
+    { clave: "despues", nombre: "Más adelante", color: "var(--c-marca-morado-suave)", es: (i: Item) => !i.vencido && !!i.fecha && i.fecha > semana },
+    { clave: "sin", nombre: "Sin fecha", color: "var(--c-borde-fuerte)", es: (i: Item) => !i.fecha },
+  ];
+  const abiertos = items.filter((i) => i.estado !== "Completado");
+  const filas = [...t.personas.map((p) => ({ id: p.id, nombre: p.nombre })), { id: "", nombre: "Sin asignar" }]
+    .map((p) => {
+      const suyos = abiertos.filter((i) => (i.responsable?.id ?? "") === p.id);
+      return { ...p, total: suyos.length, tramos: tramos.map((x) => suyos.filter(x.es).length) };
+    })
+    .filter((f) => f.total > 0 || f.id)
+    .sort((a, b) => b.total - a.total);
+  const max = Math.max(1, ...filas.map((f) => f.total));
+  return (
+    <section className="tarjeta" style={{ padding: 16 }} aria-label="Carga de trabajo">
+      <div className="fila entre" style={{ gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-base)" }}>Carga de trabajo (ítems abiertos)</h3>
+        <span className="fila texto-xs" style={{ gap: 12, flexWrap: "wrap" }}>
+          {tramos.map((x) => <span key={x.clave} className="fila" style={{ gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: x.color }} />{x.nombre}</span>)}
+        </span>
+      </div>
+      <div className="pila" style={{ gap: 10 }}>
+        {filas.map((f) => (
+          <div key={f.id || "sin"} className="grafico-fila" aria-label={`${f.nombre}: ${f.total} abiertos, ${f.tramos[0]} vencidos`}>
+            <span className="texto-xs">{f.nombre}</span>
+            <span className="grafico-pista" style={{ display: "flex" }}>
+              {f.tramos.map((n, k) => n > 0 && <span key={k} title={`${tramos[k].nombre}: ${n}`} style={{ width: `${(n / max) * 100}%`, background: tramos[k].color, borderRadius: 0 }} />)}
+            </span>
+            <span className="texto-xs negrita" style={{ width: 24, textAlign: "right" }}>{f.total}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

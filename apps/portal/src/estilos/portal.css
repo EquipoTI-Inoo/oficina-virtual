@@ -2766,3 +2766,8 @@ main, .contenido, .principal { min-width: 0; }
 .superior::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--g-marca); opacity: 0.35; pointer-events: none; }
 h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .boton--primario:focus-visible { outline-color: var(--c-marca-morado); }
+
+/* Resumen del tablero (13 nov). */
+.resumen-cifras { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.resumen-cifra { padding: 14px 16px; display: grid; gap: 2px; }
+.resumen-cifra strong { font-size: var(--t-3xl); font-weight: 600; color: var(--c-tinta); }
