@@ -30,18 +30,40 @@ export function PantallaTablero() {
   );
 }
 
-/** El cliente del proyecto, elegido de los clientes reales para que no quede escrito de varias formas. */
+/**
+ * El cliente del proyecto, elegido de los clientes reales para que no quede escrito de varias formas (13 nov,
+ * auditoría: antes era texto libre con sugerencias). «Otro…» sigue existiendo para un cliente que aún no está.
+ */
 function ClienteDelTablero({ actual, cambiar }: { actual: string | null; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
-  const [valor, setValor] = useState(actual ?? "");
-  const nombres = [...new Set(["Inoo", ...(clientes.datos?.datos ?? []).map((c) => c.nombre)])];
-  const cambio = valor.trim() && valor.trim() !== (actual ?? "");
+  const nombres = [...new Set(["Inoo", ...(clientes.datos?.datos ?? []).map((c) => c.nombre).sort((x, y) => x.localeCompare(y, "es"))])];
+  const enLista = !actual || nombres.some((n) => n.toLowerCase() === actual.toLowerCase());
+  const [otro, setOtro] = useState(false);
+  const [valor, setValor] = useState("");
+  const guardar = (v: string) => { if (v.trim() && v.trim() !== (actual ?? "")) void cambiar("", "PATCH", { cliente: v.trim() }); };
   return (
-    <form className="fila" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }} onSubmit={(e) => { e.preventDefault(); if (cambio) void cambiar("", "PATCH", { cliente: valor.trim() }); }}>
+    <form className="fila" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }} onSubmit={(e) => { e.preventDefault(); guardar(valor); setOtro(false); }}>
       <label htmlFor="tablero-cliente" className="texto-sm negrita" style={actual ? undefined : { color: "var(--c-alerta)" }}>{actual ? "Cliente" : "Falta el cliente"}</label>
-      <input id="tablero-cliente" className="input" style={{ width: 240 }} list="tablero-clientes" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Elige un cliente, o Inoo si es interno" />
-      <datalist id="tablero-clientes">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
-      {cambio && <button className="boton boton--chico boton--primario">Guardar</button>}
+      <select id="tablero-cliente" className="input" style={{ width: 240, height: 36 }} disabled={!clientes.datos}
+        value={otro ? "__otro" : (nombres.find((n) => n.toLowerCase() === (actual ?? "").toLowerCase()) ?? actual ?? "")}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "__otro") { setOtro(true); setValor(""); return; }
+          setOtro(false);
+          guardar(v);
+        }}>
+        {!actual && <option value="">Elige el cliente</option>}
+        {!enLista && actual && <option value={actual}>{actual} (no está en Clientes)</option>}
+        {nombres.map((n) => <option key={n} value={n}>{n === "Inoo" ? "Inoo (interno)" : n}</option>)}
+        <option value="__otro">Otro cliente (nuevo)…</option>
+      </select>
+      {otro && (
+        <>
+          <input className="input" style={{ width: 220 }} aria-label="Nombre del cliente nuevo" value={valor} onChange={(e) => setValor(e.target.value)} maxLength={120} placeholder="Nombre del cliente" autoFocus />
+          <button className="boton boton--chico boton--primario" disabled={!valor.trim()}>Guardar</button>
+          <button type="button" className="boton boton--chico" onClick={() => setOtro(false)}>Cancelar</button>
+        </>
+      )}
     </form>
   );
 }
