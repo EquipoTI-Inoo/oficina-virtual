@@ -119,10 +119,14 @@ export async function analizarBenchmark(referencias: Referencia[], dimensiones: 
     simulado &&= r.simulado;
     costoUsd += r.costoUsd;
     const j = interpretarJson<{ puntajes?: Puntaje[]; resumen?: string; marcas?: unknown }>(r.texto);
+    // 13 nov: con IA real, si la respuesta no trae los puntajes, es un error (antes se inventaban a partir de la URL).
+    if (!r.simulado && !j?.puntajes?.length) throw new ErrorIa(`No pudimos leer el análisis de ${ref.nombre}. Vuelve a intentarlo.`);
     const puntajes = dimensiones.map((d) => {
       const p = j?.puntajes?.find((x) => x.dimension === d);
       const n = Math.round(Number(p?.puntaje));
-      return n >= 1 && n <= 5 ? { dimension: d, puntaje: n, comentario: String(p!.comentario ?? "").slice(0, 160) } : sim.puntajes.find((x) => x.dimension === d)!;
+      if (n >= 1 && n <= 5) return { dimension: d, puntaje: n, comentario: String(p!.comentario ?? "").slice(0, 160) };
+      // Una dimensión que el modelo no calificó queda sin puntaje (no se inventa), salvo en modo de prueba.
+      return r.simulado ? sim.puntajes.find((x) => x.dimension === d)! : { dimension: d, puntaje: 3, comentario: "Sin evaluar: revisa este puntaje" };
     });
     // 9 nov: los puntos numerados sobre las capturas; sin capturas reales, no hay dónde marcar.
     const marcas = imagenes.length ? normalizarMarcas(j?.marcas) : r.simulado ? sim.marcas : [];
@@ -151,6 +155,7 @@ async function sintetizar(insumos: Insumos, referencias: Referencia[]) {
   const j = interpretarJson<{ hallazgos?: unknown; recomendaciones?: unknown }>(r.texto);
   const hallazgos = recortarPuntos(j?.hallazgos, LIMITES_TALLER.hallazgos);
   const recomendaciones = recortarPuntos(j?.recomendaciones, LIMITES_TALLER.recomendaciones);
+  if (!r.simulado && (!hallazgos.length || !recomendaciones.length)) throw new ErrorIa("No pudimos leer los hallazgos del benchmark. Vuelve a intentarlo.");
   return {
     hallazgos: hallazgos.length ? hallazgos : sim.hallazgos,
     recomendaciones: recomendaciones.length ? recomendaciones : sim.recomendaciones,
@@ -173,6 +178,7 @@ export async function generarFlujograma(insumos: Insumos, recomendaciones: Punto
   });
   const errores: { campo: string; mensaje: string }[] = [];
   const paginas = validarFlujograma(interpretarJson<{ paginas?: unknown }>(r.texto)?.paginas, errores);
+  if (!r.simulado && (errores.length || !paginas.length)) throw new ErrorIa("No pudimos leer el flujograma que propuso la IA. Vuelve a intentarlo.");
   // Si el modelo devuelve un árbol inválido, se usa el de relleno y el equipo lo ajusta a mano.
   return { paginas: errores.length || !paginas.length ? sim : paginas, simulado: r.simulado || errores.length > 0, costoUsd: r.costoUsd };
 }
@@ -334,6 +340,8 @@ export async function armarDemo(p: {
     simulado: () => demoSimulada(p.insumos, p.flujograma),
   });
   const html = r.texto.replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
+  // 13 nov: con IA real, si no vino una página completa, error: nunca se publica un demo de relleno como si fuera real.
+  if (!r.simulado && !(/<html|<body/i.test(html) && /<\/(html|body)>/i.test(html))) throw new ErrorIa("El prototipo salió incompleto. Vuelve a intentarlo.");
   const valido = /<html|<body/i.test(html) ? html : demoSimulada(p.insumos, p.flujograma);
   return { html: conNoindex(limpiarHtml(valido)), simulado: r.simulado, costoUsd: r.costoUsd };
 }
@@ -612,8 +620,11 @@ export async function operarTaller(repo: RepoTaller, op: OperacionTaller, b: Rec
           refs && `Benchmark:\n${refs}`, "Responde en JSON.",
         ].filter(Boolean).join("\n\n");
         const sim = estrategiaSimulada(ins.marca, e.flujograma.map((p) => p.titulo));
-        const r = await generar({ modelo: "CLAUDE_SONNET", sistema: SISTEMA_ESTRATEGIA, mensajes: [{ rol: "user", texto: mensaje }], maxTokens: 8000, esquema: ESQUEMA_ESTRATEGIA, simulado: () => JSON.stringify(sim) });
-        const j = interpretarJson<Record<string, unknown>>(r.texto) ?? (sim as unknown as Record<string, unknown>);
+        const r = await generar({ modelo: "CLAUDE_SONNET", sistema: SISTEMA_ESTRATEGIA, mensajes: [{ rol: "user", texto: mensaje }], maxTokens: 16000, esquema: ESQUEMA_ESTRATEGIA, simulado: () => JSON.stringify(sim) });
+        const leido = interpretarJson<Record<string, unknown>>(r.texto);
+        // 13 nov: con IA real, si no se puede leer el copy, error (antes salía la plantilla de ejemplo como «Copy listo»).
+        if (!r.simulado && (!leido || !normalizarCopy(leido.copy))) throw new ErrorIa("No pudimos leer la estrategia que generó la IA. Vuelve a intentarlo.");
+        const j = leido ?? (sim as unknown as Record<string, unknown>);
         const copy = normalizarCopy(j.copy) ?? sim.copy;
         const funcionalidades = normalizarFuncionalidades(j.funcionalidades);
         const pendientes = Array.isArray(j.pendientes) ? (j.pendientes as unknown[]).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim().slice(0, 300)).slice(0, 20) : sim.pendientes;

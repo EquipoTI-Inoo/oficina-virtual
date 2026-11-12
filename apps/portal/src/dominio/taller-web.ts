@@ -69,9 +69,9 @@ export const LIMITES_TALLER = {
   /** Solicitudes por IP a una misma demo en 10 minutos. */
   solicitudesDemo: 120,
   /** Tokens de salida por llamada (fase de prueba: lo mínimo que sirve). */
-  tokensAnalisis: 900,
-  tokensSintesis: 1400,
-  tokensFlujograma: 2600,
+  tokensAnalisis: 2500,
+  tokensSintesis: 2500,
+  tokensFlujograma: 4000,
   tokensDemo: 20000,
   tokensBoceto: 12000,
 };

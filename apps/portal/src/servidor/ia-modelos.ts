@@ -5,7 +5,8 @@
  * Decidido el 17 oct: Gemini Flash para casi todo y Claude Sonnet 5.5 solo para razonamiento («Crear
  * con IA» y agentes de razonamiento avanzado). En fase de prueba se gasta lo mínimo:
  *  · IA_MODO=simulado (por defecto): no llama a nadie; responde la función `simulado` del llamador.
- *  · Tope diario de todo el sistema (IA_TOPE_DIARIO_USD): al llegar, vuelve a simulado y avisa en el log.
+ *  · Tope diario de todo el sistema (IA_TOPE_DIARIO_USD, por defecto US$ 20): al llegar, la llamada falla con un error
+ *    claro (13 nov: antes volvía a relleno en silencio y el relleno llegaba al cliente como si fuera real).
  *  · Respuestas cortas (max tokens por llamada), sin razonamiento en Gemini y esfuerzo bajo en Claude.
  *  · Cada llamada real deja una línea en el log con tokens y costo.
  */
@@ -46,7 +47,7 @@ function gastoHoy() {
 export function motivoSimulado(modelo: ModeloIa): MotivoSimulado | null {
   if (env("IA_MODO") !== "real") return "MODO_SIMULADO";
   if (!env(modelo === "GEMINI_FLASH" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY")) return "SIN_CLAVE";
-  if (gastoHoy().usd >= Number(env("IA_TOPE_DIARIO_USD") ?? 2)) return "TOPE_DIARIO";
+  if (gastoHoy().usd >= Number(env("IA_TOPE_DIARIO_USD") ?? 20)) return "TOPE_DIARIO";
   return null;
 }
 
@@ -62,7 +63,10 @@ export async function generar(p: {
 }): Promise<ResultadoIa> {
   const motivo = motivoSimulado(p.modelo);
   if (motivo) {
-    if (motivo === "TOPE_DIARIO") console.warn(JSON.stringify({ ia: "tope_diario", gastoUsd: gastoHoy().usd }));
+    if (motivo === "TOPE_DIARIO") {
+      console.warn(JSON.stringify({ ia: "tope_diario", gastoUsd: gastoHoy().usd }));
+      throw new ErrorIa(`Se llegó al tope diario de gasto en IA (US$ ${env("IA_TOPE_DIARIO_USD") ?? 20}). Vuelve a intentarlo mañana o pide que lo suban.`);
+    }
     return { texto: p.simulado(), modelo: "simulado", simulado: true, motivoSimulado: motivo, tokensEntrada: 0, tokensSalida: 0, costoUsd: 0 };
   }
   const r = p.modelo === "GEMINI_FLASH" ? await llamarGemini(p) : await llamarClaude(p);
@@ -126,6 +130,8 @@ async function llamarClaude(p: { sistema: string; mensajes: MensajeIa[]; maxToke
       fallbacks: "default",
     });
     if (r.stop_reason === "refusal") throw new ErrorIa("Claude declinó la solicitud");
+    // 13 nov: una respuesta cortada (JSON o HTML a medias) no sirve; mejor un error que publicar algo roto.
+    if (r.stop_reason === "max_tokens") throw new ErrorIa("La respuesta salió incompleta (demasiado larga). Vuelve a intentarlo.");
     const texto = r.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
     if (!texto) throw new ErrorIa("Claude no devolvió texto");
     const u = r.usage;
