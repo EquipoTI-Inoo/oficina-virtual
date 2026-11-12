@@ -9,7 +9,7 @@ import { useState } from "react";
 import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
-import { AsiVaElMes, TuMarca } from "./principal";
+import { AsiVaElMes, ResultadosDelMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
 import { DetalleTicket } from "./soporte-equipo";
@@ -61,7 +61,9 @@ function Proyecto() {
             <div key={m.clave} className="tarjeta kpi">
               <div className="kpi-cab">{m.etiqueta}</div>
               <div className="kpi-valor">{m.valor}</div>
-              <div className="kpi-pie" style={m.alerta ? { color: "var(--c-alerta)" } : undefined}>{m.detalle}</div>
+              <div className="kpi-pie" style={m.alerta ? { color: "var(--c-alerta)" } : undefined}>
+                {m.clave === "RESULTADOS_CAMPANA" ? <a href="#resultados" className="texto-primario">Ver los resultados ↓</a> : m.detalle}
+              </div>
             </div>
           ))}
         </div>
@@ -126,6 +128,9 @@ function Proyecto() {
           {d.codigo === "SOPORTE_CONTINUO" && <TicketsDelServicio servicioId={d.servicioContratadoId} />}
 
           {d.progreso && <AsiVaElMes progreso={d.progreso} conEnlace={false} />}
+
+          {/* 13 nov (auditoría): los resultados del mes, en los servicios que miden resultados (decisión del 12 oct). */}
+          {d.metricas.some((m) => m.clave === "RESULTADOS_CAMPANA") && <div id="resultados"><ResultadosDelMes /></div>}
 
           <Comentarios servicioId={d.servicioContratadoId} />
         </div>

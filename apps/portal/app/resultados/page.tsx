@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Los resultados del mes ahora están en Inicio; el detalle va en el informe descargable. */
+/** 13 nov: los resultados del mes están dentro de cada servicio que mide resultados (Mis servicios). */
 export default function Pagina() {
-  redirect("/inicio");
+  redirect("/servicios");
 }
