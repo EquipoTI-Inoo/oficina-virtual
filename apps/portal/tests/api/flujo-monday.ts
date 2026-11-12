@@ -78,6 +78,20 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal((await llamar("GET", `/tableros/${t.id}/archivos-monday/zz`, DIEGO)).status, 404);
     });
 
+    test("importación automática desde el servidor: todo lo que falta, sin repetir", async () => {
+      await reiniciar();
+      const N8N = { "x-api-key": "demo-n8n" };
+      assert.equal((await llamar("POST", "/integraciones/monday/importar-pendientes", DIEGO, {})).status, 403, "solo la llave de los procesos");
+      const r = await llamar("POST", "/integraciones/monday/importar-pendientes", undefined, { limite: 10 }, N8N);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.deepEqual([r.json.importados.map((x: any) => x.tableroId).sort(), r.json.errores, r.json.pendientes, r.json.total], [["1001", "1002"], [], 0, 2]);
+      assert.equal(r.json.importados.find((x: any) => x.tableroId === "1001").cliente, "Casa Oliva", "el cliente del nombre del tablero");
+      const otra = await llamar("POST", "/integraciones/monday/importar-pendientes", undefined, {}, N8N);
+      assert.deepEqual([otra.json.importados, otra.json.pendientes], [[], 0], "no repite");
+      const id = r.json.importados.find((x: any) => x.tableroId === "1001").proyectoId;
+      assert.ok((await llamar("GET", "/tableros", DIEGO)).json.datos.some((t: any) => t.id === id), "Diego lo ve en sus tableros");
+    });
+
     test("sin dueño en Monday el líder es quien importa; la línea de tiempo da la fecha", async () => {
       await reiniciar();
       const r = await llamar("POST", "/monday/tableros/1002/importar", ADMIN, { nombre: "Contenido de noviembre", copiarArchivos: false });

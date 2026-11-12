@@ -5116,6 +5116,33 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '502': { description: InooWork no respondió }
 
+  /integraciones/monday/importar-pendientes:
+    post:
+      tags: [Tableros]
+      operationId: importarPendientesMonday
+      summary: 'Importación automática de Monday (12 nov): los tableros que faltan, con lo sugerido y sin copiar archivos, de a `limite` por llamada'
+      description: Para los procesos del servidor (X-Api-Key con tableros:write). Se repite hasta que `pendientes` sea 0. Un tablero sin nadie del equipo para líder queda a cargo de un admin.
+      x-roles: [SERVICIO]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { limite: { type: integer, minimum: 1, maximum: 25 } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [importados, errores, pendientes, total]
+                properties:
+                  importados: { type: array, items: { type: object, required: [tableroId, nombre, proyectoId, items, cliente], properties: { tableroId: { type: string }, nombre: { type: string }, proyectoId: { type: string }, items: { type: integer }, cliente: { type: [string, 'null'] } } } }
+                  errores: { type: array, items: { type: object, required: [tableroId, nombre, motivo], properties: { tableroId: { type: string }, nombre: { type: string }, motivo: { type: string } } } }
+                  pendientes: { type: integer }
+                  total: { type: integer }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: Monday o InooWork no respondieron }
+
   /monday/tableros:
     get:
       tags: [Tableros]

@@ -5412,8 +5412,30 @@ function repoMonday(ctx: Ctx): RepoMonday {
     almacen: almacenOpcional(),
     clientes: async () => (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente WHERE estado <> 'BAJA'")).rows,
     asegurarCliente: async (nombre) => String(await asegurarClienteDb(ctx, nombre)),
+    aparte: async (fn) => {
+      await ctx.c.query("SAVEPOINT tablero_monday");
+      try {
+        const r = await fn();
+        await ctx.c.query("RELEASE SAVEPOINT tablero_monday");
+        return r;
+      } catch (e) {
+        await ctx.c.query("ROLLBACK TO SAVEPOINT tablero_monday");
+        throw e;
+      }
+    },
   };
 }
+// 12 nov: la importación automática, desde el servidor (llave de los procesos, scope tableros:write).
+ruta("POST", "/integraciones/monday/importar-pendientes", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "tableros:write");
+  const b = (await cuerpo()) as { limite?: unknown };
+  const respaldo = (await ctx.c.query<{ id: string }>(
+    `SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id IS NOT NULL
+     ORDER BY (nivel_acceso = 'ADMIN') DESC NULLS LAST, es_super_usuario DESC, (nivel_acceso = 'CUENTA') DESC NULLS LAST, nombre LIMIT 1`,
+  )).rows[0]?.id ?? null;
+  return MONDAY.importarPendientes(repoMonday(ctx), { empleadoId: null, esAdmin: true, usuarioId: ctx.u.usuarioId, nombre: "Importación de Monday", departamento: null },
+    { limite: typeof b.limite === "number" ? b.limite : 5, liderRespaldo: respaldo });
+});
 const soloAdminMonday = (ctx: Ctx) => {
   soloEquipo(ctx);
   if (ctx.esServicio || ctx.u.nivelAcceso !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "La importación de Monday la hace el nivel Admin");

@@ -168,6 +168,8 @@ export interface RepoMonday {
   clientes(): Promise<{ id: string; nombre: string }[]>;
   /** El nombre exacto del cliente en el portal; si no existe, lo crea (11 nov). */
   asegurarCliente(nombre: string): Promise<string>;
+  /** Corre algo aparte: si falla, se deshace solo eso (en Postgres, un SAVEPOINT). */
+  aparte?<T>(fn: () => Promise<T>): Promise<T>;
 }
 type Fallar = (status: number, codigo: string, titulo: string, errores?: { campo: string; mensaje: string }[]) => Error;
 type Tableros = ReturnType<typeof crearTableros>;
@@ -212,7 +214,9 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
     return x && (await tableros.existe(x.proyectoId, yo)) ? x : null;
   };
 
-  return {
+  // eslint-disable-next-line prefer-const
+  let importar: (repo: RepoMonday, id: string, yo: Yo & { usuarioId: string; departamento: string | null }, b: PedidoImportacion) => Promise<{ tablero: ReturnType<Tableros["importar"]> extends Promise<infer X> ? X : never; resumen: Record<string, number>; archivosSinCopiar: { nombre: string; motivo: string }[] }>;
+  const motor = {
     listar: (repo: RepoMonday, yo: Yo) => protegido(async () => {
       const [xs, imps] = await Promise.all([listarTablerosMonday(yo.prueba), repo.importaciones()]);
       return {
@@ -305,6 +309,41 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
       return { tablero: tablero_, resumen, archivosSinCopiar: [...copiados.values()].filter((a) => !a.clave).map((a) => ({ nombre: a.nombre, motivo: a.error ?? "" })) };
     }),
 
+    /**
+     * Importación automática (12 nov): todos los tableros que faltan, con lo sugerido (personas, estados, cliente,
+     * columnas) y sin copiar archivos. De a `limite` por llamada; quien llama repite hasta que no queden pendientes.
+     * Si un tablero no tiene a nadie del equipo para líder, queda a cargo de `liderRespaldo`.
+     */
+    importarPendientes: (repo: RepoMonday, yo: Yo & { usuarioId: string; departamento: string | null }, o: { limite: number; liderRespaldo: string | null }) => protegido(async () => {
+      const [xs, imps] = await Promise.all([listarTablerosMonday(yo.prueba), repo.importaciones()]);
+      const hechos = new Set<string>();
+      for (const i of imps) if (await tableros.existe(i.proyectoId, yo)) hechos.add(i.tableroId);
+      const faltan = xs.filter((t) => !hechos.has(t.id));
+      const importados: { tableroId: string; nombre: string; proyectoId: string; items: number; cliente: string | null }[] = [];
+      const errores: { tableroId: string; nombre: string; motivo: string }[] = [];
+      const motivo = (e: unknown) => {
+        const x = e as { titulo?: string; message?: string; errores?: { mensaje: string }[] };
+        return x.errores?.[0]?.mensaje ?? x.titulo ?? x.message ?? "No se pudo";
+      };
+      const uno = (t: TableroMondayResumen, b: PedidoImportacion) => (repo.aparte ? repo.aparte(() => importar(repo, t.id, yo, b)) : importar(repo, t.id, yo, b));
+      for (const t of faltan.slice(0, Math.max(1, Math.min(o.limite, 25)))) {
+        try {
+          let r;
+          try {
+            r = await uno(t, { copiarArchivos: false });
+          } catch (e) {
+            const sinLider = (e as { errores?: { campo: string }[] }).errores?.some((x) => x.campo === "liderId");
+            if (!sinLider || !o.liderRespaldo) throw e;
+            r = await uno(t, { copiarArchivos: false, liderId: o.liderRespaldo });
+          }
+          importados.push({ tableroId: t.id, nombre: t.nombre, proyectoId: r.tablero.id, items: r.resumen.items, cliente: r.tablero.cliente ?? null });
+        } catch (e) {
+          errores.push({ tableroId: t.id, nombre: t.nombre, motivo: motivo(e) });
+        }
+      }
+      return { importados, errores, pendientes: Math.max(0, faltan.length - importados.length - errores.length), total: xs.length };
+    }),
+
     /** Historial de Monday de un ítem: quien ve el tablero lo ve. */
     historial: async (repo: RepoMonday, proyectoId: string, itemId: string, yo: Yo) => {
       await tableros.ver(proyectoId, yo);
@@ -325,4 +364,6 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
       return { url: repo.almacen.urlDescarga(a.clave, a.nombre).url };
     },
   };
+  importar = motor.importar;
+  return motor;
 }

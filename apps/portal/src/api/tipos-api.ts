@@ -3573,6 +3573,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integraciones/monday/importar-pendientes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Importación automática de Monday (12 nov): los tableros que faltan, con lo sugerido y sin copiar archivos, de a `limite` por llamada
+         * @description Para los procesos del servidor (X-Api-Key con tableros:write). Se repite hasta que `pendientes` sea 0. Un tablero sin nadie del equipo para líder queda a cargo de un admin.
+         */
+        post: operations["importarPendientesMonday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/monday/tableros": {
         parameters: {
             query?: never;
@@ -15553,6 +15573,55 @@ export interface operations {
             };
             403: components["responses"]["SinPermiso"];
             /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    importarPendientesMonday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    limite?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        importados: {
+                            tableroId: string;
+                            nombre: string;
+                            proyectoId: string;
+                            items: number;
+                            cliente: string | null;
+                        }[];
+                        errores: {
+                            tableroId: string;
+                            nombre: string;
+                            motivo: string;
+                        }[];
+                        pendientes: number;
+                        total: number;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description Monday o InooWork no respondieron */
             502: {
                 headers: {
                     [name: string]: unknown;
