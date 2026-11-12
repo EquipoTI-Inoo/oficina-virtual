@@ -6,7 +6,7 @@
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
 import { useState, type FormEvent, type ReactNode } from "react";
-import { LuClipboardList, LuListTodo, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
+import { LuArchive, LuClipboardList, LuListTodo, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
@@ -69,6 +69,8 @@ function PipelineProyectos() {
   const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null }[] }>("/tableros");
   // 8 nov (reunión del 6): al crear se elige entre un proyecto predeterminado (del catálogo) o personalizado (tablero).
   const [creando, setCreando] = useState<TipoNuevo | null>(null);
+  // 13 nov: los proyectos archivados (los viejos de Monday, los culminados) se ven aparte y se pueden desarchivar.
+  const [archivados, setArchivados] = useState(false);
   const cl = useConsulta<{ datos: S<"ClienteResumen">[] }>(creando ? "/clientes?limite=100" : null);
   const delPortal = (cl.datos?.datos ?? []).filter((c) => c.estado !== "BAJA").map((c) => ({ id: c.id, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   const clientes = [...new Set([...delPortal.map((c) => c.nombre), ...(r.datos?.datos ?? []).map((t) => t.cliente).filter((c): c is string => !!c)])].sort((a, b) => a.localeCompare(b, "es"));
@@ -96,6 +98,9 @@ function PipelineProyectos() {
             <LuSearch size={16} />
           </span>
         </div>
+        <button type="button" className="chip" aria-pressed={archivados} onClick={() => setArchivados(!archivados)}>
+          <LuArchive size={14} /> Archivados
+        </button>
         {sesion?.usuario.nivelAcceso === "ADMIN" && (
           <Enlace a="/equipo/proyectos/monday" className="boton" style={{ marginLeft: "auto" }}>Importar de Monday</Enlace>
         )}
@@ -109,7 +114,7 @@ function PipelineProyectos() {
       )}
       {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} cabecera={<CabeceraNuevo tipo="TABLERO" cambiar={setCreando} tablero />} alCerrar={() => setCreando(null)} />}
       {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
-      {error ? (
+      {archivados ? <Archivados texto={q} /> : error ? (
         <ErrorCarga error={error} reintentar={recargar} />
       ) : !d ? (
         <Cargando />
@@ -307,5 +312,33 @@ function TarjetaProyecto({ p }: { p: S<"ProyectoPipeline"> }) {
         )}
       </span>
     </Enlace>
+  );
+}
+
+/** Los tableros archivados (13 nov): guardados, fuera del pipeline. Se abren en solo lectura y se desarchivan desde ahí. */
+function Archivados({ texto }: { texto: string }) {
+  const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros?archivados=1");
+  if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
+  if (!r.datos) return <Cargando />;
+  const xs = r.datos.datos.filter((t) => !texto || `${t.cliente ?? ""} ${t.nombre} ${t.area ?? ""}`.toLowerCase().includes(texto));
+  return (
+    <section aria-label="Proyectos archivados">
+      <p className="texto-sm texto-muted" style={{ marginBottom: 12 }}>
+        {r.datos.datos.length} proyectos archivados. Siguen guardados con todo su contenido; ábrelos para verlos o desarchivarlos.
+      </p>
+      {!xs.length ? <p className="texto-sm texto-muted">{r.datos.datos.length ? "Ninguno coincide con la búsqueda." : "No hay proyectos archivados."}</p> : (
+        <div className="pila" style={{ gap: 6 }}>
+          {xs.map((t) => (
+            <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="fila-suave mi-trabajo-fila">
+              <span style={{ minWidth: 0, display: "grid", gap: 2 }}>
+                <span className="negrita texto-sm" style={{ overflowWrap: "anywhere" }}>{t.nombre}</span>
+                <span className="texto-xs texto-muted">{[t.cliente ?? "Sin cliente", t.area, `${t.items.total} ítems`].filter(Boolean).join(" · ")}</span>
+              </span>
+              <span className="texto-xs texto-muted">{t.archivadoEn ? `Archivado el ${new Date(t.archivadoEn).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}` : "Archivado"}</span>
+            </Enlace>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

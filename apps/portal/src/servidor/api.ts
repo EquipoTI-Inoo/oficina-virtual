@@ -5137,9 +5137,9 @@ const equipoInooWork = async (ctx: Ctx) =>
     "SELECT id, nombre, area::text AS area, inoowork_empleado_id AS empleado FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id IS NOT NULL ORDER BY nombre",
   )).rows;
 
-ruta("GET", "/tableros", async (ctx) => {
+ruta("GET", "/tableros", async (ctx, _p, q) => {
   soloEquipo(ctx);
-  const [tableros, equipo] = await Promise.all([TABLEROS.listar(await yoTablero(ctx)), equipoInooWork(ctx)]);
+  const [tableros, equipo] = await Promise.all([TABLEROS.listar(await yoTablero(ctx), { archivados: q.get("archivados") === "1" }), equipoInooWork(ctx)]);
   return { ...tableros, equipo: equipo.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area })) };
 });
 /**
@@ -5210,6 +5210,10 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
   const t = await TABLEROS.cambiarItem(p.id, p.item, await yoTablero(ctx), b);
   if (b.responsableId) await avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t);
   return t;
+});
+ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.desarchivar(p.id, await yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items-lote", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);

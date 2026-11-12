@@ -23,6 +23,28 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
   const it = (t: any, id = "item-mkt-1") => t.items.find((i: any) => i.id === id);
 
   describe(`Columnas de los tableros · ${nombre}`, () => {
+    test("archivados: se ven aparte, son de solo lectura y se desarchivan", async () => {
+      await reiniciar();
+      const N8N = { "x-api-key": "demo-n8n" };
+      await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { estado: "Completado" });
+      const hoy = new Date().toISOString().slice(0, 10);
+      const despues = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+      await llamar("POST", "/integraciones/tableros/archivar", undefined, { fecha: hoy }, N8N);
+      await llamar("POST", "/integraciones/tableros/archivar", undefined, { fecha: despues }, N8N);
+      assert.ok(!(await llamar("GET", "/tableros", DIEGO)).json.datos.some((t: any) => t.id === "PROJ-OPS01"), "fuera de la lista normal");
+      const arch = (await llamar("GET", "/tableros?archivados=1", DIEGO)).json.datos;
+      assert.deepEqual(arch.map((t: any) => t.id), ["PROJ-OPS01"]);
+      assert.ok(arch[0].archivadoEn);
+      const t = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
+      assert.deepEqual([t.archivado, t.puedeEditar, t.puedeDesarchivar], [true, false, true]);
+      assert.equal((await llamar("PATCH", `/tableros/PROJ-OPS01/items/${t.items[0].id}`, DIEGO, { estado: "Bloqueado" })).status, 409);
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/desarchivar", CAMILA)).status, 404, "Camila no está en ese proyecto");
+      const d = await llamar("POST", "/tableros/PROJ-OPS01/desarchivar", DIEGO);
+      assert.deepEqual([d.status, d.json.archivado, d.json.estado, d.json.puedeEditar], [200, false, "En Progreso", true]);
+      assert.ok((await llamar("GET", "/tableros", DIEGO)).json.datos.some((x: any) => x.id === "PROJ-OPS01"));
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/desarchivar", DIEGO)).status, 409);
+    });
+
     test("acciones en lote: cambiar varios ítems de una vez o borrarlos", async () => {
       await reiniciar();
       const ids = ["item-mkt-1", "item-mkt-2"];

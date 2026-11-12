@@ -4467,6 +4467,8 @@ paths:
     get:
       tags: [Tableros]
       operationId: listarTableros
+      parameters:
+        - { name: archivados, in: query, required: false, schema: { type: string, enum: ['1'] }, description: 'Solo los archivados (13 nov)' }
       summary: 'Menú «Proyectos → Tableros»: los proyectos de InooWork donde soy líder o miembro (el nivel ADMIN ve todos)'
       description: |
         InooWork es la fuente: el portal lee y guarda por la API que InooWork ya tiene, sin tocar su código.
@@ -4761,6 +4763,21 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/desarchivar:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: desarchivarTablero
+      summary: 'Desarchiva un proyecto (vuelve a las listas, en curso): el líder, un miembro o un admin'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
         '502': { description: InooWork no respondió }
 
   /tableros/{proyectoId}/items-lote:
@@ -7656,6 +7673,7 @@ components:
             total: { type: integer }
             completados: { type: integer }
             vencidos: { type: integer }
+        archivadoEn: { type: [string, 'null'] }
         puedeEditar: { type: boolean }
     PersonaInooWork:
       type: object
@@ -7868,7 +7886,7 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar]
       properties:
         id: { type: string }
         nombre: { type: string }
@@ -7908,6 +7926,9 @@ components:
             properties:
               tipo: { type: string, enum: [TABLA, KANBAN, CALENDARIO, LINEA_TIEMPO, GRAFICO] }
         items: { type: array, items: { $ref: '#/components/schemas/ItemTablero' } }
+        archivado: { type: boolean }
+        archivadoEn: { type: [string, 'null'] }
+        puedeDesarchivar: { type: boolean }
         puedeEditar: { type: boolean }
     CambioItemTablero:
       type: object

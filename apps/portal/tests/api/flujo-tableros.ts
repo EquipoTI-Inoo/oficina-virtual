@@ -141,7 +141,8 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(await col("PROJ-MKT01"), "CULMINADO");
       assert.deepEqual((await archivar(mas(14))).json, { fechados: 0, archivados: 1 });
       assert.equal(await col("PROJ-MKT01"), "ARCHIVADO");
-      assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).status, 404, "archivado: ya no está en el portal");
+      assert.ok(!(await llamar("GET", "/tableros", DIEGO)).json.datos.some((t: any) => t.id === "PROJ-MKT01"), "archivado: fuera de la lista");
+      assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json.archivado, true, "se abre en solo lectura (13 nov)");
     });
 
     test("todo completado pero abierto: va a «Por cerrar»", () => {

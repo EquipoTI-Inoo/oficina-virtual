@@ -2669,3 +2669,6 @@ main, .contenido, .principal { min-width: 0; }
 .fila-elegida td { background: var(--c-primario-suave); }
 .barra-lote { position: sticky; bottom: 16px; z-index: 20; justify-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; background: var(--c-blanco); border: 1px solid var(--c-primario-borde); border-radius: 14px; box-shadow: var(--sombra-flotante); max-width: 100%; }
 .barra-lote .input { width: auto; height: 34px; min-width: 120px; }
+
+/* Proyecto archivado (13 nov). */
+.aviso-archivado { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; margin-bottom: 14px; border-radius: 12px; background: var(--c-neutro-suave); border: 1px solid var(--c-borde); font-size: 13px; }

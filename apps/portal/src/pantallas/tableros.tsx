@@ -93,6 +93,15 @@ function TableroProyecto() {
       return false;
     }
   };
+  const desarchivar = async () => {
+    if (!window.confirm(`¿Desarchivar «${t.nombre}»? Vuelve a la lista de proyectos, en curso.`)) return;
+    try {
+      r.setDatos(await api<Tablero>(`/tableros/${t.id}/desarchivar`, { metodo: "POST" }));
+      avisar({ titulo: "Proyecto desarchivado" });
+    } catch (e) {
+      avisar({ titulo: "No se pudo desarchivar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
   const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO"])];
   const ctx = { t, items, cambiar, editable: t.puedeEditar, abrir: (i: Item) => setPanel(i.id), conteo: conteo.datos?.datos ?? {} };
   const enPanel = panel ? t.items.find((i) => i.id === panel) : undefined;
@@ -106,6 +115,12 @@ function TableroProyecto() {
         bajada={t.descripcion ?? undefined}
         accion={!t.puedeEditar ? <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span> : undefined}
       />
+      {t.archivado && (
+        <div className="aviso-archivado" role="status">
+          <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${new Date(t.archivadoEn).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}` : ""}. Está en solo lectura.</span>
+          {t.puedeDesarchivar && <button className="boton boton--chico boton--primario" onClick={() => void desarchivar()}>Desarchivar</button>}
+        </div>
+      )}
       {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
       {t.puedeEditar && <EstadoDelTablero t={t} cambiar={cambiar} />}
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>

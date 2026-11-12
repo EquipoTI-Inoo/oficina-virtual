@@ -1594,9 +1594,9 @@ const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoI
 /** Quién puede ser miembro de un proyecto nuevo: el equipo activo con ficha en InooWork. */
 const equipoInooWork = () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false && !!u.inooworkEmpleadoId);
 
-ruta("GET", "/tableros", async (ctx) => {
+ruta("GET", "/tableros", async (ctx, _p, q) => {
   soloEquipo(ctx);
-  return { ...(await TABLEROS.listar(yoTablero(ctx))), equipo: equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) };
+  return { ...(await TABLEROS.listar(yoTablero(ctx), { archivados: q.get("archivados") === "1" })), equipo: equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) };
 });
 /** 11 nov: el cliente de un tablero es una ficha del portal; si no existe, se crea con ese nombre. */
 function asegurarClienteMock(ctx: Ctx, nombre: unknown): unknown {
@@ -1664,6 +1664,10 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   const t = await TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), b);
   if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t);
   return t;
+});
+ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.desarchivar(p.id, yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items-lote", async (ctx, p, _q, req) => {
   soloEquipo(ctx);

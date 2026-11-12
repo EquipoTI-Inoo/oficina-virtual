@@ -134,7 +134,9 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     columnas: cols.map((c) => ({ id: c.id, nombre: c.label, tipo: c.type, config: c.config ?? null })),
     vistas: (tipos.length ? tipos : ["TABLA"]).map((t) => ({ tipo: t })),
     items: (p.items ?? []).map((it) => itemVista(p, it, cols, conectados)),
-    puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),
+    puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin) && !p.archived,
+    archivado: !!p.archived, archivadoEn: p.archivedAt ?? null,
+    puedeDesarchivar: !!p.archived && editaProyecto(p, yo.empleadoId, yo.esAdmin),
   };
 }
 
@@ -149,7 +151,7 @@ export function crearTableros(fallar: Fallar) {
   };
   const visible = async (id: string, yo: Yo) => {
     const p = await obtenerIW(id, yo.prueba);
-    if (!p || p.archived || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese proyecto");
+    if (!p || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese proyecto");
     return p;
   };
   /** Vuelve a leer, revisa permisos, aplica el cambio y guarda. */
@@ -157,6 +159,7 @@ export function crearTableros(fallar: Fallar) {
     protegido(async () => {
       const p = await visible(id, yo);
       if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder y los miembros del proyecto lo pueden cambiar");
+      if (p.archived) throw fallar(409, "ARCHIVADO", "Este proyecto está archivado: desarchívalo para cambiarlo");
       const antes = await conectadosDe(p, yo);
       await fn(p, soloNombres(antes));
       await guardarIW(p, yo.prueba);
@@ -201,16 +204,30 @@ export function crearTableros(fallar: Fallar) {
       datos.sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es"));
       return { datos };
     }),
-    listar: (yo: Yo) => protegido(async () => ({
+    /** Con `archivados`, solo los archivados (13 nov): guardados, fuera de las listas del día a día. */
+    listar: (yo: Yo, o: { archivados?: boolean } = {}) => protegido(async () => ({
       conectado: tablerosConectados() && !yo.prueba,
       datos: (await listarIW(yo.prueba))
-        .filter((p) => !p.archived && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
+        .filter((p) => !!p.archived === !!o.archivados && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
         .map((p) => ({
           id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
           lider: persona(p.leaderId, p.leaderName), miembros: personasDelProyecto(p).length, items: resumenProyecto(p), puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),
           esMio: !!yo.empleadoId && personasDelProyecto(p).some((x) => x.id === yo.empleadoId),
+          archivadoEn: p.archivedAt ?? null,
         })),
     })),
+    /** Desarchivar (13 nov): vuelve a las listas, en curso (si no, el proceso diario lo archivaría de nuevo). */
+    desarchivar: (id: string, yo: Yo) => protegido(async () => {
+      const p = await visible(id, yo);
+      if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder, los miembros o un admin lo pueden desarchivar");
+      if (!p.archived) throw fallar(409, "NO_ARCHIVADO", "Este proyecto no está archivado");
+      p.archived = false;
+      delete p.archivedAt;
+      delete p.completadoEn;
+      if (p.status === "Completado") p.status = "En Progreso";
+      await guardarIW(p, yo.prueba);
+      return tableroVista(p, yo, await conectadosDe(p, yo));
+    }),
     crear: (yo: Yo, b: TableroNuevo, datos: DatosCreacion) => protegido(async () => {
       if (!yo.empleadoId && !yo.esAdmin) throw fallar(403, "SIN_FICHA_INOOWORK", "Necesitas tu ficha de InooWork para crear proyectos");
       validar(validarTableroNuevo(b));

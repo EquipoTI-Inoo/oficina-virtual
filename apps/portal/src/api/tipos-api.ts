@@ -3300,6 +3300,25 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/desarchivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Desarchiva un proyecto (vuelve a las listas, en curso): el líder, un miembro o un admin */
+        post: operations["desarchivarTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/items-lote": {
         parameters: {
             query?: never;
@@ -6002,6 +6021,7 @@ export interface components {
                 completados: number;
                 vencidos: number;
             };
+            archivadoEn?: string | null;
             puedeEditar: boolean;
         };
         PersonaInooWork: {
@@ -6225,6 +6245,9 @@ export interface components {
                 tipo: "TABLA" | "KANBAN" | "CALENDARIO" | "LINEA_TIEMPO" | "GRAFICO";
             }[];
             items: components["schemas"]["ItemTablero"][];
+            archivado: boolean;
+            archivadoEn: string | null;
+            puedeDesarchivar: boolean;
             puedeEditar: boolean;
         };
         CambioItemTablero: {
@@ -14531,7 +14554,10 @@ export interface operations {
     };
     listarTableros: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Solo los archivados (13 nov) */
+                archivados?: "1";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -14988,6 +15014,38 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    desarchivarTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             /** @description InooWork no respondió */
             502: {
                 headers: {
