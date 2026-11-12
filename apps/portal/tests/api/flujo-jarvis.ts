@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
 import { crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
+import { esHoraPico } from "../../src/dominio/ia-equipo";
 
 const ADMIN = `demo.${uid(1, 4)}`;
 const CAMILA = `demo.${uid(1, 6)}`;
@@ -492,7 +493,9 @@ export function pruebasJarvis(nombre: string, manejar: Manejador, reiniciar: () 
       }
       const mio = (await llamar("GET", "/me/jarvis", DIEGO)).json;
       assert.equal(mio.area, "CRM");
-      assert.ok(mio.consumo.gastoMesUsd >= 0.09 && mio.consumo.gastoMesUsd <= 0.19, `gasto ${mio.consumo.gastoMesUsd}`);
+      // En hora pico de DeepSeek el precio es el doble (13 nov: la prueba fallaba de noche en días de semana).
+      const factor = esHoraPico(new Date()) ? 2 : 1;
+      assert.ok(mio.consumo.gastoMesUsd >= 0.09 * factor && mio.consumo.gastoMesUsd <= 0.19 * factor, `gasto ${mio.consumo.gastoMesUsd} (factor ${factor})`);
       assert.ok((await llamar("GET", "/panel/ia-equipo", ADMIN)).json.areas[0].personas[0].gastoMesUsd > 0);
 
       const nueva = (await llamar("POST", "/me/jarvis/llave", DIEGO)).json.llave;

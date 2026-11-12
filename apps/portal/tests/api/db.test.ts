@@ -972,7 +972,7 @@ describe("correos automáticos con n8n · solo backend real", () => {
 
   test("standby: el aviso previo va a los decisores del cliente y a los responsables de sus servicios", async () => {
     await reiniciar();
-    const base = (await db.query<{ d: string }>(`SELECT to_char(ultima_actividad_cliente_en, 'YYYY-MM-DD') AS d FROM cliente WHERE id = '${CASA_OLIVA}'`)).rows[0].d;
+    const base = (await db.query<{ d: string }>(`SELECT to_char(ultima_actividad_cliente_en AT TIME ZONE 'America/Lima', 'YYYY-MM-DD') AS d FROM cliente WHERE id = '${CASA_OLIVA}'`)).rows[0].d;
     const fecha = new Date(Date.parse(`${base}T12:00:00Z`) + 25 * 86_400_000).toISOString().slice(0, 10);
     assert.equal((await llamar("POST", "/integraciones/servicios/inactividad", undefined, { fecha }, LLAVE)).json.avisados, 1);
     const correos = (await preparar(await ultimoEvento("servicio.standby_proximo"))).json.correos;
