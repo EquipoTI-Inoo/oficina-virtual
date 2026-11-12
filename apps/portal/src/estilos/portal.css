@@ -2675,3 +2675,11 @@ main, .contenido, .principal { min-width: 0; }
 /* La pieza real en la revisión del cliente (13 nov). */
 .vista-pieza { background: #0f172a; display: grid; place-items: center; min-height: 322px; }
 .vista-pieza img, .vista-pieza video { max-width: 100%; max-height: 70vh; display: block; }
+
+/* Columnas del tablero que se redimensionan arrastrando el borde (13 nov). */
+.th-redimensionable { position: relative; }
+.th-asa { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; touch-action: none; }
+.th-asa::after { content: ""; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 1px; background: var(--c-borde); }
+.th-asa:hover::after, .redimensionando .th-asa::after { background: var(--c-primario); width: 2px; }
+.redimensionando, .redimensionando * { cursor: col-resize !important; user-select: none; }
+.tabla-tablero td { overflow: hidden; }

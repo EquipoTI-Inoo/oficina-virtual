@@ -4,7 +4,7 @@
  * su propio estilo y guarda cada cambio por la API de InooWork (src/servidor/tableros.ts). Vistas: tabla
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
-import { useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuMessageSquare, LuPlus, LuTrash2, LuX } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
@@ -244,11 +244,34 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
   const secciones = useMemo(() => seccionesDe(t, items, agrupar), [t, items, agrupar]);
   const ordenar = (xs: Item[]) => (orden ? [...xs].sort((a, b) => comparar(a, b, orden.col) * orden.dir) : xs);
   const alOrdenar = (col: string) => setOrden((o) => (!o || o.col !== col ? { col, dir: 1 } : o.dir === 1 ? { col, dir: -1 } : null));
-  const Th = ({ col, children, style }: { col: string; children: ReactNode; style?: CSSProperties }) => (
-    <th style={style} aria-sort={orden?.col === col ? (orden.dir === 1 ? "ascending" : "descending") : undefined}>
+  // 13 nov: el ancho de cada columna se cambia arrastrando el borde del encabezado (doble clic vuelve al de siempre).
+  // Se recuerda por tablero en este navegador: cada persona lo deja a su gusto.
+  const [anchos, setAnchos] = useAnchos(t.id);
+  const ancho = (col: string, base: number): CSSProperties => {
+    const w = anchos[col];
+    return w ? { width: w, minWidth: w, maxWidth: w } : { minWidth: base };
+  };
+  const Asa = ({ col }: { col: string }) => (
+    <span className="th-asa" role="separator" aria-orientation="vertical" aria-label="Cambiar el ancho de la columna" title="Arrastra para cambiar el ancho"
+      onDoubleClick={() => setAnchos((a) => { const n = { ...a }; delete n[col]; return n; })}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const th = (e.currentTarget.parentElement as HTMLElement);
+        const x0 = e.clientX;
+        const w0 = th.getBoundingClientRect().width;
+        const mover = (ev: PointerEvent) => setAnchos((a) => ({ ...a, [col]: Math.max(60, Math.round(w0 + ev.clientX - x0)) }));
+        const soltar = () => { window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", soltar); document.body.classList.remove("redimensionando"); };
+        document.body.classList.add("redimensionando");
+        window.addEventListener("pointermove", mover);
+        window.addEventListener("pointerup", soltar);
+      }} />
+  );
+  const Th = ({ col, children, base }: { col: string; children: ReactNode; base: number }) => (
+    <th style={ancho(col, base)} className="th-redimensionable" aria-sort={orden?.col === col ? (orden.dir === 1 ? "ascending" : "descending") : undefined}>
       <button type="button" className="th-orden" onClick={() => alOrdenar(col)} title="Ordenar">
         {children} {orden?.col === col ? (orden.dir === 1 ? <LuArrowUp size={11} /> : <LuArrowDown size={11} />) : <LuArrowUpDown size={11} className="th-orden-icono" />}
       </button>
+      <Asa col={col} />
     </th>
   );
   const vivos = new Set(items.map((i) => i.id));
@@ -300,17 +323,18 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                         {editable && <input type="checkbox" aria-label={`Elegir todos los ítems de ${g.nombre}`} checked={todos}
                           onChange={(e) => setSel((s) => { const n = new Set(s); for (const i of suyos) (e.target.checked ? n.add(i.id) : n.delete(i.id)); return n; })} />}
                       </th>
-                      <Th col="nombre" style={{ minWidth: 280 }}>Ítem</Th>
-                      <Th col="responsable" style={{ minWidth: 170 }}>Responsable</Th>
-                      <Th col="estado" style={{ width: 150 }}>Estado</Th>
-                      <Th col="prioridad" style={{ width: 110 }}>Prioridad</Th>
-                      <Th col="fecha" style={{ width: 140 }}>Fecha límite</Th>
-                      <th style={{ minWidth: 180 }}>Descripción</th>
+                      <Th col="nombre" base={280}>Ítem</Th>
+                      <Th col="responsable" base={170}>Responsable</Th>
+                      <Th col="estado" base={150}>Estado</Th>
+                      <Th col="prioridad" base={110}>Prioridad</Th>
+                      <Th col="fecha" base={140}>Fecha límite</Th>
+                      <th style={ancho("notas", 180)} className="th-redimensionable">Descripción<Asa col="notas" /></th>
                       {t.columnas.map((c) => (
-                        <th key={c.id} style={{ minWidth: c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120 }} title={info(c.tipo)?.nombre ?? c.tipo}>
+                        <th key={c.id} style={ancho(c.id, c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120)} className="th-redimensionable" title={info(c.tipo)?.nombre ?? c.tipo}>
                           {editable
                             ? <button type="button" className="boton-texto" style={{ font: "inherit", color: "inherit", textTransform: "inherit", letterSpacing: "inherit" }} aria-label={`Configurar la columna ${c.nombre}`} onClick={() => setConfigurando(c)}>{c.nombre}</button>
                             : c.nombre}
+                          <Asa col={c.id} />
                         </th>
                       ))}
                       {editable && <th style={{ width: 36 }}><button className="boton-icono" aria-label="Agregar columna" title="Agregar columna" onClick={() => setBiblioteca(true)}><LuPlus size={14} /></button></th>}
@@ -394,6 +418,22 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
       {configurando && <ConfigurarColumna t={t} col={configurando} cambiar={cambiar} cerrar={() => setConfigurando(null)} />}
     </div>
   );
+}
+
+// ───────────────────────────── anchos de columna (13 nov): por tablero, en este navegador
+
+function useAnchos(tableroId: string): [Record<string, number>, (f: (a: Record<string, number>) => Record<string, number>) => void] {
+  const clave = `inoo.anchos.${tableroId}`;
+  const [anchos, setA] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try { setA(JSON.parse(localStorage.getItem(clave) ?? "{}")); } catch { setA({}); }
+  }, [clave]);
+  const cambiar = useCallback((f: (a: Record<string, number>) => Record<string, number>) => setA((a) => {
+    const n = f(a);
+    try { localStorage.setItem(clave, JSON.stringify(n)); } catch { /* sin almacenamiento: solo por esta visita */ }
+    return n;
+  }), [clave]);
+  return [anchos, cambiar];
 }
 
 // ───────────────────────────── agrupar, ordenar y lote (12 nov)
