@@ -14,6 +14,7 @@ import {
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
+import { automatizacionesDe, correrAutomatizaciones, MAX_AUTOMATIZACIONES_TABLERO, textoAutomatizacion, validarAutomatizacionTablero, type AutomatizacionTablero, type AvisoAutomatizacion } from "../dominio/automatizaciones-tablero";
 import { clientesDeTableros } from "../dominio/cliente-de-tablero";
 import { accionColumna, agregarColumna, borrarColumna, cambiarColumna, guardarValor, marcarCambio, type CambioColumna, type ColumnaIW, type Conectados, type Quien } from "../dominio/tableros";
 import { info, valorCalculado, type ItemCalc } from "../dominio/columnas";
@@ -182,8 +183,13 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     archivado: !!p.archived, archivadoEn: p.archivedAt ?? null,
     puedeDesarchivar: !!p.archived && editaProyecto(p, yo.empleadoId, yo.esAdmin),
     puedeBorrar: yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId),
+    // 13 nov: las automatizaciones del tablero («cuando X, hacer Y»), con su texto para leerlas.
+    automatizaciones: automatizacionesDe(p).map((a) => ({ ...a, texto: textoAutomatizacion(a, p) })),
   };
 }
+
+const hoyLima = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
+const estadosDe = (p: ProyectoIW) => new Map((p.items ?? []).map((i) => [i.id, i.status]));
 
 export function crearTableros(fallar: Fallar) {
   const protegido = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -391,20 +397,60 @@ export function crearTableros(fallar: Fallar) {
       }
       return { fechados, archivados };
     }),
-    crearItem: (id: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p, con) => {
-      validar(validarItem(b, p, true, con));
-      aplicarItem(p, b, null, quienDe(yo), con);
+    // 13 nov: después de cada cambio corren las automatizaciones del tablero; los avisos los manda la API.
+    crearItem: async (id: string, yo: Yo, b: CambioItem) => {
+      let avisos: AvisoAutomatizacion[] = [];
+      const t = await cambiar(id, yo, (p, con) => {
+        validar(validarItem(b, p, true, con));
+        const antes = estadosDe(p);
+        aplicarItem(p, b, null, quienDe(yo), con);
+        avisos = correrAutomatizaciones(p, antes, hoyLima(), quienDe(yo), con);
+      });
+      return t && { ...t, avisosAutomatizacion: avisos };
+    },
+    cambiarItem: async (id: string, itemId: string, yo: Yo, b: CambioItem) => {
+      let avisos: AvisoAutomatizacion[] = [];
+      const t = await cambiar(id, yo, (p, con) => {
+        item(p, itemId);
+        validar(validarItem(b, p, false, con, itemId));
+        const antes = estadosDe(p);
+        aplicarItem(p, b, itemId, quienDe(yo), con);
+        avisos = correrAutomatizaciones(p, antes, hoyLima(), quienDe(yo), con);
+      });
+      return t && { ...t, avisosAutomatizacion: avisos };
+    },
+    crearAutomatizacion: (id: string, yo: Yo, b: { cuando?: unknown; hacer?: unknown; activa?: unknown }) => cambiar(id, yo, (p) => {
+      validar(validarAutomatizacionTablero(b, p));
+      const xs = automatizacionesDe(p);
+      if (xs.length >= MAX_AUTOMATIZACIONES_TABLERO) validar([{ campo: "cuando", mensaje: `Hasta ${MAX_AUTOMATIZACIONES_TABLERO} automatizaciones por tablero` }]);
+      const a: AutomatizacionTablero = {
+        id: `auto-${crypto.randomUUID()}`, activa: b.activa !== false, cuando: b.cuando as AutomatizacionTablero["cuando"], hacer: b.hacer as AutomatizacionTablero["hacer"],
+        creadaPor: yo.nombre ?? null, creadaEn: new Date().toISOString(),
+      };
+      p.portalAutomatizaciones = [...xs, a];
     }),
-    cambiarItem: (id: string, itemId: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p, con) => {
-      item(p, itemId);
-      validar(validarItem(b, p, false, con, itemId));
-      aplicarItem(p, b, itemId, quienDe(yo), con);
+    cambiarAutomatizacion: (id: string, autoId: string, yo: Yo, b: { cuando?: unknown; hacer?: unknown; activa?: unknown }) => cambiar(id, yo, (p) => {
+      const xs = automatizacionesDe(p);
+      const a = xs.find((x) => x.id === autoId);
+      if (!a) throw fallar(404, "NO_ENCONTRADO", "No encontramos esa automatización");
+      validar(validarAutomatizacionTablero(b, p, true));
+      p.portalAutomatizaciones = xs.map((x) => (x.id === autoId ? {
+        ...x, ...(b.cuando !== undefined ? { cuando: b.cuando as AutomatizacionTablero["cuando"] } : {}), ...(b.hacer !== undefined ? { hacer: b.hacer as AutomatizacionTablero["hacer"] } : {}),
+        ...(typeof b.activa === "boolean" ? { activa: b.activa } : {}),
+      } : x));
+    }),
+    borrarAutomatizacion: (id: string, autoId: string, yo: Yo) => cambiar(id, yo, (p) => {
+      const xs = automatizacionesDe(p);
+      if (!xs.some((x) => x.id === autoId)) throw fallar(404, "NO_ENCONTRADO", "No encontramos esa automatización");
+      p.portalAutomatizaciones = xs.filter((x) => x.id !== autoId);
     }),
     /**
      * Acciones en lote (12 nov), como en Monday: el mismo cambio a varios ítems (estado, responsable, prioridad, fecha,
      * grupo) o borrarlos, en un solo guardado en InooWork.
      */
-    lote: (id: string, yo: Yo, b: { ids?: unknown; cambio?: unknown; borrar?: unknown }) => cambiar(id, yo, (p, con) => {
+    lote: async (id: string, yo: Yo, b: { ids?: unknown; cambio?: unknown; borrar?: unknown }) => {
+      let avisos: AvisoAutomatizacion[] = [];
+      const t = await cambiar(id, yo, (p, con) => {
       const ids = Array.isArray(b.ids) ? [...new Set(b.ids as unknown[])] : [];
       if (!ids.length || ids.length > 500 || ids.some((x) => typeof x !== "string")) validar([{ campo: "ids", mensaje: "Elige entre 1 y 500 ítems" }]);
       for (const x of ids as string[]) item(p, x);
@@ -416,8 +462,12 @@ export function crearTableros(fallar: Fallar) {
       if (typeof c !== "object" || c.nombre !== undefined || c.valores !== undefined) validar([{ campo: "cambio", mensaje: "En lote se cambia estado, responsable, prioridad, fecha o grupo" }]);
       if (!Object.keys(c).length) validar([{ campo: "cambio", mensaje: "Di qué cambiar" }]);
       validar(validarItem(c, p, false, con));
+      const antes = estadosDe(p);
       for (const x of ids as string[]) aplicarItem(p, c, x, quienDe(yo), con);
-    }),
+      avisos = correrAutomatizaciones(p, antes, hoyLima(), quienDe(yo), con);
+      });
+      return t && { ...t, avisosAutomatizacion: avisos };
+    },
     borrarItem: (id: string, itemId: string, yo: Yo) => cambiar(id, yo, (p) => {
       item(p, itemId);
       p.items = (p.items ?? []).filter((x) => x.id !== itemId);

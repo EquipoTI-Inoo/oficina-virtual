@@ -1666,16 +1666,35 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
   if (b.cliente !== undefined) b.cliente = asegurarClienteMock(ctx, b.cliente);
   return TABLEROS.cambiarProyecto(p.id, yoTablero(ctx), b);
 });
+function avisosAutomatizacionMock<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
+  const { avisosAutomatizacion, ...vista } = t;
+  for (const a of avisosAutomatizacion ?? []) {
+    avisarAsignacion(ctx, proyectoId, a.empleadoId, a.titulo, vista, a.itemId, a.motivo === "ASIGNADO" ? "Una automatización te asignó un ítem" : "Aviso de una automatización del tablero", a.motivo === "AVISO");
+  }
+  return vista;
+}
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  return avisosAutomatizacionMock(ctx, p.id, await TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req)));
+});
+ruta("POST", "/tableros/:id/automatizaciones", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return { __status: 201, ...(await TABLEROS.crearAutomatizacion(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req))) };
+});
+ruta("PATCH", "/tableros/:id/automatizaciones/:auto", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarAutomatizacion(p.id, p.auto, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("DELETE", "/tableros/:id/automatizaciones/:auto", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarAutomatizacion(p.id, p.auto, yoTablero(ctx));
 });
 /** 12 nov: a quien le asignan un ítem o subítem de un tablero le llega un aviso (nunca a uno mismo). */
-function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }, itemId?: string) {
+function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }, itemId?: string, encabezado?: string, aunqueSeaYo = false) {
   if (typeof empleadoId !== "string" || !empleadoId) return;
   const u = E.usuarios.find((x) => x.inooworkEmpleadoId === empleadoId && x.tipo === "EQUIPO" && x.activo !== false);
-  if (!u || u.id === ctx.usuario.id) return;
-  E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: u.id, titulo: `${ctx.usuario.nombre} te asignó un ítem`, cuerpo: `${titulo} (${tablero.nombre})`, enlace: `/equipo/proyectos/tableros/${proyectoId}${itemId ? `?item=${encodeURIComponent(itemId)}` : ""}`, creadoEn: new Date().toISOString() });
+  if (!u || (u.id === ctx.usuario.id && !aunqueSeaYo)) return;
+  E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: u.id, titulo: encabezado ?? `${ctx.usuario.nombre} te asignó un ítem`, cuerpo: `${titulo} (${tablero.nombre})`, enlace: `/equipo/proyectos/tableros/${proyectoId}${itemId ? `?item=${encodeURIComponent(itemId)}` : ""}`, creadoEn: new Date().toISOString() });
 }
 ruta("GET", "/mi-trabajo", async (ctx) => {
   soloEquipo(ctx);
@@ -1689,7 +1708,7 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const b = await cuerpo<Record<string, unknown>>(req);
-  const t = await TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), b);
+  const t = avisosAutomatizacionMock(ctx, p.id, await TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), b));
   if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t, p.item);
   return t;
 });
@@ -1704,7 +1723,7 @@ ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
 ruta("POST", "/tableros/:id/items-lote", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const b = await cuerpo<{ ids?: unknown; cambio?: { responsableId?: unknown } }>(req);
-  const t = await TABLEROS.lote(p.id, yoTablero(ctx), b as Record<string, unknown>);
+  const t = avisosAutomatizacionMock(ctx, p.id, await TABLEROS.lote(p.id, yoTablero(ctx), b as Record<string, unknown>));
   if (t && b.cambio?.responsableId && Array.isArray(b.ids)) for (const id of b.ids as string[]) avisarAsignacion(ctx, p.id, b.cambio.responsableId, t.items.find((i) => i.id === id)?.nombre ?? "Un ítem", t, id);
   return t;
 });

@@ -3343,6 +3343,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros/{proyectoId}/automatizaciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Nueva automatización del tablero (13 nov). Corre al crear un ítem o cuando cambia su estado; una acción no dispara otra */
+        post: operations["crearAutomatizacionTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/automatizaciones/{automatizacionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                automatizacionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una automatización del tablero */
+        delete: operations["borrarAutomatizacionTablero"];
+        options?: never;
+        head?: never;
+        /** Cambia, pausa o reanuda una automatización del tablero */
+        patch: operations["cambiarAutomatizacionTablero"];
+        trace?: never;
+    };
     "/tableros/{proyectoId}/items-lote": {
         parameters: {
             query?: never;
@@ -6348,6 +6388,32 @@ export interface components {
             puedeDesarchivar: boolean;
             puedeBorrar: boolean;
             puedeEditar: boolean;
+            /** @description 13 nov: «cuando X, hacer Y», como las recetas de Monday */
+            automatizaciones?: components["schemas"]["AutomatizacionTablero"][];
+        };
+        AutomatizacionTablero: {
+            id: string;
+            activa: boolean;
+            cuando: {
+                /** @enum {string} */
+                tipo: "CREADO" | "ESTADO";
+                /** @description Con ESTADO: el estado al que cambia */
+                estado?: string;
+            };
+            /** @description ASIGNAR y AVISAR llevan empleadoId (alguien del proyecto); MOVER_GRUPO, grupoId; PRIORIDAD, prioridad; FECHA, dias (0 a 365) */
+            hacer: {
+                /** @enum {string} */
+                tipo: "ASIGNAR" | "AVISAR" | "MOVER_GRUPO" | "PRIORIDAD" | "FECHA";
+                empleadoId?: string;
+                grupoId?: string;
+                prioridad?: string;
+                dias?: number;
+            };
+            /** @example Cuando el estado cambia a «En Revisión», avisar a Diego Castro */
+            texto: string;
+            creadaPor?: string | null;
+            /** Format: date-time */
+            creadaEn?: string;
         };
         CambioItemTablero: {
             nombre?: string;
@@ -15288,6 +15354,93 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    crearAutomatizacionTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cuando: Record<string, never>;
+                    hacer: Record<string, never>;
+                    activa?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarAutomatizacionTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                automatizacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarAutomatizacionTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                automatizacionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cuando?: Record<string, never>;
+                    hacer?: Record<string, never>;
+                    activa?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
         };
     };
     loteItemsTablero: {

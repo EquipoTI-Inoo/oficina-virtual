@@ -4845,6 +4845,60 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/automatizaciones:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: crearAutomatizacionTablero
+      summary: 'Nueva automatización del tablero (13 nov). Corre al crear un ítem o cuando cambia su estado; una acción no dispara otra'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cuando, hacer]
+              properties:
+                cuando: { type: object }
+                hacer: { type: object }
+                activa: { type: boolean }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tableros/{proyectoId}/automatizaciones/{automatizacionId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: automatizacionId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarAutomatizacionTablero
+      summary: 'Cambia, pausa o reanuda una automatización del tablero'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cuando: { type: object }
+                hacer: { type: object }
+                activa: { type: boolean }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    delete:
+      tags: [Tableros]
+      operationId: borrarAutomatizacionTablero
+      summary: 'Borra una automatización del tablero'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /tableros/{proyectoId}/items-lote:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
@@ -8098,6 +8152,32 @@ components:
         puedeDesarchivar: { type: boolean }
         puedeBorrar: { type: boolean }
         puedeEditar: { type: boolean }
+        automatizaciones: { type: array, items: { $ref: '#/components/schemas/AutomatizacionTablero' }, description: '13 nov: «cuando X, hacer Y», como las recetas de Monday' }
+    AutomatizacionTablero:
+      type: object
+      required: [id, activa, cuando, hacer, texto]
+      properties:
+        id: { type: string }
+        activa: { type: boolean }
+        cuando:
+          type: object
+          required: [tipo]
+          properties:
+            tipo: { type: string, enum: [CREADO, ESTADO] }
+            estado: { type: string, description: 'Con ESTADO: el estado al que cambia' }
+        hacer:
+          type: object
+          required: [tipo]
+          description: 'ASIGNAR y AVISAR llevan empleadoId (alguien del proyecto); MOVER_GRUPO, grupoId; PRIORIDAD, prioridad; FECHA, dias (0 a 365)'
+          properties:
+            tipo: { type: string, enum: [ASIGNAR, AVISAR, MOVER_GRUPO, PRIORIDAD, FECHA] }
+            empleadoId: { type: string }
+            grupoId: { type: string }
+            prioridad: { type: string }
+            dias: { type: integer }
+        texto: { type: string, examples: ['Cuando el estado cambia a «En Revisión», avisar a Diego Castro'] }
+        creadaPor: { type: [string, 'null'] }
+        creadaEn: { type: string, format: date-time }
     CambioItemTablero:
       type: object
       properties:

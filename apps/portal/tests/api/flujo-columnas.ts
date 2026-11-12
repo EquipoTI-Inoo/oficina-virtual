@@ -92,6 +92,39 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       }
     });
 
+    test("13 nov: automatizaciones del tablero: al crear un ítem lo asignan; al cambiar de estado avisan", async () => {
+      await reiniciar();
+      const t0 = (await llamar("GET", `/tableros/${T}`, DIEGO)).json;
+      const camila = t0.personas.find((p: any) => p.nombre === "Camila Paredes").id;
+      const malo = await llamar("POST", `/tableros/${T}/automatizaciones`, DIEGO, { cuando: { tipo: "ESTADO", estado: "Hecho" }, hacer: { tipo: "AVISAR", empleadoId: "EMP-999" } });
+      assert.deepEqual(malo.json.errores.map((e: any) => e.campo).sort(), ["cuando", "hacer"]);
+      const a1 = await llamar("POST", `/tableros/${T}/automatizaciones`, DIEGO, { cuando: { tipo: "ESTADO", estado: "En Revisión" }, hacer: { tipo: "AVISAR", empleadoId: camila } });
+      assert.equal(a1.status, 201);
+      assert.equal(a1.json.automatizaciones[0].texto, "Cuando el estado cambia a «En Revisión», avisar a Camila Paredes");
+      await llamar("POST", `/tableros/${T}/automatizaciones`, DIEGO, { cuando: { tipo: "CREADO" }, hacer: { tipo: "ASIGNAR", empleadoId: camila } });
+      await llamar("POST", `/tableros/${T}/automatizaciones`, DIEGO, { cuando: { tipo: "CREADO" }, hacer: { tipo: "FECHA", dias: 3 } });
+
+      const r = await llamar("PATCH", `/tableros/${T}/items/item-mkt-1`, DIEGO, { estado: "En Revisión" });
+      assert.equal(r.json.avisosAutomatizacion, undefined, "los avisos no salen en la respuesta");
+      let avisos = (await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.map((n: any) => n.titulo);
+      assert.ok(avisos.includes("Aviso de una automatización del tablero"));
+
+      const nuevo = (await llamar("POST", `/tableros/${T}/items`, DIEGO, { nombre: "Pieza para la campaña", grupoId: t0.grupos[0].id })).json.items.find((i: any) => i.nombre === "Pieza para la campaña");
+      assert.equal(nuevo.responsable?.id, camila, "la automatización lo asignó");
+      assert.ok(nuevo.fecha, "y le puso fecha límite");
+      avisos = (await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.map((n: any) => n.titulo);
+      assert.ok(avisos.includes("Una automatización te asignó un ítem"));
+
+      // Pausada no corre; borrada desaparece.
+      const id = a1.json.automatizaciones[0].id;
+      assert.equal((await llamar("PATCH", `/tableros/${T}/automatizaciones/${id}`, DIEGO, { activa: false })).json.automatizaciones.find((x: any) => x.id === id).activa, false);
+      const antes = (await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.length;
+      await llamar("PATCH", `/tableros/${T}/items/item-mkt-2`, DIEGO, { estado: "En Revisión" });
+      assert.equal((await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.length, antes);
+      assert.equal((await llamar("DELETE", `/tableros/${T}/automatizaciones/${id}`, DIEGO)).json.automatizaciones.length, 2);
+      assert.equal((await llamar("DELETE", `/tableros/${T}/automatizaciones/${id}`, DIEGO)).status, 404);
+    });
+
     test("actualizaciones del ítem: escribir, responder y mencionar avisan en la campana", async () => {
       await reiniciar();
       const ruta = `/tableros/${T}/items/item-mkt-1/actualizaciones`;

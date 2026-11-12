@@ -5311,17 +5311,38 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
   if (b.cliente !== undefined) b.cliente = await asegurarClienteDb(ctx, b.cliente);
   return TABLEROS.cambiarProyecto(p.id, await yoTablero(ctx), b);
 });
+/** 13 nov: los avisos que piden las automatizaciones del tablero (asignar o avisar a alguien). */
+async function avisosAutomatizacionDb<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
+  const { avisosAutomatizacion, ...vista } = t;
+  for (const a of avisosAutomatizacion ?? []) {
+    await avisarAsignacion(ctx, proyectoId, a.empleadoId, a.titulo, vista, a.itemId, a.motivo === "ASIGNADO" ? "Una automatización te asignó un ítem" : "Aviso de una automatización del tablero", a.motivo === "AVISO");
+  }
+  return vista;
+}
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  return TABLEROS.crearItem(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+  return avisosAutomatizacionDb(ctx, p.id, await TABLEROS.crearItem(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>));
+});
+// 13 nov: automatizaciones del tablero («cuando X, hacer Y»).
+ruta("POST", "/tableros/:id/automatizaciones", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return { __status: 201, ...(await TABLEROS.crearAutomatizacion(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>)) };
+});
+ruta("PATCH", "/tableros/:id/automatizaciones/:auto", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarAutomatizacion(p.id, p.auto, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+});
+ruta("DELETE", "/tableros/:id/automatizaciones/:auto", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrarAutomatizacion(p.id, p.auto, await yoTablero(ctx));
 });
 /** 12 nov: a quien le asignan un ítem o subítem de un tablero le llega un aviso (nunca a uno mismo). */
-async function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }, itemId?: string) {
+async function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }, itemId?: string, encabezado?: string, aunqueSeaYo = false) {
   if (typeof empleadoId !== "string" || !empleadoId) return;
   const u = (await ctx.c.query<{ id: string }>("SELECT id FROM usuario WHERE inoowork_empleado_id = $1 AND activo AND tipo = 'EQUIPO' LIMIT 1", [empleadoId])).rows[0];
-  if (!u || u.id === ctx.u.usuarioId) return;
+  if (!u || (u.id === ctx.u.usuarioId && !aunqueSeaYo)) return;
   await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)",
-    [u.id, ctx.u.usuarioId, `${ctx.u.nombre ?? "Alguien"} te asignó un ítem`.slice(0, 200), `${titulo} (${tablero.nombre})`.slice(0, 500), `/equipo/proyectos/tableros/${proyectoId}${itemId ? `?item=${encodeURIComponent(itemId)}` : ""}`]);
+    [u.id, ctx.u.usuarioId, (encabezado ?? `${ctx.u.nombre ?? "Alguien"} te asignó un ítem`).slice(0, 200), `${titulo} (${tablero.nombre})`.slice(0, 500), `/equipo/proyectos/tableros/${proyectoId}${itemId ? `?item=${encodeURIComponent(itemId)}` : ""}`]);
 }
 ruta("GET", "/mi-trabajo", async (ctx) => {
   soloEquipo(ctx);
@@ -5338,7 +5359,7 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const b = (await cuerpo()) as Record<string, unknown>;
-  const t = await TABLEROS.cambiarItem(p.id, p.item, await yoTablero(ctx), b);
+  const t = await avisosAutomatizacionDb(ctx, p.id, await TABLEROS.cambiarItem(p.id, p.item, await yoTablero(ctx), b));
   if (b.responsableId) await avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t, p.item);
   return t;
 });
@@ -5353,7 +5374,7 @@ ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
 ruta("POST", "/tableros/:id/items-lote", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const b = (await cuerpo()) as { ids?: unknown; cambio?: { responsableId?: unknown } };
-  const t = await TABLEROS.lote(p.id, await yoTablero(ctx), b as Record<string, unknown>);
+  const t = await avisosAutomatizacionDb(ctx, p.id, await TABLEROS.lote(p.id, await yoTablero(ctx), b as Record<string, unknown>));
   // 13 nov (auditoría): asignar en lote también avisa (un aviso por ítem).
   if (t && b.cambio?.responsableId && Array.isArray(b.ids)) {
     for (const id of b.ids as string[]) await avisarAsignacion(ctx, p.id, b.cambio.responsableId, t.items.find((i) => i.id === id)?.nombre ?? "Un ítem", t, id);
