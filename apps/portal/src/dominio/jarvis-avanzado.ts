@@ -63,6 +63,8 @@ export function validarRutina(b: Record<string, unknown>, parcial = false): Erro
   return e;
 }
 
+export const TOPE_DIARIO_AUTOMATIZACION = 20;
+
 /** Lima no tiene horario de verano: siempre UTC−5. */
 const LIMA_MS = 5 * 3_600_000;
 
@@ -124,6 +126,9 @@ export function validarAutomatizacion(b: Record<string, unknown>, parcial = fals
   if ((!parcial || b.evento !== undefined) && !esEventoJarvis(b.evento)) e.push({ campo: "evento", mensaje: "Elige qué la dispara" });
   if ((!parcial || b.pedido !== undefined) && !texto(b.pedido, 4000)) e.push({ campo: "pedido", mensaje: "Escribe qué tiene que hacer (hasta 4000 caracteres)" });
   if (b.activa !== undefined && typeof b.activa !== "boolean") e.push({ campo: "activa", mensaje: "Debe ser verdadero o falso" });
+  // 13 nov (auditoría): solo los eventos de un cliente y un tope por día.
+  if (b.clienteId !== undefined && b.clienteId !== null && typeof b.clienteId !== "string") e.push({ campo: "clienteId", mensaje: "Elige un cliente o todos" });
+  if (b.topeDiario !== undefined && !(Number.isInteger(b.topeDiario) && (b.topeDiario as number) >= 1 && (b.topeDiario as number) <= 500)) e.push({ campo: "topeDiario", mensaje: "Entre 1 y 500 veces por día" });
   return e;
 }
 

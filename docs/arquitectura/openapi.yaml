@@ -7411,6 +7411,9 @@ components:
         ultima: { oneOf: [ { $ref: '#/components/schemas/EjecucionJarvis' }, { type: 'null' } ] }
         creadoPor: { $ref: '#/components/schemas/PersonaMini' }
         puedeEditar: { type: boolean }
+        cliente: { oneOf: [ { type: object, required: [id, nombre], properties: { id: { type: string, format: uuid }, nombre: { type: string } } }, { type: 'null' } ], description: '13 nov: solo los eventos de este cliente la disparan; null = de todos' }
+        topeDiario: { type: integer, description: '13 nov: cuántas veces puede correr por día (hora de Lima)' }
+        ejecucionesHoy: { type: integer }
 
     AutomatizacionJarvisEntrada:
       type: object
@@ -7421,6 +7424,8 @@ components:
         evento: { type: string }
         pedido: { type: string, maxLength: 4000 }
         activa: { type: boolean }
+        clienteId: { type: [string, 'null'], format: uuid, description: '13 nov: null = eventos de todos los clientes' }
+        topeDiario: { type: integer, minimum: 1, maximum: 500, description: '13 nov: por defecto 20' }
 
     ActividadJarvis:
       type: object

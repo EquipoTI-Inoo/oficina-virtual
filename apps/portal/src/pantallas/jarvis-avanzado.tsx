@@ -390,7 +390,8 @@ function Automatizaciones({ espacio, bots, alAbrirChat }: { espacio: string | nu
               <strong className="fila" style={{ gap: 6 }}><LuZap size={15} /> {x.nombre}</strong>
               {!x.activa && <Etiqueta tono="gris">En pausa</Etiqueta>}
             </span>
-            <p className="texto-xs texto-muted">{x.bot.nombre} · cuando «{x.eventoNombre.toLowerCase()}»</p>
+            <p className="texto-xs texto-muted">{x.bot.nombre} · cuando «{x.eventoNombre.toLowerCase()}»{x.cliente ? ` · solo ${x.cliente.nombre}` : ""}</p>
+            {x.topeDiario != null && <p className="texto-xs texto-muted">Hoy corrió {x.ejecucionesHoy ?? 0} de {x.topeDiario} veces como máximo</p>}
             <p className="texto-sm" style={{ whiteSpace: "pre-wrap", maxHeight: 60, overflow: "hidden" }}>{x.pedido}</p>
             <UltimaEjecucion e={x.ultima} alAbrirChat={alAbrirChat} />
             {x.puedeEditar && (
@@ -416,12 +417,16 @@ function EditorAutomatizacion({ a, espacio, bots, alCerrar, alGuardar }: { a: S<
   const [nombre, setNombre] = useState(a?.nombre ?? "");
   const [evento, setEvento] = useState(a?.evento ?? "cliente.creado");
   const [pedido, setPedido] = useState(a?.pedido ?? "");
+  // 13 nov (auditoría): de un solo cliente (o de todos) y con un tope por día para no disparar decenas de ejecuciones.
+  const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes");
+  const [clienteId, setClienteId] = useState(a?.cliente?.id ?? "");
+  const [tope, setTope] = useState(String(a?.topeDiario ?? 20));
   const [err, setErr] = useState<Record<string, string>>({});
   const avisar = useAviso();
   const guardar = async (e: FormEvent) => {
     e.preventDefault();
     setErr({});
-    const cuerpo = { nombre, evento, pedido, ...(a ? {} : { botId, ...(espacio ? { area: espacio } : {}) }) };
+    const cuerpo = { nombre, evento, pedido, clienteId: clienteId || null, topeDiario: Number(tope), ...(a ? {} : { botId, ...(espacio ? { area: espacio } : {}) }) };
     try {
       if (a) await api(`/jarvis/automatizaciones/${a.id}`, { metodo: "PATCH", cuerpo });
       else await api("/jarvis/automatizaciones", { metodo: "POST", cuerpo });
@@ -449,6 +454,17 @@ function EditorAutomatizacion({ a, espacio, bots, alCerrar, alGuardar }: { a: S<
           </select>
         </Campo>
         <Campo id="au-pedido" etiqueta="…el bot hace esto" error={err.pedido}><textarea id="au-pedido" rows={4} value={pedido} onChange={(e) => setPedido(e.target.value)} /></Campo>
+        <div className="grid-2" style={{ gap: 10 }}>
+          <Campo id="au-cliente" etiqueta="De qué cliente" error={err.clienteId}>
+            <select id="au-cliente" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+              <option value="">De todos los clientes</option>
+              {(clientes.datos?.datos ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </Campo>
+          <Campo id="au-tope" etiqueta="Máximo de veces por día" error={err.topeDiario}>
+            <input id="au-tope" type="number" min={1} max={500} value={tope} onChange={(e) => setTope(e.target.value)} />
+          </Campo>
+        </div>
         <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
           <button type="button" className="boton" onClick={alCerrar}>Cancelar</button>
           <button type="submit" className="boton boton--primario">Guardar</button>

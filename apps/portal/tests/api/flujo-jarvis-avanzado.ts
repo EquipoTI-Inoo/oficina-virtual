@@ -162,6 +162,24 @@ export function pruebasJarvisAvanzado(nombre: string, manejar: Manejador, reinic
       assert.equal(act.ejecuciones[0].nombre, "Bienvenida");
     });
 
+    test("13 nov: una automatización puede ser de un solo cliente y tiene tope diario", async () => {
+      await reiniciar();
+      const CASA = uid(2, 1);
+      assert.deepEqual((await llamar("POST", "/jarvis/automatizaciones", DIEGO, { botId: BOT_CRM, nombre: "x", evento: "cliente.creado", pedido: "x", topeDiario: 0 })).json.errores.map((e: any) => e.campo), ["topeDiario"]);
+      assert.deepEqual((await llamar("POST", "/jarvis/automatizaciones", DIEGO, { botId: BOT_CRM, nombre: "x", evento: "cliente.creado", pedido: "x", clienteId: uid(2, 99) })).json.errores.map((e: any) => e.campo), ["clienteId"]);
+      const soloCasa = (await llamar("POST", "/jarvis/automatizaciones", DIEGO, { botId: BOT_CRM, nombre: "Solo Casa Oliva", evento: "cliente.creado", pedido: "Revisa.", clienteId: CASA })).json;
+      assert.deepEqual([soloCasa.cliente?.nombre, soloCasa.topeDiario, soloCasa.ejecucionesHoy], ["Casa Oliva", 20, 0]);
+      await llamar("POST", "/clientes", DIEGO, { nombre: "Ferretería Sol", contacto: { nombre: "Ana Sol", email: "ana@ferresol.pe" } });
+      assert.equal((await llamar("POST", "/integraciones/jarvis/ejecutar", undefined, {}, N8N)).json.hechas, 0, "el evento de otro cliente no la dispara");
+
+      const tope = (await llamar("POST", "/jarvis/automatizaciones", DIEGO, { botId: BOT_CRM, nombre: "Pedidos", evento: "requerimiento.creado", pedido: "Revisa el pedido.", topeDiario: 1 })).json;
+      for (let i = 0; i < 3; i++) await llamar("POST", `/clientes/${CASA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: uid(4, 4) });
+      const vista = (await llamar("GET", "/jarvis/automatizaciones", DIEGO)).json.datos.find((x: any) => x.id === tope.id);
+      assert.equal(vista.ejecucionesHoy, 1, "tres eventos, una sola ejecución por el tope");
+      const sinCliente = (await llamar("PATCH", `/jarvis/automatizaciones/${soloCasa.id}`, DIEGO, { clienteId: null, topeDiario: 5 })).json;
+      assert.deepEqual([sinCliente.cliente, sinCliente.topeDiario], [null, 5]);
+    });
+
     test("biblioteca: guarda lo que generó un bot en su área; lo saca quien lo guardó, el lead o un ADMIN", async () => {
       await reiniciar();
       assert.equal((await llamar("POST", "/jarvis/biblioteca", DIEGO, { botId: BOT_CRM, titulo: "", contenido: "" })).status, 422);

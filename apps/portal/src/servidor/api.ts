@@ -41,7 +41,7 @@ import { baseDatos, comoUsuario, type Consultor } from "./db";
 import { AREAS, NOMBRE_AREA, consumoArea, diaYMesLima, esArea, MODELOS_JARVIS, PREFIJO_LLAVE, esSesionConfiguracion, sesionConfiguracion, sistemaDelBot, validarBot, validarTopes, espaciosJarvis, nombreEspacio, areaDelEspacio, type EspacioJarvis, type Area } from "../dominio/ia-equipo";
 import { completarEquipo, pasarelaIa, type AlmacenPasarela } from "./pasarela-ia";
 import { contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, pedirAlBot, validarChat } from "./jarvis-chat";
-import { archivoBiblioteca, EVENTOS_JARVIS, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
+import { archivoBiblioteca, EVENTOS_JARVIS, TOPE_DIARIO_AUTOMATIZACION, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { ErrorApi, problema, traducirErrorDb } from "./errores";
 import { aniversarioHoy, diasNoLaborables, enHorarioDeAtencion, siguienteApertura } from "../dominio/calendario";
 import { aliasDeCorreo, areaDeDepartamento, cambiosDesdeEmpleado, correosRepetidos, errorReportaA, textoAreasLideradas, correoValido as correoValidoPersona, ROL_DEL_AREA, ROL_SIN_AREA, validarNuevaPersona, validarPersonaEquipo, departamentoDe, type CambioPersona } from "../dominio/personas-equipo";
@@ -3382,13 +3382,17 @@ ruta("GET", "/jarvis/eventos", async (ctx) => {
 
 interface FilaAutomatizacion {
   id: string; bot_id: string; bot_nombre: string; espacio: string; nombre: string; evento: string; pedido: string; activa: boolean; creado_por: string;
+  cliente_id: string | null; cliente_nombre: string | null; tope_diario: number; hoy: number;
   cp_nombre: string; cp_cargo: string | null; cp_email: string | null;
 }
 const SELECT_AUTOMATIZACION = `SELECT a.id, a.bot_id, b.nombre AS bot_nombre, (CASE WHEN b.seccion = 'GERENCIA' THEN 'GERENCIA' ELSE b.area::text END) AS espacio, a.nombre, a.evento,
-  a.pedido, a.activa, a.creado_por, u.nombre AS cp_nombre, u.cargo AS cp_cargo, u.email::text AS cp_email
+  a.pedido, a.activa, a.creado_por, u.nombre AS cp_nombre, u.cargo AS cp_cargo, u.email::text AS cp_email,
+  a.cliente_id, (SELECT nombre FROM cliente WHERE id = a.cliente_id) AS cliente_nombre, a.tope_diario,
+  (SELECT count(*)::int FROM ejecucion_jarvis x WHERE x.automatizacion_id = a.id AND (x.creado_en AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date) AS hoy
   FROM automatizacion_jarvis a JOIN bot_jarvis b ON b.id = a.bot_id JOIN usuario u ON u.id = a.creado_por`;
 const automatizacionVistaDb = (ctx: Ctx, a: FilaAutomatizacion, ultima: S<"EjecucionJarvis"> | null): S<"AutomatizacionJarvis"> => ({
   id: a.id, bot: { id: a.bot_id, nombre: a.bot_nombre }, nombre: a.nombre, evento: a.evento, eventoNombre: EVENTOS_JARVIS[a.evento] ?? a.evento, pedido: a.pedido, activa: a.activa, ultima,
+  cliente: a.cliente_id ? { id: a.cliente_id, nombre: a.cliente_nombre ?? "" } : null, topeDiario: a.tope_diario, ejecucionesHoy: Number(a.hoy),
   creadoPor: personaMiniDb(a.creado_por, a.cp_nombre, a.cp_cargo, a.cp_email), puedeEditar: puedeEditarEnEspacioDb(ctx, a.espacio, a.creado_por),
 });
 async function automatizacionDb(ctx: Ctx, id: string) {
@@ -3400,6 +3404,16 @@ async function automatizacionDb(ctx: Ctx, id: string) {
 async function automatizacionCompletaDb(ctx: Ctx, id: string) {
   const a = await automatizacionDb(ctx, id);
   return automatizacionVistaDb(ctx, a, (await ultimasEjecucionesDb(ctx.c, "automatizacion_id", [a.id])).get(a.id) ?? null);
+}
+
+/** El cliente de una automatización: undefined si no viene, null para «todos», o uno que quien la crea puede ver. */
+async function clienteDeAutomatizacionDb(ctx: Ctx, v: unknown): Promise<string | null | undefined> {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  if (typeof v !== "string" || !esUuid(v) || !(await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1", [v])).rows.length) {
+    errores422([{ campo: "clienteId", mensaje: "Ese cliente no existe" }]);
+  }
+  return v as string;
 }
 
 ruta("GET", "/jarvis/automatizaciones", async (ctx, _p, q) => {
@@ -3416,9 +3430,10 @@ ruta("POST", "/jarvis/automatizaciones", async (ctx, _p, _q, cuerpo) => {
   const b = (await cuerpo()) as Record<string, unknown>;
   errores422(validarAutomatizacion(b));
   const bot = await botPropioDb(ctx, b.botId, typeof b.area === "string" ? b.area : null);
+  const cliente = await clienteDeAutomatizacionDb(ctx, b.clienteId);
   const { rows } = await ctx.c.query<{ id: string }>(
-    "INSERT INTO automatizacion_jarvis (bot_id, nombre, evento, pedido, activa, creado_por) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-    [bot.id, (b.nombre as string).trim(), b.evento, (b.pedido as string).trim(), b.activa !== false, ctx.u.usuarioId],
+    "INSERT INTO automatizacion_jarvis (bot_id, nombre, evento, pedido, activa, creado_por, cliente_id, tope_diario) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+    [bot.id, (b.nombre as string).trim(), b.evento, (b.pedido as string).trim(), b.activa !== false, ctx.u.usuarioId, cliente ?? null, (b.topeDiario as number | undefined) ?? TOPE_DIARIO_AUTOMATIZACION],
   );
   return { __status: 201, ...(await automatizacionCompletaDb(ctx, rows[0].id)) };
 });
@@ -3428,9 +3443,12 @@ ruta("PATCH", "/jarvis/automatizaciones/:id", async (ctx, p, _q, cuerpo) => {
   if (!puedeEditarEnEspacioDb(ctx, a.espacio, a.creado_por)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien creó la automatización, el lead del área o un ADMIN la cambia");
   const b = (await cuerpo()) as Record<string, unknown>;
   errores422(validarAutomatizacion(b, true));
+  const cliente = await clienteDeAutomatizacionDb(ctx, b.clienteId);
   await ctx.c.query(
-    "UPDATE automatizacion_jarvis SET nombre = coalesce($2, nombre), evento = coalesce($3, evento), pedido = coalesce($4, pedido), activa = coalesce($5, activa) WHERE id = $1",
-    [a.id, typeof b.nombre === "string" ? b.nombre.trim() : null, (b.evento as string) ?? null, typeof b.pedido === "string" ? b.pedido.trim() : null, typeof b.activa === "boolean" ? b.activa : null],
+    `UPDATE automatizacion_jarvis SET nombre = coalesce($2, nombre), evento = coalesce($3, evento), pedido = coalesce($4, pedido), activa = coalesce($5, activa),
+            cliente_id = CASE WHEN $6 THEN $7::uuid ELSE cliente_id END, tope_diario = coalesce($8, tope_diario) WHERE id = $1`,
+    [a.id, typeof b.nombre === "string" ? b.nombre.trim() : null, (b.evento as string) ?? null, typeof b.pedido === "string" ? b.pedido.trim() : null, typeof b.activa === "boolean" ? b.activa : null,
+      b.clienteId !== undefined, cliente ?? null, (b.topeDiario as number | undefined) ?? null],
   );
   return automatizacionCompletaDb(ctx, a.id);
 });

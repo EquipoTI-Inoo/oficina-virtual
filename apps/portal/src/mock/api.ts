@@ -10,7 +10,7 @@
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
 import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
-import { contextoDeEvento, EVENTOS_JARVIS, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
+import { contextoDeEvento, EVENTOS_JARVIS, TOPE_DIARIO_AUTOMATIZACION, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { components } from "../api/tipos-api";
 import * as D from "./datos";
@@ -145,7 +145,7 @@ interface Estado {
   conectoresJarvis: { id: string; nombre: string; descripcion: string; url: string | null; espacios: string[]; estado: EstadoConector }[];
   botConector: { botId: string; conectorId: string }[];
   rutinasJarvis: { id: string; botId: string; nombre: string; pedido: string; frecuencia: Frecuencia; hora: string; diaSemana: number | null; diaMes: number | null; activa: boolean; proximaEn: string; creadoPorId: string }[];
-  automatizacionesJarvis: { id: string; botId: string; nombre: string; evento: string; pedido: string; activa: boolean; creadoPorId: string }[];
+  automatizacionesJarvis: { id: string; botId: string; nombre: string; evento: string; pedido: string; activa: boolean; creadoPorId: string; clienteId?: string | null; topeDiario?: number }[];
   ejecucionesJarvis: { id: string; botId: string; rutinaId: string | null; automatizacionId: string | null; usuarioId: string; pedido: string; contexto: Record<string, unknown>; esAuto: boolean;
     estado: "PENDIENTE" | "EN_CURSO" | "HECHA" | "FALLIDA"; sesionId: string | null; error: string | null; creadoEn: string; terminadoEn: string | null }[];
   /** Conexiones personales (9 nov): «usuario:proveedor» → cuenta; y los «state» de OAuth pendientes. */
@@ -4251,7 +4251,19 @@ type AutomatizacionMock = Estado["automatizacionesJarvis"][number];
 const automatizacionVista = (ctx: Ctx, a: AutomatizacionMock): S<"AutomatizacionJarvis"> => ({
   id: a.id, bot: botMini(a.botId), nombre: a.nombre, evento: a.evento, eventoNombre: EVENTOS_JARVIS[a.evento] ?? a.evento, pedido: a.pedido, activa: a.activa,
   ultima: ultimaDe("automatizacionId", a.id), creadoPor: persona(a.creadoPorId)!, puedeEditar: puedeEditarEnEspacio(ctx, espacioDeBotId(a.botId) ?? "", a.creadoPorId),
+  cliente: a.clienteId ? { id: a.clienteId, nombre: E.clientes.find((c) => c.id === a.clienteId)?.nombre ?? "" } : null,
+  topeDiario: a.topeDiario ?? TOPE_DIARIO_AUTOMATIZACION, ejecucionesHoy: ejecucionesHoyDe(a.id),
 });
+const ejecucionesHoyDe = (id: string) => {
+  const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
+  return E.ejecucionesJarvis.filter((x) => x.automatizacionId === id && new Date(x.creadoEn).toLocaleDateString("en-CA", { timeZone: "America/Lima" }) === hoy).length;
+};
+function clienteDeAutomatizacion(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  if (typeof v !== "string" || !E.clientes.some((c) => c.id === v)) validar422([{ campo: "clienteId", mensaje: "Ese cliente no existe" }]);
+  return v as string;
+}
 function automatizacionMock(ctx: Ctx, id: string) {
   soloEquipo(ctx);
   const a = E.automatizacionesJarvis.find((x) => x.id === id);
@@ -4261,7 +4273,9 @@ function automatizacionMock(ctx: Ctx, id: string) {
 }
 /** Lo que hace el trigger de la base (0049): cada evento crea las ejecuciones de las automatizaciones que lo esperan. */
 function automatizarEvento(tipo: string, clienteId: string | null, datos: Record<string, unknown>) {
-  const xs = E.automatizacionesJarvis.filter((a) => a.activa && a.evento === tipo && E.usuarios.find((u) => u.id === a.creadoPorId)?.activo !== false);
+  // 13 nov: como el trigger de 0055: solo los eventos de su cliente (si tiene) y hasta su tope del día.
+  const xs = E.automatizacionesJarvis.filter((a) => a.activa && a.evento === tipo && E.usuarios.find((u) => u.id === a.creadoPorId)?.activo !== false
+    && (!a.clienteId || a.clienteId === clienteId) && ejecucionesHoyDe(a.id) < (a.topeDiario ?? TOPE_DIARIO_AUTOMATIZACION));
   for (const a of xs) nuevaEjecucion({ botId: a.botId, rutinaId: null, automatizacionId: a.id, usuarioId: a.creadoPorId, pedido: a.pedido, contexto: contextoDeEvento(tipo, clienteId, datos), esAuto: true });
 }
 
@@ -4279,7 +4293,8 @@ ruta("POST", "/jarvis/automatizaciones", async (ctx, _p, _q, req) => {
   const b = await cuerpo<Record<string, unknown>>(req);
   validar422(validarAutomatizacion(b));
   const bot = botPropio(ctx, b.botId, typeof b.area === "string" ? b.area : null);
-  const a: AutomatizacionMock = { id: nuevoId(44), botId: bot.id, nombre: (b.nombre as string).trim(), evento: b.evento as string, pedido: (b.pedido as string).trim(), activa: b.activa !== false, creadoPorId: ctx.usuario.id };
+  const a: AutomatizacionMock = { id: nuevoId(44), botId: bot.id, nombre: (b.nombre as string).trim(), evento: b.evento as string, pedido: (b.pedido as string).trim(), activa: b.activa !== false, creadoPorId: ctx.usuario.id,
+    clienteId: clienteDeAutomatizacion(b.clienteId) ?? null, topeDiario: (b.topeDiario as number | undefined) ?? TOPE_DIARIO_AUTOMATIZACION };
   E.automatizacionesJarvis.push(a);
   return { __status: 201, ...automatizacionVista(ctx, a) };
 });
@@ -4292,6 +4307,8 @@ ruta("PATCH", "/jarvis/automatizaciones/:id", async (ctx, p, _q, req) => {
   if (typeof b.evento === "string") a.evento = b.evento;
   if (typeof b.pedido === "string") a.pedido = b.pedido.trim();
   if (typeof b.activa === "boolean") a.activa = b.activa;
+  if (b.clienteId !== undefined) a.clienteId = clienteDeAutomatizacion(b.clienteId) ?? null;
+  if (typeof b.topeDiario === "number") a.topeDiario = b.topeDiario;
   return automatizacionVista(ctx, a);
 });
 ruta("DELETE", "/jarvis/automatizaciones/:id", (ctx, p) => {

@@ -5615,6 +5615,15 @@ export interface components {
             ultima: components["schemas"]["EjecucionJarvis"] | null;
             creadoPor: components["schemas"]["PersonaMini"];
             puedeEditar: boolean;
+            /** @description 13 nov: solo los eventos de este cliente la disparan; null = de todos */
+            cliente?: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+            } | null;
+            /** @description 13 nov: cuántas veces puede correr por día (hora de Lima) */
+            topeDiario?: number;
+            ejecucionesHoy?: number;
         };
         AutomatizacionJarvisEntrada: {
             /**
@@ -5628,6 +5637,13 @@ export interface components {
             evento?: string;
             pedido?: string;
             activa?: boolean;
+            /**
+             * Format: uuid
+             * @description 13 nov: null = eventos de todos los clientes
+             */
+            clienteId?: string | null;
+            /** @description 13 nov: por defecto 20 */
+            topeDiario?: number;
         };
         ActividadJarvis: {
             /** @description Las últimas 50 */
