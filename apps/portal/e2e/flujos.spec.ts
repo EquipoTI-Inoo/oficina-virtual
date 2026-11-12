@@ -244,6 +244,7 @@ test("proyectos: del pipeline al proyecto, crear una tarea, moverla y mencionar 
   const espera = page.locator(".pipeline-columna", { hasText: "Esperando al cliente" });
   await expect(espera.getByText("Implementación de CRM - Casa Oliva")).toBeVisible({ timeout: 20_000 });
   await page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ }).click();
+  await page.getByRole("tab", { name: "Tareas" }).click({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "Tareas del equipo" })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Nueva tarea" }).click();
   await page.fill("#nt-titulo", "Subir los 50 productos al catálogo");
@@ -276,7 +277,7 @@ test("entregables: el cliente revisa el flujograma en el visor y pide cambios; e
   await cliente.close();
   const equipo = await browser.newPage();
   await entrarComo(equipo, "equipo");
-  await equipo.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004");
+  await equipo.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004?pestana=entregables");
   const seccion = equipo.getByRole("region", { name: "Entregables del proyecto" });
   await seccion.getByRole("link", { name: /Prototipo del inicio y la ficha de producto/ }).click({ timeout: 30_000 });
   await equipo.getByRole("button", { name: "Enviar al cliente" }).click({ timeout: 30_000 });

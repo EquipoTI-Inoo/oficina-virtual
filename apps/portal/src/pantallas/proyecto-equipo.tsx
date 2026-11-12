@@ -42,15 +42,32 @@ export function PantallaProyectoEquipo() {
   );
 }
 
+type Pestana = "AVANCE" | "TAREAS" | "ENTREGABLES" | "COMENTARIOS";
+const PESTANAS: [Pestana, string][] = [["AVANCE", "Avance"], ["TAREAS", "Tareas"], ["ENTREGABLES", "Entregables"], ["COMENTARIOS", "Comentarios"]];
+
 function ProyectoEquipo() {
   const { params } = useNavegacion();
   const portalVolver = usePortal();
   const avisar = useAviso();
   const perfil = useConsulta<Perfil>(`/servicios-contratados/${params.id}`);
+  // El perfil calcula el estado por etapas; si ya se cerró (FINALIZADO) lo dice el cierre.
+  const cierre = useConsulta<S<"CierreProyecto">>(`/servicios-contratados/${params.id}/cierre`);
+  const cerrado = !!cierre.datos?.cerrado;
   const [paso, setPaso] = useState<string | null>(null);
   const [vista, setVista] = useState<VistaCronograma>("TABLA");
   const [versionBolsa, setVersionBolsa] = useState(0);
   const [cerrando, setCerrando] = useState(false);
+  // 13 nov (auditoría): el detalle era una sola columna muy larga; ahora va en pestañas (con ?pestana= para enlazar).
+  const [pestana, setPestana] = useState<Pestana>(() => {
+    const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("pestana")?.toUpperCase() : null;
+    return PESTANAS.some(([k]) => k === q) ? (q as Pestana) : "AVANCE";
+  });
+  const elegirPestana = (k: Pestana) => {
+    setPestana(k);
+    const u = new URL(window.location.href);
+    if (k === "AVANCE") u.searchParams.delete("pestana"); else u.searchParams.set("pestana", k.toLowerCase());
+    window.history.replaceState(window.history.state, "", u);
+  };
   const d = perfil.datos;
   if (perfil.error) return <ErrorCarga error={perfil.error} reintentar={perfil.recargar} />;
   if (!d) return <Cargando />;
@@ -58,6 +75,7 @@ function ProyectoEquipo() {
   const actualizar = async (cuerpo: Record<string, unknown>, aviso: string) => {
     try {
       perfil.setDatos(await api<Perfil>(`/servicios-contratados/${d.servicioContratadoId}`, { metodo: "PATCH", cuerpo }));
+      if ("estado" in cuerpo) void cierre.recargar();
       avisar({ titulo: aviso });
     } catch (e) {
       avisar({ titulo: "No se pudo guardar", texto: errorDe(e) });
@@ -101,6 +119,7 @@ function ProyectoEquipo() {
             setCerrando(false);
             avisar({ titulo: "Proyecto cerrado", texto: "El cliente ve tu mensaje y le llega el agradecimiento con la encuesta." });
             void perfil.recargar();
+            void cierre.recargar();
           }}
         />
       )}
@@ -109,7 +128,9 @@ function ProyectoEquipo() {
         titulo={d.titulo}
         accion={
           <span className="fila" style={{ gap: 10 }}>
-            <select className="input" aria-label="Estado del servicio" value={d.estado === "COMPLETADO" || d.estado === "EN_CURSO" || d.estado === "SIN_INICIAR" ? "ACTIVO" : d.estado} onChange={(e) => void actualizar({ estado: e.target.value }, "Estado actualizado")} style={{ width: 150 }}>
+            {/* 13 nov (auditoría): «Finalizado» y «Cerrar proyecto» eran dos caminos distintos; ahora finalizar es cerrar (con mensaje y encuesta). */}
+            <select className="input" aria-label="Estado del servicio" value={cerrado ? "FINALIZADO" : d.estado === "COMPLETADO" || d.estado === "EN_CURSO" || d.estado === "SIN_INICIAR" ? "ACTIVO" : d.estado}
+              onChange={(e) => (e.target.value === "FINALIZADO" ? setCerrando(true) : void actualizar({ estado: e.target.value }, "Estado actualizado"))} style={{ width: 150 }}>
               <option value="ACTIVO">Activo</option>
               <option value="PAUSADO">En pausa</option>
               <option value="STANDBY">Standby</option>
@@ -126,15 +147,22 @@ function ProyectoEquipo() {
             <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico" onClick={() => entrarComoCliente(d.clienteId)}>
               <LuExternalLink size={14} /> Ver como cliente
             </Enlace>
-            <button className="boton boton--chico" onClick={() => setCerrando(true)}>
-              <LuFlagTriangleRight size={14} /> Cerrar proyecto
-            </button>
+            {!cerrado && (
+              <button className="boton boton--chico" onClick={() => setCerrando(true)}>
+                <LuFlagTriangleRight size={14} /> Cerrar proyecto
+              </button>
+            )}
           </span>
         }
       />
       <div className="con-lateral">
         <div className="pila">
-          {esPorConsumo(d.codigo) ? (
+          <div className="segmentado" role="tablist" aria-label="Secciones del proyecto" style={{ justifySelf: "start" }}>
+            {PESTANAS.map(([k, t]) => (
+              <button key={k} role="tab" aria-selected={pestana === k} className={pestana === k ? "activo" : undefined} onClick={() => elegirPestana(k)}>{t}</button>
+            ))}
+          </div>
+          {pestana === "AVANCE" && (esPorConsumo(d.codigo) ? (
             <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 16 }}>
               <h2 className="tarjeta-titulo">Bolsa del mes</h2>
               <ConsumoDelServicio servicioId={d.servicioContratadoId} version={`${versionBolsa}-${JSON.stringify(d.detalle?.bolsa ?? {})}`} />
@@ -203,16 +231,16 @@ function ProyectoEquipo() {
               </div>
             </div>
           </section>
-          )}
-          {(d.codigo === "SOCIAL_MEDIA_PRO" || d.codigo === "PAID_MEDIA") && (
+          ))}
+          {pestana === "AVANCE" && (d.codigo === "SOCIAL_MEDIA_PRO" || d.codigo === "PAID_MEDIA") && (
             <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 14 }} aria-label="Piezas del mes">
               <h2 className="tarjeta-titulo">Piezas de {nombreMes(PERIODO_PORTAL)}</h2>
               <KanbanPiezas clienteId={d.clienteId} servicioId={d.servicioContratadoId} />
             </section>
           )}
-          <TareasDelProyecto servicioId={d.servicioContratadoId} etapas={d.etapas} />
-          <EntregablesEquipo servicioId={d.servicioContratadoId} etapas={d.etapas} />
-          <ComentariosEquipo servicioId={d.servicioContratadoId} />
+          {pestana === "TAREAS" && <TareasDelProyecto servicioId={d.servicioContratadoId} etapas={d.etapas} />}
+          {pestana === "ENTREGABLES" && <EntregablesEquipo servicioId={d.servicioContratadoId} etapas={d.etapas} />}
+          {pestana === "COMENTARIOS" && <ComentariosEquipo servicioId={d.servicioContratadoId} />}
         </div>
         <aside className="pila">
           <EquipoAsignado ruta={`/servicios-contratados/${d.servicioContratadoId}/miembros`} titulo="Equipo del proyecto" ayuda="Quienes trabajan en el proyecto. Cada lead asigna a la gente de su área." />
