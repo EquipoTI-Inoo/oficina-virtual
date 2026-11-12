@@ -2698,3 +2698,9 @@ main, .contenido, .principal { min-width: 0; }
 /* Filas de tabla que abren su detalle (13 nov). */
 .fila-clic { cursor: pointer; }
 .fila-clic:hover td { background: var(--c-fondo); }
+
+/* Resumen de errores del formulario (13 nov). */
+.resumen-errores { display: grid; gap: 6px; padding: 14px 16px; border-radius: 12px; background: var(--c-alerta-suave); color: var(--c-alerta); outline: none; }
+.resumen-errores:focus-visible { box-shadow: 0 0 0 3px rgba(143, 94, 18, 0.35); }
+.resumen-errores ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13px; }
+.resumen-errores .enlace { color: inherit; text-decoration: underline; font-weight: 600; }

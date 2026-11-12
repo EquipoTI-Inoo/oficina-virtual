@@ -5,7 +5,7 @@ import {
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks } from "react-icons/lu";
 import { pideAccion } from "./dominio/por-revisar";
-import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, comoCliente, rolCliente, cuentaActiva } from "./base";
+import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -791,5 +791,48 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
         </div>
       )}
     </ContextoPortal.Provider>
+  );
+}
+
+/**
+ * «Pedir cambios» en su propio modal (13 nov, auditoría): antes dependía de un cuadro de texto en otra tarjeta, o
+ * compartido con «Aprobar». Pide qué cambiar antes de enviar.
+ */
+export function ModalPedirCambios({ abierto, titulo, alCerrar, alEnviar }: { abierto: boolean; titulo: string; alCerrar: () => void; alEnviar: (texto: string) => Promise<void> }) {
+  const [texto, setTexto] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const enviar = async () => {
+    if (texto.trim().length < 5) {
+      setError("Cuéntanos qué te gustaría cambiar.");
+      return;
+    }
+    setError(null);
+    setOcupado(true);
+    try {
+      await alEnviar(texto.trim());
+      setTexto("");
+      alCerrar();
+    } catch (e) {
+      setError(e instanceof ProblemaApi ? e.titulo : "No pudimos enviarlo. Intenta de nuevo.");
+    } finally {
+      setOcupado(false);
+    }
+  };
+  return (
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Pedir cambios">
+      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Pedir cambios</h2>
+      <p className="texto-sm texto-muted">{titulo}</p>
+      <div className="campo">
+        <label htmlFor="pedir-cambios">¿Qué te gustaría cambiar?</label>
+        <div className="entrada">
+          <textarea id="pedir-cambios" rows={4} value={texto} onChange={(e) => setTexto(e.target.value)} aria-invalid={!!error} autoFocus placeholder="Ej.: cambien el fondo por uno más claro y agranden el logo" />
+        </div>
+        <span className="ayuda-campo" role={error ? "alert" : undefined} style={error ? { color: "var(--c-alerta)" } : undefined}>
+          {error ?? "Tu equipo Inoo recibe tus comentarios y prepara una nueva versión."}
+        </span>
+      </div>
+      <button className="boton boton--primario boton--bloque" disabled={ocupado} onClick={() => void enviar()}>Enviar cambios</button>
+    </Modal>
   );
 }

@@ -11,6 +11,7 @@ import {
 import {
   Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_PIEZA, ESTADO_PIEZA_CLIENTE, Estructura, Etiqueta, EtiquetaEstado, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
+  ModalPedirCambios,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
 import { DocumentosPorRevisar } from "./entregables";
@@ -807,6 +808,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
   const [confirmar, setConfirmar] = useState(false);
   const [diapositiva, setDiapositiva] = useState(0);
   const [ocupado, setOcupado] = useState(false);
+  const [pidiendoCambios, setPidiendoCambios] = useState(false);
 
   if (pieza.error) return <ErrorCarga error={pieza.error} reintentar={pieza.recargar} />;
   if (!pieza.datos) return <Cargando />;
@@ -847,24 +849,11 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
       setOcupado(false);
     }
   };
-  const pedirCambios = async () => {
-    setErrorTexto(null);
-    if (!texto.trim()) {
-      setErrorTexto("Para pedir cambios, cuéntanos qué te gustaría modificar.");
-      document.getElementById("comentario")?.focus();
-      return;
-    }
-    setOcupado(true);
-    try {
-      await api(`/piezas/${p.id}/solicitar-cambios`, { metodo: "POST", cuerpo: { version: p.versionCliente, comentario: texto }, idempotente: true });
-      setTexto("");
-      avisar({ titulo: "Cambios solicitados", texto: "Tu equipo Inoo ya recibió tus comentarios." });
-      recargarTodo();
-    } catch (e) {
-      tratarError(e);
-    } finally {
-      setOcupado(false);
-    }
+  // 13 nov (auditoría): «Pedir cambios» abre su modal; el cuadro de comentarios queda para comentar.
+  const pedirCambios = async (comentario: string) => {
+    await api(`/piezas/${p.id}/solicitar-cambios`, { metodo: "POST", cuerpo: { version: p.versionCliente, comentario }, idempotente: true });
+    avisar({ titulo: "Cambios solicitados", texto: "Tu equipo Inoo ya recibió tus comentarios." });
+    recargarTodo();
   };
   const comentar = async () => {
     setErrorTexto(null);
@@ -1011,7 +1000,8 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                 <button className="boton boton--primario boton--bloque" style={{ height: 40 }} disabled={!puedeDecidir || ocupado} onClick={() => setConfirmar(true)}>
                   <LuCheck size={16} /> Aprobar
                 </button>
-                <button className="boton boton--bloque" style={{ height: 40 }} disabled={!puedeDecidir || ocupado} onClick={pedirCambios}>
+                <ModalPedirCambios abierto={pidiendoCambios} titulo={`${p.titulo} · versión ${p.versionCliente}`} alCerrar={() => setPidiendoCambios(false)} alEnviar={pedirCambios} />
+                <button className="boton boton--bloque" style={{ height: 40 }} disabled={!puedeDecidir || ocupado} onClick={() => setPidiendoCambios(true)}>
                   <LuMessageSquare size={16} /> Pedir cambios
                 </button>
                 {!puedeDecidir && <p className="texto-xs texto-muted">Tu rol permite comentar, pero no aprobar.</p>}
@@ -1040,7 +1030,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                 <textarea id="comentario" placeholder="Cuéntanos qué debemos ajustar..." value={texto} onChange={(e) => setTexto(e.target.value)} aria-invalid={!!errorTexto} />
               </div>
               <span className="ayuda-campo" style={errorTexto ? { color: "var(--c-alerta)" } : undefined} role={errorTexto ? "alert" : undefined}>
-                {errorTexto ?? "Para pedir cambios, indica qué te gustaría modificar."}
+                {errorTexto ?? "Para dudas o comentarios. Si quieres cambios, usa «Pedir cambios»."}
               </span>
             </div>
             <button className="boton boton--bloque" style={{ height: 40 }} onClick={comentar}>

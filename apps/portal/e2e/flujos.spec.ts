@@ -16,6 +16,7 @@ test("ingreso: rechaza la clave incorrecta y entra con la correcta", async ({ pa
 });
 
 test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
+  test.setTimeout(60_000);
   await entrarComo(page, "cliente");
   await page.goto("/entregables");
   // 3 piezas de contenido + el flujograma de la web (entregables genéricos, reunión 15 oct).
@@ -24,8 +25,13 @@ test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
   await expect(page.getByText("1 entregables")).toBeVisible();
   await page.fill("input[aria-label='Buscar una pieza']", "");
   await page.locator("article", { hasText: "Tu ritual, tu momento" }).getByText("Revisar pieza").click();
+  // 13 nov: «Pedir cambios» abre su modal y no envía sin decir qué cambiar.
   await page.getByRole("button", { name: "Pedir cambios" }).click();
-  await expect(page.getByText("Para pedir cambios, cuéntanos")).toBeVisible();
+  const cambios = page.getByRole("dialog", { name: "Pedir cambios" });
+  await cambios.getByRole("button", { name: "Enviar cambios" }).click();
+  await expect(cambios.getByText("Cuéntanos qué te gustaría cambiar.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(cambios).toHaveCount(0);
   await page.getByRole("button", { name: "Aprobar" }).click();
   await expect(page.getByRole("dialog", { name: "Aprobar esta versión" })).toBeVisible();
   await page.getByRole("button", { name: "Confirmar aprobación" }).click();
@@ -38,8 +44,9 @@ test("CU-06: aprobar una pieza con confirmación", async ({ page }) => {
 test("CU-06: pedir cambios con comentario", async ({ page }) => {
   await entrarComo(page, "cliente");
   await page.goto("/entregables/00000000-0000-4000-8005-000000000009");
-  await page.fill("#comentario", "¿Podemos probar con un fondo salvia?");
   await page.getByRole("button", { name: "Pedir cambios" }).click();
+  await page.fill("#pedir-cambios", "¿Podemos probar con un fondo salvia?");
+  await page.getByRole("button", { name: "Enviar cambios" }).click();
   await expect(page.getByText("Cambios solicitados").first()).toBeVisible();
 });
 
@@ -270,8 +277,9 @@ test("entregables: el cliente revisa el flujograma en el visor y pide cambios; e
   const docs = cliente.getByRole("region", { name: "Documentos y prototipos por revisar" });
   await docs.getByRole("link", { name: /Flujograma y benchmark de referencias/ }).click({ timeout: 30_000 });
   await expect(cliente.locator("iframe.visor-pdf")).toHaveAttribute("src", "/muestras/flujograma-casa-oliva.pdf", { timeout: 30_000 });
-  await cliente.fill("#comentario-entregable", "Agreguen una página de preguntas frecuentes.");
   await cliente.getByRole("button", { name: "Pedir cambios" }).click();
+  await cliente.fill("#pedir-cambios", "Agreguen una página de preguntas frecuentes.");
+  await cliente.getByRole("button", { name: "Enviar cambios" }).click();
   await expect(cliente.getByText("Cambios enviados")).toBeVisible();
   await expect(cliente.getByText(/Pidió cambios por Valeria Mendoza/)).toBeVisible();
   await cliente.close();

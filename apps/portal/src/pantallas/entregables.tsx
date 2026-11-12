@@ -9,7 +9,7 @@
 import { useState, type ReactNode } from "react";
 import { LuExternalLink, LuFileText, LuImage, LuLink, LuMonitorSmartphone, LuPencil, LuPlus, LuSend, LuTrash2, LuUpload } from "react-icons/lu";
 import { api, Enlace, fDiaHora, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, ModalPedirCambios, useAviso, usePortal } from "../componentes";
 
 type Entregable = S<"Entregable">;
 type Detalle = S<"EntregableDetalle">;
@@ -164,7 +164,7 @@ function DetalleEntregable({ volver }: { volver?: string }) {
             {vigente?.nota && <p className="texto-sm" style={{ lineHeight: 1.5 }}>Qué cambió: {vigente.nota}</p>}
             {d.url ? <Visor formato={d.formato} url={d.url} titulo={d.titulo} /> : <p className="texto-sm texto-muted">Sin archivo.</p>}
           </section>
-          {puedeDecidir && <DecisionCliente id={d.id} alDecidir={setDatos} />}
+          {puedeDecidir && <DecisionCliente id={d.id} titulo={d.titulo} alDecidir={setDatos} />}
           {esEquipo && <AccionesEquipo d={d} alCambiar={setDatos} />}
         </div>
         <aside className="pila">
@@ -192,42 +192,37 @@ function DetalleEntregable({ volver }: { volver?: string }) {
   );
 }
 
-function DecisionCliente({ id, alDecidir }: { id: string; alDecidir: (d: Detalle) => void }) {
+function DecisionCliente({ id, titulo, alDecidir }: { id: string; titulo: string; alDecidir: (d: Detalle) => void }) {
   const avisar = useAviso();
-  const [comentario, setComentario] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const decidir = async (decision: "APROBADO" | "CAMBIOS_SOLICITADOS") => {
+  const [cambios, setCambios] = useState(false);
+  const aprobar = async () => {
     setError(null);
     try {
-      const d = await api<Detalle>(`/entregables/${id}/decision`, { metodo: "POST", cuerpo: decision === "APROBADO" ? { decision } : { decision, comentario } });
-      alDecidir(d);
-      avisar(decision === "APROBADO" ? { titulo: "¡Aprobado!", texto: "Seguimos con la siguiente etapa." } : { titulo: "Cambios enviados", texto: "Tu equipo Inoo prepara una nueva versión." });
+      alDecidir(await api<Detalle>(`/entregables/${id}/decision`, { metodo: "POST", cuerpo: { decision: "APROBADO" } }));
+      avisar({ titulo: "¡Aprobado!", texto: "Seguimos con la siguiente etapa." });
     } catch (e) {
       setError(errorDe(e));
     }
   };
+  const pedir = async (comentario: string) => {
+    alDecidir(await api<Detalle>(`/entregables/${id}/decision`, { metodo: "POST", cuerpo: { decision: "CAMBIOS_SOLICITADOS", comentario } }));
+    avisar({ titulo: "Cambios enviados", texto: "Tu equipo Inoo prepara una nueva versión." });
+  };
   return (
     <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }} aria-label="Tu revisión">
       <h2 className="tarjeta-titulo">Tu revisión</h2>
-      <div className="campo">
-        <label htmlFor="comentario-entregable">Si quieres cambios, cuéntanos cuáles</label>
-        <div className="entrada">
-          <textarea id="comentario-entregable" rows={3} value={comentario} onChange={(e) => setComentario(e.target.value)} placeholder="Ej.: agreguen una página de preguntas frecuentes" />
-        </div>
-        {error && (
-          <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>
-            {error}
-          </span>
-        )}
-      </div>
+      <p className="texto-sm texto-muted">Si está todo bien, apruébalo. Si algo no te convence, pide cambios y cuéntanos qué ajustar.</p>
+      {error && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{error}</span>}
       <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
-        <button className="boton boton--primario" onClick={() => void decidir("APROBADO")}>
+        <button className="boton boton--primario" onClick={() => void aprobar()}>
           Aprobar
         </button>
-        <button className="boton" onClick={() => void decidir("CAMBIOS_SOLICITADOS")}>
+        <button className="boton" onClick={() => setCambios(true)}>
           Pedir cambios
         </button>
       </div>
+      <ModalPedirCambios abierto={cambios} titulo={titulo} alCerrar={() => setCambios(false)} alEnviar={pedir} />
     </section>
   );
 }

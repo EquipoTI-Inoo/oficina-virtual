@@ -164,10 +164,27 @@ function Requerimiento() {
   const [respuestas, setRespuestas] = useState<Record<string, unknown> | null>(null);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState(false);
+  const [autoguardado, setAutoguardado] = useState<"GUARDANDO" | string | null>(null);
+  const resumen = useRef<HTMLDivElement>(null);
+  const esEquipo = !!sesion && sesion.usuario.tipo === "EQUIPO" && !comoCliente();
+  const puedeResponder = !!r && !!sesion && !esEquipo && rolCliente(sesion) !== "LECTOR" && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO");
+  // 13 nov (auditoría): guardado automático del borrador 3 s después de dejar de escribir (antes se perdía si no se guardaba a mano).
+  useEffect(() => {
+    if (!respuestas || !puedeResponder || !r) return;
+    const t = setTimeout(async () => {
+      setAutoguardado("GUARDANDO");
+      try {
+        const limpias = Object.fromEntries(Object.entries(respuestas).filter(([, v]) => !vacio(v)));
+        await api<Req>(`/requerimientos/${r.id}/respuesta`, { metodo: "PUT", cuerpo: { respuestas: limpias, enviar: false } });
+        setAutoguardado(new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }));
+      } catch {
+        setAutoguardado(null);
+      }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [respuestas, puedeResponder, r]);
   if (error) return <ErrorCarga error={error} reintentar={error.status === 404 ? undefined : recargar} />;
   if (!r || !sesion) return <Cargando />;
-  const esEquipo = sesion.usuario.tipo === "EQUIPO" && !comoCliente();
-  const puedeResponder = !esEquipo && rolCliente(sesion) !== "LECTOR" && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO");
   const valores = respuestas ?? r.respuestas;
   const cambiar = (clave: string, v: unknown) => setRespuestas({ ...valores, [clave]: v });
 
@@ -185,10 +202,18 @@ function Requerimiento() {
       const p = e as ProblemaApi;
       setErrores(Object.fromEntries(p.errores.map((x) => [x.campo, x.mensaje])));
       if (!p.errores.length) avisar({ titulo: p.titulo, texto: p.detalle });
+      // 13 nov (auditoría): con errores, el resumen arriba y el foco en él (antes no se veía qué faltaba en formularios largos).
+      else setTimeout(() => { resumen.current?.scrollIntoView({ behavior: "smooth", block: "center" }); resumen.current?.focus(); }, 50);
     } finally {
       setOcupado(false);
     }
   };
+  const irACampo = (clave: string) => {
+    const el = document.getElementById(`campo-${clave}`) ?? document.querySelector<HTMLElement>(`[id^="campo-${clave}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.focus({ preventScroll: true });
+  };
+  const etiquetaDe = (clave: string) => r.campos.find((c) => c.clave === clave)?.etiqueta ?? clave;
 
   const [estado, tono] = ESTADO_REQ[r.estado];
   return (
@@ -209,6 +234,16 @@ function Requerimiento() {
               {r.mensaje}
             </Aviso>
           )}
+          {Object.keys(errores).length > 0 && (
+            <div ref={resumen} tabIndex={-1} role="alert" className="resumen-errores">
+              <p className="negrita">{Object.keys(errores).length === 1 ? "Falta 1 respuesta" : `Faltan ${Object.keys(errores).length} respuestas`} para poder enviarlo</p>
+              <ul>
+                {Object.entries(errores).map(([k, m]) => (
+                  <li key={k}><button type="button" className="enlace" onClick={() => irACampo(k)}>{etiquetaDe(k)}</button>: {m.toLowerCase()}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <section className="tarjeta" style={{ padding: "22px 20px", display: "grid", gap: 18 }}>
             <CamposFormulario campos={r.campos} valores={valores} errores={errores} soloLectura={!puedeResponder} alCambiar={cambiar} />
             {puedeResponder && (
@@ -219,6 +254,9 @@ function Requerimiento() {
                 <button className="boton" disabled={ocupado} onClick={() => void guardar(false)}>
                   Guardar borrador
                 </button>
+                <span className="texto-xs texto-muted" aria-live="polite">
+                  {autoguardado === "GUARDANDO" ? "Guardando…" : autoguardado ? `Borrador guardado a las ${autoguardado}` : "Se guarda solo mientras escribes"}
+                </span>
               </div>
             )}
           </section>
