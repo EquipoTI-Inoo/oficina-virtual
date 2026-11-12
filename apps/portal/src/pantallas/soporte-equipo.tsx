@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   LuBell, LuCalendarDays, LuCheck, LuChevronDown, LuChevronRight, LuCircleCheck, LuClock, LuDownload,
   LuExternalLink, LuFile, LuFolder, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
@@ -31,7 +31,15 @@ type Grupo = "" | "ABIERTOS" | "RESUELTOS";
 function Soporte() {
   const [grupo, setGrupo] = useState<Grupo>("");
   const [q, setQ] = useState("");
+  // 13 nov: ?ticket=<id> abre ese ticket (desde «Lo que necesitamos de ti» en Inicio).
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Al montar (la URL puede cambiar después del primer render en la navegación interna).
+  useEffect(() => {
+    const leer = () => { const t = new URLSearchParams(window.location.search).get("ticket"); if (t) setAbierto(t); };
+    leer();
+    const id = setTimeout(leer, 0);
+    return () => clearTimeout(id);
+  }, []);
   const camino = useMemo(() => {
     const p = new URLSearchParams();
     if (grupo) p.set("grupo", grupo);

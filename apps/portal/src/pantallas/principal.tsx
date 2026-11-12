@@ -4,17 +4,18 @@ import {
   LuArrowRight, LuCheck, LuChevronDown, LuChevronLeft, LuChevronRight,
   LuCircleCheck, LuDownload, LuEyeOff, LuEye, LuInfo, LuLayers, LuMail, LuMessageSquare,
   LuClipboardList, LuExternalLink, LuSearch, LuShieldCheck, LuSparkles, LuWallet,
+  LuLifeBuoy,
 } from "react-icons/lu";
 import {
   api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
-  useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL } from "../base";
+  useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL, rolCliente } from "../base";
 import {
   Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_PIEZA, ESTADO_PIEZA_CLIENTE, Estructura, Etiqueta, EtiquetaEstado, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
   ModalPedirCambios,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
-import { DocumentosPorRevisar } from "./entregables";
+import { DocumentosPorRevisar, FilaEntregable, rutaDetalle } from "./entregables";
 import { AvanceOConsumo } from "./consumo";
 import { esPorConsumo } from "../dominio/consumo";
 import { ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
@@ -342,7 +343,11 @@ function Inicio() {
   const pago = d.avisoPago;
   const req = d.indicadores.requerimientosPendientes;
   const porAprobar = d.indicadores.porAprobar;
-  const nada = !pago && !porAprobar && !req;
+  // 13 nov (auditoría): los tickets donde esperamos su respuesta también son algo que necesitamos del cliente.
+  const ticketsEspera = (d.ticketsAbiertos ?? []).filter((t) => t.estado === "ESPERANDO_CLIENTE");
+  // Quien solo mira (LECTOR) no aprueba ni responde: se le dice qué está pendiente en su cuenta, sin pedirle acción.
+  const lector = rolCliente(sesion) === "LECTOR";
+  const nada = !pago && !porAprobar && !req && !ticketsEspera.length;
   return (
     <>
       <Cabecera
@@ -358,15 +363,16 @@ function Inicio() {
       <section className={`tarjeta pendientes-cliente${nada ? " pendientes-cliente--al-dia" : ""}`} aria-label="Lo que necesitamos de ti">
         {nada ? (
           <p className="fila texto-sm" style={{ gap: 8 }}>
-            <LuCircleCheck size={18} style={{ color: "var(--c-exito)" }} /> Todo al día: por ahora no necesitamos nada de ti.
+            <LuCircleCheck size={18} style={{ color: "var(--c-exito)" }} /> {lector ? "Todo al día: no hay nada pendiente en tu cuenta." : "Todo al día: por ahora no necesitamos nada de ti."}
           </p>
         ) : (
           <>
-            <h2 className="tarjeta-titulo">Lo que necesitamos de ti</h2>
+            <h2 className="tarjeta-titulo">{lector ? "Pendiente en tu cuenta" : "Lo que necesitamos de ti"}</h2>
+            {lector && <p className="texto-xs texto-muted">Lo aprueban o responden las personas de tu equipo con ese permiso; tú puedes verlo.</p>}
             <div className="pendientes-cliente-lista">
               {porAprobar > 0 && (
                 <Enlace a="/entregables" className="pendiente-cliente">
-                  <LuCircleCheck size={18} /> <span><strong>{porAprobar}</strong> {porAprobar === 1 ? "entregable listo para que lo apruebes" : "entregables listos para que los apruebes"}</span>
+                  <LuCircleCheck size={18} /> <span><strong>{porAprobar}</strong> {lector ? (porAprobar === 1 ? "entregable por aprobar" : "entregables por aprobar") : porAprobar === 1 ? "entregable listo para que lo apruebes" : "entregables listos para que los apruebes"}</span>
                 </Enlace>
               )}
               {req > 0 && (
@@ -374,6 +380,11 @@ function Inicio() {
                   <LuClipboardList size={18} /> <span><strong>{req}</strong> {req === 1 ? "requerimiento por enviarnos" : "requerimientos por enviarnos"}</span>
                 </Enlace>
               )}
+              {ticketsEspera.map((t) => (
+                <Enlace key={t.id} a={`/soporte?ticket=${t.id}`} className="pendiente-cliente">
+                  <LuLifeBuoy size={18} /> <span>Tu ticket <strong>{t.codigo}</strong> «{t.asunto}» espera {lector ? "una respuesta de tu equipo" : "tu respuesta"}</span>
+                </Enlace>
+              ))}
               {pago && (
                 <Enlace a="/cuenta/pagos" className="pendiente-cliente pendiente-cliente--alerta">
                   <LuWallet size={18} /> <span>Tienes un pago con {pago.diasAtraso} {pago.diasAtraso === 1 ? "día" : "días"} de atraso. Si ya pagaste, envíale el comprobante a administración.</span>
@@ -722,10 +733,42 @@ function Entregables() {
           ))}
         </div>
       )}
+      <YaAprobados />
       <p className="fila texto-xs texto-muted" style={{ marginTop: 28, gap: 8, paddingLeft: 14 }}>
         <LuShieldCheck size={15} /> Cada aprobación queda registrada con el nombre de quien la realizó y la versión aprobada.
       </p>
     </>
+  );
+}
+
+/** 13 nov (auditoría): lo que el cliente ya aprobó, para volver a verlo (antes desaparecía de esta pantalla). */
+function YaAprobados() {
+  const docs = useConsulta<{ datos: S<"Entregable">[] }>(`/clientes/${clienteActivo()}/entregables?estado=APROBADO`);
+  const piezas = useConsulta<{ datos: PiezaUI[]; paginacion: { total: number } }>(`/clientes/${clienteActivo()}/piezas?estado=APROBADO_CLIENTE,PUBLICADO`);
+  const ds = [...(docs.datos?.datos ?? [])].sort((a, b) => (b.aprobadoEn ?? "").localeCompare(a.aprobadoEn ?? ""));
+  const ps = [...(piezas.datos?.datos ?? [])].sort((a, b) => b.periodo.localeCompare(a.periodo));
+  const total = ds.length + (piezas.datos?.paginacion.total ?? 0);
+  if (!docs.datos || !piezas.datos || !total) return null;
+  return (
+    <details className="tarjeta ya-aprobados" style={{ marginTop: 28, padding: "18px 18px" }}>
+      <summary className="fila" style={{ gap: 8, cursor: "pointer" }}>
+        <LuCircleCheck size={18} style={{ color: "var(--c-exito)" }} />
+        <span className="tarjeta-titulo">Ya aprobados</span>
+        <span className="pipeline-contador">{total}</span>
+      </summary>
+      <div className="pila" style={{ gap: 14, marginTop: 14 }}>
+        {ds.length > 0 && (
+          <div className="lista-suave" aria-label="Documentos y prototipos aprobados">
+            {ds.map((e) => <FilaEntregable key={e.id} e={e} a={rutaDetalle(e.id)} />)}
+          </div>
+        )}
+        {ps.length > 0 && (
+          <div className="grid-2" style={{ gap: 18 }}>
+            {ps.map((p) => <TarjetaPieza key={p.id} p={p} accion="Ver pieza" />)}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 

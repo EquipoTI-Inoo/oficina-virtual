@@ -68,7 +68,7 @@ export function FilaEntregable({ e, a }: { e: Entregable; a: string }) {
   );
 }
 
-const rutaDetalle = (id: string) => (comoCliente() ? `/entregables/documento/${id}` : `/equipo/entregables/${id}`);
+export const rutaDetalle = (id: string) => (comoCliente() ? `/entregables/documento/${id}` : `/equipo/entregables/${id}`);
 
 // ═════════════════════════════════════════════ Cliente: en «Entregables por revisar» y en el perfil
 
