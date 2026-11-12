@@ -3168,7 +3168,8 @@ export interface paths {
         get: operations["verTableroInooWork"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Borra un proyecto (13 nov): el líder o un admin. Borrado suave en InooWork (se puede recuperar allí) */
+        delete: operations["borrarTablero"];
         options?: never;
         head?: never;
         /**
@@ -6248,6 +6249,7 @@ export interface components {
             archivado: boolean;
             archivadoEn: string | null;
             puedeDesarchivar: boolean;
+            puedeBorrar: boolean;
             puedeEditar: boolean;
         };
         CambioItemTablero: {
@@ -14655,6 +14657,35 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    borrarTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
             /** @description InooWork no respondió */
             502: {
                 headers: {

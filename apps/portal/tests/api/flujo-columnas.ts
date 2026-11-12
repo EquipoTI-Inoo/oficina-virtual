@@ -23,6 +23,15 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
   const it = (t: any, id = "item-mkt-1") => t.items.find((i: any) => i.id === id);
 
   describe(`Columnas de los tableros · ${nombre}`, () => {
+    test("borrar un proyecto: solo el líder o un admin", async () => {
+      await reiniciar();
+      assert.deepEqual([(await llamar("GET", `/tableros/${T}`, DIEGO)).json.puedeBorrar, (await llamar("GET", `/tableros/${T}`, CAMILA)).json.puedeBorrar], [true, false]);
+      assert.equal((await llamar("DELETE", `/tableros/${T}`, CAMILA)).status, 403, "Camila es miembro, no líder");
+      assert.equal((await llamar("DELETE", `/tableros/${T}`, DIEGO)).status, 204);
+      assert.equal((await llamar("GET", `/tableros/${T}`, DIEGO)).status, 404);
+      assert.ok(!(await llamar("GET", "/tableros", DIEGO)).json.datos.some((t: any) => t.id === T));
+    });
+
     test("archivados: se ven aparte, son de solo lectura y se desarchivan", async () => {
       await reiniciar();
       const N8N = { "x-api-key": "demo-n8n" };

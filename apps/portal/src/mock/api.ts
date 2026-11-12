@@ -1665,6 +1665,10 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t);
   return t;
 });
+ruta("DELETE", "/tableros/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.borrar(p.id, yoTablero(ctx));
+});
 ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.desarchivar(p.id, yoTablero(ctx));

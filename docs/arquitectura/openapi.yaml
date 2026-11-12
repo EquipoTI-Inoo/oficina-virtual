@@ -4571,6 +4571,16 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+    delete:
+      tags: [Tableros]
+      operationId: borrarTablero
+      summary: 'Borra un proyecto (13 nov): el líder o un admin. Borrado suave en InooWork (se puede recuperar allí)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: Borrado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '502': { description: InooWork no respondió }
   /tableros/{proyectoId}/items:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
@@ -7886,7 +7896,7 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar]
       properties:
         id: { type: string }
         nombre: { type: string }
@@ -7929,6 +7939,7 @@ components:
         archivado: { type: boolean }
         archivadoEn: { type: [string, 'null'] }
         puedeDesarchivar: { type: boolean }
+        puedeBorrar: { type: boolean }
         puedeEditar: { type: boolean }
     CambioItemTablero:
       type: object

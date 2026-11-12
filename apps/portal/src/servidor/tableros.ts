@@ -137,6 +137,7 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin) && !p.archived,
     archivado: !!p.archived, archivadoEn: p.archivedAt ?? null,
     puedeDesarchivar: !!p.archived && editaProyecto(p, yo.empleadoId, yo.esAdmin),
+    puedeBorrar: yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId),
   };
 }
 
@@ -216,6 +217,18 @@ export function crearTableros(fallar: Fallar) {
           archivadoEn: p.archivedAt ?? null,
         })),
     })),
+    /**
+     * Borrar un proyecto (13 nov): solo el líder o un admin, como en InooWork. Es un borrado suave (deleted), así que
+     * se puede recuperar desde InooWork; desaparece del portal.
+     */
+    borrar: (id: string, yo: Yo) => protegido(async () => {
+      const p = await visible(id, yo);
+      if (!(yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId))) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto o un admin lo puede borrar");
+      p.deleted = true;
+      p.deletedAt = new Date().toISOString();
+      await guardarIW(p, yo.prueba);
+      return null;
+    }),
     /** Desarchivar (13 nov): vuelve a las listas, en curso (si no, el proceso diario lo archivaría de nuevo). */
     desarchivar: (id: string, yo: Yo) => protegido(async () => {
       const p = await visible(id, yo);

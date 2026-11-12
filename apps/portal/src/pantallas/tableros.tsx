@@ -62,7 +62,7 @@ function EstadoDelTablero({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, 
 }
 
 function TableroProyecto() {
-  const { params } = useNavegacion();
+  const { params, ir } = useNavegacion();
   const r = useConsulta<Tablero>(`/tableros/${params.id}`);
   const avisar = useAviso();
   const [vista, setVista] = useState<Vista>("TABLA");
@@ -102,6 +102,16 @@ function TableroProyecto() {
       avisar({ titulo: "No se pudo desarchivar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
     }
   };
+  const borrarProyecto = async () => {
+    if (!window.confirm(`¿Borrar el proyecto «${t.nombre}» con todos sus ítems? Desaparece del portal y de InooWork (un admin lo puede recuperar en InooWork).`)) return;
+    try {
+      await api(`/tableros/${t.id}`, { metodo: "DELETE" });
+      avisar({ titulo: "Proyecto borrado" });
+      ir("/equipo/proyectos");
+    } catch (e) {
+      avisar({ titulo: "No se pudo borrar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
   const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO"])];
   const ctx = { t, items, cambiar, editable: t.puedeEditar, abrir: (i: Item) => setPanel(i.id), conteo: conteo.datos?.datos ?? {} };
   const enPanel = panel ? t.items.find((i) => i.id === panel) : undefined;
@@ -113,7 +123,12 @@ function TableroProyecto() {
         antetitulo={[t.cliente ?? "Sin cliente", t.area, t.lider ? `Líder: ${t.lider.nombre}` : null].filter(Boolean).join(" · ")}
         titulo={t.nombre}
         bajada={t.descripcion ?? undefined}
-        accion={!t.puedeEditar ? <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span> : undefined}
+        accion={
+          <span className="fila" style={{ gap: 8 }}>
+            {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span>}
+            {t.puedeBorrar && <button className="boton boton--chico boton--peligro" onClick={() => void borrarProyecto()}><LuTrash2 size={13} /> Borrar proyecto</button>}
+          </span>
+        }
       />
       {t.archivado && (
         <div className="aviso-archivado" role="status">
