@@ -207,17 +207,17 @@ export function renderizarCorreo(regla: string, c: ContextoCorreo, d: Destino, n
   const p = PLANTILLAS_CORREO[regla];
   const saludo = nombre ? `Hola, ${nombre.split(" ")[0]}:` : "Hola:";
   const parrafos = p.parrafos(c, d);
-  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#F3F1EC;font-family:Arial,Helvetica,sans-serif;color:#1F2A24">
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#F5F5F5;font-family:Poppins,Arial,Helvetica,sans-serif;color:#111111">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:12px">
-<tr><td style="padding:28px 32px 8px;font-size:13px;letter-spacing:.08em;color:#5B6B60">INOO · ${escapar(c.cliente)}</td></tr>
+<tr><td style="padding:28px 32px 8px;font-size:13px;letter-spacing:.08em;color:#616161;border-top:4px solid #AD4DFA;border-radius:12px 12px 0 0">INOO · ${escapar(c.cliente)}</td></tr>
 <tr><td style="padding:8px 32px 0;font-size:16px;line-height:1.5">
 <p style="margin:0 0 16px">${escapar(saludo)}</p>
 ${parrafos.map((x) => `<p style="margin:0 0 16px">${escapar(x)}</p>`).join("\n")}
 </td></tr>
-<tr><td style="padding:8px 32px 32px"><a href="${escapar(c.enlace)}" style="display:inline-block;background:#3F5547;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px">${escapar(p.boton)}</a></td></tr>
+<tr><td style="padding:8px 32px 32px"><a href="${escapar(c.enlace)}" style="display:inline-block;background:#111111;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px">${escapar(p.boton)}</a></td></tr>
 </table>
-<p style="font-size:12px;color:#5B6B60;margin:16px 0 0">Recibes este correo porque tienes acceso al portal de Inoo. Es un aviso automático; para responder, escríbenos desde el portal.</p>
+<p style="font-size:12px;color:#616161;margin:16px 0 0">Recibes este correo porque tienes acceso al portal de Inoo. Es un aviso automático; para responder, escríbenos desde el portal.</p>
 </td></tr></table></body></html>`;
   const texto = [saludo, "", ...parrafos, "", `${p.boton}: ${c.enlace}`].join("\n");
   return { asunto: p.asunto(c, d), html, texto };
