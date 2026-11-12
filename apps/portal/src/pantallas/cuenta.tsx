@@ -7,7 +7,7 @@
  */
 import { useState, type FormEvent, type ReactNode } from "react";
 import { LuFileText, LuMail, LuMessageCircle, LuTicket } from "react-icons/lu";
-import { actualizarSesion, api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { actualizarSesion, api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente, cuentaActiva } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso, usePortal } from "../componentes";
 
 export const PESTANAS_CUENTA = [
@@ -32,12 +32,12 @@ export function PantallaCuenta() {
 function Cuenta() {
   const { ruta } = useNavegacion();
   const { sesion } = usePortal();
-  const esAdmin = sesion?.clientes[0]?.rol === "ADMIN_CLIENTE";
+  const esAdmin = rolCliente(sesion) === "ADMIN_CLIENTE";
   const pestanas = PESTANAS_CUENTA.filter((x) => !x.soloAdmin || esAdmin);
   const actual = pestanas.find((x) => x.a === ruta)?.a ?? "/cuenta";
   return (
     <>
-      <Cabecera antetitulo={sesion?.clientes[0]?.nombre?.toUpperCase()} titulo="Mi cuenta" bajada="Tus datos, pagos, usuarios y cómo contactarnos." />
+      <Cabecera antetitulo={cuentaActiva(sesion)?.nombre?.toUpperCase()} titulo="Mi cuenta" bajada="Tus datos, pagos, usuarios y cómo contactarnos." />
       <nav className="pestanas" role="tablist" aria-label="Secciones de mi cuenta" style={{ marginBottom: 20, maxWidth: "100%", overflowX: "auto" }}>
         {pestanas.map((x) => (
           <Enlace key={x.a} a={x.a} role="tab" aria-selected={x.a === actual} className="pestana" style={{ display: "inline-flex", alignItems: "center", whiteSpace: "nowrap" }}>
@@ -137,7 +137,7 @@ function MisDatos() {
       <Tarjeta titulo="Tus datos">
         <Dato etiqueta="Nombre">{sesion.usuario.nombre}</Dato>
         <Dato etiqueta="Correo">{sesion.usuario.email}</Dato>
-        <Dato etiqueta="Tu permiso">{ROL_CLIENTE[sesion.clientes[0]?.rol ?? ""] ?? "—"}</Dato>
+        <Dato etiqueta="Tu permiso">{ROL_CLIENTE[rolCliente(sesion) ?? ""] ?? "—"}</Dato>
         <p className="texto-xs texto-muted">Para cambiar tus datos, escríbele a tu equipo Inoo.</p>
       </Tarjeta>
       {sesion.usuario.tipo === "CLIENTE" && <CambiarClave />}
@@ -385,9 +385,13 @@ function Ayuda() {
       </Tarjeta>
       <Tarjeta titulo="¿Algo no funciona en el portal?">
         <p className="texto-sm texto-muted">Si ves un error o algo que no carga, déjanos un ticket y lo revisamos.</p>
-        <Enlace a="/soporte/nuevo" className="boton" style={{ justifySelf: "start" }}>
-          <LuTicket size={16} /> Reportar un problema
-        </Enlace>
+        <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+          <Enlace a="/soporte/nuevo" className="boton" style={{ justifySelf: "start" }}>
+            <LuTicket size={16} /> Reportar un problema
+          </Enlace>
+          {/* 13 nov (auditoría): los tickets ya enviados también se encuentran desde aquí. */}
+          <Enlace a="/soporte" className="boton">Ver mis tickets</Enlace>
+        </span>
       </Tarjeta>
     </div>
   );

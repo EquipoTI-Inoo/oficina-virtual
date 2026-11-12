@@ -5,7 +5,7 @@ import {
   LuExternalLink, LuFile, LuFolder, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
   LuX, LuCheckCheck,
 } from "react-icons/lu";
-import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, cuentaActiva } from "../base";
 import {
   Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
@@ -158,14 +158,20 @@ function Soporte() {
   );
 }
 
-function DetalleTicket({ id, alCerrar }: { id: string; alCerrar: () => void }) {
+export function DetalleTicket({ id, alCerrar }: { id: string; alCerrar: () => void }) {
   const t = useConsulta<S<"TicketDetalle">>(`/tickets/${id}`);
+  const avisarTicket = useAviso();
   const [texto, setTexto] = useState("");
   const responder = async () => {
     if (!texto.trim()) return;
-    await api(`/tickets/${id}/mensajes`, { metodo: "POST", cuerpo: { texto } });
-    setTexto("");
-    void t.recargar();
+    try {
+      await api(`/tickets/${id}/mensajes`, { metodo: "POST", cuerpo: { texto } });
+      setTexto("");
+      avisarTicket({ titulo: "Respuesta enviada" });
+      void t.recargar();
+    } catch (e) {
+      avisarTicket({ titulo: "No se pudo enviar la respuesta", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : "Revisa tu conexión y vuelve a intentarlo." });
+    }
   };
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Detalle del ticket">
@@ -291,7 +297,7 @@ function CrearTicket() {
           <div className="fila" style={{ marginTop: -4 }}>
             <Etiqueta tono="gris">Nuevo ticket</Etiqueta>
             <span className="texto-xs texto-muted" style={{ fontSize: 12 }}>
-              {[sesion?.clientes[0]?.nombre, sesion?.usuario.nombre].filter(Boolean).join(" · ")}
+              {[cuentaActiva(sesion)?.nombre, sesion?.usuario.nombre].filter(Boolean).join(" · ")}
             </span>
           </div>
           <div className="campo">

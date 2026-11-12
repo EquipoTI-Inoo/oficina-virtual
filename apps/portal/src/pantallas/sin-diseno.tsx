@@ -6,7 +6,7 @@
  */
 import { useRef, useState, type FormEvent } from "react";
 import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuSparkles, LuTriangleAlert, LuUpload } from "react-icons/lu";
-import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_PORTAL, ProblemaApi, useConsulta, type S } from "../base";
+import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_PORTAL, ProblemaApi, useConsulta, type S, rolCliente } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
 import { respuestaVacia } from "../dominio/requerimientos";
 import { CamposFormulario } from "./requerimientos";
@@ -61,7 +61,7 @@ function Biblioteca() {
   const id = clienteActivo();
   const camino = `/clientes/${id}/biblioteca-paid?${origen ? `origen=${origen}&` : ""}${tipo ? `tipo=${tipo}` : ""}`;
   const { datos: d, error: errorCarga, recargar } = useConsulta<{ datos: S<"ItemBiblioteca">[] }>(camino);
-  const puedeSubir = sesion?.clientes[0]?.rol !== "LECTOR";
+  const puedeSubir = rolCliente(sesion) !== "LECTOR";
 
   const subir = async (f: File | undefined) => {
     if (!f) return;

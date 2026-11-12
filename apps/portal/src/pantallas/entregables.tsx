@@ -8,7 +8,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { LuExternalLink, LuFileText, LuImage, LuLink, LuMonitorSmartphone, LuPlus, LuSend, LuUpload } from "react-icons/lu";
-import { api, Enlace, fDiaHora, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, Enlace, fDiaHora, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 
 type Entregable = S<"Entregable">;
@@ -29,7 +29,7 @@ const NOMBRE_FORMATO: Record<S<"FormatoEntregable">, string> = { PDF: "PDF", IMA
 
 /** Mismo lenguaje que las piezas: el cliente ve «Listo para revisar», «Revisado», «Aprobado» o «Atrasado». */
 export function EtiquetaEntregable({ e }: { e: Pick<Entregable, "estado" | "atrasado" | "diasAtrasoRevision"> }) {
-  const esCliente = leerSesion()?.tipo === "CLIENTE";
+  const esCliente = comoCliente();
   if (e.estado === "LISTO_REVISION" && e.atrasado) {
     return <Etiqueta tono="rojo">{esCliente ? `Atrasado · ${diasHabiles(e.diasAtrasoRevision)}` : `Cliente atrasado · ${diasHabiles(e.diasAtrasoRevision)}`}</Etiqueta>;
   }
@@ -62,13 +62,13 @@ export function FilaEntregable({ e, a }: { e: Entregable; a: string }) {
       </span>
       <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
         <EtiquetaEntregable e={e} />
-        {e.estado === "LISTO_REVISION" && leerSesion()?.tipo === "CLIENTE" && <span className="texto-primario negrita texto-sm">Revisar →</span>}
+        {e.estado === "LISTO_REVISION" && comoCliente() && <span className="texto-primario negrita texto-sm">Revisar →</span>}
       </span>
     </Enlace>
   );
 }
 
-const rutaDetalle = (id: string) => (leerSesion()?.tipo === "CLIENTE" ? `/entregables/documento/${id}` : `/equipo/entregables/${id}`);
+const rutaDetalle = (id: string) => (comoCliente() ? `/entregables/documento/${id}` : `/equipo/entregables/${id}`);
 
 // ═════════════════════════════════════════════ Cliente: en «Entregables por revisar» y en el perfil
 
@@ -138,8 +138,8 @@ function DetalleEntregable({ volver }: { volver?: string }) {
   const { datos: d, error, recargar, setDatos } = useConsulta<Detalle>(`/entregables/${params.id}`);
   if (error) return <ErrorCarga error={error} reintentar={error.status === 404 ? undefined : recargar} />;
   if (!d || !sesion) return <Cargando />;
-  const esEquipo = sesion.usuario.tipo === "EQUIPO";
-  const puedeDecidir = !esEquipo && sesion.clientes[0]?.rol !== "LECTOR" && d.estado === "LISTO_REVISION";
+  const esEquipo = sesion.usuario.tipo === "EQUIPO" && !comoCliente();
+  const puedeDecidir = !esEquipo && rolCliente(sesion) !== "LECTOR" && d.estado === "LISTO_REVISION";
   const vigente = d.versiones.find((v) => v.numero === d.version);
   return (
     <>

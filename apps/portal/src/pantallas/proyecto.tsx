@@ -7,11 +7,12 @@
  */
 import { useState } from "react";
 import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
+import { DetalleTicket } from "./soporte-equipo";
 import { ConsumoDelServicio } from "./consumo";
 import { esPorConsumo } from "../dominio/consumo";
 import { CalendarioProyecto, eventosDeEtapas, eventosDeReuniones, GanttEtapas, SelectorVista, type VistaCronograma } from "./cronograma";
@@ -171,6 +172,7 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
   const avisar = useAviso();
   const lista = useConsulta<{ datos: S<"Ticket">[] }>(`/clientes/${clienteActivo()}/tickets?servicioContratadoId=${servicioId}`);
   const [abierto, setAbierto] = useState(false);
+  const [ticket, setTicket] = useState<string | null>(null);
   const [asunto, setAsunto] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [errores, setErrores] = useState<Record<string, string>>({});
@@ -212,7 +214,7 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
       {lista.datos?.datos.length === 0 && <p className="texto-xs texto-muted">¿Necesitas un cambio o algo no funciona? Genera un ticket y lo atendemos dentro de tu soporte.</p>}
       <div className="lista-suave">
         {lista.datos?.datos.map((t) => (
-          <div key={t.id} className="fila-suave fila-ticket" style={{ padding: "12px 14px", alignItems: "flex-start" }}>
+          <button type="button" key={t.id} className="fila-suave fila-ticket" style={{ padding: "12px 14px", alignItems: "flex-start", width: "100%", border: 0, textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }} onClick={() => setTicket(t.id)} aria-label={`Abrir el ticket ${t.codigo}`}>
             <span style={{ display: "grid", gap: 4 }}>
               <span className="negrita" style={{ fontSize: 13 }}>
                 {t.codigo} · {t.asunto}
@@ -221,9 +223,10 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
               <span className="texto-xs texto-muted">Lo pediste el {fDiaMes(t.creadoEn)}</span>
             </span>
             <EtiquetaEstado estado={t.estado} mapa={ESTADO_TICKET} />
-          </div>
+          </button>
         ))}
       </div>
+      {ticket && <DetalleTicket id={ticket} alCerrar={() => { setTicket(null); void lista.recargar(); }} />}
       <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Generar ticket">
         <h2 style={{ fontSize: 18, fontWeight: 600 }}>Generar ticket</h2>
         <div className="campo">
@@ -379,7 +382,7 @@ function Comentarios({ servicioId }: { servicioId: string }) {
   const [texto, setTexto] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const puede = sesion?.clientes[0]?.rol !== "LECTOR";
+  const puede = rolCliente(sesion) !== "LECTOR";
   const enviar = async () => {
     setError(null);
     if (texto.trim().length < 2) return setError("Escribe tu comentario o consulta.");

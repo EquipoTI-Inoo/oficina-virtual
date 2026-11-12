@@ -4,7 +4,7 @@ import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks } from "react-icons/lu";
-import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL } from "./base";
+import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, comoCliente, rolCliente, cuentaActiva } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -54,7 +54,7 @@ const diasHabiles = (n: number) => `${n} ${n === 1 ? "día hábil" : "días háb
 
 /** Estado de una pieza según quién mira; si el cliente no la revisó a tiempo, «Atrasado». */
 export function EtiquetaPieza({ p }: { p: { estado: string; atrasada?: boolean; diasAtrasoRevision?: number } }) {
-  const esCliente = leerSesion()?.tipo === "CLIENTE";
+  const esCliente = comoCliente();
   if (p.estado === "LISTO_REVISION" && p.atrasada) {
     const dias = diasHabiles(p.diasAtrasoRevision ?? 1);
     return <Etiqueta tono="rojo">{esCliente ? `Atrasado · ${dias}` : `Cliente atrasado · ${dias}`}</Etiqueta>;
@@ -629,7 +629,7 @@ function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | nul
       window.removeEventListener("keydown", esc);
     };
   }, [abierto]);
-  const esAdmin = sesion?.clientes[0]?.rol === "ADMIN_CLIENTE";
+  const esAdmin = rolCliente(sesion) === "ADMIN_CLIENTE";
   const opciones = espacio === "equipo" ? [
     { a: "/equipo/mi-cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
     { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuLayoutDashboard size={16} /> },
@@ -705,7 +705,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0 };
   const aviso = inicio.datos?.avisos?.[0];
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
-  const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? me.datos?.clientes[0]?.nombre ?? "" : "Equipo Inoo";
+  const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? cuentaActiva(me.datos)?.nombre ?? "" : "Equipo Inoo";
   const comoCliente = espacio === "cliente" && me.datos?.usuario.tipo === "EQUIPO";
   const [campanaAbierta, setCampanaAbierta] = useState(false);
   const [buscando, setBuscando] = useState(false);

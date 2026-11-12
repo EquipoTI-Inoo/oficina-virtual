@@ -8,7 +8,7 @@
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { Fragment, useRef, useState, type ReactNode } from "react";
 import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { camposVisibles, ENLACE_FORMULARIO, semaforoRequerimiento } from "../dominio/requerimientos";
 
@@ -142,7 +142,7 @@ function Requerimientos() {
 // ═════════════════════════════════════════════ Detalle: formulario (cliente) y revisión (equipo)
 
 export function PantallaRequerimiento() {
-  const equipo = typeof window !== "undefined" && leerSesion()?.tipo === "EQUIPO";
+  const equipo = typeof window !== "undefined" && leerSesion()?.tipo === "EQUIPO" && !comoCliente();
   return (
     <Estructura espacio={equipo ? "equipo" : "cliente"} migas="Requerimientos">
       <Requerimiento />
@@ -163,8 +163,8 @@ function Requerimiento() {
   const [ocupado, setOcupado] = useState(false);
   if (error) return <ErrorCarga error={error} reintentar={error.status === 404 ? undefined : recargar} />;
   if (!r || !sesion) return <Cargando />;
-  const esEquipo = sesion.usuario.tipo === "EQUIPO";
-  const puedeResponder = !esEquipo && sesion.clientes[0]?.rol !== "LECTOR" && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO");
+  const esEquipo = sesion.usuario.tipo === "EQUIPO" && !comoCliente();
+  const puedeResponder = !esEquipo && rolCliente(sesion) !== "LECTOR" && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO");
   const valores = respuestas ?? r.respuestas;
   const cambiar = (clave: string, v: unknown) => setRespuestas({ ...valores, [clave]: v });
 

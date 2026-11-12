@@ -140,6 +140,22 @@ export function cerrarSesion() {
 export const CLIENTE_DEMO = "00000000-0000-4000-8002-000000000001";
 export const clienteActivo = () => leerSesion()?.clienteId ?? CLIENTE_DEMO;
 
+/** 13 nov (auditoría): ¿esta pantalla la usa un cliente? También alguien del equipo en «ver como cliente». */
+export const comoCliente = () => leerSesion()?.tipo === "CLIENTE" || !!vistaClienteActiva();
+/**
+ * El rol en la empresa que se está viendo (no en la primera de la lista: alguien puede ser LECTOR en una y ADMIN en
+ * otra). En «ver como cliente», el equipo actúa como ADMIN_CLIENTE (así lo trata el servidor).
+ */
+export function rolCliente(sesion: { clientes: { clienteId: string; rol: string; nombre?: string }[] } | null | undefined): string | null {
+  if (vistaClienteActiva()) return "ADMIN_CLIENTE";
+  const xs = sesion?.clientes ?? [];
+  return (xs.find((c) => c.clienteId === clienteActivo()) ?? xs[0])?.rol ?? null;
+}
+export function cuentaActiva<T extends { clienteId: string }>(sesion: { clientes: T[] } | null | undefined): T | undefined {
+  const xs = sesion?.clientes ?? [];
+  return xs.find((c) => c.clienteId === clienteActivo()) ?? xs[0];
+}
+
 // ───────────────────────────── API
 
 export class ProblemaApi extends Error {
