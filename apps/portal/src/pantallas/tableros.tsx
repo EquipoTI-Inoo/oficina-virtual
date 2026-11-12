@@ -163,7 +163,7 @@ function TableroProyecto() {
       {vista === "CALENDARIO" && <VistaCalendario items={items} />}
       {vista === "LINEA_TIEMPO" && <VistaLinea t={t} items={items} />}
       {vista === "GRAFICO" && <VistaGrafico items={items} />}
-      {enPanel && <PanelItem t={t} item={enPanel} cerrar={() => setPanel(null)} alActualizar={() => void conteo.recargar()} />}
+      {enPanel && <PanelItem t={t} item={enPanel} cambiar={cambiar} cerrar={() => setPanel(null)} alActualizar={() => void conteo.recargar()} />}
     </>
   );
 }

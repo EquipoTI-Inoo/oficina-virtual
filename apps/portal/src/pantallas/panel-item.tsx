@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { LuAtSign, LuCornerDownRight, LuFile, LuHistory, LuMessageSquare, LuPencil, LuTrash2, LuX } from "react-icons/lu";
 import { api, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
 import { useAviso } from "../componentes";
-import { COLOR_ESTADO, type EstadoItem } from "../dominio/tableros";
+import { COLOR_ESTADO, ESTADOS_ITEM, PRIORIDADES_ITEM, type EstadoItem } from "../dominio/tableros";
+import { CeldaColumna } from "./columnas-tablero";
 import { HistorialMonday } from "./monday";
 
 type Tablero = S<"TableroInooWork">;
@@ -80,7 +81,12 @@ function TextoConMenciones({ a }: { a: Act }) {
 
 // ───────────────────────────── panel
 
-export function PanelItem({ t, item, cerrar, alActualizar }: { t: Tablero; item: Item; cerrar: () => void; alActualizar?: () => void }) {
+type Cambiar = (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean>;
+
+export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Tablero; item: Item; cerrar: () => void; alActualizar?: () => void; cambiar?: Cambiar }) {
+  // 13 nov (auditoría): el panel se edita sin volver a la tabla (estado, responsable, prioridad, fecha, descripción y subítems).
+  const editable = t.puedeEditar && !!cambiar;
+  const guardar = (b: Record<string, unknown>) => cambiar?.(`/items/${item.id}`, "PATCH", b);
   const avisar = useAviso();
   const r = useConsulta<Datos>(`/tableros/${t.id}/items/${item.id}/actualizaciones`);
   const [pestana, setPestana] = useState<"CONVERSACION" | "ARCHIVOS">("CONVERSACION");
@@ -156,10 +162,33 @@ export function PanelItem({ t, item, cerrar, alActualizar }: { t: Tablero; item:
           <div style={{ minWidth: 0 }}>
             <span className="texto-xs texto-muted">{t.grupos.find((g) => g.id === item.grupoId)?.nombre} · {t.nombre}</span>
             <h2 style={{ fontSize: 18, fontWeight: 600, margin: "2px 0 8px", overflowWrap: "anywhere" }}>{item.nombre}</h2>
-            <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-              <span className="pildora pildora--chica" style={{ background: COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4", width: "auto" }}>{item.estado}</span>
-              <span className="texto-xs texto-muted">{item.responsable?.nombre ?? "Sin responsable"}{item.fecha ? ` · vence ${item.fecha.split("-").reverse().join("/")}` : ""}</span>
-            </span>
+            {!editable ? (
+              <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+                <span className="pildora pildora--chica" style={{ background: COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4", width: "auto" }}>{item.estado}</span>
+                <span className="texto-xs texto-muted">{item.responsable?.nombre ?? "Sin responsable"}{item.fecha ? ` · vence ${item.fecha.split("-").reverse().join("/")}` : ""}</span>
+              </span>
+            ) : (
+              <div className="panel-campos">
+                <label><span>Estado</span>
+                  <select className="pildora" style={{ background: COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4" }} value={item.estado} onChange={(e) => void guardar({ estado: e.target.value })}>
+                    {ESTADOS_ITEM.map((x) => <option key={x}>{x}</option>)}
+                  </select></label>
+                <label><span>Responsable</span>
+                  <select className="input" value={item.responsable?.id ?? ""} onChange={(e) => void guardar({ responsableId: e.target.value || null })}>
+                    <option value="">Sin asignar</option>
+                    {t.personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </select></label>
+                <label><span>Prioridad</span>
+                  <select className="input" value={item.prioridad} onChange={(e) => void guardar({ prioridad: e.target.value })}>
+                    {PRIORIDADES_ITEM.map((x) => <option key={x}>{x}</option>)}
+                  </select></label>
+                <label><span>Fecha límite</span>
+                  <input type="date" className="input" value={item.fecha ?? ""} onChange={(e) => void guardar({ fecha: e.target.value || null })} /></label>
+                <label className="panel-campo-ancho"><span>Descripción</span>
+                  <textarea key={item.notas} className="input" defaultValue={item.notas} placeholder="Agrega una descripción" style={{ minHeight: 60, padding: "8px 10px" }}
+                    onBlur={(e) => e.target.value.trim() !== (item.notas ?? "") && void guardar({ notas: e.target.value.trim() })} /></label>
+              </div>
+            )}
           </div>
           <button className="boton-icono" aria-label="Cerrar" onClick={cerrar}><LuX size={16} /></button>
         </header>
@@ -175,6 +204,23 @@ export function PanelItem({ t, item, cerrar, alActualizar }: { t: Tablero; item:
         <div className="panel-lateral-cuerpo">
           {pestana === "CONVERSACION" ? (
             <div className="pila" style={{ gap: 14 }}>
+              {(item.subitems.length > 0 || editable) && (
+                <section className="pila" style={{ gap: 4 }} aria-label="Subítems">
+                  <span className="texto-xs negrita texto-muted">Subítems ({item.subitems.filter((s) => s.estado === "Completado").length}/{item.subitems.length})</span>
+                  {item.subitems.map((s) => (
+                    <label key={s.id} className="fila texto-sm" style={{ gap: 8 }}>
+                      <input type="checkbox" checked={s.estado === "Completado"} disabled={!editable}
+                        onChange={(e) => void cambiar?.(`/items/${item.id}/subitems/${s.id}`, "PATCH", { estado: e.target.checked ? "Completado" : "En Progreso" })} />
+                      <span style={s.estado === "Completado" ? { textDecoration: "line-through", color: "var(--c-muted)" } : undefined}>{s.nombre}</span>
+                      {s.responsable && <span className="texto-xs texto-muted">· {s.responsable.nombre}</span>}
+                    </label>
+                  ))}
+                  {editable && (
+                    <input className="celda-texto" aria-label="Nuevo subítem" placeholder="+ Agregar subítem (Enter)"
+                      onKeyDown={async (e) => { if (e.key !== "Enter") return; const el = e.currentTarget; const v = el.value.trim(); if (!v) return; if (await cambiar!(`/items/${item.id}/subitems`, "POST", { nombre: v })) el.value = ""; }} />
+                  )}
+                </section>
+              )}
               <div className="pila" style={{ gap: 6 }}>
                 <CampoMenciones equipo={equipo} valor={nuevo} cambiar={setNuevo} etiqueta="Escribir una actualización" alEnviar={() => void publicar()}
                   placeholder="Escribe una actualización… Usa @ para mencionar a alguien del equipo." />
@@ -211,7 +257,13 @@ export function PanelItem({ t, item, cerrar, alActualizar }: { t: Tablero; item:
             </div>
           ) : (
             <div className="pila" style={{ gap: 8 }}>
-              {!archivos.length ? (
+              {editable && t.columnas.filter((c) => c.tipo === "file").map((c) => (
+                <div key={c.id} className="fila-suave" style={{ padding: "10px 12px", flexWrap: "wrap" }}>
+                  <span className="texto-xs negrita texto-muted">{c.nombre}</span>
+                  <CeldaColumna t={t} col={c} item={item} cambiar={cambiar!} editable />
+                </div>
+              ))}
+              {editable && t.columnas.some((c) => c.tipo === "file") ? null : !archivos.length ? (
                 <div className="vacio-suave">
                   <LuFile size={22} />
                   <p className="texto-sm negrita">Este ítem no tiene archivos</p>
