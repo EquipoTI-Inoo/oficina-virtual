@@ -61,6 +61,7 @@ import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-table
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
 import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
+import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUEBAS, permitidoACuentaPruebas } from "../dominio/pruebas";
@@ -2153,7 +2154,7 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
         if (!Number.isInteger(b.bytes) || (b.bytes as number) < 1) errores.push({ campo: "bytes", mensaje: "Indica el tamaño en bytes" });
         validacion(errores);
         if ((b.bytes as number) > 100 * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", "El archivo supera 100 MB");
-        if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", "Usa JPG, PNG, MP4, PDF, Word o Excel.");
+        if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", `Sube ${FORMATOS_PERMITIDOS}.`);
         const id = crypto.randomUUID();
         const nombre = (b.nombre as string).trim();
         const clave = `clientes/${r.cliente_id}/requerimiento/${id}/${nombreEnClave(nombre)}`;
@@ -6477,7 +6478,6 @@ ruta("GET", "/panel/ejecuciones", async (ctx, _p, q) => {
 
 // ───────────────────────────────────────────── archivos en S3 (subida en 3 pasos) y descargas
 
-const MIME_ARCHIVO = /^(image\/(jpeg|png)|video\/mp4|application\/pdf|application\/vnd\.ms-excel|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))$/;
 const USOS_SUBIDA = ["BRIEF", "ADJUNTO_TICKET", "BIBLIOTECA", "REQUERIMIENTO"];
 
 interface FilaArchivo {
@@ -6534,7 +6534,7 @@ ruta("POST", "/clientes/:id/archivos", async (ctx, p, _q, cuerpo) => {
   validacion(errores);
   const limite = uso === "ADJUNTO_TICKET" ? 10 : 100;
   if ((b.bytes as number) > limite * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", `El archivo supera ${limite} MB`);
-  if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", "Usa JPG, PNG, MP4, PDF, Word o Excel.");
+  if (!MIME_ARCHIVO.test(b.mime as string)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido", `Sube ${FORMATOS_PERMITIDOS}.`);
   if (uso === "BIBLIOTECA" && b.declaraDerechos !== true) {
     throw new ErrorApi(422, "DERECHOS_REQUERIDOS", "Declara que tienes los derechos de uso del archivo", undefined, [{ campo: "declaraDerechos", mensaje: "Obligatorio para la biblioteca" }]);
   }

@@ -1,8 +1,8 @@
 "use client";
 /**
  * Mi bóveda (9 nov 2026): los accesos de mis clientes (redes, hosting…). Solo los vemos yo y mi Jarvis.
- * Las contraseñas se cifran aquí, en el navegador, con una llave que sale de mi clave personal: el servidor nunca la
- * ve. Al abrir la bóveda, la llave queda 30 minutos en la memoria del servidor para que Jarvis pueda leerla.
+ * Las contraseñas se cifran aquí, en el navegador, con una llave que sale de mi clave personal. Al abrir la bóveda, esa
+ * llave queda 30 minutos en la memoria del servidor para que Jarvis pueda leerlas (y lo que lee pasa por el modelo de IA).
  */
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { LuCopy, LuEye, LuEyeOff, LuLock, LuLockOpen, LuPencil, LuPlus, LuSearch, LuShieldAlert, LuTrash2, LuVault } from "react-icons/lu";

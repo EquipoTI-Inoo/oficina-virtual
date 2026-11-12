@@ -5,6 +5,7 @@
  * límite cuenta días hábiles; cada día de atraso corre el cronograma del servicio.
  * El equipo pide requerimientos desde la ficha del cliente y revisa lo enviado en esta misma pantalla.
  */
+import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { Fragment, useRef, useState, type ReactNode } from "react";
 import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
@@ -436,7 +437,6 @@ function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; va
   return <p className="texto-sm" style={{ whiteSpace: "pre-line", lineHeight: 1.5 }}>{String(valor)}</p>;
 }
 
-const MIME_OK = ["image/jpeg", "image/png", "video/mp4", "application/pdf", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
 
 export interface Subida {
   iniciar: (a: { nombre: string; mime: string; bytes: number }) => Promise<{ archivo: { id: string }; subida: { url: string; headers: Record<string, string> } }>;
@@ -457,12 +457,17 @@ function SubirArchivos({ id, valor, alCambiar, subida }: { id: string; valor: Ar
     setSubiendo(true);
     const nuevos: Archivo[] = [];
     for (const f of Array.from(lista)) {
-      if (!MIME_OK.includes(f.type)) {
-        avisar({ titulo: `${f.name} no se subió`, texto: "Usa JPG, PNG, MP4, PDF, DOCX o XLSX." });
+      const mime = mimeDeArchivo(f.name, f.type);
+      if (!MIME_ARCHIVO.test(mime)) {
+        avisar({ titulo: `${f.name} no se subió`, texto: `Ese formato no se admite. Sube ${FORMATOS_PERMITIDOS}.` });
+        continue;
+      }
+      if (f.size > 100 * 1024 * 1024) {
+        avisar({ titulo: `${f.name} no se subió`, texto: "Pesa más de 100 MB. Si es un video, compártelo con un enlace de Drive o WeTransfer en el texto." });
         continue;
       }
       try {
-        const r = await subida.iniciar({ nombre: f.name, mime: f.type, bytes: f.size });
+        const r = await subida.iniciar({ nombre: f.name, mime, bytes: f.size });
         await fetch(r.subida.url, { method: "PUT", headers: r.subida.headers, body: f });
         await subida.confirmar(r.archivo.id);
         nuevos.push({ archivoId: r.archivo.id, nombre: f.name });
@@ -485,7 +490,7 @@ function SubirArchivos({ id, valor, alCambiar, subida }: { id: string; valor: Ar
           </button>
         </span>
       ))}
-      <input ref={input} id={id} type="file" multiple hidden accept=".jpg,.jpeg,.png,.mp4,.pdf,.docx,.xlsx,.xls" onChange={(e) => void subir(e.target.files)} />
+      <input ref={input} id={id} type="file" multiple hidden accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.svg,.psd,.ai,.eps,.mp4,.mov,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,image/*,video/*" onChange={(e) => void subir(e.target.files)} />
       <button type="button" className="boton" style={{ justifySelf: "start" }} disabled={subiendo} onClick={() => input.current?.click()}>
         <LuPaperclip size={16} /> {subiendo ? "Subiendo…" : "Adjuntar archivos"}
       </button>
