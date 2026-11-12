@@ -189,11 +189,7 @@ export function Miniatura({ diseno, alto = 146, foto, grande }: { diseno?: { fon
   return (
     <div className={`mini${d.fondo === "salvia" ? " mini--salvia" : ""}${conFoto ? "" : " mini--texto"}`} style={{ height: alto }}>
       <div className="mini-texto" style={grande ? { padding: "0 24px", gap: 14 } : undefined}>
-        {d.eyebrow ? (
-          <span className="mini-eyebrow" style={grande ? { fontSize: 12 } : undefined}>{d.eyebrow}</span>
-        ) : (
-          <span className="mini-marca" style={grande ? { fontSize: 15 } : undefined}>casa oliva</span>
-        )}
+        {d.eyebrow ? <span className="mini-eyebrow" style={grande ? { fontSize: 12 } : undefined}>{d.eyebrow}</span> : null}
         <span className="mini-titular" style={{ whiteSpace: "pre-line", ...(grande ? { fontSize: 19 * escala } : {}) }}>
           {d.titular}
         </span>

@@ -881,8 +881,12 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
     }
   };
   const descargar = async () => {
-    const r = await api<{ url: string }>(`/piezas/${p.id}/descarga`);
-    window.open(r.url, "_blank");
+    try {
+      const r = await api<{ url: string }>(`/piezas/${p.id}/descarga`);
+      window.open(r.url, "_blank");
+    } catch (e) {
+      avisar({ titulo: "No se pudo descargar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
   };
 
   return (
@@ -922,7 +926,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
             </>
           ) : (
             <>
-              <Miniatura diseno={p.diseno} alto={322} grande />
+              <VistaPieza piezaId={p.id} archivo={v?.archivo ?? null} imagen={imagenes[diapositiva]?.url ?? null} diseno={p.diseno} />
               <div className="fila entre" style={{ padding: "10px 16px", borderBottom: "1px solid var(--c-borde)", fontSize: 12, color: "var(--c-muted)" }}>
                 <button className="enlace" style={{ color: "var(--c-texto)" }} aria-label="Anterior" onClick={() => setDiapositiva(Math.max(0, diapositiva - 1))}>
                   <LuChevronLeft size={16} />
@@ -1176,6 +1180,28 @@ function Guion({ c }: { c: Record<string, unknown> }) {
       <p>
         <strong>CTA:</strong> {String(c.cta ?? "")}
       </p>
+    </div>
+  );
+}
+
+/**
+ * 13 nov (auditoría): el cliente aprueba mirando la pieza real. Primero la imagen de la diapositiva; si no, el archivo
+ * de la versión (imagen o video); solo si no hay nada, la maqueta de texto.
+ */
+function VistaPieza({ piezaId, archivo, imagen, diseno }: { piezaId: string; archivo: { mime: string; nombre: string; miniaturaUrl?: string | null } | null; imagen: string | null; diseno?: Parameters<typeof Miniatura>[0]["diseno"] }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const media = archivo && /^(image|video)\//.test(archivo.mime) ? archivo.mime : null;
+  useEffect(() => {
+    if (imagen || !media) return;
+    let vivo = true;
+    api<{ url: string }>(`/piezas/${piezaId}/descarga`).then((r) => vivo && setUrl(r.url), () => undefined);
+    return () => { vivo = false; };
+  }, [piezaId, imagen, media]);
+  const src = imagen ?? url ?? archivo?.miniaturaUrl ?? null;
+  if (!src) return <Miniatura diseno={diseno} alto={322} grande />;
+  return (
+    <div className="vista-pieza">
+      {media?.startsWith("video/") && !imagen ? <video src={src} controls playsInline /> : <img src={src} alt={archivo?.nombre ?? "Pieza"} />}
     </div>
   );
 }

@@ -2672,3 +2672,6 @@ main, .contenido, .principal { min-width: 0; }
 
 /* Proyecto archivado (13 nov). */
 .aviso-archivado { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; margin-bottom: 14px; border-radius: 12px; background: var(--c-neutro-suave); border: 1px solid var(--c-borde); font-size: 13px; }
+/* La pieza real en la revisión del cliente (13 nov). */
+.vista-pieza { background: #0f172a; display: grid; place-items: center; min-height: 322px; }
+.vista-pieza img, .vista-pieza video { max-width: 100%; max-height: 70vh; display: block; }
