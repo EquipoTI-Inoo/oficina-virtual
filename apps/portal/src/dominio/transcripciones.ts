@@ -32,6 +32,14 @@ export interface PropuestaResumen {
   pendientes: { texto: string; de: "CLIENTE" | "INOO" }[];
 }
 
+// ───────────────────────────── la IA no aparece ante el cliente (13 nov)
+
+const IA_O_HERRAMIENTA = /\b(?:ai|ia|i\.a\.|inteligencia artificial|claude|anthropic|chatgpt|chat gpt|openai|gpt(?:-?\d[\w.]*)?|gemini|deepseek|copilot|midjourney|jarvis|stitch|lovable|v0|bolt)\b/i;
+/** Quita las oraciones que nombran a la IA o a herramientas internas: el resumen lo lee el cliente. */
+export function sinMencionesIa(t: string): string {
+  return t.split(/(?<=[.!?])\s+/).filter((x) => !IA_O_HERRAMIENTA.test(x)).join(" ").trim();
+}
+
 // ───────────────────────────── prompts
 
 export const SISTEMA_ALTA = `Eres asistente del área Comercial de Inoo, una agencia de marketing en Perú. Te pasan la transcripción de una reunión de venta con un cliente nuevo. Extrae SOLO lo que se dijo; si algo no aparece, usa null. Responde únicamente un JSON con esta forma:
@@ -78,12 +86,12 @@ export function normalizarAlta(j: Record<string, unknown>): PropuestaAlta {
 }
 
 export function normalizarResumen(j: Record<string, unknown>): PropuestaResumen | null {
-  const resumen = texto(j.resumen, 4000);
+  const resumen = sinMencionesIa(texto(j.resumen, 4000) ?? "");
   if (!resumen) return null;
   const pendientes = (Array.isArray(j.pendientes) ? j.pendientes : [])
     .map((p) => p as Record<string, unknown>)
     .map((p) => ({ texto: texto(p.texto, 300), de: p.de === "INOO" ? ("INOO" as const) : ("CLIENTE" as const) }))
-    .filter((p): p is { texto: string; de: "CLIENTE" | "INOO" } => !!p.texto && p.texto.length >= 3)
+    .filter((p): p is { texto: string; de: "CLIENTE" | "INOO" } => !!p.texto && p.texto.length >= 3 && !IA_O_HERRAMIENTA.test(p.texto))
     .slice(0, 15);
   return { resumen, conAcuerdos: j.conAcuerdos !== false, pendientes };
 }
@@ -119,10 +127,10 @@ export function altaPorReglas(t: string): PropuestaAlta {
 }
 
 export function resumenPorReglas(t: string): PropuestaResumen {
-  const frases = oraciones(t);
+  const frases = oraciones(t).filter((s) => !IA_O_HERRAMIENTA.test(s));
   const pendientes = frases
     .filter((s) => /\b(env[ií]a(?:r|n|mos)?|mand(?:a|ar|amos)|pasa(?:r|n)?|entreg(?:a|ar|amos)|compart(?:e|ir|imos)|prepar(?:a|ar|amos)|qued(?:a|amos) en)\b/i.test(s))
     .slice(0, 8)
     .map((s) => ({ texto: s.slice(0, 300), de: /\b(nosotros|inoo|les (envío|mando|paso)|preparamos|enviamos|mandamos|entregamos)\b/i.test(s) ? ("INOO" as const) : ("CLIENTE" as const) }));
-  return { resumen: frases.slice(0, 4).join(" ") || t.trim().slice(0, 400), conAcuerdos: /\b(acordamos|quedamos|de acuerdo|perfecto|listo)\b/i.test(t), pendientes };
+  return { resumen: frases.slice(0, 4).join(" ") || sinMencionesIa(t.trim().slice(0, 400)), conAcuerdos: /\b(acordamos|quedamos|de acuerdo|perfecto|listo)\b/i.test(t), pendientes };
 }

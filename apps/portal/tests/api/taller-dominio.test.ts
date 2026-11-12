@@ -189,3 +189,14 @@ describe("taller web · dominio", () => {
     assert.equal(respuestaPublica(null).status, 404);
   });
 });
+
+import { normalizarResumen, resumenPorReglas, sinMencionesIa } from "../../src/dominio/transcripciones";
+describe("Resúmenes para el cliente sin mencionar la IA (13 nov)", () => {
+  test("se quitan las oraciones que nombran la IA o herramientas internas", () => {
+    assert.equal(sinMencionesIa("Revisamos la web. Lo armamos con Claude y ChatGPT. Quedamos en enviar el logo."), "Revisamos la web. Quedamos en enviar el logo.");
+    const r = normalizarResumen({ resumen: "Acordamos la paleta. La IA hará los textos.", pendientes: [{ texto: "Pasar el brief a Jarvis", de: "INOO" }, { texto: "Enviar el logo", de: "CLIENTE" }] })!;
+    assert.deepEqual([r.resumen, r.pendientes.map((p) => p.texto)], ["Acordamos la paleta.", ["Enviar el logo"]]);
+    assert.ok(!/ia\b|gemini/i.test(resumenPorReglas("Hablamos del catálogo. Usaremos Gemini para las fotos. Quedamos en enviar precios.").resumen));
+    assert.equal(sinMencionesIa("La auditoría salió bien."), "La auditoría salió bien.", "«auditoría» no es «IA»");
+  });
+});
