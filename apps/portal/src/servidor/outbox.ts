@@ -42,6 +42,12 @@ export async function despacharPendientes(db: BaseDatos, o: OpcionesDespacho): P
     for (const e of rows) {
       // En orden: si el más antiguo todavía espera su reintento, nadie se le adelanta.
       if (!e.toca) break;
+      // 13 nov: con CARPETAS_PAUSADAS=true, n8n no recibe «cliente creado» (es lo que crea las carpetas de Drive). Queda
+      // marcado y no se manda después.
+      if (e.tipo === "cliente.creado" && process.env.CARPETAS_PAUSADAS?.trim() === "true") {
+        await c.query("UPDATE outbox_evento SET entregado_en = now(), ultimo_error = 'carpetas pausadas' WHERE id = $1", [e.id]);
+        continue;
+      }
       const cuerpo = JSON.stringify({ id: Number(e.id), tipo: e.tipo, ocurridoEn: new Date(e.creado_en).toISOString(), clienteId: e.cliente_id, datos: e.payload });
       const ts = String(Math.floor(Date.now() / 1000));
       let error: string | null = null;

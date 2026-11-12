@@ -309,6 +309,21 @@ describe("despachador del outbox", () => {
     assert.deepEqual(await despacharPendientes(base(), { destino: "http://n8n/webhook", secreto: "s3creto", fetch: fetchFalso }), { entregados: 0, fallidos: 0 });
   });
 
+  test("con CARPETAS_PAUSADAS, n8n no recibe «cliente creado» (13 nov)", async () => {
+    await reiniciar();
+    process.env.CARPETAS_PAUSADAS = "true";
+    try {
+      await llamar("POST", "/clientes", DIEGO, { nombre: "Cliente Sin Carpeta", canales: ["INSTAGRAM"] });
+      const tipos: string[] = [];
+      const fetchFalso = (async (_u: string, init: RequestInit) => { tipos.push(JSON.parse(String(init.body)).tipo); return new Response(null, { status: 200 }); }) as unknown as typeof fetch;
+      await despacharPendientes(base(), { destino: "http://n8n/webhook", secreto: "s", fetch: fetchFalso });
+      assert.ok(!tipos.includes("cliente.creado"));
+      assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM outbox_evento WHERE tipo = 'cliente.creado' AND ultimo_error = 'carpetas pausadas'")).rows[0].n, 1);
+    } finally {
+      delete process.env.CARPETAS_PAUSADAS;
+    }
+  });
+
   test("si n8n falla, registra el error, no se adelanta y espera para reintentar", async () => {
     await reiniciar();
     await llamar("POST", `/piezas/${TU_RITUAL}/aprobar`, VALERIA, { version: 2 });

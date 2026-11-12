@@ -125,6 +125,8 @@ services:
       CORREOS_POR: ${CORREOS_POR:-portal}
       # 12 nov: true = no sale ningún correo automático (quedan marcados «correos pausados»; no se mandan después).
       CORREOS_PAUSADOS: ${CORREOS_PAUSADOS:-false}
+      # 13 nov: true = n8n no recibe «cliente creado», así que no crea carpetas de Drive para los clientes nuevos.
+      CARPETAS_PAUSADAS: ${CARPETAS_PAUSADAS:-false}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SEGURO: ${SMTP_SEGURO:-false}
