@@ -3593,6 +3593,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integraciones/monday/asignar-clientes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * El cliente de los tableros de Monday sin cliente, sacado del nombre (26SM_X, SM_X, PLANNING SM - X, PROYECTO DE IMPLEMENTACIÓN X…); lo interno queda de Inoo
+         * @description Sin `aplicar` es solo la vista previa. Crea la ficha del cliente solo si tiene algún tablero activo; a los demás les pone el nombre.
+         */
+        post: operations["asignarClientesMonday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/integraciones/monday/importar-pendientes": {
         parameters: {
             query?: never;
@@ -15657,6 +15677,42 @@ export interface operations {
                             /** @enum {string} */
                             como: "RESPONSABLE" | "PERSONAS" | "SUBITEM";
                         }[];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    asignarClientesMonday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    aplicar?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Resumen y lista por tablero */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
                     };
                 };
             };

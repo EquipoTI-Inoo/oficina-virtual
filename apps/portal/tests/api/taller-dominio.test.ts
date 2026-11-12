@@ -200,3 +200,18 @@ describe("Resúmenes para el cliente sin mencionar la IA (13 nov)", () => {
     assert.equal(sinMencionesIa("La auditoría salió bien."), "La auditoría salió bien.", "«auditoría» no es «IA»");
   });
 });
+
+import { clienteDeTablero, clientesDeTableros } from "../../src/dominio/cliente-de-tablero";
+describe("Cliente de un tablero de Monday por su nombre (13 nov)", () => {
+  test("convenciones del equipo e internos", () => {
+    const c = (n: string) => { const x = clienteDeTablero(n); return x?.tipo === "CLIENTE" ? x.nombre : x?.tipo ?? null; };
+    assert.equal(c("26SM_INDRECO"), "Indreco");
+    assert.equal(c("PLANNING SM - PLAZA MAYOR"), "Plaza Mayor");
+    assert.equal(c('PROYECTO DE IMPLEMENTACIÓN "La tienda del mecanico"'), "La tienda del mecanico");
+    assert.equal(c("PLANNING PERFORMANCE - QUMIR"), "Qumir");
+    assert.equal(c("PLAN DE MEDIOS FAMISALUD"), "Famisalud");
+    for (const n of ["MAY_PLANNING_2026", "BRIEF DISEÑO WEB", "PLANTILLA_VIABLE", "😎 n8n - Tickets", "Paid INOO", "RECLUTAMIENTO", "SM_GRUPOINOO"]) assert.equal(c(n), "INTERNO", n);
+    const m = clientesDeTableros(["PM_SWISS ACTUALIZADO", "PROYECTO DE IMPLEMENTACIÓN SWISS CAPITAL", "Swiss capital", "26SM_DRONE", "SM_DRONES"]);
+    assert.deepEqual([...new Set([...m.values()].map((x) => (x?.tipo === "CLIENTE" ? x.nombre : "")))].sort(), ["Drones", "Swiss Capital"]);
+  });
+});

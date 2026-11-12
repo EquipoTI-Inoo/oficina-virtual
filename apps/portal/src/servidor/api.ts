@@ -5435,6 +5435,16 @@ function repoMonday(ctx: Ctx): RepoMonday {
   };
 }
 // 12 nov: la importación automática, desde el servidor (llave de los procesos, scope tableros:write).
+// 13 nov: el cliente de los tableros de Monday, sacado del nombre. Ficha nueva solo para quien tiene algún tablero activo.
+ruta("POST", "/integraciones/monday/asignar-clientes", async (ctx, _p, _q, cuerpo) => {
+  soloServicio(ctx, "tableros:write");
+  const b = (await cuerpo()) as { aplicar?: unknown };
+  const clientes = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente")).rows;
+  return TABLEROS.clientesDeMonday({
+    aplicar: b.aplicar === true,
+    asegurar: async (nombre, conFicha) => (conFicha ? String(await asegurarClienteDb(ctx, nombre)) : clienteExistente(nombre, clientes)?.nombre ?? nombre),
+  });
+});
 ruta("POST", "/integraciones/monday/importar-pendientes", async (ctx, _p, _q, cuerpo) => {
   soloServicio(ctx, "tableros:write");
   const b = (await cuerpo()) as { limite?: unknown; archivarAntesDe?: unknown };

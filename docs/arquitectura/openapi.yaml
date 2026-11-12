@@ -5143,6 +5143,22 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '502': { description: InooWork no respondió }
 
+  /integraciones/monday/asignar-clientes:
+    post:
+      tags: [Tableros]
+      operationId: asignarClientesMonday
+      summary: 'El cliente de los tableros de Monday sin cliente, sacado del nombre (26SM_X, SM_X, PLANNING SM - X, PROYECTO DE IMPLEMENTACIÓN X…); lo interno queda de Inoo'
+      description: Sin `aplicar` es solo la vista previa. Crea la ficha del cliente solo si tiene algún tablero activo; a los demás les pone el nombre.
+      x-roles: [SERVICIO]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { aplicar: { type: boolean } } }
+      responses:
+        '200': { description: 'Resumen y lista por tablero', content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '502': { description: InooWork no respondió }
+
   /integraciones/monday/importar-pendientes:
     post:
       tags: [Tableros]

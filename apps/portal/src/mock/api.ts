@@ -1818,6 +1818,14 @@ const repoMonday = (): RepoMonday => ({
   clientes: async () => E.clientes.filter((c) => c.estado !== "BAJA").map((c) => ({ id: c.id, nombre: c.nombre })),
   asegurarCliente: async (nombre) => String(asegurarClienteMock(ctxMonday!, nombre)),
 });
+ruta("POST", "/integraciones/monday/asignar-clientes", async (ctx, _p, _q, req) => {
+  soloServicio(ctx);
+  const b = await cuerpo<{ aplicar?: unknown }>(req);
+  return TABLEROS.clientesDeMonday({
+    aplicar: b.aplicar === true,
+    asegurar: async (nombre, conFicha) => (conFicha ? String(asegurarClienteMock(ctx, nombre)) : clienteExistente(nombre, E.clientes)?.nombre ?? nombre),
+  });
+});
 ruta("POST", "/integraciones/monday/importar-pendientes", async (ctx, _p, _q, req) => {
   soloServicio(ctx);
   ctxMonday = ctx;

@@ -14,6 +14,7 @@ import {
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
+import { clientesDeTableros } from "../dominio/cliente-de-tablero";
 import { accionColumna, agregarColumna, borrarColumna, cambiarColumna, guardarValor, marcarCambio, type CambioColumna, type ColumnaIW, type Conectados, type Quien } from "../dominio/tableros";
 import { info, valorCalculado, type ItemCalc } from "../dominio/columnas";
 import { PROYECTOS_DEMO } from "../mock/inoowork-demo";
@@ -290,6 +291,36 @@ export function crearTableros(fallar: Fallar) {
       return tableroVista(p, yo);
     }),
     /** Los ids de todos los proyectos que existen (sin borrar), de una sola lectura (13 nov: la importación masiva). */
+    /**
+     * 13 nov: el cliente de los tableros que vinieron de Monday sin cliente, sacado de su nombre (dominio/cliente-de-tablero).
+     * `asegurar` da el nombre del cliente en el portal (y crea la ficha si hace falta). Sin `aplicar`, solo la vista previa.
+     */
+    clientesDeMonday: (o: { aplicar: boolean; prueba?: boolean; asegurar: (nombre: string, conFicha: boolean) => Promise<string> }) => protegido(async () => {
+      const todos = (await listarIW(o.prueba)).filter((p) => p.mondayId && !p.deleted && !p.clientName?.trim());
+      const mapa = clientesDeTableros(todos.map((p) => p.name));
+      const activos = new Set(todos.filter((p) => !p.archived).map((p) => mapa.get(p.name)).filter((c): c is { tipo: "CLIENTE"; nombre: string } => c?.tipo === "CLIENTE").map((c) => c.nombre));
+      const lista: { tableroId: string; tablero: string; archivado: boolean; cliente: string | null; conFicha: boolean }[] = [];
+      const nombres = new Map<string, string>();
+      for (const p of todos) {
+        const c = mapa.get(p.name);
+        const cliente = c?.tipo === "INTERNO" ? "Inoo" : c?.tipo === "CLIENTE" ? c.nombre : null;
+        const conFicha = c?.tipo === "CLIENTE" && activos.has(c.nombre);
+        let final = cliente;
+        if (o.aplicar && cliente) {
+          if (!nombres.has(cliente)) nombres.set(cliente, cliente === "Inoo" ? "Inoo" : await o.asegurar(cliente, conFicha));
+          final = nombres.get(cliente)!;
+          p.clientName = final;
+          await guardarIW(p, o.prueba);
+        }
+        lista.push({ tableroId: p.id, tablero: p.name, archivado: !!p.archived, cliente: final, conFicha });
+      }
+      return {
+        aplicado: o.aplicar, tableros: lista.length, internos: lista.filter((x) => x.cliente === "Inoo").length, sinCliente: lista.filter((x) => !x.cliente).length,
+        clientesConFicha: [...new Set(lista.filter((x) => x.conFicha).map((x) => x.cliente!))].sort(),
+        clientesSinFicha: [...new Set(lista.filter((x) => x.cliente && !x.conFicha && x.cliente !== "Inoo").map((x) => x.cliente!))].sort(),
+        lista,
+      };
+    }),
     existentes: (yo: Yo) => protegido(async () => new Set((await listarIW(yo.prueba)).filter((p) => !p.deleted).map((p) => p.id))),
     /** ¿Sigue existiendo (y sin borrar) ese proyecto? Para no importar dos veces el mismo tablero. */
     existe: (id: string, yo: Yo) => protegido(async () => {

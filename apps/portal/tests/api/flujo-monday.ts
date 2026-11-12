@@ -92,6 +92,19 @@ export function pruebasMonday(nombre: string, manejar: Manejador, reiniciar: () 
       assert.ok((await llamar("GET", "/tableros", DIEGO)).json.datos.some((t: any) => t.id === id), "Diego lo ve en sus tableros");
     });
 
+    test("clientes de Monday por el nombre del tablero: vista previa y aplicar (ficha solo si tiene tablero activo)", async () => {
+      await reiniciar();
+      const N8N = { "x-api-key": "demo-n8n" };
+      await llamar("POST", "/integraciones/monday/importar-pendientes", undefined, { limite: 10 }, N8N);
+      const previa = (await llamar("POST", "/integraciones/monday/asignar-clientes", undefined, {}, N8N)).json;
+      assert.deepEqual([previa.aplicado, previa.tableros, previa.clientesConFicha], [false, 1, ["Contenido mensual"]], "Web Casa Oliva ya tenía cliente");
+      const antes = (await llamar("GET", "/clientes?limite=100", DIEGO)).json.datos.length;
+      const r = (await llamar("POST", "/integraciones/monday/asignar-clientes", undefined, { aplicar: true }, N8N)).json;
+      assert.equal(r.aplicado, true);
+      assert.equal((await llamar("GET", "/clientes?limite=100", DIEGO)).json.datos.length, antes + 1, "se creó la ficha");
+      assert.equal((await llamar("POST", "/integraciones/monday/asignar-clientes", undefined, {}, N8N)).json.tableros, 0, "ya no queda ninguno sin cliente");
+    });
+
     test("sin dueño en Monday el líder es quien importa; la línea de tiempo da la fecha", async () => {
       await reiniciar();
       const r = await llamar("POST", "/monday/tableros/1002/importar", ADMIN, { nombre: "Contenido de noviembre", copiarArchivos: false });
