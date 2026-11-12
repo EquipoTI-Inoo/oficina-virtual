@@ -24,12 +24,14 @@ if (!enviar && !(destino && secreto)) {
   console.error("Faltan N8N_WEBHOOK_URL y N8N_WEBHOOK_SECRETO");
   process.exit(1);
 }
+let pausaAvisada = false;
 const intervalo = Number(process.env.OUTBOX_INTERVALO_MS ?? 5000);
 const unaVez = process.argv.includes("--una-vez");
 
 async function ciclo() {
   if (enviar) {
     const r = await despacharCorreos(enviar);
+    if (process.env.CORREOS_PAUSADOS?.trim() === "true" && !pausaAvisada) { console.log("[correos] pausados (CORREOS_PAUSADOS=true): no sale ningún correo automático"); pausaAvisada = true; }
     if (r.enviados || r.fallidos) console.log(`[correos] ${r.enviados} enviados, ${r.fallidos} fallidos (${r.eventos} eventos)`);
   }
   if (!destino || !secreto) return;

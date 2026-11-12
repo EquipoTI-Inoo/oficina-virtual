@@ -6906,8 +6906,13 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<(S<"Correo
     }
   }
 
+  // 12 nov: a las personas de prueba no se les manda nada (sus correos son inventados), aunque su cliente sea real.
+  const deprueba = new Set((await ctx.c.query<{ email: string }>(
+    "SELECT lower(email::text) AS email FROM usuario WHERE es_prueba AND lower(email::text) = ANY ($1::text[])", [[...destinos.keys()].map((x) => x.toLowerCase())],
+  )).rows.map((r) => r.email));
   const correos: (S<"CorreoPreparado"> & { alEquipo: boolean })[] = [];
   for (const [para, { nombre, destino }] of destinos) {
+    if (deprueba.has(para.toLowerCase())) continue;
     const enlace = `${URL_PORTAL()}${destino === "AM" ? enlaceEquipo : enlaceCliente}`;
     const m = renderizarCorreo(plantilla, { ...c, enlace }, destino, nombre);
     await ctx.c.query(
@@ -6954,6 +6959,12 @@ ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) 
 export async function despacharCorreos(enviar: EnviarCorreo, o: { lote?: number; ahora?: Date } = {}): Promise<{ eventos: number; enviados: number; fallidos: number; enEspera: number }> {
   const db = await baseDatos();
   const ahora = o.ahora ?? new Date();
+  // 12 nov: con CORREOS_PAUSADOS=true no sale ningún correo automático. Los eventos quedan marcados y no se mandan
+  // después (al reanudar no llega una ola de correos atrasados). El enlace de crear contraseña sí sale: lo pide la persona.
+  if (process.env.CORREOS_PAUSADOS?.trim() === "true") {
+    await db.transaccion((c) => c.query("UPDATE outbox_evento SET correos_procesados_en = now(), correos_error = 'correos pausados' WHERE correos_procesados_en IS NULL"));
+    return { eventos: 0, enviados: 0, fallidos: 0, enEspera: 0 };
+  }
   const { ids, noLaborables } = await db.transaccion(async (c) => ({
     // Entorno de pruebas (6 nov): lo de los clientes de prueba no manda correos (sus direcciones son inventadas).
     descartados: await c.query("UPDATE outbox_evento SET correos_procesados_en = now(), correos_error = 'entorno de pruebas' WHERE correos_procesados_en IS NULL AND cliente_id IN (SELECT id FROM cliente WHERE es_prueba)"),
