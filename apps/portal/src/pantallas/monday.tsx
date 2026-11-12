@@ -126,7 +126,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
     <Modal abierto alCerrar={alCerrar} etiqueta="Revisar el tablero de Monday" ancho={860}>
       {p.error ? <ErrorCarga error={p.error} reintentar={p.recargar} /> : !d ? <Cargando /> : hecho ? (
         <div className="pila" style={{ gap: 12 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Listo: «{hecho.tablero.nombre}» ya está en el portal</h2>
+          <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Listo: «{hecho.tablero.nombre}» ya está en el portal</h2>
           <p className="texto-sm">
             {hecho.resumen.items} ítems y {hecho.resumen.subitems} subítems en {hecho.resumen.grupos} grupos, {hecho.resumen.actualizaciones} actualizaciones
             y {hecho.resumen.archivosCopiados} de {hecho.resumen.archivos} archivos copiados.
@@ -147,7 +147,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
         <div className="pila" style={{ gap: 16 }}>
           <div>
             <span className="texto-xs texto-muted">{d.tablero.espacio ?? "Monday"}</span>
-            <h2 style={{ fontSize: 18, fontWeight: 600 }}>{d.tablero.nombre}</h2>
+            <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{d.tablero.nombre}</h2>
             <p className="texto-sm texto-muted">
               {d.conteo.grupos} grupos · {d.conteo.items} ítems · {d.conteo.subitems} subítems · {d.conteo.actualizaciones} actualizaciones · {d.conteo.archivos} archivos
             </p>
@@ -276,7 +276,7 @@ function ImportarTodos({ tableros, alCerrar }: { tableros: Lista["datos"]; alCer
     <Modal abierto alCerrar={() => { if (!corriendo || window.confirm("¿Detener la importación? Lo ya importado se queda.")) { parar.current = true; alCerrar(); } }} etiqueta="Importar todos los tableros" ancho={760}>
       <div className="pila" style={{ gap: 12 }}>
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Importar {tableros.length} tableros de un tirón</h2>
+          <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Importar {tableros.length} tableros de un tirón</h2>
           <p className="texto-sm texto-muted">
             Se importan uno por uno con lo sugerido: cada persona emparejada por correo o nombre, los estados traducidos y el cliente por asignar
             (cada tablero avisa «Falta el cliente» y se pone después). Deja esta ventana abierta hasta que termine; si se corta, vuelve a darle y sigue donde quedó.
@@ -346,7 +346,7 @@ export function HistorialMonday({ proyectoId, item, alCerrar }: { proyectoId: st
   );
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={`Historial de Monday de ${item.nombre}`} ancho={720}>
-      <h2 style={{ fontSize: 17, fontWeight: 600, marginBottom: 4 }}>{item.nombre}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600, marginBottom: 4 }}>{item.nombre}</h2>
       <p className="texto-xs texto-muted" style={{ marginBottom: 14 }}>Lo que este ítem traía de Monday.</p>
       {r.error ? <ErrorCarga error={r.error} reintentar={r.recargar} /> : !r.datos ? <Cargando /> : !r.datos.datos.length ? (
         <p className="texto-sm texto-muted">Este ítem no tenía actualizaciones ni archivos en Monday.</p>

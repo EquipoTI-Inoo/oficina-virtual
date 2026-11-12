@@ -63,7 +63,7 @@ export function PantallaFormularioPublico() {
     <Marco>
       <header style={{ display: "grid", gap: 6 }}>
         <span className="texto-xs negrita" style={{ color: "var(--c-primario)", letterSpacing: "0.04em" }}>{f.servicioTitulo.toUpperCase()}</span>
-        <h1 style={{ fontSize: 26, fontWeight: 600, lineHeight: 1.2 }}>{f.titulo}</h1>
+        <h1 style={{ fontSize: "var(--t-4xl)", fontWeight: 600, lineHeight: 1.2 }}>{f.titulo}</h1>
         {f.descripcion && <p className="texto-sm texto-muted" style={{ margin: 0 }}>{f.descripcion}</p>}
       </header>
 
@@ -113,7 +113,7 @@ function Marco({ children }: { children: React.ReactNode }) {
   return (
     <main style={{ minHeight: "100vh", background: "var(--c-fondo)", padding: "32px 16px 64px" }}>
       <div style={{ maxWidth: 760, margin: "0 auto", display: "grid", gap: 20 }}>
-        <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>
+        <span style={{ fontSize: "var(--t-4xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>
           inoo<span style={{ color: "var(--c-primario)" }}>.</span>
         </span>
         {children}

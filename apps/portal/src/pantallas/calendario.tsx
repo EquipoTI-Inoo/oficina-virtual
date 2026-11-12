@@ -16,12 +16,12 @@ type Evento = S<"EventoAgenda">;
 type Vista = "MES" | "SEMANA" | "DIA";
 
 const TIPOS: { tipo: TipoAgenda; nombre: string; color: string }[] = [
-  { tipo: "REUNION", nombre: "Reuniones de proyecto", color: "#5554d9" },
-  { tipo: "EVENTO", nombre: "Mis eventos", color: "#2b7bd9" },
-  { tipo: "TAREA", nombre: "Vencimiento de tareas", color: "#e8820c" },
-  { tipo: "REQUERIMIENTO", nombre: "Entregas del cliente", color: "#9b51e0" },
-  { tipo: "PENDIENTE", nombre: "Pendientes", color: "#1f9d74" },
-  { tipo: "FERIADO", nombre: "Feriados", color: "#d92d20" },
+  { tipo: "REUNION", nombre: "Reuniones de proyecto", color: "var(--c-primario)" },
+  { tipo: "EVENTO", nombre: "Mis eventos", color: "var(--c-info)" },
+  { tipo: "TAREA", nombre: "Vencimiento de tareas", color: "var(--c-semaforo-naranja)" },
+  { tipo: "REQUERIMIENTO", nombre: "Entregas del cliente", color: "var(--c-categoria-violeta)" },
+  { tipo: "PENDIENTE", nombre: "Pendientes", color: "var(--c-semaforo-verde)" },
+  { tipo: "FERIADO", nombre: "Feriados", color: "var(--c-semaforo-rojo)" },
 ];
 const COLOR = Object.fromEntries(TIPOS.map((t) => [t.tipo, t.color])) as Record<TipoAgenda, string>;
 const NOMBRE_TIPO: Record<TipoAgenda, string> = { REUNION: "Reunión de proyecto", EVENTO: "Evento", TAREA: "Vence una tarea", REQUERIMIENTO: "Entrega del cliente", PENDIENTE: "Pendiente", FERIADO: "Feriado" };
@@ -361,7 +361,7 @@ function VistaHoras({ dias, hoy, eventos, alAbrir, alCrear, alVerDia }: { dias: 
                     className={`bloque-agenda${e.hecho ? " bloque-agenda--hecho" : ""}`}
                     style={{
                       top: ((ini - HORA_INICIO * 60) / 60) * ALTO_HORA, height: Math.max(((fin - ini) / 60) * ALTO_HORA - 2, 20),
-                      left: `calc(${(carril / de) * 100}% + 2px)`, width: `calc(${100 / de}% - 4px)`, borderLeftColor: COLOR[e.tipo], background: `${COLOR[e.tipo]}1f`,
+                      left: `calc(${(carril / de) * 100}% + 2px)`, width: `calc(${100 / de}% - 4px)`, borderLeftColor: COLOR[e.tipo], background: `color-mix(in srgb, ${COLOR[e.tipo]} 12%, transparent)`,
                     }}
                     onClick={() => alAbrir(e)}
                   >
@@ -411,7 +411,7 @@ function DetalleEvento({ e, alCerrar, alEditar, alCambiar }: { e: Evento; alCerr
         <div className="fila" style={{ gap: 10, alignItems: "flex-start" }}>
           <span className="cuadro-tipo" style={{ background: COLOR[e.tipo] }} />
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 600, textDecoration: e.hecho && e.tipo === "PENDIENTE" ? "line-through" : undefined }}>{e.titulo}</h2>
+            <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600, textDecoration: e.hecho && e.tipo === "PENDIENTE" ? "line-through" : undefined }}>{e.titulo}</h2>
             <p className="texto-sm texto-muted">
               {mayus(fmt(e.fecha, { weekday: "long", day: "numeric", month: "long" }))}
               {e.horaInicio ? ` · ${e.horaInicio}${e.horaFin ? ` – ${e.horaFin}` : ""}` : " · todo el día"}
@@ -487,7 +487,7 @@ function EditorEvento({ valor, alCerrar, alGuardar }: { valor: Evento | Nuevo; a
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={existente ? "Editar" : "Nuevo en el calendario"} ancho={480}>
       <form className="pila" style={{ gap: 14 }} onSubmit={(x) => void guardar(x)}>
-        <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuCalendarPlus size={20} /> {existente ? "Editar" : "Nuevo en el calendario"}</h2>
+        <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuCalendarPlus size={20} /> {existente ? "Editar" : "Nuevo en el calendario"}</h2>
         {!existente && (
           <div className="segmentado" role="tablist" aria-label="Tipo">
             <button type="button" role="tab" aria-selected={tipo === "EVENTO"} className={tipo === "EVENTO" ? "activo" : undefined} onClick={() => setTipo("EVENTO")}>Evento o reunión</button>
@@ -568,7 +568,7 @@ function ConexionGoogle({ g, alCerrar, alCambiar }: { g: S<"ConexionGoogle"> | u
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Google Calendar" ancho={440}>
       <div className="pila" style={{ gap: 12 }}>
-        <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LogoGoogle /> Google Calendar</h2>
+        <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LogoGoogle /> Google Calendar</h2>
         {g?.conectado ? (
           <p className="texto-sm">Conectado como <strong>{g.correo}</strong>.</p>
         ) : (

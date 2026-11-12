@@ -93,9 +93,9 @@ function Proyecto() {
               </>
             )}
             {d.siguientePaso && (
-              <div className="fila-suave" style={{ marginTop: 18, fontSize: 12 }}>
+              <div className="fila-suave" style={{ marginTop: 18, fontSize: "var(--t-xs)" }}>
                 <span className="texto-muted">{d.siguientePaso.texto}</span>
-                <span className="texto-primario" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{d.siguientePaso.responsable?.nombre} · Inoo</span>
+                <span className="texto-primario" style={{ fontSize: "var(--t-xs)", whiteSpace: "nowrap" }}>{d.siguientePaso.responsable?.nombre} · Inoo</span>
               </div>
             )}
           </section>
@@ -138,7 +138,7 @@ function Proyecto() {
         <aside className="pila">
           <Reuniones reuniones={d.reuniones} />
           <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Detalle</h3>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Detalle</h3>
             {d.variante && <Fila etiqueta="Tipo">{d.variante.nombre}</Fila>}
             {d.detalle?.tamano && <Fila etiqueta="Tamaño">{TAMANO[d.detalle.tamano]}</Fila>}
             {d.detalle?.cms && <Fila etiqueta="Plataforma">{CMS[d.detalle.cms]}</Fila>}
@@ -221,7 +221,7 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
         {lista.datos?.datos.map((t) => (
           <button type="button" key={t.id} className="fila-suave fila-ticket" style={{ padding: "12px 14px", alignItems: "flex-start", width: "100%", border: 0, textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }} onClick={() => setTicket(t.id)} aria-label={`Abrir el ticket ${t.codigo}`}>
             <span style={{ display: "grid", gap: 4 }}>
-              <span className="negrita" style={{ fontSize: 13 }}>
+              <span className="negrita" style={{ fontSize: "var(--t-sm)" }}>
                 {t.codigo} · {t.asunto}
               </span>
               {t.resumenEstado && <span className="texto-xs texto-muted">{t.resumenEstado}</span>}
@@ -233,7 +233,7 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
       </div>
       {ticket && <DetalleTicket id={ticket} alCerrar={() => { setTicket(null); void lista.recargar(); }} />}
       <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Generar ticket">
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Generar ticket</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Generar ticket</h2>
         <div className="campo">
           <label htmlFor="ticket-asunto">¿Qué necesitas?</label>
           <div className="entrada">
@@ -353,13 +353,13 @@ function Reuniones({ reuniones }: { reuniones: S<"Reunion">[] }) {
   const realizadas = reuniones.filter((r) => r.estado === "REALIZADA");
   return (
     <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 14 }}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Reuniones</h3>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Reuniones</h3>
       {reuniones.length === 0 && <p className="texto-xs texto-muted">Aún no hay reuniones en este proyecto.</p>}
       {proximas.map((r) => (
         <div key={r.id} className="fila" style={{ alignItems: "flex-start", gap: 10 }}>
           <LuCalendarClock size={16} color="var(--c-primario)" style={{ flexShrink: 0, marginTop: 2 }} />
           <span>
-            <span className="negrita" style={{ display: "block", fontSize: 12.5 }}>{r.titulo}</span>
+            <span className="negrita" style={{ display: "block", fontSize: "var(--t-sm)" }}>{r.titulo}</span>
             <span className="texto-xs texto-primario">Próxima · {fDiaHora(r.fecha)}</span>
           </span>
         </div>
@@ -368,7 +368,7 @@ function Reuniones({ reuniones }: { reuniones: S<"Reunion">[] }) {
         <div key={r.id} className="fila" style={{ alignItems: "flex-start", gap: 10 }}>
           <LuCircleCheck size={16} color={r.conAcuerdos ? "var(--c-exito)" : "var(--c-muted)"} style={{ flexShrink: 0, marginTop: 2 }} />
           <span>
-            <span className="negrita" style={{ display: "block", fontSize: 12.5 }}>{r.titulo}</span>
+            <span className="negrita" style={{ display: "block", fontSize: "var(--t-sm)" }}>{r.titulo}</span>
             <span className="texto-xs texto-muted" style={{ display: "block" }}>
               {fDiaMes(r.fecha)} · {r.conAcuerdos ? "Con acuerdos" : "Sin acuerdos"}
             </span>
@@ -414,11 +414,11 @@ function Comentarios({ servicioId }: { servicioId: string }) {
         <div key={c.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr", gap: 10 }}>
           <span className={`avatar${c.deEquipo ? "" : " avatar--cliente"}`}>{c.autor.nombre.split(" ").slice(0, 2).map((x) => x[0]).join("")}</span>
           <div>
-            <p className="negrita" style={{ fontSize: 12 }}>
+            <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>
               {c.autor.nombre}
               {c.deEquipo && <span className="texto-primario"> · Inoo</span>}
             </p>
-            <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>{fDiaHora(c.creadoEn)}</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>{fDiaHora(c.creadoEn)}</p>
             <p className="texto-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>{c.texto}</p>
           </div>
         </div>

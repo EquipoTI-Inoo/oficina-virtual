@@ -60,7 +60,7 @@ export function KanbanPiezas({ clienteId, servicioId, soloBlogs = false }: { cli
               </header>
               {(visibles as PiezaBandeja[]).map((p) => (
                 <article key={p.id} className="kanban-tarjeta">
-                  <div className="fila entre" style={{ fontSize: 8.5 }}>
+                  <div className="fila entre" style={{ fontSize: "var(--t-micro)" }}>
                     <span>{(TIPO_PIEZA[p.tipo] ?? p.tipo).toUpperCase()}</span>
                     <LuEllipsis size={12} />
                   </div>
@@ -78,13 +78,13 @@ export function KanbanPiezas({ clienteId, servicioId, soloBlogs = false }: { cli
                     <span>Versión {p.numeroVersion}</span>
                   </div>
                   <span>{p.notaEstado}</span>
-                  <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: 12 }}>
+                  <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: "var(--t-xs)" }}>
                     Abrir pieza →
                   </Enlace>
                 </article>
               ))}
               {col.columna === "APROBADO" && col.piezas.length > 3 && (
-                <button className="enlace" style={{ fontSize: 12, padding: "2px 6px 6px", justifyContent: "flex-start" }} onClick={() => setExpandida(!expandida)}>
+                <button className="enlace" style={{ fontSize: "var(--t-xs)", padding: "2px 6px 6px", justifyContent: "flex-start" }} onClick={() => setExpandida(!expandida)}>
                   {expandida ? "Ver menos →" : `Ver las otras ${col.piezas.length - 3} aprobadas →`}
                 </button>
               )}
@@ -133,7 +133,7 @@ function NuevaPieza({ clienteId, servicioId, soloBlogs, abierto, alCerrar, alCre
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta={soloBlogs ? "Nuevo blog" : "Nueva pieza"}>
       <form onSubmit={crear} style={{ display: "grid", gap: 14 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 600 }}>{soloBlogs ? "Nuevo blog" : "Nueva pieza"}</h2>
+        <h2 style={{ fontSize: "var(--t-2xl)", fontWeight: 600 }}>{soloBlogs ? "Nuevo blog" : "Nueva pieza"}</h2>
         <div className="campo">
           <label htmlFor="np-titulo">Título</label>
           <div className="entrada">
@@ -180,7 +180,7 @@ export function BlogsDelSoporte({ clienteId, servicioId, incluidos }: { clienteI
   const enRevision = d?.columnas.find((c) => c.columna === "EN_REVISION")?.total ?? 0;
   return (
     <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
-      <h3 className="tarjeta-titulo fila" style={{ fontSize: 14.5, gap: 8 }}>
+      <h3 className="tarjeta-titulo fila" style={{ fontSize: "var(--t-md)", gap: 8 }}>
         <LuNewspaper size={15} aria-hidden /> Blogs · {enRevision} por revisar
       </h3>
       {d ? (
@@ -202,7 +202,7 @@ export function BlogsDelSoporte({ clienteId, servicioId, incluidos }: { clienteI
         etiqueta="Tablero de blogs"
         ancho={1080}
       >
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Blogs de {nombreMes(PERIODO_PORTAL)}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Blogs de {nombreMes(PERIODO_PORTAL)}</h2>
         <KanbanPiezas clienteId={clienteId} servicioId={servicioId} soloBlogs />
       </Modal>
     </div>

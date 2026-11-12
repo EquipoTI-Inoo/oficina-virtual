@@ -36,8 +36,8 @@ export function PantallaCrearClave() {
       <form className="tarjeta ingreso-form" onSubmit={enviar} noValidate style={{ width: "min(420px, 100%)", padding: 28 }}>
         <span className="logo"><img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo</span>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em" }}>Crea tu contraseña</h1>
-          <p className="texto-muted" style={{ marginTop: 10, fontSize: 13.5 }}>Con ella vas a entrar al portal desde ahora. Usa al menos {MIN_CLAVE} caracteres, con mayúsculas, minúsculas y números.</p>
+          <h1 style={{ fontSize: "var(--t-4xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>Crea tu contraseña</h1>
+          <p className="texto-muted" style={{ marginTop: 10, fontSize: "var(--t-base)" }}>Con ella vas a entrar al portal desde ahora. Usa al menos {MIN_CLAVE} caracteres, con mayúsculas, minúsculas y números.</p>
         </div>
         <div className="campo">
           <label htmlFor="clave-nueva">Contraseña nueva</label>

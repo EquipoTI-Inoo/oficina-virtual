@@ -66,7 +66,7 @@ function PorRevisar() {
             if (!del.length) return null;
             return (
               <section key={g.clave} className="mi-trabajo-grupo" style={{ borderLeftColor: TONO[g.clave] }} aria-label={`${g.titulo}: ${del.length}`}>
-                <h2 className="fila" style={{ gap: 8, fontSize: 15, fontWeight: 600, color: TONO[g.clave], marginBottom: 2 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
+                <h2 className="fila" style={{ gap: 8, fontSize: "var(--t-md)", fontWeight: 600, color: TONO[g.clave], marginBottom: 2 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
                 <p className="texto-xs texto-muted" style={{ marginBottom: 8 }}>{g.ayuda}</p>
                 <div className="pila" style={{ gap: 6 }}>
                   {del.map((x) => (

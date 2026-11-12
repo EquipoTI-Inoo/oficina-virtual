@@ -129,7 +129,7 @@ function SeccionJarvis() {
                   onClick={() => abrir(b.id, b.prestadoDe ? crypto.randomUUID() : sesionConfiguracion(b.id))} title={b.prestadoDe ? `Prestado por ${b.prestadoDe.nombre}: abre un chat` : "Configurar el bot"}>
                   <AvatarBot bot={b} tam={26} />
                   <span className="jarvis-item-nombre">{b.nombre}</span>
-                  {b.prestadoDe && <span className="etiqueta etiqueta--gris" style={{ fontSize: 12, padding: "1px 6px" }}>de {b.prestadoDe.nombre}</span>}
+                  {b.prestadoDe && <span className="etiqueta etiqueta--gris" style={{ fontSize: "var(--t-xs)", padding: "1px 6px" }}>de {b.prestadoDe.nombre}</span>}
                 </button>
                 <button className="boton-icono" aria-expanded={abierto} aria-label={`${abierto ? "Ocultar" : "Ver"} los chats de ${b.nombre}`}
                   onClick={() => setAbiertos((xs) => (abierto ? xs.filter((x) => x !== b.id) : [...xs, b.id]))}>
@@ -268,7 +268,7 @@ function CompartirBot({ bot, conGerencia, alCerrar, alCambiar }: { bot: Bot; con
       <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void compartir(e)}>
         <div className="fila" style={{ gap: 12 }}>
           <AvatarBot bot={bot} tam={40} />
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Compartir {bot.nombre}</h2>
+          <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Compartir {bot.nombre}</h2>
         </div>
         <div className="campo">
           <label htmlFor="compartir-area">¿Con qué área?</label>
@@ -339,7 +339,7 @@ function EditorBot({ bot, espacio, alCerrar, alGuardar }: { bot: Bot | null; esp
       <form className="pila" style={{ gap: 14 }} onSubmit={(e) => void guardar(e)}>
         <div className="fila" style={{ gap: 12 }}>
           <AvatarBot bot={{ nombre: nombre || "?", color, forma, personaje }} tam={44} />
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>{bot ? "Editar bot" : "Crear un bot"}</h2>
+          <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{bot ? "Editar bot" : "Crear un bot"}</h2>
         </div>
         <div className="campo">
           <label htmlFor="bot-nombre">Nombre</label>
@@ -378,7 +378,7 @@ function EditorBot({ bot, espacio, alCerrar, alGuardar }: { bot: Bot | null; esp
             </button>
             {(Object.keys(PERSONAJES_BOT) as PersonajeBot[]).map((k) => (
               <button key={k} type="button" aria-label={`Personaje ${k.toLowerCase()}`} aria-pressed={personaje === k} className="boton boton--chico" style={personaje === k ? { borderColor: color } : undefined} onClick={() => setPersonaje(k)}>
-                <span aria-hidden style={{ fontSize: 17, lineHeight: 1 }}>{PERSONAJES_BOT[k]}</span>
+                <span aria-hidden style={{ fontSize: "var(--t-xl)", lineHeight: 1 }}>{PERSONAJES_BOT[k]}</span>
               </button>
             ))}
           </div>

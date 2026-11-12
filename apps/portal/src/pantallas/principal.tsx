@@ -102,7 +102,7 @@ export function PantallaIngreso() {
             <br />
             Todo lo que creamos.
           </h1>
-          <p className="bajada" style={{ fontSize: 16, marginTop: 24, maxWidth: 590, lineHeight: 1.6 }}>
+          <p className="bajada" style={{ fontSize: "var(--t-lg)", marginTop: 24, maxWidth: 590, lineHeight: 1.6 }}>
             Revisa tus contenidos, acompaña cada proyecto y descubre cómo crece tu marca con Inoo.
           </p>
         </div>
@@ -113,7 +113,7 @@ export function PantallaIngreso() {
             </span>
             <Etiqueta tono="verde">Creando juntos</Etiqueta>
           </div>
-          <p style={{ fontSize: 19, fontWeight: 600, lineHeight: 1.6, marginTop: 20 }}>
+          <p style={{ fontSize: "var(--t-2xl)", fontWeight: 600, lineHeight: 1.6, marginTop: 20 }}>
             Ideas que avanzan.
             <br />
             Una marca que conecta.
@@ -121,7 +121,7 @@ export function PantallaIngreso() {
           <div style={{ marginTop: 22 }}>
             <Barra pct={72} />
           </div>
-          <div className="grid-3" style={{ marginTop: 16, fontSize: 12, color: "var(--c-muted)" }}>
+          <div className="grid-3" style={{ marginTop: 16, fontSize: "var(--t-xs)", color: "var(--c-muted)" }}>
             {["Comparte", "Revisa", "Crece"].map((t) => (
               <span key={t} style={{ display: "grid", gap: 6 }}>
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--c-primario)" }} />
@@ -156,8 +156,8 @@ export function PantallaIngreso() {
         ) : (
         <form className="ingreso-form" onSubmit={enviar} noValidate>
           <div>
-            <h2 style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.02em" }}>Qué bueno tenerte aquí.</h2>
-            <p className="texto-muted" style={{ marginTop: 12, fontSize: 13.5 }}>
+            <h2 style={{ fontSize: "var(--t-5xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>Qué bueno tenerte aquí.</h2>
+            <p className="texto-muted" style={{ marginTop: 12, fontSize: "var(--t-base)" }}>
               Ingresa a tu cuenta para seguir creando con tu equipo Inoo.
             </p>
           </div>
@@ -267,8 +267,8 @@ function FormularioClave({ modo, email, setEmail, desafio, alEntrar, alTerminar,
   return (
     <form className="ingreso-form" onSubmit={enviar} noValidate>
       <div>
-        <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em" }}>{titulo}</h2>
-        <p className="texto-muted" style={{ marginTop: 12, fontSize: 13.5 }}>{bajada}</p>
+        <h2 style={{ fontSize: "var(--t-4xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>{titulo}</h2>
+        <p className="texto-muted" style={{ marginTop: 12, fontSize: "var(--t-base)" }}>{bajada}</p>
       </div>
       {modo === "OLVIDE" && (
         <div className="campo">
@@ -408,7 +408,7 @@ function Inicio() {
               <Enlace key={x.servicioContratadoId} a={`/servicios/${x.servicioContratadoId}`} className="tarjeta proyecto-cliente">
                 <span className="fila" style={{ gap: 10 }}>
                   <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
-                  <span className="negrita" style={{ fontSize: 15 }}>{x.titulo}</span>
+                  <span className="negrita" style={{ fontSize: "var(--t-md)" }}>{x.titulo}</span>
                 </span>
                 {esPorConsumo(x.codigo) ? <span className="texto-xs texto-muted">Servicio mensual: el consumo de tu bolsa está en el proyecto.</span> : <AvanceOConsumo s={x} />}
                 {etapa?.fechaEstimada && !etapa.atrasada && <span className="texto-xs texto-muted">Esta etapa termina hacia el {fCorta(etapa.fechaEstimada)}.</span>}
@@ -544,7 +544,7 @@ export function AsiVaElMes({ progreso: a, proxima, nota, conEnlace = true }: { p
         <span className="texto-sm texto-muted">
           {a.aprobadas} de {a.totales} piezas aprobadas
         </span>
-        <span style={{ fontSize: 22, color: "var(--c-primario)" }}>{a.porcentaje}%</span>
+        <span style={{ fontSize: "var(--t-3xl)", color: "var(--c-primario)" }}>{a.porcentaje}%</span>
       </div>
       <div style={{ margin: "14px 0 18px" }}>
         <Barra pct={a.porcentaje} />
@@ -575,7 +575,7 @@ export function TodoAlDia() {
       <span style={{ width: 56, height: 56, borderRadius: "50%", background: "var(--c-exito-suave)", color: "var(--c-exito)", display: "grid", placeItems: "center" }}>
         <LuCheck size={26} />
       </span>
-      <h3 style={{ fontSize: 20, fontWeight: 600 }}>¡Todo al día!</h3>
+      <h3 style={{ fontSize: "var(--t-2xl)", fontWeight: 600 }}>¡Todo al día!</h3>
       <p className="texto-sm texto-muted">No tienes piezas pendientes de revisión. Te avisaremos cuando haya algo nuevo para ti.</p>
       <Enlace a="/servicios" className="boton boton--bloque">
         Ver mis servicios
@@ -612,7 +612,7 @@ function Servicios() {
       <div className="tarjeta" style={{ padding: "24px 24px 20px" }}>
         <div className="fila entre" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
           <div>
-            <h2 style={{ fontSize: 20, fontWeight: 600 }}>{d.plan?.nombre}</h2>
+            <h2 style={{ fontSize: "var(--t-2xl)", fontWeight: 600 }}>{d.plan?.nombre}</h2>
             <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
               {d.plan?.fechaFin ? `Contrato hasta el ${fCorta(d.plan.fechaFin)}${cuenta ? ` · ${cuenta}` : ""}` : cuenta}
             </p>
@@ -647,12 +647,12 @@ function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
         </span>
         <Etiqueta tono={s.estado === "ACTIVO" ? "verde" : s.estado === "STANDBY" ? "violeta" : "gris"}>{ETIQUETA_ESTADO_SERVICIO[s.estado]}</Etiqueta>
       </div>
-      <h3 style={{ fontSize: 17, fontWeight: 600 }}>{s.titulo}</h3>
+      <h3 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{s.titulo}</h3>
       {s.responsable && <span className="texto-xs texto-muted" style={{ marginTop: -8 }}>Responsable: {s.responsable.nombre} · Inoo</span>}
-      {linea && <p className="negrita" style={{ fontSize: 12.5, marginTop: -4 }}>{linea}</p>}
+      {linea && <p className="negrita" style={{ fontSize: "var(--t-sm)", marginTop: -4 }}>{linea}</p>}
       <AvanceOConsumo s={s} />
       {p && (
-        <span className="texto-xs texto-muted" style={{ fontSize: 12 }}>
+        <span className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>
           Este mes: {p.aprobadas} aprobados · {p.porRevisar} por revisar · {p.enProduccion} en producción
         </span>
       )}
@@ -707,7 +707,7 @@ function Entregables() {
         </div>
         <label className="selector selector--alto" style={{ position: "relative", fontWeight: 500 }}>
           <span className="sr-only">Canal</span>
-          <select value={canal} onChange={(e) => setCanal(e.target.value)} style={{ appearance: "none", border: 0, background: "none", outline: "none", fontSize: 12.5, paddingRight: 18, cursor: "pointer" }}>
+          <select value={canal} onChange={(e) => setCanal(e.target.value)} style={{ appearance: "none", border: 0, background: "none", outline: "none", fontSize: "var(--t-sm)", paddingRight: 18, cursor: "pointer" }}>
             <option value="">Todos los canales</option>
             <option>Instagram</option>
             <option>Facebook</option>
@@ -825,7 +825,7 @@ function HistorialPieza({ piezaId }: { piezaId: string }) {
             <li key={i} className="fila-suave rejilla" style={{ ["--columnas" as string]: "150px 1fr" }}>
               <span><EtiquetaEstado estado={e.aEstado} mapa={mapa} /></span>
               <div>
-                <p style={{ fontSize: 12.5 }}>
+                <p style={{ fontSize: "var(--t-sm)" }}>
                   {e.usuario?.nombre ?? "Inoo"}{e.version ? ` · versión ${e.version}` : ""} · {CANAL_DECISION[e.canal] ?? ""}
                 </p>
                 <p className="texto-xs texto-muted" style={{ marginTop: 3 }}>{fCorta(e.creadoEn)}, {fDiaHora(e.creadoEn).split(" · ")[1]}</p>
@@ -942,7 +942,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
       <div className="con-lateral" style={{ ["--columnas" as string]: "minmax(0,1fr) 312px" }}>
         <div className="tarjeta" style={{ padding: 0, overflow: "hidden" }}>
           <div className="fila entre" style={{ padding: "16px 16px 14px" }}>
-            <span className="negrita" style={{ fontSize: 12 }}>{v?.archivo?.nombre ?? p.titulo}</span>
+            <span className="negrita" style={{ fontSize: "var(--t-xs)" }}>{v?.archivo?.nombre ?? p.titulo}</span>
             <button className="enlace" aria-label="Descargar" onClick={descargar}>
               <LuDownload size={18} />
             </button>
@@ -950,7 +950,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           {p.tipo === "BLOG" ? (
             <>
               <Miniatura diseno={p.diseno} alto={260} grande />
-              <article style={{ padding: "20px 22px 26px", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-line" }}>
+              <article style={{ padding: "20px 22px 26px", fontSize: "var(--t-sm)", lineHeight: 1.7, whiteSpace: "pre-line" }}>
                 <p className="negrita" style={{ marginBottom: 6 }}>{String(c.tituloSeo ?? p.titulo)}</p>
                 <p className="texto-xs texto-muted" style={{ marginBottom: 16 }}>{String(c.metaDescripcion ?? "")} · {String(c.palabras ?? "")} palabras</p>
                 {String(c.cuerpoMd ?? "").replace(/^#+ /gm, "")}
@@ -959,7 +959,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           ) : (
             <>
               <VistaPieza piezaId={p.id} archivo={v?.archivo ?? null} imagen={imagenes[diapositiva]?.url ?? null} diseno={p.diseno} />
-              <div className="fila entre" style={{ padding: "10px 16px", borderBottom: "1px solid var(--c-borde)", fontSize: 12, color: "var(--c-muted)" }}>
+              <div className="fila entre" style={{ padding: "10px 16px", borderBottom: "1px solid var(--c-borde)", fontSize: "var(--t-xs)", color: "var(--c-muted)" }}>
                 <button className="enlace" style={{ color: "var(--c-texto)" }} aria-label="Anterior" onClick={() => setDiapositiva(Math.max(0, diapositiva - 1))}>
                   <LuChevronLeft size={16} />
                 </button>
@@ -976,8 +976,8 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                   <LuChevronRight size={16} />
                 </button>
               </div>
-              <div style={{ padding: "20px 18px 24px", fontSize: 12.5, lineHeight: 1.6 }}>
-                <p className="negrita" style={{ fontSize: 13, marginBottom: 12 }}>
+              <div style={{ padding: "20px 18px 24px", fontSize: "var(--t-sm)", lineHeight: 1.6 }}>
+                <p className="negrita" style={{ fontSize: "var(--t-sm)", marginBottom: 12 }}>
                   {p.tipo === "GUION" ? "Guion" : "Texto de la publicación"}
                 </p>
                 {p.tipo === "GUION" ? <Guion c={c} /> : <CopyConHashtags texto={String(c.copyAsociado ?? c.copy ?? "")} />}
@@ -1049,7 +1049,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
                 </button>
                 {!puedeDecidir && <p className="texto-xs texto-muted">Tu rol permite comentar, pero no aprobar.</p>}
                 {anterior && (
-                  <p className="fila texto-xs texto-muted" style={{ alignItems: "flex-start", gap: 8, fontSize: 12 }}>
+                  <p className="fila texto-xs texto-muted" style={{ alignItems: "flex-start", gap: 8, fontSize: "var(--t-xs)" }}>
                     <LuInfo size={14} style={{ flex: "none" }} /> La aprobación anterior corresponde a la versión {anterior.numero}, no a esta pieza actual.
                   </p>
                 )}
@@ -1083,8 +1083,8 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
               <div key={cm.id} style={{ display: "grid", gridTemplateColumns: "32px 1fr", gap: 10, marginTop: 6 }}>
                 <span className="avatar">{cm.autor.nombre.split(" ").slice(0, 2).map((x) => x[0]).join("")}</span>
                 <div>
-                  <p className="negrita" style={{ fontSize: 12 }}>{cm.autor.nombre}</p>
-                  <p className="texto-xs texto-muted" style={{ fontSize: 12 }}>
+                  <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>{cm.autor.nombre}</p>
+                  <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>
                     {fDiaHora(cm.creadoEn)} · Versión {cm.version}
                   </p>
                 </div>
@@ -1102,7 +1102,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           {versiones.datos?.map((x) => (
             <div key={x.numero} className={`fila-suave rejilla${x.actual ? " fila-suave--activa" : ""}`} style={{ ["--columnas" as string]: "1fr 1.3fr 140px" }}>
               <div>
-                <p className="negrita" style={{ fontSize: 12.5 }}>
+                <p className="negrita" style={{ fontSize: "var(--t-sm)" }}>
                   Versión {x.numero} · {x.actual ? "Actual" : "Anterior"}
                 </p>
                 <p className="texto-xs texto-muted" style={{ marginTop: 4 }}>
@@ -1112,13 +1112,13 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
               <div className="texto-xs texto-muted">
                 {x.decision ? (
                   <>
-                    <p style={{ fontSize: 12 }}>
+                    <p style={{ fontSize: "var(--t-xs)" }}>
                       {x.decision.estado === "APROBADO_CLIENTE" ? "Aprobada" : "Cambios pedidos"} por {x.decision.usuarioNombre} · {fCorta(x.decision.fecha!)}, {fDiaHora(x.decision.fecha!).split(" · ")[1]}
                     </p>
-                    {!x.actual && <p style={{ fontSize: 12, marginTop: 4 }}>Esta aprobación no aplica a la versión actual.</p>}
+                    {!x.actual && <p style={{ fontSize: "var(--t-xs)", marginTop: 4 }}>Esta aprobación no aplica a la versión actual.</p>}
                   </>
                 ) : (
-                  <p style={{ fontSize: 12 }}>Sin aprobación todavía</p>
+                  <p style={{ fontSize: "var(--t-xs)" }}>Sin aprobación todavía</p>
                 )}
               </div>
               <div style={{ justifySelf: "end" }}>
@@ -1141,7 +1141,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
         <span className="icono-caja">
           <LuCircleCheck size={18} />
         </span>
-        <h2 style={{ fontSize: 22, fontWeight: 600 }}>¿Aprobar esta versión?</h2>
+        <h2 style={{ fontSize: "var(--t-3xl)", fontWeight: 600 }}>¿Aprobar esta versión?</h2>
         <p className="texto-sm texto-muted">
           «{p.titulo}» · Versión {p.versionCliente}
         </p>
@@ -1149,8 +1149,8 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
           Confirmaremos tu aprobación y el equipo Inoo podrá programar esta pieza.
         </p>
         <div style={{ background: "var(--c-fondo)", borderRadius: 12, padding: "12px 14px" }}>
-          <p className="negrita" style={{ fontSize: 12 }}>Se registrará a nombre de {nombreUsuario}</p>
-          <p className="texto-xs texto-muted" style={{ fontSize: 12, marginTop: 4 }}>
+          <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>Se registrará a nombre de {nombreUsuario}</p>
+          <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)", marginTop: 4 }}>
             Solo se aprobará la versión {p.versionCliente} de este entregable.
           </p>
         </div>
@@ -1190,7 +1190,7 @@ function Guion({ c }: { c: Record<string, unknown> }) {
       <p>
         <strong>Gancho:</strong> {String(c.gancho ?? "")}
       </p>
-      <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+      <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
         <thead>
           <tr>
             <th>Tiempo</th>

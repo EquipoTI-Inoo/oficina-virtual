@@ -100,7 +100,7 @@ export function AvanceLineal({ avance: a, compacto }: { avance: S<"AvanceProyect
       </div>
       <Barra pct={a.porcentaje} tono={etapa?.atrasada ? "ambar" : undefined} />
       {etapa?.atrasada && (
-        <span className="texto-xs" style={{ color: "var(--c-alerta)", fontSize: 12 }}>
+        <span className="texto-xs" style={{ color: "var(--c-alerta)", fontSize: "var(--t-xs)" }}>
           Esta etapa va con retraso{etapa.fechaEstimada ? ` (prevista para el ${etapa.fechaEstimada.slice(8)}/${etapa.fechaEstimada.slice(5, 7)})` : ""}.
         </span>
       )}
@@ -190,12 +190,12 @@ export function Miniatura({ diseno, alto = 146, foto, grande }: { diseno?: { fon
   return (
     <div className={`mini${d.fondo === "salvia" ? " mini--salvia" : ""}${conFoto ? "" : " mini--texto"}`} style={{ height: alto }}>
       <div className="mini-texto" style={grande ? { padding: "0 24px", gap: 14 } : undefined}>
-        {d.eyebrow ? <span className="mini-eyebrow" style={grande ? { fontSize: 12 } : undefined}>{d.eyebrow}</span> : null}
+        {d.eyebrow ? <span className="mini-eyebrow" style={grande ? { fontSize: "var(--t-xs)" } : undefined}>{d.eyebrow}</span> : null}
         <span className="mini-titular" style={{ whiteSpace: "pre-line", ...(grande ? { fontSize: 19 * escala } : {}) }}>
           {d.titular}
         </span>
         {d.bajada && (
-          <span className={d.eyebrow ? "mini-eyebrow" : "mini-bajada"} style={grande ? { fontSize: 12.5, marginTop: 16 } : undefined}>
+          <span className={d.eyebrow ? "mini-eyebrow" : "mini-bajada"} style={grande ? { fontSize: "var(--t-sm)", marginTop: 16 } : undefined}>
             {d.bajada}
           </span>
         )}
@@ -329,7 +329,7 @@ function BuscadorGlobal({ alCerrar }: { alCerrar: () => void }) {
     <Modal abierto alCerrar={alCerrar} etiqueta="Buscar en el portal" ancho={560}>
       <div className="pila" style={{ gap: 12 }}>
         {/* El título ocupa la fila de la X de cerrar, para que no quede encima de la caja (6 nov). */}
-        <h2 className="fila" style={{ fontSize: 16, fontWeight: 600, gap: 8, margin: 0, paddingRight: 36, minHeight: 28 }}><LuSearch size={17} /> Buscar en el portal</h2>
+        <h2 className="fila" style={{ fontSize: "var(--t-lg)", fontWeight: 600, gap: 8, margin: 0, paddingRight: 36, minHeight: 28 }}><LuSearch size={17} /> Buscar en el portal</h2>
         <div className="entrada">
           <input aria-label="Buscar en el portal" role="combobox" aria-expanded={datos.length > 0} aria-controls="busqueda-resultados"
             aria-activedescendant={datos[activo] ? `busqueda-${activo}` : undefined}
@@ -821,7 +821,7 @@ export function ModalPedirCambios({ abierto, titulo, alCerrar, alEnviar }: { abi
   };
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Pedir cambios">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Pedir cambios</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Pedir cambios</h2>
       <p className="texto-sm texto-muted">{titulo}</p>
       <div className="campo">
         <label htmlFor="pedir-cambios">¿Qué te gustaría cambiar?</label>

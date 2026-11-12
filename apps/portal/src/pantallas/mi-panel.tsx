@@ -123,7 +123,7 @@ function MiPanel() {
         </section>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>
               <LuListTodo size={15} /> Mis tareas
             </h3>
             {!d.tareas.length && <p className="texto-xs texto-muted">No tienes tareas abiertas.</p>}

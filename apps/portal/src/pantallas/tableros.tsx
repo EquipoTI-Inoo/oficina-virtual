@@ -703,7 +703,7 @@ function Barras({ titulo, filas }: { titulo: string; filas: { nombre: string; n:
   const max = Math.max(1, ...filas.map((f) => f.n));
   return (
     <section className="tarjeta" style={{ padding: 16 }} aria-label={titulo}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14, marginBottom: 10 }}>{titulo}</h3>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-base)", marginBottom: 10 }}>{titulo}</h3>
       <div className="pila" style={{ gap: 8 }}>
         {filas.map((f) => (
           <div key={f.nombre} className="grafico-fila">

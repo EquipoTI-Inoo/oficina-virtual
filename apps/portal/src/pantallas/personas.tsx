@@ -211,7 +211,7 @@ function TraspasarTrabajo({ persona, equipo, alCerrar }: { persona: Ficha; equip
   };
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={`Traspasar el trabajo de ${persona.nombre}`} ancho={460}>
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Traspasar el trabajo de {persona.nombre}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Traspasar el trabajo de {persona.nombre}</h2>
       <p className="texto-xs texto-muted">Pasan a otra persona sus cuentas, sus proyectos abiertos y sus tareas abiertas. Los tableros de InooWork se cambian allá.</p>
       <Campo id="tr-a" etiqueta="Pasar a">
         <select id="tr-a" value={a} onChange={(e) => setA(e.target.value)}>
@@ -272,7 +272,7 @@ function EditorPersona({ persona, equipo, soySuper, alCerrar, alGuardar }: { per
 
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={persona ? `Editar a ${persona.nombre}` : "Invitar colaborador"} ancho={520}>
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>{persona ? `Editar a ${persona.nombre}` : "Invitar colaborador"}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{persona ? `Editar a ${persona.nombre}` : "Invitar colaborador"}</h2>
       <p className="texto-xs texto-muted">
         {persona ? "Los datos, el área y el jefe también se cambian en InooWork." : "Se crea en el portal y en InooWork con este correo. En InooWork, RRHH le da la contraseña con «Restablecer contraseña»."}
       </p>

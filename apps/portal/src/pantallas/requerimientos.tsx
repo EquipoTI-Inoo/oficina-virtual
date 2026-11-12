@@ -73,7 +73,7 @@ export function FilaRequerimiento({ r, accion = "Completar" }: { r: Req; accion?
           </span>
         )}
         <span style={{ display: "grid", gap: 4, minWidth: 0 }}>
-          <span className="negrita" style={{ fontSize: 13 }}>{r.titulo}</span>
+          <span className="negrita" style={{ fontSize: "var(--t-sm)" }}>{r.titulo}</span>
           <span className="texto-xs texto-muted">{r.servicioTitulo}</span>
           <PlazoRequerimiento r={r} />
         </span>
@@ -265,7 +265,7 @@ function Requerimiento() {
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Plazo</h3>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Plazo</h3>
             <PlazoRequerimiento r={r} />
             <span className="texto-xs texto-muted">Lo pedimos el {fDiaMes(r.emitidoEn)}. Fecha límite: {fDiaMes(r.fechaLimite)}, 23:59.</span>
             {!!r.diasCorridos && (
@@ -296,7 +296,7 @@ export function CamposFormulario({ campos, valores, errores, soloLectura, alCamb
     <>
       {campos.filter((c) => visibles.has(c.clave)).map((c) => (
         <Fragment key={c.clave}>
-          {c.seccion && <h3 className="tarjeta-titulo" style={{ fontSize: 15, marginTop: 6 }}>{c.seccion}</h3>}
+          {c.seccion && <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)", marginTop: 6 }}>{c.seccion}</h3>}
           <CampoRequerimiento campo={c} valor={valores[c.clave]} error={errores[c.clave]} soloLectura={soloLectura} alCambiar={(v) => alCambiar(c.clave, v)} subida={subida} />
         </Fragment>
       ))}
@@ -422,7 +422,7 @@ function EnlaceSinCuenta({ r, alCambiar }: { r: Req; alCambiar: (r: Req) => void
   return (
     <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
       <div>
-        <h3 className="tarjeta-titulo" style={{ fontSize: 15 }}>Enlace para responder sin cuenta</h3>
+        <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Enlace para responder sin cuenta</h3>
         <p className="texto-xs texto-muted" style={{ margin: "4px 0 0" }}>Para quien no tiene acceso al portal. Al enviar, deja su nombre y llega aquí como cualquier respuesta.</p>
       </div>
       {r.enlace && url && (
@@ -577,7 +577,7 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
   const error = (c: string) => errores[c] && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errores[c]}</span>;
   return (
     <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>¿Te equivocaste?</h3>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>¿Te equivocaste?</h3>
       <span className="texto-xs texto-muted" style={{ lineHeight: 1.5 }}>
         Corrige el nombre, el mensaje o el plazo.{r.estado === "PENDIENTE" ? " Mientras el cliente no lo envíe, también puedes anularlo." : ""}
       </span>
@@ -586,7 +586,7 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
         {r.estado === "PENDIENTE" && <button className="boton boton--chico boton--peligro" onClick={() => void anular()}>Anular</button>}
       </div>
       <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Editar requerimiento">
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Editar requerimiento</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Editar requerimiento</h2>
         <div className="campo">
           <label htmlFor="er-titulo">Nombre</label>
           <div className="entrada"><input id="er-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} /></div>
@@ -689,7 +689,7 @@ export function FormulariosDelProyecto({ clienteId, servicioContratadoId, codigo
   return (
     <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
       <div className="fila entre">
-        <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Formularios para el cliente</h3>
+        <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Formularios para el cliente</h3>
         <button className="boton boton--chico" onClick={() => { setCreado(null); setAbierto(true); }}>
           <LuPlus size={14} /> Nuevo formulario
         </button>
@@ -746,7 +746,7 @@ function NuevoFormulario({ abierto, clienteId, servicioContratadoId, codigoServi
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo formulario" ancho={500}>
       <div className="pila" style={{ gap: 14 }}>
-        <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuLink size={18} /> Nuevo formulario</h2>
+        <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuLink size={18} /> Nuevo formulario</h2>
         {url ? (
           <>
             <Aviso icono={<LuCheck size={16} />} titulo="Listo: ya puedes mandarlo">Quien tenga el enlace puede responder hasta el {fDiaMes(creado!.enlace!.venceEn)}. Lo que suban te llega a este proyecto.</Aviso>
@@ -832,7 +832,7 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
     ) : null;
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Pedir requerimiento">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Pedir requerimiento</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Pedir requerimiento</h2>
       <div className="campo">
         <label htmlFor="req-servicio">¿Para qué servicio?</label>
         <select
@@ -870,7 +870,7 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
                 onClick={() => setPlantilla(p.codigo)}
               >
                 <span style={{ display: "grid", gap: 2 }}>
-                  <span className="negrita" style={{ fontSize: 13 }}>{p.nombre}</span>
+                  <span className="negrita" style={{ fontSize: "var(--t-sm)" }}>{p.nombre}</span>
                   <span className="texto-xs texto-muted">{p.descripcion}</span>
                 </span>
                 <span className="texto-xs texto-muted" style={{ whiteSpace: "nowrap" }}>{p.diasHabiles} días hábiles</span>

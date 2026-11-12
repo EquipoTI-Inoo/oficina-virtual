@@ -53,8 +53,8 @@ export function PantallaPruebas() {
           <button className="boton boton--chico" onClick={salir}><LuLogOut size={14} /> Salir</button>
         </div>
         <div>
-          <h1 className="fila" style={{ fontSize: 24, fontWeight: 700, gap: 10 }}><LuFlaskConical size={22} /> Entorno de pruebas</h1>
-          <p className="texto-muted" style={{ marginTop: 8, fontSize: 13.5 }}>
+          <h1 className="fila" style={{ fontSize: "var(--t-3xl)", fontWeight: 700, gap: 10 }}><LuFlaskConical size={22} /> Entorno de pruebas</h1>
+          <p className="texto-muted" style={{ marginTop: 8, fontSize: "var(--t-base)" }}>
             Elige con quién entrar. Todo lo que hagas queda en los datos de prueba (Casa Oliva y los demás clientes «PRUEBA»): no toca clientes reales, ni InooWork, ni Jarvis.
           </p>
         </div>

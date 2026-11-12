@@ -140,3 +140,14 @@ con detalle; el resto de pantallas móviles sigue las mismas reglas.
 - **Selectores de periodo** («Octubre 2026») se muestran pero no cambian de mes, salvo en el calendario.
 - **Imágenes.** La única foto del archivo (el sérum) se reutiliza en todas las miniaturas, como en Figma.
   Las miniaturas se componen con HTML (texto de marca + foto) en lugar de imágenes planas.
+
+## Tokens (13 nov 2026)
+
+Todo valor visual sale de las variables de `:root` en `apps/portal/src/estilos/portal.css`:
+
+- **Color**: `--c-*` (primario, tinta, texto, muted, borde, fondo, éxito, alerta, error, info, semáforo, esqueleto, lienzo oscuro). No se escriben colores sueltos en el CSS ni en las pantallas; los únicos que quedan son los de datos (estados de los tableros como en Monday, el logo de Google y los colores que elige el usuario).
+- **Tipografía**: `--t-micro` (10, solo miniaturas decorativas), `--t-xs` 12, `--t-sm` 13, `--t-base` 14, `--t-md` 15, `--t-lg` 16, `--t-xl` 18, `--t-2xl` 20, `--t-3xl` 24, `--t-4xl` 28, `--t-5xl` 34, `--t-6xl` 48. En las pantallas: `fontSize: "var(--t-sm)"`.
+- **Radios**: `--r-xs` 6, `--r-sm` 10, `--r-md` 14, `--r-lg` 20, `--r-pill`.
+- **Espaciado** (para lo nuevo): `--e-1` 4 … `--e-8` 32.
+
+Aplicar la marca Inoo es cambiar los valores de estas variables, no las pantallas.

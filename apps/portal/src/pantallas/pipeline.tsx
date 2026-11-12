@@ -42,7 +42,7 @@ const iniciales = (nombre: string) => nombre.split(/\s+/).map((w) => w[0]).join(
 function CabeceraNuevo({ tipo, cambiar, tablero }: { tipo: TipoNuevo; cambiar: (t: TipoNuevo) => void; tablero: boolean }) {
   return (
     <div className="pila" style={{ gap: 10 }}>
-      <h2 className="fila" style={{ fontSize: 18, fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
+      <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
       <div className="chips" role="radiogroup" aria-label="Tipo de proyecto">
         <button type="button" role="radio" className="chip" aria-checked={tipo === "CATALOGO"} aria-pressed={tipo === "CATALOGO"} onClick={() => cambiar("CATALOGO")}>Predeterminado</button>
         {tablero && <button type="button" role="radio" className="chip" aria-checked={tipo === "TABLERO"} aria-pressed={tipo === "TABLERO"} onClick={() => cambiar("TABLERO")}>Personalizado</button>}
@@ -252,7 +252,7 @@ function TarjetaTablero({ t }: { t: S<"TableroResumen"> }) {
           <LuSquareKanban size={16} />
         </span>
       </span>
-      <span className="negrita" style={{ fontSize: 13, lineHeight: 1.35 }}>{t.nombre}</span>
+      <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{t.nombre}</span>
       <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total} completados{t.area ? ` · ${t.area}` : ""}</span>
       <span className="fila" style={{ gap: 8 }}>
         <span style={{ flex: 1 }}>
@@ -265,7 +265,7 @@ function TarjetaTablero({ t }: { t: S<"TableroResumen"> }) {
           {t.items.vencidos > 0 && <span className="pipeline-dato pipeline-dato--rojo"><LuListTodo size={12} /> {t.items.vencidos} vencido{t.items.vencidos === 1 ? "" : "s"}</span>}
         </span>
         {t.lider && (
-          <span className="avatar" style={{ width: 26, height: 26, fontSize: 12 }} title={`Líder: ${t.lider.nombre}`}>
+          <span className="avatar" style={{ width: 26, height: 26, fontSize: "var(--t-xs)" }} title={`Líder: ${t.lider.nombre}`}>
             {iniciales(t.lider.nombre)}
           </span>
         )}
@@ -284,7 +284,7 @@ function TarjetaProyecto({ p }: { p: S<"ProyectoPipeline"> }) {
           {ICONO_SERVICIO[p.codigo]}
         </span>
       </span>
-      <span className="negrita" style={{ fontSize: 13, lineHeight: 1.35 }}>{p.titulo}</span>
+      <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{p.titulo}</span>
       <span className="texto-xs texto-muted">{etapa ? `Etapa ${etapa.orden} de ${p.avance.totalEtapas} · ${etapa.nombre}` : "Todas las etapas completas"}</span>
       <span className="fila" style={{ gap: 8 }}>
         <span style={{ flex: 1 }}>
@@ -306,7 +306,7 @@ function TarjetaProyecto({ p }: { p: S<"ProyectoPipeline"> }) {
           )}
         </span>
         {p.responsable && (
-          <span className="avatar" style={{ width: 26, height: 26, fontSize: 12 }} title={`Lleva la cuenta: ${p.responsable.nombre}`}>
+          <span className="avatar" style={{ width: 26, height: 26, fontSize: "var(--t-xs)" }} title={`Lleva la cuenta: ${p.responsable.nombre}`}>
             {iniciales(p.responsable.nombre)}
           </span>
         )}

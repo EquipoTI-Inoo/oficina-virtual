@@ -48,7 +48,7 @@ export function TareasDelProyecto({ servicioId, etapas }: { servicioId: string; 
           <h2 className="tarjeta-titulo">Tareas del equipo</h2>
           <span className="texto-xs texto-muted">
             {abiertas} abierta{abiertas === 1 ? "" : "s"}
-            {vencidas > 0 && <span style={{ color: "#b42318" }}> · {vencidas} vencida{vencidas === 1 ? "" : "s"}</span>} · El cliente no las ve
+            {vencidas > 0 && <span style={{ color: "var(--c-error)" }}> · {vencidas} vencida{vencidas === 1 ? "" : "s"}</span>} · El cliente no las ve
           </span>
         </div>
         <div className="fila" style={{ gap: 8 }}>
@@ -103,7 +103,7 @@ export function TareasDelProyecto({ servicioId, etapas }: { servicioId: string; 
 
 function SelectorEstado({ t, alCambiar }: { t: Tarea; alCambiar: (t: Tarea, c: Record<string, unknown>) => void }) {
   return (
-    <select className="input" aria-label={`Estado de «${t.titulo}»`} value={t.estado} onChange={(e) => alCambiar(t, { estado: e.target.value })} style={{ height: 34, fontSize: 12 }}>
+    <select className="input" aria-label={`Estado de «${t.titulo}»`} value={t.estado} onChange={(e) => alCambiar(t, { estado: e.target.value })} style={{ height: 34, fontSize: "var(--t-xs)" }}>
       {ESTADOS.map(([v, texto]) => (
         <option key={v} value={v}>
           {texto}
@@ -116,7 +116,7 @@ function SelectorEstado({ t, alCambiar }: { t: Tarea; alCambiar: (t: Tarea, c: R
 function FechaTarea({ t }: { t: Tarea }) {
   if (!t.fechaLimite) return <span className="texto-xs texto-muted">Sin fecha</span>;
   return (
-    <span className="texto-xs" style={{ color: t.vencida ? "#b42318" : "var(--c-muted)", fontWeight: t.vencida ? 600 : undefined }}>
+    <span className="texto-xs" style={{ color: t.vencida ? "var(--c-error)" : "var(--c-muted)", fontWeight: t.vencida ? 600 : undefined }}>
       {t.vencida ? "Venció el " : "Para el "}
       {fCorta(t.fechaLimite)}
     </span>
@@ -156,7 +156,7 @@ function ListaTareas({ tareas, equipo, alCambiar, alAbrir }: { tareas: Tarea[]; 
               aria-label={`Responsable de «${t.titulo}»`}
               value={t.responsable?.id ?? ""}
               onChange={(e) => alCambiar(t, { responsableId: e.target.value || null })}
-              style={{ height: 34, fontSize: 12, width: 140 }}
+              style={{ height: 34, fontSize: "var(--t-xs)", width: 140 }}
             >
               <option value="">Sin responsable</option>
               {equipo.map((p) => (
@@ -254,7 +254,7 @@ function NuevaTarea({
     ) : null;
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nueva tarea">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nueva tarea</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Nueva tarea</h2>
       <div className="campo">
         <label htmlFor="nt-titulo">¿Qué hay que hacer?</label>
         <div className="entrada">
@@ -348,7 +348,7 @@ function DetalleTarea({
   };
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={t.titulo}>
-      <h2 style={{ fontSize: 18, fontWeight: 600, paddingRight: 28 }}>{t.titulo}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600, paddingRight: 28 }}>{t.titulo}</h2>
       <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
         <Etiqueta tono={ESTADOS.find((x) => x[0] === t.estado)![2]}>{textoEstado(t.estado)}</Etiqueta>
         {t.etapaNombre && <span className="texto-xs texto-muted">{t.etapaNombre}</span>}
@@ -367,7 +367,7 @@ function DetalleTarea({
       </p>
 
       <section style={{ display: "grid", gap: 10 }} aria-label="Comentarios">
-        <h3 className="negrita" style={{ fontSize: 14 }}>Comentarios</h3>
+        <h3 className="negrita" style={{ fontSize: "var(--t-base)" }}>Comentarios</h3>
         {!comentarios.datos ? (
           <Cargando />
         ) : comentarios.datos.datos.length === 0 ? (
@@ -389,7 +389,7 @@ function DetalleTarea({
           </div>
           <div className="chips" role="group" aria-label="Mencionar a alguien del equipo">
             {equipo.map((p) => (
-              <button key={p.id} type="button" className="chip" aria-pressed={menciones.includes(p.id)} onClick={() => mencionar(p)} style={{ height: 28, fontSize: 12 }}>
+              <button key={p.id} type="button" className="chip" aria-pressed={menciones.includes(p.id)} onClick={() => mencionar(p)} style={{ height: 28, fontSize: "var(--t-xs)" }}>
                 <LuAtSign size={12} /> {p.nombre.split(" ")[0]}
               </button>
             ))}
@@ -404,7 +404,7 @@ function DetalleTarea({
           </button>
         </div>
       </section>
-      <button className="boton boton--chico" style={{ justifySelf: "start", color: "#b42318" }} onClick={() => void borrar()}>
+      <button className="boton boton--chico" style={{ justifySelf: "start", color: "var(--c-error)" }} onClick={() => void borrar()}>
         <LuTrash2 size={14} /> Eliminar tarea
       </button>
     </Modal>

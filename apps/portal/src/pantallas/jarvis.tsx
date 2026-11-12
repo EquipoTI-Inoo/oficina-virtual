@@ -21,7 +21,7 @@ export function EstadoArea({ a }: { a: S<"ConsumoArea"> }) {
 export function GastoContraTope({ gasto, tope, p }: { gasto: number; tope: number; p: number }) {
   return (
     <>
-      <p className="negrita" style={{ fontSize: 12 }}>
+      <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>
         {usd(gasto)} / {usd(tope)} · {pct(p)}
       </p>
       <div style={{ marginTop: 6 }}>
@@ -49,7 +49,7 @@ export function JarvisPorArea() {
         Cada área tiene un tope diario y uno mensual. Al llegar a cualquiera, los Jarvis del área se pausan hasta el día o el mes siguiente; puedes ampliarlo cuando quieras.
       </p>
       <div className="tabla-envoltura">
-        <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+        <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
           <thead>
             <tr>
               <th>Área</th>
@@ -114,7 +114,7 @@ function EditarTopes({ a, alCerrar, alGuardar }: { a: S<"ConsumoArea">; alCerrar
   };
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={`Topes de ${a.nombre}`}>
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Topes de {a.nombre}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Topes de {a.nombre}</h2>
       <p className="texto-xs texto-muted">Hoy van {usd(a.gastoDiaUsd)} y este mes {usd(a.gastoMesUsd)}. Si el área está pausada y el nuevo tope lo permite, se reactiva al guardar.</p>
       <div className="fila" style={{ gap: 8 }}>
         <CampoUsd id="jv-diario" etiqueta="Tope diario (US$)" valor={diario} cambiar={setDiario} error={err.topeDiarioUsd} />

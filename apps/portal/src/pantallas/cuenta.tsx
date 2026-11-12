@@ -200,7 +200,7 @@ function Usuarios({ esAdmin }: { esAdmin: boolean }) {
       ) : (
         <>
           <div className="tabla-envoltura">
-            <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+            <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
               <thead>
                 <tr>
                   <th>Persona</th>
@@ -332,7 +332,7 @@ function Notificaciones() {
           <div key={r.evento} className="fila" style={{ gap: 12 }}>
             <LuMail size={16} color="var(--c-primario)" />
             <span style={{ flex: 1 }}>
-              <span className="negrita" style={{ display: "block", fontSize: 12 }}>{r.descripcion}</span>
+              <span className="negrita" style={{ display: "block", fontSize: "var(--t-xs)" }}>{r.descripcion}</span>
               <span className="texto-xs texto-muted">Para: {DESTINATARIOS[r.destinatarios ?? "MIEMBROS_CLIENTE"]}</span>
             </span>
             <Etiqueta tono={r.activa ? "verde" : "gris"}>{r.activa ? "Activo" : "Pausado"}</Etiqueta>
@@ -343,7 +343,7 @@ function Notificaciones() {
         <div className="lista-suave">
           {correos.datos.recientes.map((c) => (
             <div key={c.id} className="fila-suave" style={{ padding: "12px 6px", display: "grid", gap: 4 }}>
-              <span className="negrita" style={{ fontSize: 12 }}>{c.asunto}</span>
+              <span className="negrita" style={{ fontSize: "var(--t-xs)" }}>{c.asunto}</span>
               <span className="texto-xs texto-muted">
                 {c.para} · {c.enviadoEn ? fDiaHora(c.enviadoEn) : "Pendiente"}
               </span>
@@ -371,7 +371,7 @@ function Ayuda() {
         {CONTACTOS.map((x) => (
           <div key={x.area} className="fila entre" style={{ alignItems: "center", gap: 16 }}>
             <span>
-              <span className="negrita" style={{ display: "block", fontSize: 13 }}>{x.area}</span>
+              <span className="negrita" style={{ display: "block", fontSize: "var(--t-sm)" }}>{x.area}</span>
               <span className="texto-xs texto-muted">
                 {x.detalle}
                 {x.responsable && c?.accountManager ? ` Te atiende ${c.accountManager.nombre}.` : ""}

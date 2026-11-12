@@ -84,7 +84,7 @@ function AvisosEquipo() {
                   <span className="fila" style={{ gap: 10, alignItems: "flex-start" }}>
                     <span style={{ color: "var(--c-primario)", marginTop: 2 }}>{iconoAviso(a.tipo, 16)}</span>
                     <span style={{ display: "grid", gap: 3 }}>
-                      <span className="negrita" style={{ fontSize: 13 }}>{a.titulo}</span>
+                      <span className="negrita" style={{ fontSize: "var(--t-sm)" }}>{a.titulo}</span>
                       <span className="texto-xs texto-muted">
                         {a.fechaInicio === a.fechaFin ? fCorta(a.fechaInicio) : `${fCorta(a.fechaInicio)} – ${fCorta(a.fechaFin)}`} · {nombreCliente(a.clienteId)}
                       </span>

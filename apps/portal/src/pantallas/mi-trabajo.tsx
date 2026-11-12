@@ -79,7 +79,7 @@ function MiTrabajo() {
             if (!del.length) return null;
             return (
               <section key={g.clave} className="mi-trabajo-grupo" style={{ borderLeftColor: g.tono }} aria-label={`${g.titulo}: ${del.length}`}>
-                <h2 className="fila" style={{ gap: 8, fontSize: 15, fontWeight: 600, color: g.tono, marginBottom: 8 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
+                <h2 className="fila" style={{ gap: 8, fontSize: "var(--t-md)", fontWeight: 600, color: g.tono, marginBottom: 8 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
                 <div className="pila" style={{ gap: 6 }}>
                   {del.map((x, i) => (
                     <Enlace key={`${x.itemId}-${i}`} a={x.enlace ?? `/equipo/proyectos/tableros/${x.tableroId}?item=${encodeURIComponent(x.itemId)}`} className="fila-suave mi-trabajo-fila">

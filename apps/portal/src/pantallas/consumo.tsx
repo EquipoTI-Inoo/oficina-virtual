@@ -111,7 +111,7 @@ export function TicketsDelSoporte({ clienteId, servicioId, alCambiar }: { client
   };
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14 }}>Tickets de {nombreMes(PERIODO_PORTAL)}</h3>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-base)" }}>Tickets de {nombreMes(PERIODO_PORTAL)}</h3>
       {!lista.datos && <Cargando />}
       {lista.datos && !delMes.length && <p className="texto-xs texto-muted">Sin tickets este mes.</p>}
       {delMes.map((t) => (

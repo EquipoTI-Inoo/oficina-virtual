@@ -49,7 +49,7 @@ export function FilaEntregable({ e, a }: { e: Entregable; a: string }) {
           {ICONO_FORMATO[e.formato]}
         </span>
         <span style={{ display: "grid", gap: 3, minWidth: 0 }}>
-          <span className="negrita" style={{ fontSize: 13 }}>{e.titulo}</span>
+          <span className="negrita" style={{ fontSize: "var(--t-sm)" }}>{e.titulo}</span>
           <span className="texto-xs texto-muted">
             {e.servicioTitulo}
             {e.etapaNombre ? ` · ${e.etapaNombre}` : ""}
@@ -169,7 +169,7 @@ function DetalleEntregable({ volver }: { volver?: string }) {
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 12 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Historial</h3>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Historial</h3>
             {[...d.versiones].reverse().map((v) => (
               <div key={v.numero} style={{ display: "grid", gap: 4 }}>
                 <span className="texto-sm negrita">Versión {v.numero}</span>
@@ -297,7 +297,7 @@ function EditarEntregable({ d, alCerrar, alGuardar }: { d: Detalle; alCerrar: ()
   };
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Editar entregable">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Editar entregable</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Editar entregable</h2>
       <div className="campo">
         <label htmlFor="ee-titulo">Nombre</label>
         <div className="entrada"><input id="ee-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} /></div>
@@ -331,7 +331,7 @@ function NuevaVersion({ id, abierto, alCerrar, alCrear }: { id: string; abierto:
   };
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nueva versión">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nueva versión</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Nueva versión</h2>
       <div className="campo">
         <label htmlFor="nv-url">Enlace del archivo o del prototipo</label>
         <div className="entrada">
@@ -383,7 +383,7 @@ export function EntregablesEquipo({ servicioId, etapas }: { servicioId: string; 
             <div key={e.id} style={{ display: "grid", gap: 4 }}>
               <FilaEntregable e={e} a={`/equipo/entregables/${e.id}`} />
               {e.rebotes > 0 && (
-                <span className="texto-xs" style={{ paddingLeft: 14, color: e.rebotes >= 3 ? "#b42318" : "var(--c-alerta)" }}>
+                <span className="texto-xs" style={{ paddingLeft: 14, color: e.rebotes >= 3 ? "var(--c-error)" : "var(--c-alerta)" }}>
                   {e.rebotes} {e.rebotes === 1 ? "rebote" : "rebotes"}
                   {e.rebotes >= 3 ? " · requiere apoyo" : ""}
                 </span>
@@ -426,7 +426,7 @@ function NuevoEntregable({ servicioId, etapas, abierto, alCerrar, alCrear }: { s
     ) : null;
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo entregable">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nuevo entregable</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Nuevo entregable</h2>
       <div className="campo">
         <label htmlFor="ne-titulo">Nombre</label>
         <div className="entrada">

@@ -45,7 +45,7 @@ function Cabeza({ titulo, bajada, accion }: { titulo: string; bajada: string; ac
   return (
     <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
       <div>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>{titulo}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{titulo}</h2>
         <p className="texto-sm texto-muted">{bajada}</p>
       </div>
       {accion}
@@ -166,7 +166,7 @@ function EditorSkill({ skill, espacio, alCerrar, alGuardar }: { skill: S<"SkillJ
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={skill ? "Editar skill" : "Nueva skill"} ancho={560}>
       <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>{skill ? "Editar skill" : "Nueva skill"}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{skill ? "Editar skill" : "Nueva skill"}</h2>
         <Campo id="sk-nombre" etiqueta="Nombre" error={err.nombre}><input id="sk-nombre" value={nombre} maxLength={80} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Tono de Inoo" /></Campo>
         <Campo id="sk-desc" etiqueta="Para qué sirve (opcional)" error={err.descripcion}><input id="sk-desc" value={descripcion} maxLength={300} onChange={(e) => setDescripcion(e.target.value)} /></Campo>
         <Campo id="sk-inst" etiqueta="Instrucciones" error={err.instrucciones} ayuda="Lo que el bot debe hacer o saber cuando la tenga activa.">
@@ -212,7 +212,7 @@ export function HerramientasDelBot({ bot, espacio, alCerrar }: { bot: Bot; espac
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={`Skills y conectores de ${bot.nombre}`} ancho={520}>
       <div className="pila" style={{ gap: 14 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Skills y conectores de {bot.nombre}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Skills y conectores de {bot.nombre}</h2>
         <fieldset className="pila" style={{ gap: 6, border: 0, padding: 0 }}>
           <legend className="negrita texto-sm">Skills</legend>
           {!sk.datos.datos.length && <p className="texto-xs texto-muted">El área no tiene skills. Créalas en la pestaña «Skills».</p>}
@@ -322,7 +322,7 @@ function EditorRutina({ rutina, espacio, bots, alCerrar, alGuardar }: { rutina: 
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={rutina ? "Editar rutina" : "Nueva rutina"} ancho={520}>
       <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>{rutina ? "Editar rutina" : "Nueva rutina"}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{rutina ? "Editar rutina" : "Nueva rutina"}</h2>
         {!rutina && (
           <Campo id="ru-bot" etiqueta="Bot" error={err.botId}>
             <select id="ru-bot" value={botId} onChange={(e) => setBotId(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}</select>
@@ -441,7 +441,7 @@ function EditorAutomatizacion({ a, espacio, bots, alCerrar, alGuardar }: { a: S<
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={a ? "Editar automatización" : "Nueva automatización"} ancho={520}>
       <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>{a ? "Editar automatización" : "Nueva automatización"}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{a ? "Editar automatización" : "Nueva automatización"}</h2>
         {!a && (
           <Campo id="au-bot" etiqueta="Bot" error={err.botId}>
             <select id="au-bot" value={botId} onChange={(e) => setBotId(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}</select>
@@ -517,7 +517,7 @@ function ElementoBiblioteca({ id, alCerrar, alBorrar, alAbrirChat }: { id: strin
     <Modal abierto alCerrar={alCerrar} etiqueta={x?.titulo ?? "Biblioteca"} ancho={680}>
       {!x ? <Cargando /> : (
         <div className="pila" style={{ gap: 12 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>{x.titulo}</h2>
+          <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{x.titulo}</h2>
           <p className="texto-xs texto-muted">{x.bot.nombre} · guardado por {x.creadoPor.nombre} · {fDiaHora(x.creadoEn)}</p>
           <div className="tarjeta" style={{ padding: 14, whiteSpace: "pre-wrap", maxHeight: 420, overflow: "auto" }}><p className="texto-sm">{x.contenido}</p></div>
           <div className="fila" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -550,7 +550,7 @@ export function GuardarEnBiblioteca({ bot, espacio, sesion, contenido, alCerrar 
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Guardar en biblioteca" ancho={480}>
       <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Guardar en biblioteca</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Guardar en biblioteca</h2>
         <Campo id="bi-titulo" etiqueta="Título" error={err}><input id="bi-titulo" value={titulo} maxLength={120} onChange={(e) => setTitulo(e.target.value)} /></Campo>
         <p className="texto-xs texto-muted" style={{ maxHeight: 120, overflow: "hidden", whiteSpace: "pre-wrap" }}>{contenido.slice(0, 400)}{contenido.length > 400 ? "…" : ""}</p>
         <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
@@ -639,7 +639,7 @@ function EditorConector({ c, alCerrar, alGuardar }: { c: S<"ConectorJarvis"> | n
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta={c ? "Editar conector" : "Nuevo conector"} ancho={520}>
       <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>{c ? "Editar conector" : "Nuevo conector"}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{c ? "Editar conector" : "Nuevo conector"}</h2>
         <Campo id="co-nombre" etiqueta="Nombre" error={err.nombre}><input id="co-nombre" value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Google Drive" /></Campo>
         <Campo id="co-desc" etiqueta="Qué permite (opcional)" error={err.descripcion}><input id="co-desc" value={descripcion} maxLength={300} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ej.: Leer las carpetas de los clientes" /></Campo>
         <Campo id="co-url" etiqueta="Dirección del servidor MCP (opcional)" error={err.url} ayuda="Sin tokens ni llaves: esas van en el Hermes."><input id="co-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></Campo>

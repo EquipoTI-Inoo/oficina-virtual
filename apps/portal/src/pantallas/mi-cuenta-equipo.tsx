@@ -46,10 +46,10 @@ function MiCuenta() {
             {p.fotoUrl ? (
               <img src={p.fotoUrl} alt={`Foto de ${p.nombre}`} width={64} height={64} style={{ borderRadius: "50%", objectFit: "cover" }} />
             ) : (
-              <span className="avatar" style={{ width: 64, height: 64, fontSize: 22 }} aria-hidden>{iniciales(p.nombre)}</span>
+              <span className="avatar" style={{ width: 64, height: 64, fontSize: "var(--t-3xl)" }} aria-hidden>{iniciales(p.nombre)}</span>
             )}
             <span style={{ display: "grid", gap: 2 }}>
-              <strong style={{ fontSize: 17 }}>{p.nombre}</strong>
+              <strong style={{ fontSize: "var(--t-xl)" }}>{p.nombre}</strong>
               {p.cargo && <span className="texto-sm">{p.cargo}</span>}
               <span className="texto-sm texto-muted">{p.email}</span>
             </span>
@@ -83,7 +83,7 @@ function MiCuenta() {
         </Tarjeta>
 
         <Tarjeta titulo="Jarvis este mes" icono={<LuBot size={18} />}>
-          <p style={{ fontSize: 26, fontWeight: 700 }}>{usd(d.jarvis.gastoMesUsd)}</p>
+          <p style={{ fontSize: "var(--t-4xl)", fontWeight: 700 }}>{usd(d.jarvis.gastoMesUsd)}</p>
           <p className="texto-sm texto-muted">
             {d.jarvis.mensajesMes} {d.jarvis.mensajesMes === 1 ? "respuesta" : "respuestas"}{d.jarvis.area ? ` · se cobra a ${nombreArea(d.jarvis.area)}` : ""}
           </p>

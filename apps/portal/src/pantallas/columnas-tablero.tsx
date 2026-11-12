@@ -25,7 +25,7 @@ const vacio = <span className="texto-muted">—</span>;
 function Editor({ titulo, abierto, cerrar, children }: { titulo: string; abierto: boolean; cerrar: () => void; children: ReactNode }) {
   return (
     <Modal abierto={abierto} alCerrar={cerrar} etiqueta={titulo} ancho={520}>
-      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{titulo}</h3>
+      <h3 style={{ fontSize: "var(--t-lg)", fontWeight: 600, marginBottom: 12 }}>{titulo}</h3>
       {children}
     </Modal>
   );
@@ -332,7 +332,7 @@ function EditorTextoLargo({ titulo, valor, grande, editable, cerrar, guardar }: 
   const [x, setX] = useState(valor);
   return (
     <Modal abierto alCerrar={cerrar} etiqueta={titulo} ancho={grande ? 820 : 560}>
-      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{titulo}</h3>
+      <h3 style={{ fontSize: "var(--t-lg)", fontWeight: 600, marginBottom: 12 }}>{titulo}</h3>
       {editable ? (
         <>
           <textarea className="input" style={{ width: "100%", minHeight: grande ? 420 : 200, fontFamily: grande ? "inherit" : undefined, lineHeight: 1.5 }} value={x} maxLength={grande ? 50000 : 5000}
@@ -458,7 +458,7 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
           <div className="visor-archivo-principal">
             <div className="fila entre" style={{ gap: 8, marginBottom: 8 }}>
               <div style={{ minWidth: 0 }}>
-                <h3 style={{ fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.nombre}</h3>
+                <h3 style={{ fontSize: "var(--t-md)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.nombre}</h3>
                 <span className="texto-xs texto-muted">{item.nombre} · {col.nombre}</span>
               </div>
               <span className="fila" style={{ gap: 6 }}>
@@ -468,11 +468,11 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
             </div>
             <div className="visor-archivo-lienzo">
               {!vista ? (
-                <div className="pila" style={{ gap: 8, alignItems: "center", color: "#cbd5e1" }}>
+                <div className="pila" style={{ gap: 8, alignItems: "center", color: "var(--c-sobre-oscuro)" }}>
                   <span className="texto-sm">Este tipo de archivo no tiene vista previa.</span>
                   <button className="boton boton--chico" onClick={() => void descargar(v)}>Descargar {pesoArchivo(v.bytes)}</button>
                 </div>
-              ) : cargando || !url ? <span className="texto-sm" style={{ color: "#cbd5e1" }}>{cargando ? "Cargando la vista previa…" : "No se pudo cargar la vista previa"}</span>
+              ) : cargando || !url ? <span className="texto-sm" style={{ color: "var(--c-sobre-oscuro)" }}>{cargando ? "Cargando la vista previa…" : "No se pudo cargar la vista previa"}</span>
                 : vista === "IMAGEN" ? <img src={url} alt={v.nombre} />
                   : vista === "VIDEO" ? <video src={url} controls />
                     : vista === "AUDIO" ? <audio src={url} controls />
@@ -550,7 +550,7 @@ export function BibliotecaColumnas({ t, cambiar, cerrar }: { t: Tablero; cambiar
       {!tipo ? (
         <div className="pila" style={{ gap: 14 }}>
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 600 }}>Biblioteca de columnas</h2>
+            <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Biblioteca de columnas</h2>
             <p className="texto-sm texto-muted">Los mismos tipos de Monday. Elige uno para agregarlo al tablero.</p>
           </div>
           <div className="entrada" style={{ maxWidth: 320 }}>
@@ -607,7 +607,7 @@ function FormColumna({ t, tipo, col, volver, guardar, borrar }: { t: Tablero; ti
     <div className="pila" style={{ gap: 14 }}>
       <div>
         {volver && <button className="boton-texto texto-sm" onClick={volver}>← Biblioteca</button>}
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>{col ? "Configurar columna" : "Nueva columna"} · {i?.nombre ?? tipo}</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{col ? "Configurar columna" : "Nueva columna"} · {i?.nombre ?? tipo}</h2>
         {i && <p className="texto-sm texto-muted">{i.descripcion}</p>}
       </div>
       <label className="pila" style={{ gap: 4 }}>

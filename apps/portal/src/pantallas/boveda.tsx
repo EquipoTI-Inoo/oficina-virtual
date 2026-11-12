@@ -204,7 +204,7 @@ function BorrarBoveda({ accesos, alCerrar, alBorrar }: { accesos: number; alCerr
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Borrar mi bóveda" ancho={460}>
       <div className="pila" style={{ gap: 12 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Borrar mi bóveda</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Borrar mi bóveda</h2>
         <p className="texto-sm">Sin tu clave nadie puede abrirla, ni siquiera Inoo. La única salida es borrarla y empezar de nuevo: se pierden <strong>{accesos} {accesos === 1 ? "acceso" : "accesos"}</strong> y no se pueden recuperar.</p>
         <div className="campo">
           <label htmlFor="bv-borrar">Escribe BORRAR para confirmar</label>
@@ -362,7 +362,7 @@ function EditorAcceso({ llave, acceso, alCerrar, alGuardar }: { llave: CryptoKey
     <Modal abierto alCerrar={alCerrar} etiqueta={acceso ? "Editar acceso" : "Nuevo acceso"} ancho={520}>
       {!cargado ? <Cargando /> : (
         <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>{acceso ? "Editar acceso" : "Nuevo acceso"}</h2>
+          <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{acceso ? "Editar acceso" : "Nuevo acceso"}</h2>
           <div className="campo">
             <label htmlFor="ac-nombre">Nombre</label>
             <div className="entrada"><input id="ac-nombre" value={nombre} maxLength={120} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Instagram de Casa Oliva" /></div>
@@ -430,7 +430,7 @@ function CambiarClave({ llave, alCerrar }: { llave: CryptoKey; alCerrar: () => v
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Cambiar la clave de tu bóveda" ancho={480}>
       <form className="pila" style={{ gap: 12 }} onSubmit={(e) => void guardar(e)}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Cambiar la clave de tu bóveda</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Cambiar la clave de tu bóveda</h2>
         <p className="texto-sm" style={{ color: "var(--c-alerta)" }}>No pierdas la nueva clave: nadie puede recuperarla.</p>
         <div className="campo">
           <label htmlFor="bv-nueva">Clave nueva</label>

@@ -34,7 +34,7 @@ export function GestionCuenta({ cliente, alGuardar }: { cliente: S<"Cliente">; a
   };
   return (
     <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Gestión de la cuenta</h3>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Gestión de la cuenta</h3>
       <label className="texto-xs" htmlFor="gc-am">Quién lleva la cuenta</label>
       <select id="gc-am" className="input" value={cliente.accountManager?.id ?? ""} onChange={(e) => void guardar({ accountManagerId: e.target.value }, "Cambiamos a quien lleva la cuenta")}>
         {!cliente.accountManager && <option value="">Sin asignar</option>}
@@ -56,7 +56,7 @@ export function TablerosDelCliente({ nombre }: { nombre: string }) {
   if (!suyos.length) return null;
   return (
     <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
-      <h3 className="tarjeta-titulo fila" style={{ fontSize: 14.5, gap: 8 }}><LuSquareKanban size={15} /> Tableros de InooWork</h3>
+      <h3 className="tarjeta-titulo fila" style={{ fontSize: "var(--t-md)", gap: 8 }}><LuSquareKanban size={15} /> Tableros de InooWork</h3>
       {suyos.map((t) => (
         <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="fila entre texto-sm boton-lista">
           <span className="negrita">{t.nombre}</span>
@@ -143,7 +143,7 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
   return (
     <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
       <div className="fila entre">
-        <h3 className="tarjeta-titulo fila" style={{ fontSize: 14.5, gap: 8 }}><LuKeyRound size={15} /> Acceso del cliente al portal</h3>
+        <h3 className="tarjeta-titulo fila" style={{ fontSize: "var(--t-md)", gap: 8 }}><LuKeyRound size={15} /> Acceso del cliente al portal</h3>
         <button className="boton boton--chico" onClick={() => setAgregando((x) => !x)} aria-expanded={agregando}><LuPlus size={14} /> Agregar</button>
       </div>
       {!lista.datos.datos.length && <p className="texto-xs texto-muted">Todavía nadie del cliente tiene acceso.</p>}
@@ -152,7 +152,7 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
           <span>
             <span className="negrita" style={{ display: "block" }}>{m.nombre}</span>
             <span className="texto-xs texto-muted" style={{ display: "block" }}>{m.email}</span>
-            <select className="input" style={{ marginTop: 4, height: 30, fontSize: 12 }} aria-label={`Permiso de ${m.nombre}`} value={m.rol} onChange={(e) => void cambiarRol(m, e.target.value as S<"Miembro">["rol"])}>
+            <select className="input" style={{ marginTop: 4, height: 30, fontSize: "var(--t-xs)" }} aria-label={`Permiso de ${m.nombre}`} value={m.rol} onChange={(e) => void cambiarRol(m, e.target.value as S<"Miembro">["rol"])}>
               {(Object.keys(ROL_CLIENTE) as S<"Miembro">["rol"][]).map((x) => <option key={x} value={x}>{ROL_CLIENTE[x]}</option>)}
             </select>
             {m.invitacionPendiente && <span style={{ display: "block", marginTop: 4 }}><Etiqueta tono="ambar">Todavía no entra</Etiqueta></span>}
@@ -217,7 +217,7 @@ export function EquipoAsignado({ ruta, titulo, ayuda, soloNivelCuenta }: { ruta:
   return (
     <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
       <div className="fila entre">
-        <h3 className="tarjeta-titulo fila" style={{ fontSize: 14.5, gap: 8 }}><LuUsers size={15} /> {titulo}</h3>
+        <h3 className="tarjeta-titulo fila" style={{ fontSize: "var(--t-md)", gap: 8 }}><LuUsers size={15} /> {titulo}</h3>
         {lista.datos.puedeAsignar && (
           <button className="boton boton--chico" onClick={() => setEligiendo((x) => !x)} aria-expanded={eligiendo}>
             <LuPlus size={14} /> Asignar

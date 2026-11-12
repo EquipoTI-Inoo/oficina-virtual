@@ -179,7 +179,7 @@ function ProyectoEquipo() {
             {vista === "CALENDARIO" && <CalendarioEquipo d={d} />}
             {vista === "TABLA" && (
               <div className="tabla-envoltura">
-                <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+                <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
                   <thead>
                     <tr>
                       <th>Etapa</th>
@@ -246,7 +246,7 @@ function ProyectoEquipo() {
           <EquipoAsignado ruta={`/servicios-contratados/${d.servicioContratadoId}/miembros`} titulo="Equipo del proyecto" ayuda="Quienes trabajan en el proyecto. Cada lead asigna a la gente de su área." />
           <KpisDelProyecto servicioId={d.servicioContratadoId} version={d.etapas.map((e) => e.estado + e.fechaEstimada).join()} />
           <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Métricas que ve el cliente</h3>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Métricas que ve el cliente</h3>
             {d.metricas.map((m) => (
               <div key={m.clave} className="fila entre texto-sm">
                 <span className="texto-muted">{m.etiqueta}</span>
@@ -285,7 +285,7 @@ export function KpisDelProyecto({ servicioId, version = "" }: { servicioId: stri
   const { datos } = useConsulta<{ datos: S<"KpiProyecto">[] }>(`/servicios-contratados/${servicioId}/kpis?v=${encodeURIComponent(version)}`);
   return (
     <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
-      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>
         KPIs internos <span className="texto-xs texto-muted">· <LuLock size={11} /> el cliente no los ve</span>
       </h3>
       {!datos ? (
@@ -372,7 +372,7 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
   return (
     <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 12 }}>
       <div className="fila entre">
-        <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Reuniones</h3>
+        <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Reuniones</h3>
         <button className="boton boton--chico" onClick={() => setNueva(true)}>
           <LuCalendarPlus size={14} /> Registrar
         </button>
@@ -407,7 +407,7 @@ function ReunionesEquipo({ servicioId, alCambiar }: { servicioId: string; alCamb
         ))
       )}
       <Modal abierto={nueva} alCerrar={() => setNueva(false)} etiqueta="Registrar reunión">
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Registrar reunión</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Registrar reunión</h2>
         <div className="campo">
           <label htmlFor="reu-titulo">Tema</label>
           <div className="entrada">
@@ -481,7 +481,7 @@ function CerrarProyecto({ servicioId, titulo, alCerrar, alTerminar }: { servicio
   };
   return (
     <Modal abierto alCerrar={alCerrar} etiqueta="Cerrar proyecto">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Cerrar {titulo}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Cerrar {titulo}</h2>
       {!c ? (
         <Cargando />
       ) : c.cerrado ? (
@@ -561,7 +561,7 @@ function CerrarReunion({ servicioId, reunion, alCerrar, alGuardar }: { servicioI
   };
   return (
     <Modal abierto={!!reunion} alCerrar={alCerrar} etiqueta="Marcar reunión realizada">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>{reunion?.titulo}</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{reunion?.titulo}</h2>
       <details className="desde-transcripcion">
         <summary><LuSparkles size={14} /> Resumir desde la transcripción</summary>
         <div className="campo">
@@ -678,7 +678,7 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
   return (
     <div className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8 }}>
       <div className="fila entre">
-        <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>Detalles del proyecto</h3>
+        <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Detalles del proyecto</h3>
         <button className="boton boton--chico" onClick={() => { setF(inicial()); setEditando(true); }}>
           Editar
         </button>
@@ -709,7 +709,7 @@ function DetallesDelProyecto({ d, alGuardar }: { d: Perfil; alGuardar: (cuerpo: 
       )}
       {d.alcance && <p className="texto-xs texto-muted">{d.alcance}</p>}
       <Modal abierto={editando} alCerrar={() => setEditando(false)} etiqueta="Detalles del proyecto">
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Detalles del proyecto</h2>
+        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Detalles del proyecto</h2>
         {opciones("dp-responsable", "Responsable en Inoo", f.responsableId, (v) => setF({ ...f, responsableId: v }), Object.fromEntries((equipo.datos?.datos ?? []).map((u) => [u.id, u.nombre])))}
         {opciones("dp-tamano", "Tamaño", f.tamano, (v) => setF({ ...f, tamano: v }), TAMANO)}
         {esWeb && (
@@ -910,7 +910,7 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
   );
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo servicio">
-      {cabecera ?? <h2 style={{ fontSize: 18, fontWeight: 600 }}>Nuevo servicio</h2>}
+      {cabecera ?? <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Nuevo servicio</h2>}
       {clientes && (
         <div className="campo">
           <label htmlFor="ns-cliente">Cliente</label>
@@ -1068,7 +1068,7 @@ export function EstadoPagoDelCliente({ clienteId }: { clienteId: string }) {
       </div>
       <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
         <Etiqueta tono={atrasado ? "rojo" : "verde"}>{atrasado ? `Atrasado · ${d.diasAtraso} ${d.diasAtraso === 1 ? "día" : "días"}` : "Al día"}</Etiqueta>
-        {d.alertaOperaciones && <span className="texto-xs" style={{ color: "#b42318" }}>Operaciones ve la alerta (desde {d.umbralDias} días)</span>}
+        {d.alertaOperaciones && <span className="texto-xs" style={{ color: "var(--c-error)" }}>Operaciones ve la alerta (desde {d.umbralDias} días)</span>}
       </div>
       {atrasado && d.atrasadoDesde && <p className="texto-xs texto-muted">Sin pagar desde el {fCorta(d.atrasadoDesde)}</p>}
       {d.nota && <p className="texto-sm">{d.nota}</p>}
@@ -1102,7 +1102,7 @@ function CambiarEstadoPago({ clienteId, actual, abierto, alCerrar, alGuardar }: 
   };
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Estado de pago">
-      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Estado de pago</h2>
+      <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Estado de pago</h2>
       <div className="campo">
         <span className="rotulo" id="pago-situacion">¿Cómo está el cliente?</span>
         <div className="chips" role="radiogroup" aria-labelledby="pago-situacion">

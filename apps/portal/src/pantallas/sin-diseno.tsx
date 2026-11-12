@@ -114,7 +114,7 @@ function Biblioteca() {
                     <Etiqueta tono={x.origen === "PIEZA" ? "verde" : "violeta"}>{x.origen === "PIEZA" ? "Pieza aprobada" : "Tu contenido"}</Etiqueta>
                     {x.aprobadoEn && <span className="texto-xs texto-muted">{fCorta(x.aprobadoEn)}</span>}
                   </div>
-                  <p className="negrita" style={{ fontSize: 13 }}>{x.titulo}</p>
+                  <p className="negrita" style={{ fontSize: "var(--t-sm)" }}>{x.titulo}</p>
                   <p className="texto-xs texto-muted">{x.tipo ? TIPO_PIEZA[x.tipo] ?? x.tipo : "Archivo"}</p>
                   {(x.etiquetas ?? []).length > 0 && (
                     <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -133,14 +133,14 @@ function Biblioteca() {
             <h2 className="tarjeta-titulo">Agregar a tu biblioteca</h2>
             {puedeSubir ? (
               <>
-                <label className="casilla" style={{ alignItems: "flex-start", fontSize: 12, lineHeight: 1.6 }}>
+                <label className="casilla" style={{ alignItems: "flex-start", fontSize: "var(--t-xs)", lineHeight: 1.6 }}>
                   <input type="checkbox" checked={derechos} onChange={(e) => setDerechos(e.target.checked)} style={{ marginTop: 3 }} />
                   Declaro que tengo los derechos de uso de este material y autorizo a Inoo a usarlo en contenidos y anuncios de la marca. *
                 </label>
                 <div className="zona-carga" role="button" tabIndex={0} aria-disabled={subiendo} onClick={() => archivo.current?.click()} onKeyDown={(e) => e.key === "Enter" && archivo.current?.click()} style={{ padding: 24 }}>
                   <LuUpload size={18} />
-                  <strong className="texto-primario" style={{ fontSize: 12 }}>{subiendo ? "Subiendo…" : "Selecciona una foto o video"}</strong>
-                  <span style={{ fontSize: 12 }}>JPG, PNG o MP4 · Máximo 100 MB</span>
+                  <strong className="texto-primario" style={{ fontSize: "var(--t-xs)" }}>{subiendo ? "Subiendo…" : "Selecciona una foto o video"}</strong>
+                  <span style={{ fontSize: "var(--t-xs)" }}>JPG, PNG o MP4 · Máximo 100 MB</span>
                   <input ref={archivo} type="file" hidden accept=".jpg,.jpeg,.png,.mp4" onChange={(e) => void subir(e.target.files?.[0])} />
                 </div>
                 <Ayuda error={error ?? undefined} />
@@ -258,7 +258,7 @@ function CalendarioEquipo() {
           {err && !cambios && <div style={{ marginTop: 12 }}><Aviso tono="alerta" icono={<LuTriangleAlert size={16} />}>{err}</Aviso></div>}
           <div className="tarjeta seccion" style={{ padding: "18px 14px" }}>
             <div className="tabla-envoltura">
-              <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+              <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
                 <thead>
                   <tr>
                     <th>Fecha</th>
@@ -279,7 +279,7 @@ function CalendarioEquipo() {
                         <EtiquetaPieza p={p} />
                       </td>
                       <td>
-                        <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: 12 }}>
+                        <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: "var(--t-xs)" }}>
                           Abrir →
                         </Enlace>
                       </td>
@@ -293,7 +293,7 @@ function CalendarioEquipo() {
       )}
       <Modal abierto={cambios} alCerrar={() => setCambios(false)} etiqueta="Pedir cambios al plan">
         <div style={{ display: "grid", gap: 14 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 600 }}>Pedir cambios al plan</h2>
+          <h2 style={{ fontSize: "var(--t-2xl)", fontWeight: 600 }}>Pedir cambios al plan</h2>
           <div className="campo">
             <label htmlFor="cal-comentario">¿Qué debe ajustar el agente?</label>
             <div className="entrada">
@@ -372,7 +372,7 @@ function CostosIa() {
       <div className="tarjeta seccion" style={{ padding: "22px 18px" }}>
         <h2 className="tarjeta-titulo" style={{ marginBottom: 16 }}>Por cliente</h2>
         <div className="tabla-envoltura">
-          <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+          <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
             <thead>
               <tr>
                 <th>Cliente</th>
@@ -385,7 +385,7 @@ function CostosIa() {
                 <tr key={c.clienteId} style={{ cursor: "default" }}>
                   <td className="negrita">{c.nombre}</td>
                   <td>
-                    <p className="negrita" style={{ fontSize: 12 }}>
+                    <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>
                       {usd(c.gastoUsd)} / {usd(c.limiteUsd)} · {String(c.pctLimite).replace(".", ",")} %
                     </p>
                     <div style={{ marginTop: 6 }}>
@@ -416,7 +416,7 @@ function CostosIa() {
           <Cargando />
         ) : (
           <div className="tabla-envoltura">
-            <table className="tabla tabla--tarjetas" style={{ fontSize: 12 }}>
+            <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
               <thead>
                 <tr>
                   <th>Inicio</th>
@@ -549,7 +549,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo cliente">
       <form onSubmit={crear} noValidate style={{ display: "grid", gap: 14 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 600 }}>Nuevo cliente</h2>
+        <h2 style={{ fontSize: "var(--t-2xl)", fontWeight: 600 }}>Nuevo cliente</h2>
         <p className="texto-xs texto-muted">Al crearlo, n8n prepara su carpeta en Drive. Si indicas su responsable, le enviamos el acceso al portal. Luego contrata sus servicios desde la ficha.</p>
         <details className="desde-transcripcion">
           <summary><LuSparkles size={14} /> Completar desde la transcripción de la venta</summary>
@@ -613,7 +613,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
         </div>
         <div style={{ display: "grid", gap: 14, borderTop: "1px solid var(--c-borde)", paddingTop: 14 }}>
           <div>
-            <h3 className="tarjeta-titulo" style={{ fontSize: 16 }}>Ingreso del cliente</h3>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-lg)" }}>Ingreso del cliente</h3>
             <p className="texto-xs texto-muted">Lo que se habló en la venta. Cada servicio pide sus datos; solo lo ve el equipo.</p>
           </div>
           {formulario ? (
@@ -774,7 +774,7 @@ export function EditarFicha({ cliente, abierto, alCerrar, alGuardar }: { cliente
   return (
     <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Editar ficha" ancho={720}>
       <form onSubmit={guardar} noValidate style={{ display: "grid", gap: 14 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 600 }}>Editar ficha de {cliente.nombre}</h2>
+        <h2 style={{ fontSize: "var(--t-2xl)", fontWeight: 600 }}>Editar ficha de {cliente.nombre}</h2>
 
         <h3 className="ficha-seccion">Datos de la cuenta</h3>
         <div className="grid-2">

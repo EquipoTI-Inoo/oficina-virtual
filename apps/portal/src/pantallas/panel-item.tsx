@@ -161,7 +161,7 @@ export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Table
         <header className="panel-lateral-cab">
           <div style={{ minWidth: 0 }}>
             <span className="texto-xs texto-muted">{t.grupos.find((g) => g.id === item.grupoId)?.nombre} · {t.nombre}</span>
-            <h2 style={{ fontSize: 18, fontWeight: 600, margin: "2px 0 8px", overflowWrap: "anywhere" }}>{item.nombre}</h2>
+            <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600, margin: "2px 0 8px", overflowWrap: "anywhere" }}>{item.nombre}</h2>
             {!editable ? (
               <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
                 <span className="pildora pildora--chica" style={{ background: COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4", width: "auto" }}>{item.estado}</span>

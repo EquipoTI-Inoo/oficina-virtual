@@ -316,13 +316,13 @@ function Lateral({ t }: { t: Taller }) {
   return (
     <aside className="pila">
       <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 10 }}>
-        <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>Entregables al cliente</h2>
+        <h2 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Entregables al cliente</h2>
         {entregable("Propuesta (PDF)", t.documento, t.relleno?.documento)}
         {entregable("Demo navegable", t.demoEntregable, t.relleno?.demo)}
         <p className="texto-xs texto-muted" style={{ margin: 0 }}>Se revisan y se envían desde el entregable, como cualquier otro.</p>
       </section>
       <section className="tarjeta tarjeta--compacta" style={{ display: "grid", gap: 8 }}>
-        <h2 className="tarjeta-titulo" style={{ fontSize: 15 }}>Las fases</h2>
+        <h2 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Las fases</h2>
         <ol className="texto-xs" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
           <li><strong>Estrategia y alcance:</strong> brief, benchmark con marcas, arquitectura, copy, matriz y pendientes → PDF para que el cliente lo apruebe</li>
           <li><strong>Prototipado:</strong> opcional (las pantallas sueltas)</li>
@@ -452,7 +452,7 @@ function Materiales({ t, ruta, paso, ocupado, alCambiar }: { t: Taller; ruta: st
 
 // ───────────────────────────── fase 1: marcas, lo que pide el proyecto, copy y alcance (9 nov)
 
-const COLOR_MARCA = { TOMAR: "#16a34a", EVITAR: "#dc2626" } as const;
+const COLOR_MARCA = { TOMAR: "var(--c-semaforo-verde)", EVITAR: "var(--c-semaforo-rojo)" } as const;
 /** Los números como en el PDF: primero lo que tomamos y después lo que evitamos. */
 const numerar = (xs: Marca[]) => {
   const orden = [...xs.map((m, i) => ({ m, i })).filter((x) => x.m.tipo === "TOMAR"), ...xs.map((m, i) => ({ m, i })).filter((x) => x.m.tipo === "EVITAR")];
@@ -477,7 +477,7 @@ function CapturasMarcadas({ nombre, capturas, marcas, alCambiar }: { nombre: str
             style={{ position: "relative", width: c.tipo === "MOVIL" ? 96 : 330, maxHeight: 240, overflow: "hidden", borderRadius: 8, border: "1px solid var(--c-borde)", cursor: elegida !== null ? "crosshair" : "default" }}>
             <img src={c.url} alt={`Captura ${c.tipo === "MOVIL" ? "móvil" : "de escritorio"} de ${nombre}`} style={{ width: "100%", display: "block" }} />
             {marcas.map((m, i) => m.captura === c.tipo && (
-              <span key={i} aria-hidden style={{ position: "absolute", left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)", width: 20, height: 20, borderRadius: "50%", background: COLOR_MARCA[m.tipo], color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", boxShadow: elegida === i ? "0 0 0 3px #111" : "0 1px 4px #0006" }}>{numeros.get(i)}</span>
+              <span key={i} aria-hidden style={{ position: "absolute", left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)", width: 20, height: 20, borderRadius: "50%", background: COLOR_MARCA[m.tipo], color: "var(--c-blanco)", fontSize: "var(--t-xs)", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", boxShadow: elegida === i ? "0 0 0 3px #111" : "0 1px 4px #0006" }}>{numeros.get(i)}</span>
             ))}
           </div>
         ))}
@@ -485,7 +485,7 @@ function CapturasMarcadas({ nombre, capturas, marcas, alCambiar }: { nombre: str
       {marcas.map((m, i) => (
         <div key={i} className="fila" style={{ gap: 6 }}>
           <button type="button" className="boton-icono" aria-pressed={elegida === i} title="Elegir y tocar la captura para moverla" onClick={() => setElegida(elegida === i ? null : i)}
-            style={{ background: COLOR_MARCA[m.tipo], color: "#fff", borderRadius: "50%", width: 24, height: 24, fontSize: 12, fontWeight: 700, outline: elegida === i ? "2px solid #111" : undefined }}>{numeros.get(i)}</button>
+            style={{ background: COLOR_MARCA[m.tipo], color: "var(--c-blanco)", borderRadius: "50%", width: 24, height: 24, fontSize: "var(--t-xs)", fontWeight: 700, outline: elegida === i ? "2px solid #111" : undefined }}>{numeros.get(i)}</button>
           <select className="input" aria-label={`Tipo de la marca ${numeros.get(i)}`} value={m.tipo} onChange={(e) => set(i, { tipo: e.target.value as Marca["tipo"] })} style={{ width: 120, height: 32 }}>
             <option value="TOMAR">Tomamos</option>
             <option value="EVITAR">Evitamos</option>
@@ -736,7 +736,7 @@ function DelBrief({ t, b, editar }: { t: Taller; b: Borrador; editar: (c: Partia
                 </span>
               ))}
               {!paleta.length && !editando && <span className="texto-sm texto-muted">Sin colores</span>}
-              {editando && paleta.length < 8 && <button type="button" className="boton boton--chico" onClick={() => set("paleta", [...paleta, "#5554d9"])}><LuPlus size={12} /> Color</button>}
+              {editando && paleta.length < 8 && <button type="button" className="boton boton--chico" onClick={() => set("paleta", [...paleta, "var(--c-primario)"])}><LuPlus size={12} /> Color</button>}
             </div>
           </div>
         </div>
@@ -968,12 +968,12 @@ function EditorArbol({ ps, alCambiar }: { ps: Pagina[]; alCambiar: (ps: Pagina[]
               <button type="button" className="boton-icono" aria-label={`Quitar ${p.titulo}`} title={hijas.length ? "Quita también sus subpáginas" : "Quitar"} onClick={() => quitar(p)}><LuTrash2 size={14} /></button>
             )}
           </div>
-          <input className="input" aria-label={`Descripción de ${p.titulo}`} placeholder="Para qué sirve (una línea)" value={p.descripcion} maxLength={200} onChange={(e) => set(p.id, { descripcion: e.target.value })} style={{ height: 32, fontSize: 13 }} />
+          <input className="input" aria-label={`Descripción de ${p.titulo}`} placeholder="Para qué sirve (una línea)" value={p.descripcion} maxLength={200} onChange={(e) => set(p.id, { descripcion: e.target.value })} style={{ height: 32, fontSize: "var(--t-sm)" }} />
           <div className="fila" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label={`Secciones de ${p.titulo}`}>
             {p.secciones.map((s, j) => (
               <span key={j} className="fila" style={{ gap: 2, border: "1px solid var(--c-borde)", borderRadius: 999, padding: "2px 4px 2px 10px", background: "var(--c-fondo)" }}>
                 <input aria-label={`Sección ${j + 1} de ${p.titulo}`} value={s} maxLength={60} onChange={(e) => set(p.id, { secciones: p.secciones.map((x, k) => (k === j ? e.target.value : x)) })}
-                  style={{ border: 0, background: "none", font: "inherit", fontSize: 12.5, width: `${Math.max(8, s.length + 1)}ch`, outline: "none" }} />
+                  style={{ border: 0, background: "none", font: "inherit", fontSize: "var(--t-sm)", width: `${Math.max(8, s.length + 1)}ch`, outline: "none" }} />
                 <button type="button" className="boton-icono" aria-label={`Quitar la sección ${s || j + 1}`} onClick={() => set(p.id, { secciones: p.secciones.filter((_, k) => k !== j) })} style={{ width: 22, height: 22 }}><LuX size={12} /></button>
               </span>
             ))}
@@ -1066,7 +1066,7 @@ function Capturas({ t, b, editar, paso, ocupado, pausa }: { t: Taller; b: Borrad
         <div className="campo">
           <label htmlFor="plantilla-prompt">Prompt o código de la plantilla</label>
           <div className="entrada">
-            <textarea id="plantilla-prompt" value={plantilla.prompt} maxLength={LIMITES_TALLER.plantilla} onChange={(e) => setPlantilla({ prompt: e.target.value })} style={{ minHeight: 140, fontFamily: "monospace", fontSize: 12 }} />
+            <textarea id="plantilla-prompt" value={plantilla.prompt} maxLength={LIMITES_TALLER.plantilla} onChange={(e) => setPlantilla({ prompt: e.target.value })} style={{ minHeight: 140, fontFamily: "monospace", fontSize: "var(--t-xs)" }} />
           </div>
           <span className="ayuda-campo">{plantilla.prompt.length.toLocaleString("es-PE")} / {LIMITES_TALLER.plantilla.toLocaleString("es-PE")} caracteres. A Stitch le llegan los primeros {LIMITES_TALLER.plantillaEnStitch.toLocaleString("es-PE")}.</span>
         </div>
@@ -1128,10 +1128,10 @@ function Capturas({ t, b, editar, paso, ocupado, pausa }: { t: Taller; b: Borrad
       {conPrompt && (
         <Modal abierto alCerrar={() => setConPrompt(null)} etiqueta={`Prompt de ${conPrompt.pagina.titulo}`}>
           <div className="pila" style={{ gap: 12 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 600 }}>Rehacer {conPrompt.pagina.titulo} ({dispositivo === "MOVIL" ? "móvil" : "escritorio"})</h2>
+            <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Rehacer {conPrompt.pagina.titulo} ({dispositivo === "MOVIL" ? "móvil" : "escritorio"})</h2>
             <p className="texto-sm texto-muted" style={{ margin: 0 }}>Es lo que recibe Claude para diseñar la página. Corrígelo (por ejemplo «hero más corto, foto a la derecha») y rehaz la captura.</p>
             <div className="entrada">
-              <textarea aria-label="Prompt de la captura" value={conPrompt.texto} maxLength={LIMITES_TALLER.promptPrototipo} onChange={(e) => setConPrompt({ ...conPrompt, texto: e.target.value })} style={{ minHeight: 320, fontFamily: "monospace", fontSize: 12 }} />
+              <textarea aria-label="Prompt de la captura" value={conPrompt.texto} maxLength={LIMITES_TALLER.promptPrototipo} onChange={(e) => setConPrompt({ ...conPrompt, texto: e.target.value })} style={{ minHeight: 320, fontFamily: "monospace", fontSize: "var(--t-xs)" }} />
             </div>
             <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
               <button className="boton boton--primario" disabled={!!ocupado || !conPrompt.texto.trim()} onClick={() => {
@@ -1234,7 +1234,7 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
         <div className="campo">
           <label htmlFor="prompt-stitch">Prompt</label>
           <div className="entrada">
-            <textarea id="prompt-stitch" value={prompt} maxLength={LIMITES_TALLER.promptPrototipo} disabled={sinFlujo} onChange={(e) => editar({ promptPrototipo: e.target.value })} style={{ minHeight: 260, fontFamily: "monospace", fontSize: 12 }} />
+            <textarea id="prompt-stitch" value={prompt} maxLength={LIMITES_TALLER.promptPrototipo} disabled={sinFlujo} onChange={(e) => editar({ promptPrototipo: e.target.value })} style={{ minHeight: 260, fontFamily: "monospace", fontSize: "var(--t-xs)" }} />
           </div>
           <span className="ayuda-campo">
             {b.promptPrototipo === null ? "Estándar: cambia solo al editar el flujograma, la página o el dispositivo." : (
@@ -1257,7 +1257,7 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
         </div>
         {!conClaude && <details className="texto-sm">
           <summary style={{ cursor: "pointer" }}>DESIGN.md que recibe Stitch (el contenido del PDF)</summary>
-          <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: 12, maxHeight: 320, overflow: "auto" }}>{t.prototipo.designMd}</pre>
+          <pre style={{ whiteSpace: "pre-wrap", margin: "8px 0 0", fontSize: "var(--t-xs)", maxHeight: 320, overflow: "auto" }}>{t.prototipo.designMd}</pre>
           <span className="ayuda-campo">Se arma con lo guardado. Stitch no recibe archivos por su API: las capturas del PDF van como la plantilla que las generó. Si quieres que vea las imágenes, sube el PDF a mano en Stitch.</span>
         </details>}
         {sitio && (
@@ -1281,7 +1281,7 @@ function Prototipo({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
                 {p.prompt && (
                   <details className="texto-xs">
                     <summary style={{ cursor: "pointer" }}>Prompt que recibió</summary>
-                    <pre style={{ whiteSpace: "pre-wrap", margin: "6px 0 0", fontSize: 12 }}>{p.prompt}</pre>
+                    <pre style={{ whiteSpace: "pre-wrap", margin: "6px 0 0", fontSize: "var(--t-xs)" }}>{p.prompt}</pre>
                   </details>
                 )}
               </div>
@@ -1303,7 +1303,7 @@ function VistaPantalla({ url, nombre }: { url: string; nombre: string }) {
   return (
     <a href={url} target="_blank" rel="noreferrer" aria-label={`Abrir ${nombre}`}>
       {esHtml
-        ? <iframe src={url} title={nombre} sandbox="" loading="lazy" style={{ ...estilo, pointerEvents: "none", background: "#fff" }} />
+        ? <iframe src={url} title={nombre} sandbox="" loading="lazy" style={{ ...estilo, pointerEvents: "none", background: "var(--c-blanco)" }} />
         : <img src={url} alt={nombre} onError={() => setEsHtml(true)} style={{ ...estilo, objectFit: "cover", objectPosition: "top" }} />}
     </a>
   );
@@ -1351,7 +1351,7 @@ function Demos({ t, paso, ocupado, alCambiar }: { t: Taller; paso: Paso; ocupado
           <div className="campo">
             <label htmlFor="html-demo">HTML completo</label>
             <div className="entrada">
-              <textarea id="html-demo" value={html} onChange={(e) => setHtml(e.target.value)} placeholder="<!doctype html>…" style={{ minHeight: 160, fontFamily: "monospace", fontSize: 12 }} />
+              <textarea id="html-demo" value={html} onChange={(e) => setHtml(e.target.value)} placeholder="<!doctype html>…" style={{ minHeight: 160, fontFamily: "monospace", fontSize: "var(--t-xs)" }} />
             </div>
           </div>
         )}
