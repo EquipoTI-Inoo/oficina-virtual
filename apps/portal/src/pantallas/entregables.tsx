@@ -7,7 +7,7 @@
  * es un rebote (KPI). Las piezas de contenido (posts, blogs) siguen en su propio flujo.
  */
 import { useState, type ReactNode } from "react";
-import { LuExternalLink, LuFileText, LuImage, LuLink, LuMonitorSmartphone, LuPlus, LuSend, LuUpload } from "react-icons/lu";
+import { LuExternalLink, LuFileText, LuImage, LuLink, LuMonitorSmartphone, LuPencil, LuPlus, LuSend, LuTrash2, LuUpload } from "react-icons/lu";
 import { api, Enlace, fDiaHora, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 
@@ -234,7 +234,21 @@ function DecisionCliente({ id, alDecidir }: { id: string; alDecidir: (d: Detalle
 
 function AccionesEquipo({ d, alCambiar }: { d: Detalle; alCambiar: (d: Detalle) => void }) {
   const avisar = useAviso();
+  const { ir } = useNavegacion();
   const [abierto, setAbierto] = useState(false);
+  const [editando, setEditando] = useState(false);
+  // 13 nov (auditoría): se quita solo si el cliente nunca lo vio.
+  const nuncaEnviado = !d.versiones.some((v) => v.enviadaEn);
+  const quitar = async () => {
+    if (!window.confirm(`¿Quitar «${d.titulo}»? El cliente nunca lo vio; se borra con sus versiones.`)) return;
+    try {
+      await api(`/entregables/${d.id}`, { metodo: "DELETE" });
+      avisar({ titulo: "Entregable quitado" });
+      ir(`/equipo/proyectos/${d.servicioContratadoId}`);
+    } catch (e) {
+      avisar({ titulo: "No se pudo quitar", texto: errorDe(e) });
+    }
+  };
   const yaEnviada = !!d.versiones.find((v) => v.numero === d.version)?.enviadaEn;
   if (d.estado === "APROBADO") return <Aviso icono={<LuSend size={18} />} titulo="Aprobado por el cliente">No se le suben más versiones.</Aviso>;
   const enviar = async () => {
@@ -257,9 +271,49 @@ function AccionesEquipo({ d, alCambiar }: { d: Detalle; alCambiar: (d: Detalle) 
         <button className="boton" onClick={() => setAbierto(true)}>
           <LuUpload size={14} /> Subir nueva versión
         </button>
+        <button className="boton" onClick={() => setEditando(true)}>
+          <LuPencil size={14} /> Editar nombre y descripción
+        </button>
+        {nuncaEnviado && (
+          <button className="boton boton--peligro" onClick={() => void quitar()}>
+            <LuTrash2 size={14} /> Quitar
+          </button>
+        )}
       </div>
       <NuevaVersion id={d.id} abierto={abierto} alCerrar={() => setAbierto(false)} alCrear={alCambiar} />
+      {editando && <EditarEntregable d={d} alCerrar={() => setEditando(false)} alGuardar={(x) => { alCambiar(x); setEditando(false); }} />}
     </section>
+  );
+}
+
+function EditarEntregable({ d, alCerrar, alGuardar }: { d: Detalle; alCerrar: () => void; alGuardar: (d: Detalle) => void }) {
+  const avisar = useAviso();
+  const [titulo, setTitulo] = useState(d.titulo);
+  const [descripcion, setDescripcion] = useState(d.descripcion ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const guardar = async () => {
+    setError(null);
+    try {
+      alGuardar(await api<Detalle>(`/entregables/${d.id}`, { metodo: "PATCH", cuerpo: { titulo, descripcion: descripcion.trim() || null } }));
+      avisar({ titulo: "Cambios guardados" });
+    } catch (e) {
+      setError(errorDe(e));
+    }
+  };
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta="Editar entregable">
+      <h2 style={{ fontSize: 18, fontWeight: 600 }}>Editar entregable</h2>
+      <div className="campo">
+        <label htmlFor="ee-titulo">Nombre</label>
+        <div className="entrada"><input id="ee-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} /></div>
+      </div>
+      <div className="campo">
+        <label htmlFor="ee-desc">Descripción (la ve el cliente)</label>
+        <div className="entrada"><textarea id="ee-desc" rows={3} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></div>
+        {error && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{error}</span>}
+      </div>
+      <button className="boton boton--primario boton--bloque" onClick={() => void guardar()}>Guardar cambios</button>
+    </Modal>
   );
 }
 

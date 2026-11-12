@@ -74,7 +74,7 @@ import { atenderArchivoDrive, type ClienteDrive } from "./almacen-drive";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
-import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
+import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
@@ -89,6 +89,7 @@ import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, type EstadoTare
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import {
   correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
+  validarEdicionRequerimiento,
 } from "../dominio/requerimientos";
 import { accionPorRevisar, enlacePorRevisar, ordenarPorRevisar } from "../dominio/por-revisar";
 import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
@@ -1847,6 +1848,33 @@ ruta("POST", "/servicios-contratados/:id/entregables", async (ctx, p, _q, cuerpo
     [id, sc.cliente_id, b.url, b.nombreArchivo?.trim() || null, b.nota?.trim() || null, autor],
   );
   return { __status: 201, ...(await entregableDetalleDb(ctx, id)) };
+});
+
+// 13 nov (auditoría): corregir un entregable, o quitarlo si el cliente todavía no lo vio.
+ruta("PATCH", "/entregables/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const e = await buscarEntregable(ctx, p.id);
+  if (e.estado === "APROBADO") throw new ErrorApi(409, "ENTREGABLE_APROBADO", "Ya está aprobado: no se cambia");
+  const b = (await cuerpo()) as { titulo?: string; descripcion?: string | null; etapaId?: string | null };
+  const errores = validarEdicionEntregable(b);
+  if (typeof b.etapaId === "string" && !(esUuid(b.etapaId) && (await ctx.c.query("SELECT 1 FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2", [b.etapaId, e.servicio_contratado_id])).rows.length)) {
+    errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  }
+  validacion(errores);
+  await ctx.c.query(
+    `UPDATE entregable SET titulo = coalesce($2, titulo), descripcion = CASE WHEN $3 THEN $4 ELSE descripcion END,
+            etapa_id = CASE WHEN $5 THEN $6::uuid ELSE etapa_id END, actualizado_en = now() WHERE id = $1`,
+    [e.id, b.titulo?.trim() ?? null, b.descripcion !== undefined, b.descripcion?.trim() || null, b.etapaId !== undefined, b.etapaId ?? null],
+  );
+  return entregableDetalleDb(ctx, e.id);
+});
+
+ruta("DELETE", "/entregables/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  const e = await buscarEntregable(ctx, p.id);
+  if (e.version_cliente !== null) throw new ErrorApi(409, "ENTREGABLE_ENVIADO", "El cliente ya lo vio: no se quita (súbele una nueva versión)");
+  await ctx.c.query("DELETE FROM entregable WHERE id = $1", [e.id]);
+  return null;
 });
 
 ruta("POST", "/entregables/:id/versiones", async (ctx, p, _q, cuerpo) => {
@@ -5139,6 +5167,26 @@ ruta("DELETE", "/requerimientos/:id/enlace", async (ctx, p) => {
   soloEquipo(ctx);
   await ctx.c.query("UPDATE requerimiento SET enlace_token = NULL, enlace_vence_en = NULL WHERE id = $1", [r.id]);
   return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
+});
+
+// 13 nov (auditoría): corregir o anular lo que se le pidió al cliente.
+ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, cuerpo) => {
+  const r = await buscarReq(ctx, p.id, true);
+  soloEquipo(ctx);
+  if (r.estado === "APROBADO") throw new ErrorApi(409, "REQUERIMIENTO_APROBADO", "Ya está aprobado: no se cambia");
+  const b = (await cuerpo()) as { titulo?: string; mensaje?: string | null; fechaLimite?: string };
+  validacion(validarEdicionRequerimiento(b, HOY_LIMA()));
+  await ctx.c.query("UPDATE requerimiento SET titulo = coalesce($2, titulo), mensaje = CASE WHEN $3 THEN $4 ELSE mensaje END, fecha_limite = coalesce($5::date, fecha_limite) WHERE id = $1",
+    [r.id, b.titulo?.trim() ?? null, b.mensaje !== undefined, b.mensaje?.trim() || null, b.fechaLimite ?? null]);
+  return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
+});
+
+ruta("DELETE", "/requerimientos/:id", async (ctx, p) => {
+  const r = await buscarReq(ctx, p.id, true);
+  soloEquipo(ctx);
+  if (r.estado !== "PENDIENTE") throw new ErrorApi(409, "REQUERIMIENTO_RESPONDIDO", "El cliente ya lo envió: ya no se anula (puedes aprobarlo u observarlo)");
+  await ctx.c.query("DELETE FROM requerimiento WHERE id = $1", [r.id]);
+  return null;
 });
 
 ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, cuerpo) => {

@@ -1242,6 +1242,40 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Requerimiento' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Requerimientos]
+      operationId: editarRequerimiento
+      summary: 'El equipo corrige el nombre, el mensaje o el plazo (13 nov). No si ya está aprobado (409)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                titulo: { type: string, minLength: 3 }
+                mensaje: { type: [string, 'null'] }
+                fechaLimite: { type: string, format: date, description: 'No puede ser pasada' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Requerimiento' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Requerimientos]
+      operationId: anularRequerimiento
+      summary: 'Anular un requerimiento pedido por error (13 nov). Solo mientras el cliente no lo envía (si no, 409)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Anulado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
 
   /requerimientos/{requerimientoId}/respuesta:
     parameters:
@@ -5477,6 +5511,40 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/EntregableDetalle' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
+    patch:
+      tags: [Servicios]
+      operationId: editarEntregable
+      summary: 'El equipo corrige el nombre, la descripción o la etapa (13 nov). No si ya está aprobado (409)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                titulo: { type: string, minLength: 3, maxLength: 200 }
+                descripcion: { type: [string, 'null'] }
+                etapaId: { type: [string, 'null'], format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntregableDetalle' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Servicios]
+      operationId: quitarEntregable
+      summary: 'Quitar un entregable creado por error (13 nov). Solo si nunca se le envió al cliente (si no, 409)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Quitado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
 
   /entregables/{entregableId}/versiones:
     parameters:

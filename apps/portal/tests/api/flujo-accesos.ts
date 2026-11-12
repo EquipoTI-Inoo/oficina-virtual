@@ -236,6 +236,34 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       await llamar("POST", `/requerimientos/${id}/revision`, DIEGO, { decision: "APROBADO" });
       assert.ok(!(await bandeja(DIEGO)).some((x) => x.id === id), "aprobado: sale de la bandeja");
     });
+    test("corregir y anular después de crear (13 nov): requerimientos y entregables", async () => {
+      await reiniciar();
+      const id = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: WEB })).json.id;
+      assert.equal((await llamar("PATCH", `/requerimientos/${id}`, VALERIA, { titulo: "Otro nombre" })).status, 403, "el cliente no lo cambia");
+      assert.deepEqual((await llamar("PATCH", `/requerimientos/${id}`, DIEGO, { fechaLimite: "2020-01-01" })).json.errores.map((e: any) => e.campo), ["fechaLimite"], "no a una fecha pasada");
+      assert.equal((await llamar("PATCH", `/requerimientos/${id}`, DIEGO, {})).status, 422);
+      const r = (await llamar("PATCH", `/requerimientos/${id}`, DIEGO, { titulo: "Brief de la tienda", mensaje: "Con fotos de los productos", fechaLimite: "2027-01-15" })).json;
+      assert.deepEqual([r.titulo, r.mensaje, r.fechaLimite], ["Brief de la tienda", "Con fotos de los productos", "2027-01-15"]);
+      assert.equal((await llamar("DELETE", `/requerimientos/${id}`, DIEGO)).status, 204);
+      assert.equal((await llamar("GET", `/requerimientos/${id}`, DIEGO)).status, 404, "anulado");
+      const otro = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: WEB })).json.id;
+      const base = { marca: "Casa Oliva", contacto: "Av. La Mar 1234, Miraflores", situacion: "Diseño web nuevo a partir de una página web existente", objetivos: "Mejorar el diseño en general", paises: "Perú" };
+      await llamar("PUT", `/requerimientos/${otro}/respuesta`, VALERIA, { respuestas: base, enviar: true });
+      assert.equal((await llamar("DELETE", `/requerimientos/${otro}`, DIEGO)).status, 409, "ya lo envió el cliente");
+      await llamar("POST", `/requerimientos/${otro}/revision`, DIEGO, { decision: "APROBADO" });
+      assert.equal((await llamar("PATCH", `/requerimientos/${otro}`, DIEGO, { titulo: "Otro" })).status, 409, "aprobado: no se cambia");
+
+      const e = (await llamar("POST", `/servicios-contratados/${WEB}/entregables`, DIEGO, { titulo: "Mapa del sitio", formato: "PDF", url: "https://drive.google.com/file/d/demo/view" })).json.id;
+      const ed = (await llamar("PATCH", `/entregables/${e}`, DIEGO, { titulo: "Mapa del sitio v2", descripcion: "Con las páginas nuevas" })).json;
+      assert.deepEqual([ed.titulo, ed.descripcion], ["Mapa del sitio v2", "Con las páginas nuevas"]);
+      assert.deepEqual((await llamar("PATCH", `/entregables/${e}`, DIEGO, { titulo: "x" })).json.errores.map((x: any) => x.campo), ["titulo"]);
+      assert.equal((await llamar("PATCH", `/entregables/${e}`, DIEGO, { etapaId: uid(99, 1) })).status, 422, "una etapa de otro proyecto, no");
+      const f = (await llamar("POST", `/servicios-contratados/${WEB}/entregables`, DIEGO, { titulo: "Prototipo", formato: "PDF", url: "https://drive.google.com/file/d/demo/view" })).json.id;
+      await llamar("POST", `/entregables/${f}/enviar`, DIEGO);
+      assert.equal((await llamar("DELETE", `/entregables/${f}`, DIEGO)).status, 409, "el cliente ya lo vio");
+      assert.equal((await llamar("DELETE", `/entregables/${e}`, DIEGO)).status, 204);
+      assert.equal((await llamar("GET", `/entregables/${e}`, DIEGO)).status, 404);
+    });
     test("áreas que lidera (9 nov): solo un super usuario las cambia y queda en el historial", async () => {
       await reiniciar();
       const DIEGO_ID = uid(1, 3);

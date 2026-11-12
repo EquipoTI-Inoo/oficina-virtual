@@ -16,7 +16,7 @@ import type { components } from "../api/tipos-api";
 import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
-import { estadoEntregableCliente, ordenarEntregables, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
+import { estadoEntregableCliente, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
 import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
@@ -33,7 +33,7 @@ import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, Er
 import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
-  ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas } from "../dominio/requerimientos";
+  ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas, validarEdicionRequerimiento } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
@@ -1569,6 +1569,27 @@ async function formularioPublicoMock(req: Request, token: string, resto: string)
   throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa ruta");
 }
 
+ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, req) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  soloEquipo(ctx);
+  if (r.estado === "APROBADO") throw new ErrorApi(409, "REQUERIMIENTO_APROBADO", "Ya está aprobado: no se cambia");
+  const b = await cuerpo<{ titulo?: string; mensaje?: string | null; fechaLimite?: string }>(req);
+  const errores = validarEdicionRequerimiento(b, D.HOY);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.titulo !== undefined) r.titulo = b.titulo.trim();
+  if (b.mensaje !== undefined) r.mensaje = b.mensaje?.trim() || null;
+  if (b.fechaLimite !== undefined) r.fechaLimite = b.fechaLimite;
+  return requerimientoVista(r);
+});
+
+ruta("DELETE", "/requerimientos/:id", (ctx, p) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  soloEquipo(ctx);
+  if (r.estado !== "PENDIENTE") throw new ErrorApi(409, "REQUERIMIENTO_RESPONDIDO", "El cliente ya lo envió: ya no se anula (puedes aprobarlo u observarlo)");
+  E.requerimientos = E.requerimientos.filter((x) => x.id !== r.id);
+  return null;
+});
+
 ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
   soloEquipo(ctx);
@@ -2730,6 +2751,28 @@ ruta("POST", "/entregables/:id/versiones", async (ctx, p, _q, req) => {
   e.versiones.push({ numero: e.versionActual, url: b.url!, nombreArchivo: b.nombreArchivo?.trim() || null, nota: b.nota?.trim() || null, enviadaEn: null, enviadaPorId: null, creadoEn: new Date().toISOString() });
   e.estado = "EN_PREPARACION";
   return { __status: 201, ...entregableDetalle(ctx, e) };
+});
+
+ruta("PATCH", "/entregables/:id", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const e = buscarEntregable(ctx, p.id);
+  if (e.estado === "APROBADO") throw new ErrorApi(409, "ENTREGABLE_APROBADO", "Ya está aprobado: no se cambia");
+  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; etapaId?: string | null }>(req);
+  const errores = validarEdicionEntregable(b);
+  if (typeof b.etapaId === "string" && !E.etapas.some((x) => x.id === b.etapaId && x.servicioContratadoId === e.servicioContratadoId)) errores.push({ campo: "etapaId", mensaje: "Esa etapa no es de este proyecto" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.titulo !== undefined) e.titulo = b.titulo.trim();
+  if (b.descripcion !== undefined) e.descripcion = b.descripcion?.trim() || null;
+  if (b.etapaId !== undefined) e.etapaId = b.etapaId;
+  return entregableDetalle(ctx, e);
+});
+
+ruta("DELETE", "/entregables/:id", (ctx, p) => {
+  soloEquipo(ctx);
+  const e = buscarEntregable(ctx, p.id);
+  if (e.versionCliente !== null) throw new ErrorApi(409, "ENTREGABLE_ENVIADO", "El cliente ya lo vio: no se quita (súbele una nueva versión)");
+  E.entregables = E.entregables.filter((x) => x.id !== e.id);
+  return null;
 });
 
 ruta("POST", "/entregables/:id/enviar", (ctx, p) => {

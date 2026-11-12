@@ -859,10 +859,12 @@ export interface paths {
         get: operations["obtenerRequerimiento"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Anular un requerimiento pedido por error (13 nov). Solo mientras el cliente no lo envía (si no, 409) */
+        delete: operations["anularRequerimiento"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** El equipo corrige el nombre, el mensaje o el plazo (13 nov). No si ya está aprobado (409) */
+        patch: operations["editarRequerimiento"];
         trace?: never;
     };
     "/requerimientos/{requerimientoId}/respuesta": {
@@ -3831,10 +3833,12 @@ export interface paths {
         get: operations["obtenerEntregable"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Quitar un entregable creado por error (13 nov). Solo si nunca se le envió al cliente (si no, 409) */
+        delete: operations["quitarEntregable"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** El equipo corrige el nombre, la descripción o la etapa (13 nov). No si ya está aprobado (409) */
+        patch: operations["editarEntregable"];
         trace?: never;
     };
     "/entregables/{entregableId}/versiones": {
@@ -9845,6 +9849,65 @@ export interface operations {
                 };
             };
             404: components["responses"]["NoEncontrado"];
+        };
+    };
+    anularRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Anulado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    editarRequerimiento: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    titulo?: string;
+                    mensaje?: string | null;
+                    /**
+                     * Format: date
+                     * @description No puede ser pasada
+                     */
+                    fechaLimite?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Requerimiento"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
         };
     };
     responderRequerimiento: {
@@ -16203,6 +16266,62 @@ export interface operations {
                 };
             };
             404: components["responses"]["NoEncontrado"];
+        };
+    };
+    quitarEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quitado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    editarEntregable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entregableId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    titulo?: string;
+                    descripcion?: string | null;
+                    /** Format: uuid */
+                    etapaId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntregableDetalle"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
         };
     };
     nuevaVersionEntregable: {

@@ -261,3 +261,15 @@ export function semaforoRequerimiento(r: { estado: string; diasAtraso: number; d
   if (r.diasAtraso > 0) return "ROJO";
   return r.diasParaVencer <= 1 ? "NARANJA" : "VERDE";
 }
+
+/** 13 nov (auditoría): corregir lo que se le pidió al cliente (nombre, mensaje o plazo) mientras no esté aprobado. */
+export function validarEdicionRequerimiento(b: { titulo?: unknown; mensaje?: unknown; fechaLimite?: unknown }, hoy: string): { campo: string; mensaje: string }[] {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (b.titulo === undefined && b.mensaje === undefined && b.fechaLimite === undefined) errores.push({ campo: "titulo", mensaje: "No hay nada que cambiar" });
+  if (b.titulo !== undefined && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
+  if (b.mensaje !== undefined && b.mensaje !== null && typeof b.mensaje !== "string") errores.push({ campo: "mensaje", mensaje: "Mensaje no válido" });
+  if (b.fechaLimite !== undefined && !(typeof b.fechaLimite === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fechaLimite) && !Number.isNaN(Date.parse(b.fechaLimite)))) {
+    errores.push({ campo: "fechaLimite", mensaje: "Usa el formato AAAA-MM-DD" });
+  } else if (typeof b.fechaLimite === "string" && b.fechaLimite < hoy) errores.push({ campo: "fechaLimite", mensaje: "El plazo no puede ser una fecha pasada" });
+  return errores;
+}

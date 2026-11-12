@@ -47,3 +47,16 @@ export function ordenarEntregables<T extends { estado: string; enviadoEn?: strin
     return b.creadoEn.localeCompare(a.creadoEn);
   });
 }
+
+/** 13 nov (auditoría): corregir un entregable después de crearlo (nombre, descripción o etapa). */
+export function validarEdicionEntregable(b: { titulo?: unknown; descripcion?: unknown; etapaId?: unknown }): Errores {
+  const errores: Errores = [];
+  if (b.titulo === undefined && b.descripcion === undefined && b.etapaId === undefined) errores.push({ campo: "titulo", mensaje: "No hay nada que cambiar" });
+  if (b.titulo !== undefined) {
+    const t = typeof b.titulo === "string" ? b.titulo.trim() : "";
+    if (t.length < 3 || t.length > 200) errores.push({ campo: "titulo", mensaje: "Ponle un nombre (entre 3 y 200 caracteres)" });
+  }
+  if (b.descripcion !== undefined && b.descripcion !== null && typeof b.descripcion !== "string") errores.push({ campo: "descripcion", mensaje: "Descripción no válida" });
+  if (b.etapaId !== undefined && b.etapaId !== null && typeof b.etapaId !== "string") errores.push({ campo: "etapaId", mensaje: "Etapa no válida" });
+  return errores;
+}

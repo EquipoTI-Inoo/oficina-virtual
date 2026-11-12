@@ -6,7 +6,7 @@
  * El equipo pide requerimientos desde la ficha del cliente y revisa lo enviado en esta misma pantalla.
  */
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
@@ -142,7 +142,10 @@ function Requerimientos() {
 // ═════════════════════════════════════════════ Detalle: formulario (cliente) y revisión (equipo)
 
 export function PantallaRequerimiento() {
-  const equipo = typeof window !== "undefined" && leerSesion()?.tipo === "EQUIPO" && !comoCliente();
+  // 13 nov: la sesión vive en el navegador; leerla al renderizar daba un error de hidratación (el servidor no la tiene).
+  const [equipo, setEquipo] = useState<boolean | null>(null);
+  useEffect(() => setEquipo(leerSesion()?.tipo === "EQUIPO" && !comoCliente()), []);
+  if (equipo === null) return null;
   return (
     <Estructura espacio={equipo ? "equipo" : "cliente"} migas="Requerimientos">
       <Requerimiento />
@@ -234,6 +237,7 @@ function Requerimiento() {
             )}
             <span className="texto-xs texto-muted" style={{ lineHeight: 1.5 }}>Cada día hábil de atraso corre la fecha de entrega del servicio.</span>
           </div>
+          {esEquipo && r.estado !== "APROBADO" && <EdicionRequerimiento r={r} alCambiar={(x) => setDatos(x)} />}
         </aside>
       </div>
     </>
@@ -494,6 +498,74 @@ function SubirArchivos({ id, valor, alCambiar, subida }: { id: string; valor: Ar
       <button type="button" className="boton" style={{ justifySelf: "start" }} disabled={subiendo} onClick={() => input.current?.click()}>
         <LuPaperclip size={16} /> {subiendo ? "Subiendo…" : "Adjuntar archivos"}
       </button>
+    </div>
+  );
+}
+
+/** 13 nov (auditoría): el equipo corrige el nombre, el mensaje o el plazo, o lo anula si el cliente aún no lo envía. */
+function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) => void }) {
+  const avisar = useAviso();
+  const { ir } = useNavegacion();
+  const [abierto, setAbierto] = useState(false);
+  const [titulo, setTitulo] = useState(r.titulo);
+  const [mensaje, setMensaje] = useState(r.mensaje ?? "");
+  const [fecha, setFecha] = useState(r.fechaLimite);
+  const [errores, setErrores] = useState<Record<string, string>>({});
+  const guardar = async () => {
+    setErrores({});
+    try {
+      const cuerpo: Record<string, unknown> = { titulo, mensaje: mensaje.trim() || null };
+      if (fecha !== r.fechaLimite) cuerpo.fechaLimite = fecha;
+      alCambiar(await api<Req>(`/requerimientos/${r.id}`, { metodo: "PATCH", cuerpo }));
+      setAbierto(false);
+      avisar({ titulo: "Cambios guardados" });
+    } catch (e) {
+      const p = e as ProblemaApi;
+      if (p.errores?.length) setErrores(Object.fromEntries(p.errores.map((x) => [x.campo, x.mensaje])));
+      else avisar({ titulo: p.titulo ?? "No se pudo guardar", texto: p.detalle });
+    }
+  };
+  const anular = async () => {
+    if (!window.confirm(`¿Anular «${r.titulo}»? El cliente deja de verlo y se borra lo que haya avanzado.`)) return;
+    try {
+      await api(`/requerimientos/${r.id}`, { metodo: "DELETE" });
+      avisar({ titulo: "Requerimiento anulado" });
+      ir(`/equipo/proyectos/${r.servicioContratadoId}`);
+    } catch (e) {
+      const p = e as ProblemaApi;
+      avisar({ titulo: "No se pudo anular", texto: p.titulo });
+    }
+  };
+  const error = (c: string) => errores[c] && <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{errores[c]}</span>;
+  return (
+    <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: 14.5 }}>¿Te equivocaste?</h3>
+      <span className="texto-xs texto-muted" style={{ lineHeight: 1.5 }}>
+        Corrige el nombre, el mensaje o el plazo.{r.estado === "PENDIENTE" ? " Mientras el cliente no lo envíe, también puedes anularlo." : ""}
+      </span>
+      <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+        <button className="boton boton--chico" onClick={() => setAbierto(true)}>Editar</button>
+        {r.estado === "PENDIENTE" && <button className="boton boton--chico boton--peligro" onClick={() => void anular()}>Anular</button>}
+      </div>
+      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Editar requerimiento">
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Editar requerimiento</h2>
+        <div className="campo">
+          <label htmlFor="er-titulo">Nombre</label>
+          <div className="entrada"><input id="er-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} /></div>
+          {error("titulo")}
+        </div>
+        <div className="campo">
+          <label htmlFor="er-mensaje">Mensaje para el cliente</label>
+          <div className="entrada"><textarea id="er-mensaje" rows={3} value={mensaje} onChange={(e) => setMensaje(e.target.value)} /></div>
+          {error("mensaje")}
+        </div>
+        <div className="campo">
+          <label htmlFor="er-fecha">Fecha límite</label>
+          <div className="entrada"><input id="er-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+          {error("fechaLimite")}
+        </div>
+        <button className="boton boton--primario boton--bloque" onClick={() => void guardar()}>Guardar cambios</button>
+      </Modal>
     </div>
   );
 }
