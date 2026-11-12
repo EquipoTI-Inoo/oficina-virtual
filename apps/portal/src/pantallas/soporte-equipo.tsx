@@ -654,7 +654,7 @@ function Ficha() {
         }
       />
       <div className="tarjeta fila" style={{ padding: "22px 16px", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <span className="avatar avatar--cuadrado avatar--cliente avatar--xl">CO</span>
+        <span className="avatar avatar--cuadrado avatar--cliente avatar--xl">{d.nombre.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase()}</span>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 22, fontWeight: 600 }}>{d.nombre}</h2>
           <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>

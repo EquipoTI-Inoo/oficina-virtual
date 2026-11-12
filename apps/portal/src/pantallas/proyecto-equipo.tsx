@@ -44,6 +44,7 @@ export function PantallaProyectoEquipo() {
 
 function ProyectoEquipo() {
   const { params } = useNavegacion();
+  const portalVolver = usePortal();
   const avisar = useAviso();
   const perfil = useConsulta<Perfil>(`/servicios-contratados/${params.id}`);
   const [paso, setPaso] = useState<string | null>(null);
@@ -87,9 +88,10 @@ function ProyectoEquipo() {
 
   return (
     <>
-      <Enlace a={`/equipo/clientes/${d.clienteId}`} className="volver">
-        ← Ficha del cliente
-      </Enlace>
+      {/* 13 nov (auditoría): quien trabaja por proyecto no ve la ficha del cliente (le daba error); vuelve a Proyectos. */}
+      {portalVolver?.sesion?.usuario.nivelAcceso === "PROYECTO"
+        ? <Enlace a="/equipo/proyectos" className="volver">← Proyectos</Enlace>
+        : <Enlace a={`/equipo/clientes/${d.clienteId}`} className="volver">← Ficha del cliente</Enlace>}
       {cerrando && (
         <CerrarProyecto
           servicioId={d.servicioContratadoId}

@@ -600,13 +600,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
           </div>
           <Ayuda error={err.driveUrl} texto="Si el cliente ya tiene su carpeta, pega el enlace y no se crea otra. Si lo dejas vacío, se crea sola." />
         </div>
-        <div className="campo">
-          <label htmlFor="nc-limite">Límite mensual de IA (US$)</label>
-          <div className="entrada">
-            <input id="nc-limite" type="number" min={1} value={limite} onChange={(e) => setLimite(e.target.value)} aria-invalid={!!err.limiteGastoIaUsd} />
-          </div>
-          <Ayuda error={err.limiteGastoIaUsd} texto="El PRD propone US$ 25 por cliente. Alerta al 80 %." />
-        </div>
+        {/* 13 nov (auditoría): sin «límite de IA»: la IA ya no es visible para el cliente. */}
         <div className="campo">
           <span className="rotulo" id="nc-canales">Canales</span>
           <div className="chips" role="group" aria-labelledby="nc-canales">

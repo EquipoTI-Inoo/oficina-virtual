@@ -588,8 +588,7 @@ function VistaKanban({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
 
 function VistaCalendario({ items }: { items: Item[] }) {
   const conFecha = items.filter((i) => i.fecha);
-  const primera = conFecha.map((i) => i.fecha!).sort()[0] ?? new Date().toISOString().slice(0, 10);
-  const [mes, setMes] = useState(primera.slice(0, 7));
+  const [mes, setMes] = useState(new Date().toISOString().slice(0, 7));
   const [a, m] = mes.split("-").map(Number);
   const dias = new Date(Date.UTC(a, m, 0)).getUTCDate();
   const inicio = (new Date(Date.UTC(a, m - 1, 1)).getUTCDay() + 6) % 7;

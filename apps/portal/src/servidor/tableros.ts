@@ -242,7 +242,7 @@ export function crearTableros(fallar: Fallar) {
     listar: (yo: Yo, o: { archivados?: boolean } = {}) => protegido(async () => ({
       conectado: tablerosConectados() && !yo.prueba,
       datos: (await listarIW(yo.prueba))
-        .filter((p) => !!p.archived === !!o.archivados && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
+        .filter((p) => (o.archivados ? !!p.archived || p.status === "Cancelado" : !p.archived) && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
         .map((p) => ({
           id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
           lider: persona(p.leaderId, p.leaderName), miembros: personasDelProyecto(p).length, items: resumenProyecto(p), puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),

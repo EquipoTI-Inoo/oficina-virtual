@@ -1648,11 +1648,11 @@ ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
   return TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 /** 12 nov: a quien le asignan un ítem o subítem de un tablero le llega un aviso (nunca a uno mismo). */
-function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }) {
+function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, titulo: string, tablero: { nombre: string }, itemId?: string) {
   if (typeof empleadoId !== "string" || !empleadoId) return;
   const u = E.usuarios.find((x) => x.inooworkEmpleadoId === empleadoId && x.tipo === "EQUIPO" && x.activo !== false);
   if (!u || u.id === ctx.usuario.id) return;
-  E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: u.id, titulo: `${ctx.usuario.nombre} te asignó un ítem`, cuerpo: `${titulo} (${tablero.nombre})`, enlace: `/equipo/proyectos/tableros/${proyectoId}`, creadoEn: new Date().toISOString() });
+  E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: u.id, titulo: `${ctx.usuario.nombre} te asignó un ítem`, cuerpo: `${titulo} (${tablero.nombre})`, enlace: `/equipo/proyectos/tableros/${proyectoId}${itemId ? `?item=${encodeURIComponent(itemId)}` : ""}`, creadoEn: new Date().toISOString() });
 }
 ruta("GET", "/mi-trabajo", async (ctx) => {
   soloEquipo(ctx);
@@ -1667,7 +1667,7 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const b = await cuerpo<Record<string, unknown>>(req);
   const t = await TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), b);
-  if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t);
+  if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t, p.item);
   return t;
 });
 ruta("DELETE", "/tableros/:id", async (ctx, p) => {
@@ -1680,7 +1680,10 @@ ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
 });
 ruta("POST", "/tableros/:id/items-lote", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return TABLEROS.lote(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  const b = await cuerpo<{ ids?: unknown; cambio?: { responsableId?: unknown } }>(req);
+  const t = await TABLEROS.lote(p.id, yoTablero(ctx), b as Record<string, unknown>);
+  if (t && b.cambio?.responsableId && Array.isArray(b.ids)) for (const id of b.ids as string[]) avisarAsignacion(ctx, p.id, b.cambio.responsableId, t.items.find((i) => i.id === id)?.nombre ?? "Un ítem", t, id);
+  return t;
 });
 ruta("DELETE", "/tableros/:id/items/:item", async (ctx, p) => {
   soloEquipo(ctx);

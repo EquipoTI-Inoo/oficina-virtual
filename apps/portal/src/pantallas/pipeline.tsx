@@ -324,7 +324,7 @@ function Archivados({ texto }: { texto: string }) {
   return (
     <section aria-label="Proyectos archivados">
       <p className="texto-sm texto-muted" style={{ marginBottom: 12 }}>
-        {r.datos.datos.length} proyectos archivados. Siguen guardados con todo su contenido; ábrelos para verlos o desarchivarlos.
+        {r.datos.datos.length} proyectos archivados o cancelados. Siguen guardados con todo su contenido; ábrelos para verlos o desarchivarlos.
       </p>
       {!xs.length ? <p className="texto-sm texto-muted">{r.datos.datos.length ? "Ninguno coincide con la búsqueda." : "No hay proyectos archivados."}</p> : (
         <div className="pila" style={{ gap: 6 }}>
@@ -334,7 +334,7 @@ function Archivados({ texto }: { texto: string }) {
                 <span className="negrita texto-sm" style={{ overflowWrap: "anywhere" }}>{t.nombre}</span>
                 <span className="texto-xs texto-muted">{[t.cliente ?? "Sin cliente", t.area, `${t.items.total} ítems`].filter(Boolean).join(" · ")}</span>
               </span>
-              <span className="texto-xs texto-muted">{t.archivadoEn ? `Archivado el ${new Date(t.archivadoEn).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}` : "Archivado"}</span>
+              <span className="texto-xs texto-muted">{t.estado === "Cancelado" && !t.archivadoEn ? "Cancelado" : t.archivadoEn ? `Archivado el ${new Date(t.archivadoEn).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}` : "Archivado"}</span>
             </Enlace>
           ))}
         </div>
