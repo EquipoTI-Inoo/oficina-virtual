@@ -24,7 +24,8 @@ export function pruebasAgenda(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal(r.status, 200);
       const ev = r.json.eventos;
       assert.deepEqual(ev.map((e: any) => e.fecha), [...ev.map((e: any) => e.fecha)].sort(), "ordenados por día");
-      assert.deepEqual(titulos(ev, "TAREA"), ["Configurar el pipeline de ventas en el CRM", "Crear las licencias de los usuarios", "Diseñar el inicio y la ficha de producto", "Revisar las fotos de producto que subió el cliente"], "solo las abiertas");
+      assert.deepEqual(titulos(ev.filter((e: any) => !e.enlace?.includes("?item=")), "TAREA"), ["Configurar el pipeline de ventas en el CRM", "Crear las licencias de los usuarios", "Diseñar el inicio y la ficha de producto", "Revisar las fotos de producto que subió el cliente"], "solo las abiertas");
+      assert.deepEqual(titulos(ev.filter((e: any) => e.enlace?.includes("?item=")), "TAREA"), ["Calendario de LinkedIn de octubre", "Newsletter mensual"], "13 nov: y sus ítems de tableros con fecha");
       assert.deepEqual(titulos(ev, "REUNION"), ["Presentación del diseño", "Prioridades de la web en octubre", "Seguimiento mensual de la web", "Validación del mapa de procesos"], "las de sus proyectos, no la de Social Media de Camila");
       const validacion = ev.find((e: any) => e.titulo === "Validación del mapa de procesos");
       assert.deepEqual([validacion.fecha, validacion.horaInicio, validacion.horaFin, validacion.hecho], ["2026-10-08", "10:00", "11:00", false], "en hora de Lima");

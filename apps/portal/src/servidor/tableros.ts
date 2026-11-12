@@ -84,6 +84,49 @@ async function crearIW(p: ProyectoIW, prueba?: boolean) {
   await llamar("POST", "/api/projects", p);
 }
 
+// ───────────────────────────── lo pendiente de una persona en los tableros (Mi trabajo, Mi panel, calendario)
+
+export interface PendienteTablero {
+  tableroId: string; tablero: string; cliente: string | null; itemId: string; nombre: string; padre: string | null; grupo: string | null;
+  estado: string; prioridad: string | null; fecha: string | null; vencido: boolean; como: "RESPONSABLE" | "PERSONAS" | "SUBITEM";
+}
+/** Una tarea de un servicio de catálogo en la misma lista (13 nov): mismos campos, con su enlace al proyecto. */
+const ESTADO_TAREA_IW: Record<string, string> = { PENDIENTE: "Sin Iniciar", EN_CURSO: "En Progreso", BLOQUEADA: "Bloqueado" };
+export function tareaComoPendiente(t: { id: string; titulo: string; estado: string; fecha: string | null; servicioId: string; proyecto: string; cliente: string | null }, hoy: string) {
+  return {
+    tableroId: "", tablero: t.proyecto, cliente: t.cliente, itemId: t.id, nombre: t.titulo, padre: null, grupo: null, estado: ESTADO_TAREA_IW[t.estado] ?? t.estado,
+    prioridad: null, fecha: t.fecha, vencido: !!t.fecha && t.fecha < hoy, como: "TAREA" as const, enlace: `/equipo/proyectos/${t.servicioId}`,
+  };
+}
+/** Los ítems de tableros con fecha, como eventos del calendario. */
+export const pendientesComoEventos = (xs: PendienteTablero[], desde: string, hasta: string, hoy: string) =>
+  xs.filter((x) => x.fecha && x.fecha >= desde && x.fecha <= hasta).map((x) => ({
+    id: `item-${x.tableroId}-${x.itemId}-${x.nombre}`.slice(0, 200), tipo: "TAREA" as const, titulo: x.padre ? `${x.nombre} (${x.padre})` : x.nombre, fecha: x.fecha!,
+    detalle: x.tablero, enlace: `/equipo/proyectos/tableros/${x.tableroId}?item=${encodeURIComponent(x.itemId)}`, vencido: x.fecha! < hoy,
+  }));
+
+function pendientesDe(proyectos: ProyectoIW[], empleado: string): PendienteTablero[] {
+  const datos: PendienteTablero[] = [];
+  for (const p of proyectos) {
+    if (p.archived || p.deleted) continue;
+    const cols = columnasPersonalizadas(p).filter((c) => c.type === "people");
+    for (const it of p.items ?? []) {
+      const grupo = (p.groups ?? []).find((g) => g.id === it.groupId)?.name ?? null;
+      const enPersonas = cols.some((c) => Array.isArray(it[`${c.id}__d`]) && (it[`${c.id}__d`] as string[]).includes(empleado));
+      if (it.status !== "Completado" && (it.assignee === empleado || enPersonas)) {
+        datos.push({ tableroId: p.id, tablero: p.name, cliente: p.clientName?.trim() || null, itemId: it.id, nombre: it.name, padre: null, grupo, estado: it.status,
+          prioridad: it.priority || null, fecha: it.dueDate || null, vencido: itemVencido(it), como: it.assignee === empleado ? "RESPONSABLE" : "PERSONAS" });
+      }
+      for (const s of it.subitems ?? []) {
+        if (s.status === "Completado" || s.assignee !== empleado) continue;
+        datos.push({ tableroId: p.id, tablero: p.name, cliente: p.clientName?.trim() || null, itemId: it.id, nombre: s.name, padre: it.name, grupo, estado: s.status,
+          prioridad: null, fecha: s.dueDate || null, vencido: itemVencido(s), como: "SUBITEM" });
+      }
+    }
+  }
+  return datos.sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es"));
+}
+
 // ───────────────────────────── vistas para el portal
 
 export interface Yo { empleadoId: string | null; esAdmin: boolean; prueba?: boolean; usuarioId?: string; nombre?: string }
@@ -182,29 +225,18 @@ export function crearTableros(fallar: Fallar) {
      * personas o un subítem), sin lo completado.
      */
     miTrabajo: (yo: Yo) => protegido(async () => {
-      if (!yo.empleadoId) return { datos: [] as unknown[] };
-      const yoId = yo.empleadoId;
-      const datos: { tableroId: string; tablero: string; cliente: string | null; itemId: string; nombre: string; padre: string | null; grupo: string | null;
-        estado: string; prioridad: string | null; fecha: string | null; vencido: boolean; como: "RESPONSABLE" | "PERSONAS" | "SUBITEM" }[] = [];
-      for (const p of await listarIW(yo.prueba)) {
-        if (p.archived || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) continue;
-        const cols = columnasPersonalizadas(p).filter((c) => c.type === "people");
-        for (const it of p.items ?? []) {
-          const grupo = (p.groups ?? []).find((g) => g.id === it.groupId)?.name ?? null;
-          const enPersonas = cols.some((c) => Array.isArray(it[`${c.id}__d`]) && (it[`${c.id}__d`] as string[]).includes(yoId));
-          if (it.status !== "Completado" && (it.assignee === yoId || enPersonas)) {
-            datos.push({ tableroId: p.id, tablero: p.name, cliente: p.clientName?.trim() || null, itemId: it.id, nombre: it.name, padre: null, grupo, estado: it.status,
-              prioridad: it.priority || null, fecha: it.dueDate || null, vencido: itemVencido(it), como: it.assignee === yoId ? "RESPONSABLE" : "PERSONAS" });
-          }
-          for (const s of it.subitems ?? []) {
-            if (s.status === "Completado" || s.assignee !== yoId) continue;
-            datos.push({ tableroId: p.id, tablero: p.name, cliente: p.clientName?.trim() || null, itemId: it.id, nombre: s.name, padre: it.name, grupo, estado: s.status,
-              prioridad: null, fecha: s.dueDate || null, vencido: itemVencido(s), como: "SUBITEM" });
-          }
-        }
-      }
-      datos.sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es"));
-      return { datos };
+      if (!yo.empleadoId) return { datos: [] as PendienteTablero[], vinculado: false };
+      const ps = (await listarIW(yo.prueba)).filter((p) => veProyecto(p, yo.empleadoId, yo.esAdmin));
+      return { datos: pendientesDe(ps, yo.empleadoId), vinculado: true };
+    }),
+    /**
+     * 13 nov (auditoría): lo pendiente en tableros de varias personas de una sola lectura (Mi panel, «Mi área» y el
+     * calendario). Son sus ítems: no depende de quién pregunta (eso ya lo revisa la ruta).
+     */
+    pendientesDeVarios: (empleados: string[], prueba?: boolean) => protegido(async () => {
+      if (!empleados.length) return new Map<string, PendienteTablero[]>();
+      const ps = await listarIW(prueba);
+      return new Map(empleados.map((e) => [e, pendientesDe(ps, e)]));
     }),
     /** Con `archivados`, solo los archivados (13 nov): guardados, fuera de las listas del día a día. */
     listar: (yo: Yo, o: { archivados?: boolean } = {}) => protegido(async () => ({

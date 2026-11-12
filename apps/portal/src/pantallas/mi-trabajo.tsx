@@ -11,7 +11,7 @@ import { COLOR_ESTADO, type EstadoItem } from "../dominio/tableros";
 
 type Fila = {
   tableroId: string; tablero: string; cliente: string | null; itemId: string; nombre: string; padre: string | null; grupo: string | null;
-  estado: string; prioridad: string | null; fecha: string | null; vencido: boolean; como: "RESPONSABLE" | "PERSONAS" | "SUBITEM";
+  estado: string; prioridad: string | null; fecha: string | null; vencido: boolean; como: "RESPONSABLE" | "PERSONAS" | "SUBITEM" | "TAREA"; enlace?: string;
 };
 
 const masDias = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -42,7 +42,7 @@ export function PantallaMiTrabajo() {
 }
 
 function MiTrabajo() {
-  const r = useConsulta<{ datos: Fila[] }>("/mi-trabajo");
+  const r = useConsulta<{ datos: Fila[]; vinculado?: boolean }>("/mi-trabajo");
   const [tablero, setTablero] = useState("");
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
@@ -53,7 +53,10 @@ function MiTrabajo() {
 
   return (
     <>
-      <Cabecera titulo="Mi trabajo" bajada="Lo que tienes asignado en todos los tableros, ordenado por cuándo vence." />
+      <Cabecera titulo="Mi trabajo" bajada="Lo que tienes asignado en los tableros y en las tareas de los proyectos, ordenado por cuándo vence." />
+      {r.datos.vinculado === false && (
+        <p className="aviso-archivado" role="status">Tu usuario no está vinculado a InooWork, así que aquí no aparecen tus ítems de los tableros. Pídele a un admin que te vincule en Equipo.</p>
+      )}
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <span className="texto-sm"><span className="negrita">{xs.length}</span> pendientes{vencidos ? <> · <span style={{ color: "var(--c-semaforo-rojo-intenso)" }} className="negrita">{vencidos} vencido{vencidos === 1 ? "" : "s"}</span></> : null}</span>
         {tableros.length > 1 && (
@@ -79,12 +82,12 @@ function MiTrabajo() {
                 <h2 className="fila" style={{ gap: 8, fontSize: 15, fontWeight: 600, color: g.tono, marginBottom: 8 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
                 <div className="pila" style={{ gap: 6 }}>
                   {del.map((x, i) => (
-                    <Enlace key={`${x.itemId}-${i}`} a={`/equipo/proyectos/tableros/${x.tableroId}?item=${encodeURIComponent(x.itemId)}`} className="fila-suave mi-trabajo-fila">
+                    <Enlace key={`${x.itemId}-${i}`} a={x.enlace ?? `/equipo/proyectos/tableros/${x.tableroId}?item=${encodeURIComponent(x.itemId)}`} className="fila-suave mi-trabajo-fila">
                       <span style={{ minWidth: 0, display: "grid", gap: 2 }}>
                         <span className="negrita texto-sm" style={{ overflowWrap: "anywhere" }}>
                           {x.padre && <LuCornerDownRight size={12} style={{ marginRight: 4, verticalAlign: -1 }} />}{x.nombre}
                         </span>
-                        <span className="texto-xs texto-muted">{x.padre ? `Subítem de ${x.padre} · ` : ""}{x.tablero}{x.cliente ? ` · ${x.cliente}` : ""}{x.grupo ? ` · ${x.grupo}` : ""}</span>
+                        <span className="texto-xs texto-muted">{x.como === "TAREA" ? "Tarea del proyecto · " : ""}{x.padre ? `Subítem de ${x.padre} · ` : ""}{x.tablero}{x.cliente ? ` · ${x.cliente}` : ""}{x.grupo ? ` · ${x.grupo}` : ""}</span>
                       </span>
                       <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
                         <span className="pildora pildora--chica" style={{ background: COLOR_ESTADO[x.estado as EstadoItem] ?? "#c4c4c4", width: "auto" }}>{x.estado}</span>

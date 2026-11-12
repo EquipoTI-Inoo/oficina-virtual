@@ -15661,6 +15661,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @description false = la persona no tiene ficha de InooWork, así que no se ven sus ítems de tableros */
+                        vinculado?: boolean;
                         datos: {
                             tableroId: string;
                             tablero: string;
@@ -15674,8 +15676,13 @@ export interface operations {
                             prioridad: string | null;
                             fecha: string | null;
                             vencido: boolean;
-                            /** @enum {string} */
-                            como: "RESPONSABLE" | "PERSONAS" | "SUBITEM";
+                            /**
+                             * @description TAREA = tarea de un servicio del catálogo (13 nov)
+                             * @enum {string}
+                             */
+                            como: "RESPONSABLE" | "PERSONAS" | "SUBITEM" | "TAREA";
+                            /** @description Solo en las tareas de servicios: a dónde lleva */
+                            enlace?: string;
                         }[];
                     };
                 };

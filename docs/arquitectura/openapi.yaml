@@ -5122,6 +5122,7 @@ paths:
                 type: object
                 required: [datos]
                 properties:
+                  vinculado: { type: boolean, description: 'false = la persona no tiene ficha de InooWork, así que no se ven sus ítems de tableros' }
                   datos:
                     type: array
                     items:
@@ -5139,7 +5140,8 @@ paths:
                         prioridad: { type: [string, 'null'] }
                         fecha: { type: [string, 'null'] }
                         vencido: { type: boolean }
-                        como: { type: string, enum: [RESPONSABLE, PERSONAS, SUBITEM] }
+                        como: { type: string, enum: [RESPONSABLE, PERSONAS, SUBITEM, TAREA], description: 'TAREA = tarea de un servicio del catálogo (13 nov)' }
+                        enlace: { type: string, description: 'Solo en las tareas de servicios: a dónde lleva' }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '502': { description: InooWork no respondió }
 

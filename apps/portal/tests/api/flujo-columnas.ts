@@ -80,6 +80,16 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       const avisos = (await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.map((n: any) => n.titulo);
       assert.ok(avisos.includes("Diego Castro te asignó un ítem"));
       assert.ok((await llamar("GET", "/mi-trabajo", CAMILA)).json.datos.some((x: any) => x.itemId === "item-mkt-2"));
+      // 13 nov: Mi trabajo también trae las tareas de los servicios, y el panel y el calendario suman los ítems de tableros.
+      const camilaTodo = (await llamar("GET", "/mi-trabajo", CAMILA)).json;
+      assert.equal(camilaTodo.vinculado, true);
+      const panel = (await llamar("GET", "/panel/colaborador", CAMILA)).json;
+      assert.ok(panel.resumen.tareasAbiertas >= camilaTodo.datos.length, "el panel cuenta los ítems de tableros");
+      const conFecha = camilaTodo.datos.find((x: any) => x.fecha && x.como !== "TAREA");
+      if (conFecha) {
+        const ag = (await llamar("GET", `/me/agenda?desde=${conFecha.fecha}&hasta=${conFecha.fecha}`, CAMILA)).json;
+        assert.ok(ag.eventos.some((e: any) => e.enlace?.includes("?item=")), "el ítem con fecha está en el calendario");
+      }
     });
 
     test("actualizaciones del ítem: escribir, responder y mencionar avisan en la campana", async () => {

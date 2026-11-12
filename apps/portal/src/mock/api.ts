@@ -42,7 +42,7 @@ import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
-import { crearTableros, reiniciarTablerosSimulados, type Yo } from "../servidor/tableros";
+import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tareaComoPendiente, type Yo } from "../servidor/tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
@@ -1656,7 +1656,12 @@ function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknown, tit
 }
 ruta("GET", "/mi-trabajo", async (ctx) => {
   soloEquipo(ctx);
-  return TABLEROS.miTrabajo(yoTablero(ctx));
+  const r = await TABLEROS.miTrabajo(yoTablero(ctx));
+  const tareas = E.tareas.filter((t) => t.responsableId === ctx.usuario.id && t.estado !== "HECHA").map((t) => {
+    const s = E.servicios.find((x) => x.id === t.servicioContratadoId)!;
+    return tareaComoPendiente({ id: t.id, titulo: t.titulo, estado: t.estado, fecha: t.fechaLimite ?? null, servicioId: s.id, proyecto: tituloDe(s), cliente: E.clientes.find((c) => c.id === s.clienteId)?.nombre ?? null }, D.HOY.slice(0, 10));
+  });
+  return { ...r, datos: [...r.datos, ...tareas].sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es")) };
 });
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
@@ -4678,7 +4683,7 @@ function conexionGoogle(usuarioId: string): S<"ConexionGoogle"> {
   return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: c?.conectadoEn ?? null, simulada: true };
 }
 
-ruta("GET", "/me/agenda", (ctx, _p, q) => {
+ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const desde = q.get("desde");
   const hasta = q.get("hasta");
@@ -4696,6 +4701,13 @@ ruta("GET", "/me/agenda", (ctx, _p, q) => {
   for (const t of E.tareas) {
     if (t.responsableId !== yo || t.estado === "HECHA" || !t.fechaLimite || !enRango(t.fechaLimite)) continue;
     eventos.push({ ...base({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fechaLimite }), detalle: titulo(t.servicioContratadoId), enlace: `/equipo/proyectos/${t.servicioContratadoId}`, vencido: t.fechaLimite < hoy });
+  }
+  // 13 nov: los ítems de tableros con fecha.
+  const empleadoAgenda = E.usuarios.find((u) => u.id === yo)?.inooworkEmpleadoId;
+  if (empleadoAgenda) {
+    for (const x of pendientesComoEventos((await TABLEROS.pendientesDeVarios([empleadoAgenda])).get(empleadoAgenda) ?? [], desde!, hasta!, hoy)) {
+      eventos.push({ ...base({ id: x.id, tipo: x.tipo, titulo: x.titulo, fecha: x.fecha }), detalle: x.detalle, enlace: x.enlace, vencido: x.vencido });
+    }
   }
   for (const r of E.reuniones) {
     const { fecha, hora } = enLima(r.fecha);
@@ -4840,9 +4852,11 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
     : null;
   // 6 nov: también los tableros de InooWork donde es líder o miembro.
   let deInooWork: ReturnType<typeof tablerosDelPanel> = { tableros: [], activos: 0 };
+  let items: { vencido: boolean }[] = [];
   if (objetivo.inooworkEmpleadoId) {
     try {
       deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: objetivo.inooworkEmpleadoId, esAdmin: false })).datos);
+      items = (await TABLEROS.pendientesDeVarios([objetivo.inooworkEmpleadoId])).get(objetivo.inooworkEmpleadoId) ?? [];
     } catch {
       /* InooWork no respondió */
     }
@@ -4850,7 +4864,7 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   return {
     persona: persona(quien)!, miArea, tareas, proyectos, tableros: deInooWork.tableros,
     resumen: {
-      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length + deInooWork.activos,
+      tareasAbiertas: tareas.length + items.length, tareasVencidas: tareas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectosActivos: activos.length + deInooWork.activos,
       proyectosCerrados: suyos.length - activos.length,
       rebotes: E.entregables.filter((e) => activos.some((s) => s.id === e.servicioContratadoId)).reduce((t, e) => t + e.rebotes, 0),
       conRetraso: activos.filter((s) => etapasDe(s).some((e) => etapaAtrasada(e, D.HOY))).length,

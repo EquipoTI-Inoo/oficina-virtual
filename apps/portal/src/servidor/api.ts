@@ -55,7 +55,7 @@ import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
-import { crearTableros, type Yo } from "./tableros";
+import { crearTableros, pendientesComoEventos, tareaComoPendiente, type Yo } from "./tableros";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
@@ -4196,6 +4196,16 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
     [yo, desde, hasta],
   );
   eventos.push(...propios.rows.filter((e) => !(otro && e.tipo === "PENDIENTE")).map((e) => eventoPropioVistaDb(ctx, e)));
+  // 13 nov (auditoría): los ítems de tableros con fecha también van al calendario.
+  const empleado = ctx.u.esPrueba ? null : (await ctx.c.query<{ e: string | null }>("SELECT inoowork_empleado_id AS e FROM usuario WHERE id = $1", [yo])).rows[0]?.e;
+  if (empleado) {
+    try {
+      const pend = (await TABLEROS.pendientesDeVarios([empleado])).get(empleado) ?? [];
+      eventos.push(...pendientesComoEventos(pend, desde!, hasta!, hoy).map((x) => ({ ...baseAgenda({ id: x.id, tipo: x.tipo, titulo: x.titulo, fecha: x.fecha }), detalle: x.detalle, enlace: x.enlace, vencido: x.vencido })));
+    } catch {
+      /* InooWork no respondió: el calendario sale sin los ítems de tableros */
+    }
+  }
   return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: await conexionGoogleDb(ctx) } satisfies S<"Agenda">;
 });
 
@@ -4359,17 +4369,23 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   if (lideradas.length) {
     const gente = (await ctx.c.query<FilaPersonaEquipo>(`${SELECT_PERSONA_EQUIPO} WHERE tipo = 'EQUIPO' AND activo AND area::text = ANY($1::text[]) AND id <> $2 ORDER BY nombre`, [lideradas, ctx.u.usuarioId])).rows;
     miArea = [];
+    // 13 nov (auditoría): la carga de cada persona suma sus ítems de tableros (una sola lectura de InooWork).
+    const empleados = new Map((await ctx.c.query<{ id: string; e: string | null }>("SELECT id, inoowork_empleado_id AS e FROM usuario WHERE id = ANY($1::uuid[])", [`{${gente.map((g) => g.id).join(",")}}`])).rows.map((r) => [r.id, r.e]));
+    const pend = await TABLEROS.pendientesDeVarios([...empleados.values()].filter((e): e is string => !!e), !!ctx.u.esPrueba).catch(() => new Map());
     for (const g of gente) {
       const suyas = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.responsable_id = $1 AND t.estado <> 'HECHA'`, [g.id])).rows.map(tareaVistaDb);
-      miArea.push({ persona: personaEquipoVista(g), tareasAbiertas: suyas.length, tareasVencidas: suyas.filter((t) => t.vencida).length, proyectos: (await proyectosDePersonaDb(ctx.c, g.id)).length });
+      const items = (pend.get(empleados.get(g.id) ?? "") ?? []) as { vencido: boolean }[];
+      miArea.push({ persona: personaEquipoVista(g), tareasAbiertas: suyas.length + items.length, tareasVencidas: suyas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectos: (await proyectosDePersonaDb(ctx.c, g.id)).length });
     }
   }
   // 6 nov: también los tableros de InooWork donde es líder o miembro (si InooWork no responde, sin ellos).
   let deInooWork: ReturnType<typeof tablerosDelPanel> = { tableros: [], activos: 0 };
   const empleadoPanel = ctx.u.esPrueba ? EMPLEADO_DE_PRUEBA[persona.email.toLowerCase()] : persona.empleado;
+  let items: { vencido: boolean }[] = [];
   if (empleadoPanel) {
     try {
       deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: empleadoPanel, esAdmin: false, prueba: !!ctx.u.esPrueba })).datos);
+      items = (await TABLEROS.pendientesDeVarios([empleadoPanel], !!ctx.u.esPrueba)).get(empleadoPanel) ?? [];
     } catch {
       /* InooWork no respondió */
     }
@@ -4377,7 +4393,8 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   return {
     persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, miArea, tareas, proyectos, tableros: deInooWork.tableros,
     resumen: {
-      tareasAbiertas: tareas.length, tareasVencidas: tareas.filter((t) => t.vencida).length, proyectosActivos: activos.length + deInooWork.activos,
+      // 13 nov (auditoría): «Tareas abiertas» suma las de los servicios y los ítems de los tableros.
+      tareasAbiertas: tareas.length + items.length, tareasVencidas: tareas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectosActivos: activos.length + deInooWork.activos,
       proyectosCerrados: suyos.length - activos.length, rebotes, conRetraso,
     },
   } satisfies S<"PanelColaborador">;
@@ -5203,7 +5220,15 @@ async function avisarAsignacion(ctx: Ctx, proyectoId: string, empleadoId: unknow
 }
 ruta("GET", "/mi-trabajo", async (ctx) => {
   soloEquipo(ctx);
-  return TABLEROS.miTrabajo(await yoTablero(ctx));
+  // 13 nov (auditoría): también las tareas de los servicios del catálogo, no solo los ítems de los tableros.
+  const r = await TABLEROS.miTrabajo(await yoTablero(ctx)).catch(() => ({ datos: [], vinculado: true, sinInooWork: true }));
+  const tareas = (await ctx.c.query<{ id: string; titulo: string; estado: string; fecha: string | null; sc: string; servicio: string; marca: string | null; cliente: string }>(
+    `SELECT t.id, t.titulo, t.estado::text AS estado, to_char(t.fecha_limite, 'YYYY-MM-DD') AS fecha, t.servicio_contratado_id AS sc, s.nombre AS servicio, sc.marca, c.nombre AS cliente
+     FROM tarea t JOIN servicio_contratado sc ON sc.id = t.servicio_contratado_id JOIN servicio s ON s.id = sc.servicio_id JOIN cliente c ON c.id = sc.cliente_id
+     WHERE t.responsable_id = $1 AND t.estado <> 'HECHA'`, [ctx.u.usuarioId])).rows
+    .map((t) => tareaComoPendiente({ id: t.id, titulo: t.titulo, estado: t.estado, fecha: t.fecha, servicioId: t.sc, proyecto: tituloServicio(t.servicio, t.marca ?? t.cliente), cliente: t.cliente }, HOY_LIMA()));
+  const datos = [...r.datos, ...tareas].sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es"));
+  return { ...r, datos };
 });
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
