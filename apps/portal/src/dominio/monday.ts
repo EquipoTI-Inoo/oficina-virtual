@@ -171,7 +171,7 @@ export function emparejarPersonas<E extends { id: string; nombre: string; email:
 
 // ───────────────────────────── qué manda el admin al importar
 
-export interface PedidoImportacion { nombre?: unknown; cliente?: unknown; estados?: unknown; personas?: unknown; liderId?: unknown; copiarArchivos?: unknown }
+export interface PedidoImportacion { nombre?: unknown; cliente?: unknown; estados?: unknown; personas?: unknown; liderId?: unknown; copiarArchivos?: unknown; archivar?: unknown }
 
 export function validarImportacion(b: PedidoImportacion, previa: PreviaMonday): Errores {
   const e: Errores = [];

@@ -1813,11 +1813,11 @@ const repoMonday = (): RepoMonday => ({
 ruta("POST", "/integraciones/monday/importar-pendientes", async (ctx, _p, _q, req) => {
   soloServicio(ctx);
   ctxMonday = ctx;
-  const b = await cuerpo<{ limite?: unknown }>(req);
+  const b = await cuerpo<{ limite?: unknown; archivarAntesDe?: unknown }>(req);
   const conFicha = E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false && u.inooworkEmpleadoId);
   const respaldo = (conFicha.find((u) => nivelDe(u) === "ADMIN") ?? conFicha.find((u) => nivelDe(u) === "CUENTA") ?? conFicha[0])?.id ?? null;
   return MONDAY.importarPendientes(repoMonday(), { empleadoId: null, esAdmin: true, usuarioId: ctx.usuario.id, nombre: "Importación de Monday", departamento: null },
-    { limite: typeof b.limite === "number" ? b.limite : 5, liderRespaldo: respaldo });
+    { limite: typeof b.limite === "number" ? b.limite : 5, liderRespaldo: respaldo, archivarAntesDe: typeof b.archivarAntesDe === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.archivarAntesDe) ? b.archivarAntesDe : null });
 });
 let ctxMonday: Ctx | null = null;
 const soloAdminMonday = (ctx: Ctx) => {

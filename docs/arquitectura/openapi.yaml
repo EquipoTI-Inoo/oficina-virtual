@@ -5126,7 +5126,7 @@ paths:
       requestBody:
         content:
           application/json:
-            schema: { type: object, properties: { limite: { type: integer, minimum: 1, maximum: 25 } } }
+            schema: { type: object, properties: { limite: { type: integer, minimum: 1, maximum: 25 }, archivarAntesDe: { type: string, format: date, description: 'Los tableros sin cambios desde esa fecha entran archivados (guardados, pero fuera de las listas)' } } }
       responses:
         '200':
           description: OK
@@ -5136,7 +5136,7 @@ paths:
                 type: object
                 required: [importados, errores, pendientes, total]
                 properties:
-                  importados: { type: array, items: { type: object, required: [tableroId, nombre, proyectoId, items, cliente], properties: { tableroId: { type: string }, nombre: { type: string }, proyectoId: { type: string }, items: { type: integer }, cliente: { type: [string, 'null'] } } } }
+                  importados: { type: array, items: { type: object, required: [tableroId, nombre, proyectoId, items, cliente, archivado], properties: { tableroId: { type: string }, nombre: { type: string }, proyectoId: { type: string }, items: { type: integer }, cliente: { type: [string, 'null'] }, archivado: { type: boolean } } } }
                   errores: { type: array, items: { type: object, required: [tableroId, nombre, motivo], properties: { tableroId: { type: string }, nombre: { type: string }, motivo: { type: string } } } }
                   pendientes: { type: integer }
                   total: { type: integer }

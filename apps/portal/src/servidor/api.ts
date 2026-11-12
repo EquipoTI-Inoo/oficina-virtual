@@ -5428,13 +5428,13 @@ function repoMonday(ctx: Ctx): RepoMonday {
 // 12 nov: la importación automática, desde el servidor (llave de los procesos, scope tableros:write).
 ruta("POST", "/integraciones/monday/importar-pendientes", async (ctx, _p, _q, cuerpo) => {
   soloServicio(ctx, "tableros:write");
-  const b = (await cuerpo()) as { limite?: unknown };
+  const b = (await cuerpo()) as { limite?: unknown; archivarAntesDe?: unknown };
   const respaldo = (await ctx.c.query<{ id: string }>(
     `SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND inoowork_empleado_id IS NOT NULL
      ORDER BY (nivel_acceso = 'ADMIN') DESC NULLS LAST, es_super_usuario DESC, (nivel_acceso = 'CUENTA') DESC NULLS LAST, nombre LIMIT 1`,
   )).rows[0]?.id ?? null;
   return MONDAY.importarPendientes(repoMonday(ctx), { empleadoId: null, esAdmin: true, usuarioId: ctx.u.usuarioId, nombre: "Importación de Monday", departamento: null },
-    { limite: typeof b.limite === "number" ? b.limite : 5, liderRespaldo: respaldo });
+    { limite: typeof b.limite === "number" ? b.limite : 5, liderRespaldo: respaldo, archivarAntesDe: typeof b.archivarAntesDe === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.archivarAntesDe) ? b.archivarAntesDe : null });
 });
 const soloAdminMonday = (ctx: Ctx) => {
   soloEquipo(ctx);

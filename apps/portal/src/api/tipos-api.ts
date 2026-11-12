@@ -15592,6 +15592,11 @@ export interface operations {
             content: {
                 "application/json": {
                     limite?: number;
+                    /**
+                     * Format: date
+                     * @description Los tableros sin cambios desde esa fecha entran archivados (guardados, pero fuera de las listas)
+                     */
+                    archivarAntesDe?: string;
                 };
             };
         };
@@ -15609,6 +15614,7 @@ export interface operations {
                             proyectoId: string;
                             items: number;
                             cliente: string | null;
+                            archivado: boolean;
                         }[];
                         errores: {
                             tableroId: string;

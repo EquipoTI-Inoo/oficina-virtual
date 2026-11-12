@@ -282,6 +282,12 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
         nombre: typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim() : t.nombre, cliente,
         estados, personas, lider, miembros, departamento: yo.departamento,
       });
+      // 12 nov: lo viejo (sin cambios este año) entra archivado: queda guardado, pero no estorba en las listas.
+      if (b.archivar === true) {
+        proyecto.archived = true;
+        proyecto.archivedAt = new Date().toISOString();
+        proyecto.status = "Completado";
+      }
 
       // Archivos: se copian al almacén del portal, Google Drive (los enlaces de Monday vencen). De a 4 a la vez.
       // Con copiarArchivos: false quedan solo con su nombre en el historial (para no llenar el Drive).
@@ -314,12 +320,12 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
      * columnas) y sin copiar archivos. De a `limite` por llamada; quien llama repite hasta que no queden pendientes.
      * Si un tablero no tiene a nadie del equipo para líder, queda a cargo de `liderRespaldo`.
      */
-    importarPendientes: (repo: RepoMonday, yo: Yo & { usuarioId: string; departamento: string | null }, o: { limite: number; liderRespaldo: string | null }) => protegido(async () => {
+    importarPendientes: (repo: RepoMonday, yo: Yo & { usuarioId: string; departamento: string | null }, o: { limite: number; liderRespaldo: string | null; archivarAntesDe?: string | null }) => protegido(async () => {
       const [xs, imps] = await Promise.all([listarTablerosMonday(yo.prueba), repo.importaciones()]);
       const hechos = new Set<string>();
       for (const i of imps) if (await tableros.existe(i.proyectoId, yo)) hechos.add(i.tableroId);
       const faltan = xs.filter((t) => !hechos.has(t.id));
-      const importados: { tableroId: string; nombre: string; proyectoId: string; items: number; cliente: string | null }[] = [];
+      const importados: { tableroId: string; nombre: string; proyectoId: string; items: number; cliente: string | null; archivado: boolean }[] = [];
       const errores: { tableroId: string; nombre: string; motivo: string }[] = [];
       const motivo = (e: unknown) => {
         const x = e as { titulo?: string; message?: string; errores?: { mensaje: string }[] };
@@ -329,14 +335,15 @@ export function crearImportadorMonday(fallar: Fallar, tableros: Tableros) {
       for (const t of faltan.slice(0, Math.max(1, Math.min(o.limite, 25)))) {
         try {
           let r;
+          const archivar = !!o.archivarAntesDe && !!t.actualizadoEn && t.actualizadoEn < o.archivarAntesDe;
           try {
-            r = await uno(t, { copiarArchivos: false });
+            r = await uno(t, { copiarArchivos: false, archivar });
           } catch (e) {
             const sinLider = (e as { errores?: { campo: string }[] }).errores?.some((x) => x.campo === "liderId");
             if (!sinLider || !o.liderRespaldo) throw e;
-            r = await uno(t, { copiarArchivos: false, liderId: o.liderRespaldo });
+            r = await uno(t, { copiarArchivos: false, archivar, liderId: o.liderRespaldo });
           }
-          importados.push({ tableroId: t.id, nombre: t.nombre, proyectoId: r.tablero.id, items: r.resumen.items, cliente: r.tablero.cliente ?? null });
+          importados.push({ tableroId: t.id, nombre: t.nombre, proyectoId: r.tablero.id, items: r.resumen.items, cliente: r.tablero.cliente ?? null, archivado: archivar });
         } catch (e) {
           errores.push({ tableroId: t.id, nombre: t.nombre, motivo: motivo(e) });
         }
