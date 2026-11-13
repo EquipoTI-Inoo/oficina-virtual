@@ -2788,3 +2788,8 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 /* Lo que el cliente debe hacer: fondo neutro con borde; el morado queda en el ícono (80 % blanco y negro). */
 .pendiente-cliente:not(.pendiente-cliente--alerta) { background: var(--c-blanco); border: 1px solid var(--c-borde-medio); }
 .pendiente-cliente:not(.pendiente-cliente--alerta):hover { border-color: var(--c-primario); filter: none; }
+
+/* Biblioteca de columnas con ícono y color por tipo (13 nov). */
+.icono-tipo-columna { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: var(--r-xs); color: #fff; }
+.tipo-columna { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; text-align: left; cursor: pointer; border: 1px solid var(--c-borde); transition: border-color 0.15s; }
+.tipo-columna:hover, .tipo-columna:focus-visible { border-color: var(--c-primario); }

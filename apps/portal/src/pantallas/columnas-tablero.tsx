@@ -4,7 +4,11 @@
  * para agregar columnas, su configuración y el resumen de los números al pie.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, LuPhone, LuPlay, LuPlus, LuSearch, LuStar, LuThumbsUp, LuTrash2, LuX } from "react-icons/lu";
+import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, LuPhone, LuPlay, LuPlus, LuSearch, LuStar, LuThumbsUp, LuTrash2, LuX,
+  LuCircleDot, LuType, LuUsers, LuCalendar, LuHash, LuList, LuSquareCheck, LuAlignLeft, LuTag, LuCalendarRange, LuCalendarDays, LuClock, LuTimer,
+  LuGlobe, LuLink, LuFlag, LuPalette, LuPaperclip, LuFileText, LuMousePointerClick, LuGitBranch, LuNetwork, LuCopy, LuSigma, LuChartBar, LuHistory,
+  LuRefreshCw, LuFingerprint, LuListOrdered } from "react-icons/lu";
+import type { IconType } from "react-icons";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
 import { Modal, useAviso } from "../componentes";
 import {
@@ -540,6 +544,30 @@ export function PieNumeros({ col, items }: { col: Columna; items: Item[] }) {
 
 // ═════════════════════════════════════════════ biblioteca y configuración
 
+/**
+ * 13 nov 2026: cada tipo con su ícono y su color, como en Monday, para reconocerlo de un vistazo. Los colores son de
+ * categoría (no de estado): agrupan los tipos parecidos.
+ */
+const ICONO_TIPO: Record<string, [IconType, string]> = {
+  etiqueta: [LuCircleDot, "#00c875"], text: [LuType, "#579bfc"], people: [LuUsers, "#a25ddc"], date: [LuCalendar, "#fdab3d"],
+  number: [LuHash, "#037f4c"], dropdown: [LuList, "#579bfc"], checkbox: [LuSquareCheck, "#00c875"], long_text: [LuAlignLeft, "#579bfc"],
+  tags: [LuTag, "#ff642e"], timeline: [LuCalendarRange, "#fdab3d"], week: [LuCalendarDays, "#fdab3d"], hour: [LuClock, "#fdab3d"],
+  time_tracking: [LuTimer, "#e2445c"], world_clock: [LuGlobe, "#66ccff"], email: [LuMail, "#0086c0"], phone: [LuPhone, "#0086c0"],
+  link: [LuLink, "#0086c0"], country: [LuFlag, "#66ccff"], location: [LuMapPin, "#e2445c"], rating: [LuStar, "#ffcb00"],
+  vote: [LuThumbsUp, "#a25ddc"], color_picker: [LuPalette, "#ff158a"], file: [LuPaperclip, "#784bd1"], doc: [LuFileText, "#784bd1"],
+  button: [LuMousePointerClick, "#ff642e"], dependency: [LuGitBranch, "#7f5347"], board_relation: [LuNetwork, "#7f5347"], mirror: [LuCopy, "#7f5347"],
+  formula: [LuSigma, "#225091"], progress: [LuChartBar, "#00c875"], creation_log: [LuHistory, "#808080"], last_updated: [LuRefreshCw, "#808080"],
+  item_id: [LuFingerprint, "#808080"], auto_number: [LuListOrdered, "#808080"],
+};
+export function IconoTipoColumna({ tipo, tamano = 28 }: { tipo: string; tamano?: number }) {
+  const [Icono, color] = ICONO_TIPO[tipo] ?? [LuType, "#808080"];
+  return (
+    <span aria-hidden="true" className="icono-tipo-columna" style={{ background: color, width: tamano, height: tamano }}>
+      <Icono size={Math.round(tamano * 0.55)} />
+    </span>
+  );
+}
+
 export function BibliotecaColumnas({ t, cambiar, cerrar }: { t: Tablero; cambiar: Cambiar; cerrar: () => void }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState<TipoColumna | null>(null);
@@ -562,12 +590,15 @@ export function BibliotecaColumnas({ t, cambiar, cerrar }: { t: Tablero; cambiar
             if (!xs.length) return null;
             return (
               <section key={g} className="pila" style={{ gap: 6 }}>
-                <h3 className="texto-xs negrita texto-muted" style={{ textTransform: "uppercase", letterSpacing: ".05em" }}>{g}</h3>
+                <h3 className="texto-sm negrita">{g}</h3>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
                   {xs.map((x) => (
-                    <button key={x.tipo} type="button" className="tarjeta" style={{ padding: "10px 12px", textAlign: "left", cursor: "pointer", border: "1px solid var(--c-borde)" }} onClick={() => setTipo(x.tipo)}>
-                      <span className="negrita texto-sm" style={{ display: "block" }}>{x.nombre}</span>
-                      <span className="texto-xs texto-muted">{x.descripcion}</span>
+                    <button key={x.tipo} type="button" className="tarjeta tipo-columna" onClick={() => setTipo(x.tipo)}>
+                      <IconoTipoColumna tipo={x.tipo} />
+                      <span style={{ minWidth: 0 }}>
+                        <span className="negrita texto-sm" style={{ display: "block" }}>{x.nombre}</span>
+                        <span className="texto-xs texto-muted">{x.descripcion}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -607,7 +638,7 @@ function FormColumna({ t, tipo, col, volver, guardar, borrar }: { t: Tablero; ti
     <div className="pila" style={{ gap: 14 }}>
       <div>
         {volver && <button className="boton-texto texto-sm" onClick={volver}>← Biblioteca</button>}
-        <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{col ? "Configurar columna" : "Nueva columna"} · {i?.nombre ?? tipo}</h2>
+        <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 10 }}><IconoTipoColumna tipo={tipo} tamano={30} />{col ? "Configurar columna" : "Nueva columna"}: {i?.nombre ?? tipo}</h2>
         {i && <p className="texto-sm texto-muted">{i.descripcion}</p>}
       </div>
       <label className="pila" style={{ gap: 4 }}>
