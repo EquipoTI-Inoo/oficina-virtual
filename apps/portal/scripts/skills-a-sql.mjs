@@ -131,7 +131,49 @@ for (const f of FUENTES) {
   }
 }
 
-process.stdout.write(`-- Catálogo de skills de Jarvis: ${filas.length} skills, generado con scripts/skills-a-sql.mjs el ${new Date().toISOString().slice(0, 10)}.\n`);
+// Paquetes de Skillfera (skillfera.dev, sitio propio de Inoo): cada zip descomprimido en DIR/skillfera/<slug>/ y sus datos
+// (licencia, categoría, repo) en DIR/skillfera/_meta.json, sacados de data/catalog de skillsfera-web. Van después de los
+// repos: si una skill ya vino de su repo, se queda la del repo.
+const SF = join(DIR, "skillfera");
+const SF_CAT = { "design-systems": "Diseño", "diseno-web": "Diseño", desarrolladores: "Desarrollo", marketing: "Marketing", finanzas: "Finanzas",
+  abogados: "Legal", investigacion: "Investigación" };
+const SF_PROPIAS = { "frontend-craft": "Diseño", "ui-review-lite": "Diseño", "design-system-guard": "Diseño", "commits-es": "Desarrollo",
+  "changelog-claro": "Desarrollo", "readme-claro": "Desarrollo", "actas-reunion": "Productividad", "emails-profesionales": "Redacción" };
+if (existsSync(join(SF, "_meta.json"))) {
+  const meta = JSON.parse(readFileSync(join(SF, "_meta.json"), "utf8"));
+  for (const paquete of readdirSync(SF).filter((n) => meta[n])) {
+    const m = meta[paquete];
+    const base = join(SF, paquete);
+    for (const archivo of caminar(base).filter((p) => basename(p) === "SKILL.md")) {
+      const carpeta = dirname(archivo);
+      const { datos, cuerpo } = frontmatter(readFileSync(archivo, "utf8"));
+      const nombreCrudo = datos.name || basename(carpeta === base ? paquete : carpeta);
+      const s = slug(nombreCrudo);
+      if (s.length < 2) continue;
+      if (vistos.has(s)) { avisos.push(`repetida: ${s} (skillfera/${paquete})`); continue; }
+      vistos.add(s);
+      let instrucciones = cuerpo.trim();
+      if (!instrucciones) continue;
+      if (instrucciones.length > MAX_INSTRUCCIONES) instrucciones = `${instrucciones.slice(0, MAX_INSTRUCCIONES - 40)}\n\n[…cortado por largo]`;
+      const otros = caminar(carpeta).filter((p) => p !== archivo);
+      const archivos = [];
+      for (const p of otros.filter((x) => TEXTO.has(extname(x).toLowerCase())).sort()) {
+        if (archivos.length >= MAX_ARCHIVOS) break;
+        const t = readFileSync(p, "utf8");
+        if (t.length > MAX_ARCHIVO || t.includes("\u0000")) continue;
+        archivos.push({ nombre: relative(carpeta, p).split(sep).join("/").slice(0, 120), texto: t });
+      }
+      const propia = !/^https:\/\//.test(m.sourceUrl ?? "");
+      const origen = propia ? `https://skillfera.dev/es/skills/${paquete}` : m.sourceUrl;
+      const categoria = SF_PROPIAS[s] ?? SF_CAT[m.category] ?? "General";
+      const descripcion = (datos.description ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
+      const nombre = titulo(nombreCrudo.replace(/[_\s]+/g, "-")).replace(/-/g, " ").slice(0, 80);
+      filas.push(`(${q(s)}, ${q(nombre)}, ${q(descripcion)}, ${q(categoria)}, ${q(origen)}, ${q(propia ? "Skillfera (propia de Inoo)" : m.license)}, ${q(instrucciones)}, ${q(JSON.stringify(archivos))}::jsonb, ${otros.some((p) => SCRIPT.has(extname(p).toLowerCase()))})`);
+    }
+  }
+}
+
+process.stdout.write(`-- Catálogo de skills de Jarvis:${filas.length} skills, generado con scripts/skills-a-sql.mjs el ${new Date().toISOString().slice(0, 10)}.\n`);
 process.stdout.write("SET client_min_messages = warning;\n");
 for (let i = 0; i < filas.length; i += 50) {
   process.stdout.write(`INSERT INTO skill_catalogo (slug, nombre, descripcion, categoria, origen, licencia, instrucciones, archivos, tiene_scripts) VALUES\n${filas.slice(i, i + 50).join(",\n")}\n`);
