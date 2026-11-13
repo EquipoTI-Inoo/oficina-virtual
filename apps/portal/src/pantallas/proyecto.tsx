@@ -380,6 +380,57 @@ function Reuniones({ reuniones }: { reuniones: S<"Reunion">[] }) {
   );
 }
 
+/**
+ * 13 nov (mapeo de lo editable): quien escribió un comentario lo corrige o lo borra. Se muestra el texto, o el editor.
+ */
+export function TextoComentario({ servicioId, c, alCambiar }: { servicioId: string; c: S<"ComentarioProyecto">; alCambiar: () => void }) {
+  const { sesion } = usePortal();
+  const avisar = useAviso();
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState(c.texto);
+  const mio = !!sesion && c.autor.id === sesion.usuario.id;
+  const guardar = async () => {
+    try {
+      await api(`/servicios-contratados/${servicioId}/comentarios/${c.id}`, { metodo: "PATCH", cuerpo: { texto } });
+      setEditando(false);
+      alCambiar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo guardar", texto: (e as ProblemaApi).errores?.[0]?.mensaje ?? (e as ProblemaApi).titulo });
+    }
+  };
+  const borrar = async () => {
+    if (!window.confirm("¿Borrar tu comentario?")) return;
+    try {
+      await api(`/servicios-contratados/${servicioId}/comentarios/${c.id}`, { metodo: "DELETE" });
+      alCambiar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo borrar", texto: (e as ProblemaApi).titulo });
+    }
+  };
+  if (editando) {
+    return (
+      <div className="pila" style={{ gap: 6, marginTop: 6 }}>
+        <div className="entrada"><textarea aria-label="Corregir comentario" rows={3} value={texto} onChange={(e) => setTexto(e.target.value)} /></div>
+        <span className="fila" style={{ gap: 6 }}>
+          <button className="boton boton--chico boton--primario" disabled={texto.trim().length < 2} onClick={() => void guardar()}>Guardar</button>
+          <button className="boton boton--chico" onClick={() => { setEditando(false); setTexto(c.texto); }}>Cancelar</button>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <p className="texto-sm" style={{ marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{c.texto}</p>
+      {mio && (
+        <span className="fila texto-xs" style={{ gap: 10, marginTop: 4 }}>
+          <button className="boton-texto texto-xs" onClick={() => setEditando(true)}>Editar</button>
+          <button className="boton-texto texto-xs" onClick={() => void borrar()}>Borrar</button>
+        </span>
+      )}
+    </>
+  );
+}
+
 function Comentarios({ servicioId }: { servicioId: string }) {
   const avisar = useAviso();
   const { sesion } = usePortal();
@@ -419,7 +470,7 @@ function Comentarios({ servicioId }: { servicioId: string }) {
               {c.deEquipo && <span className="texto-primario"> · Inoo</span>}
             </p>
             <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>{fDiaHora(c.creadoEn)}</p>
-            <p className="texto-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>{c.texto}</p>
+            <TextoComentario servicioId={servicioId} c={c} alCambiar={() => void lista.recargar()} />
           </div>
         </div>
       ))}

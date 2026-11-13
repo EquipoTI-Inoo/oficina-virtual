@@ -1221,6 +1221,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/comentarios/{comentarioId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                comentarioId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quien escribió el comentario lo borra (13 nov) */
+        delete: operations["borrarComentarioProyecto"];
+        options?: never;
+        head?: never;
+        /** Quien escribió el comentario lo corrige (13 nov); el resto, 403 */
+        patch: operations["editarComentarioProyecto"];
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/comentarios": {
         parameters: {
             query?: never;
@@ -10728,6 +10749,60 @@ export interface operations {
             422: components["responses"]["Validacion"];
         };
     };
+    borrarComentarioProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                comentarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    editarComentarioProyecto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                comentarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentarioProyecto"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
     listarComentariosProyecto: {
         parameters: {
             query?: never;
@@ -10811,6 +10886,10 @@ export interface operations {
                     fechaFin?: string | null;
                     causaAtraso?: components["schemas"]["CausaAtraso"] | null;
                     justificacionAtraso?: string | null;
+                    /** @description 13 nov: las etapas salen de la plantilla; el equipo las puede renombrar */
+                    nombre?: string;
+                    /** @description 13 nov: si la etapa depende del cliente */
+                    esperaCliente?: boolean;
                 };
             };
         };

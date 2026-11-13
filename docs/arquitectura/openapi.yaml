@@ -1813,6 +1813,34 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /servicios-contratados/{servicioContratadoId}/comentarios/{comentarioId}:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: comentarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Servicios]
+      operationId: editarComentarioProyecto
+      summary: 'Quien escribió el comentario lo corrige (13 nov); el resto, 403'
+      x-roles: [EQUIPO, CLIENTE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [texto], properties: { texto: { type: string, minLength: 2, maxLength: 2000 } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentarioProyecto' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    delete:
+      tags: [Servicios]
+      operationId: borrarComentarioProyecto
+      summary: 'Quien escribió el comentario lo borra (13 nov)'
+      x-roles: [EQUIPO, CLIENTE]
+      responses:
+        '204': { description: Borrado }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /servicios-contratados/{servicioContratadoId}/comentarios:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1884,6 +1912,8 @@ paths:
                 fechaFin: { type: [string, 'null'], format: date }
                 causaAtraso: { oneOf: [ { $ref: '#/components/schemas/CausaAtraso' }, { type: 'null' } ] }
                 justificacionAtraso: { type: [string, 'null'], maxLength: 500 }
+                nombre: { type: string, minLength: 2, maxLength: 120, description: "13 nov: las etapas salen de la plantilla; el equipo las puede renombrar" }
+                esperaCliente: { type: boolean, description: "13 nov: si la etapa depende del cliente" }
       responses:
         '200':
           description: OK

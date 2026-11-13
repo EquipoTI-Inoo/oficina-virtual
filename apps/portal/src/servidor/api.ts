@@ -75,7 +75,7 @@ import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type Co
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso } from "../dominio/kpis";
+import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso, validarEdicionEtapa } from "../dominio/kpis";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
 import { conConsumo } from "./ia-modelos";
@@ -4917,6 +4917,28 @@ ruta("POST", "/servicios-contratados/:id/comentarios", async (ctx, p, _q, cuerpo
   return { __status: 201, ...comentarioProyectoVista(ctx, c) };
 });
 
+/** 13 nov (mapeo de lo editable): quien escribió un comentario lo corrige o lo borra. */
+async function miComentarioDb(ctx: Ctx, servicioId: string, id: string) {
+  const s = await buscarServicio(ctx, servicioId);
+  const c = esUuid(id) ? (await ctx.c.query<{ id: string; autor_id: string }>("SELECT id, autor_id FROM comentario_proyecto WHERE id = $1 AND servicio_contratado_id = $2", [id, s.id])).rows[0] : undefined;
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese comentario");
+  if (c.autor_id !== ctx.u.usuarioId) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien lo escribió lo puede cambiar");
+  return c;
+}
+ruta("PATCH", "/servicios-contratados/:id/comentarios/:comentario", async (ctx, p, _q, cuerpo) => {
+  const c = await miComentarioDb(ctx, p.id, p.comentario);
+  const b = (await cuerpo()) as { texto?: unknown };
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  if (texto.length < 2 || texto.length > 2000) validacion([{ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" }]);
+  await ctx.c.query("UPDATE comentario_proyecto SET texto = $2 WHERE id = $1", [c.id, texto]);
+  return comentarioProyectoVista(ctx, (await ctx.c.query<FilaComentarioProyecto>(`${SELECT_COMENTARIO_PROYECTO} WHERE c.id = $1`, [c.id])).rows[0]);
+});
+ruta("DELETE", "/servicios-contratados/:id/comentarios/:comentario", async (ctx, p) => {
+  const c = await miComentarioDb(ctx, p.id, p.comentario);
+  await ctx.c.query("DELETE FROM comentario_proyecto WHERE id = $1", [c.id]);
+  return null;
+});
+
 
 // Estado de pago (reunión 15 oct): solo «Al día» o «Atrasado» desde una fecha; sin cuotas ni montos.
 // ADMIN y FINANZAS lo ven completo y lo cambian; el resto del equipo ve la situación y la alerta; quien
@@ -4982,8 +5004,8 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   if (!esUuid(p.etapa)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
   const e = (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2 FOR UPDATE", [p.etapa, s.id])).rows[0];
   if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null };
-  const errores: { campo: string; mensaje: string }[] = validarAtraso(b);
+  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean };
+  const errores: { campo: string; mensaje: string }[] = [...validarAtraso(b), ...validarEdicionEtapa(b)];
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
@@ -5004,8 +5026,10 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
     `UPDATE etapa_proyecto SET estado = $2, fecha_fin = $3, fecha_inicio = coalesce($4, fecha_inicio), fecha_estimada = coalesce($5, fecha_estimada),
             actualizado_por = $6, actualizado_en = now(),
             causa_atraso = CASE WHEN $7::boolean THEN $8::causa_atraso ELSE causa_atraso END,
-            justificacion_atraso = CASE WHEN $9::boolean THEN $10 ELSE justificacion_atraso END WHERE id = $1`,
-    [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId, b.causaAtraso !== undefined, b.causaAtraso ?? null, b.justificacionAtraso !== undefined, b.justificacionAtraso?.trim() || null],
+            justificacion_atraso = CASE WHEN $9::boolean THEN $10 ELSE justificacion_atraso END,
+            nombre = coalesce($11, nombre), espera_cliente = coalesce($12, espera_cliente) WHERE id = $1`,
+    [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId, b.causaAtraso !== undefined, b.causaAtraso ?? null, b.justificacionAtraso !== undefined, b.justificacionAtraso?.trim() || null,
+      typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.esperaCliente === "boolean" ? b.esperaCliente : null],
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());

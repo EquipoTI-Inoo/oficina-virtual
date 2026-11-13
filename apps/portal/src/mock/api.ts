@@ -17,7 +17,7 @@ import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { calcularKpis, type CausaAtraso, validarAtraso } from "../dominio/kpis";
+import { calcularKpis, type CausaAtraso, validarAtraso, validarEdicionEtapa } from "../dominio/kpis";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import {
@@ -2652,8 +2652,8 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   const s = E.servicios.find((x) => x.id === p.id);
   const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
   if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null }>(req);
-  const errores: { campo: string; mensaje: string }[] = validarAtraso(b);
+  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean }>(req);
+  const errores: { campo: string; mensaje: string }[] = [...validarAtraso(b), ...validarEdicionEtapa(b)];
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
@@ -2670,6 +2670,8 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   if (b.fechaEstimada !== undefined) e.fechaEstimada = b.fechaEstimada;
   if (b.causaAtraso !== undefined) e.causaAtraso = b.causaAtraso;
   if (b.justificacionAtraso !== undefined) e.justificacionAtraso = b.justificacionAtraso?.trim() || null;
+  if (typeof b.nombre === "string") e.nombre = b.nombre.trim();
+  if (typeof b.esperaCliente === "boolean") e.esperaCliente = b.esperaCliente;
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
   return avanceServicio(s, true);
 });
@@ -3520,6 +3522,25 @@ ruta("POST", "/servicios-contratados/:id/comentarios", async (ctx, p, _q, req) =
   E.comentariosProyecto.push(c);
   emitir("comentario_proyecto.creado", s.clienteId, { servicioContratadoId: s.id, comentarioId: c.id, interno: c.interno, usuarioId: ctx.usuario.id });
   return { __status: 201, ...comentarioProyectoVista(ctx, c) };
+});
+function miComentario(ctx: Ctx, servicioId: string, id: string) {
+  const s = buscarServicio(ctx, servicioId);
+  const c = E.comentariosProyecto.find((x) => x.id === id && x.servicioContratadoId === s.id && (ctx.esEquipo || !x.interno));
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese comentario");
+  if (c.autorId !== ctx.usuario.id) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien lo escribió lo puede cambiar");
+  return c;
+}
+ruta("PATCH", "/servicios-contratados/:id/comentarios/:comentario", async (ctx, p, _q, req) => {
+  const c = miComentario(ctx, p.id, p.comentario);
+  const texto = ((await cuerpo<{ texto?: string }>(req)).texto ?? "").trim();
+  if (texto.length < 2 || texto.length > 2000) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" }]);
+  c.texto = texto;
+  return comentarioProyectoVista(ctx, c);
+});
+ruta("DELETE", "/servicios-contratados/:id/comentarios/:comentario", (ctx, p) => {
+  const c = miComentario(ctx, p.id, p.comentario);
+  E.comentariosProyecto = E.comentariosProyecto.filter((x) => x !== c);
+  return null;
 });
 
 ruta("GET", "/servicios-contratados/:id/avance", (ctx, p) => {

@@ -278,6 +278,22 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.deepEqual((await llamar("PATCH", `/clientes/${CASA_OLIVA}`, DIEGO, { wordpressUrl: "casaoliva.pe" })).json.errores.map((e: any) => e.campo), ["wordpressUrl"]);
       assert.equal((await llamar("PATCH", `/clientes/${CASA_OLIVA}`, CAMILA, { pilaresContenido: ["x"] })).status, 404, "quien trabaja por proyecto no edita la ficha");
     });
+    test("13 nov: lo que sale de la plantilla se corrige: nombre de etapa y comentarios propios", async () => {
+      await reiniciar();
+      const p = (await llamar("GET", `/servicios-contratados/${WEB}`, DIEGO)).json;
+      const etapa = p.etapas[0];
+      const r = await llamar("PATCH", `/servicios-contratados/${WEB}/etapas/${etapa.id}`, DIEGO, { nombre: "Brief y reunión de inicio", esperaCliente: true });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const e2 = (await llamar("GET", `/servicios-contratados/${WEB}`, DIEGO)).json.etapas.find((x: any) => x.id === etapa.id);
+      assert.deepEqual([e2.nombre, e2.esperaCliente], ["Brief y reunión de inicio", true]);
+      assert.deepEqual((await llamar("PATCH", `/servicios-contratados/${WEB}/etapas/${etapa.id}`, DIEGO, { nombre: "x" })).json.errores.map((e: any) => e.campo), ["nombre"]);
+
+      const c = (await llamar("POST", `/servicios-contratados/${WEB}/comentarios`, VALERIA, { texto: "¿Podemos ver la portada el jueves?" })).json;
+      assert.equal((await llamar("PATCH", `/servicios-contratados/${WEB}/comentarios/${c.id}`, DIEGO, { texto: "Otro texto" })).status, 403, "solo quien lo escribió");
+      assert.equal((await llamar("PATCH", `/servicios-contratados/${WEB}/comentarios/${c.id}`, VALERIA, { texto: "¿Podemos ver la portada el viernes?" })).json.texto, "¿Podemos ver la portada el viernes?");
+      assert.equal((await llamar("DELETE", `/servicios-contratados/${WEB}/comentarios/${c.id}`, VALERIA)).status, 204);
+      assert.ok(!(await llamar("GET", `/servicios-contratados/${WEB}/comentarios`, DIEGO)).json.datos.some((x: any) => x.id === c.id));
+    });
     test("áreas que lidera (9 nov): solo un super usuario las cambia y queda en el historial", async () => {
       await reiniciar();
       const DIEGO_ID = uid(1, 3);

@@ -141,3 +141,11 @@ export function validarAtraso(b: { causaAtraso?: unknown; justificacionAtraso?: 
   }
   return errores;
 }
+
+/** 13 nov (mapeo de lo automático): las etapas salen de la plantilla, pero se pueden renombrar y marcar si dependen del cliente. */
+export function validarEdicionEtapa(b: { nombre?: unknown; esperaCliente?: unknown }): { campo: string; mensaje: string }[] {
+  const e: { campo: string; mensaje: string }[] = [];
+  if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 2 && b.nombre.trim().length <= 120)) e.push({ campo: "nombre", mensaje: "Entre 2 y 120 caracteres" });
+  if (b.esperaCliente !== undefined && typeof b.esperaCliente !== "boolean") e.push({ campo: "esperaCliente", mensaje: "Debe ser verdadero o falso" });
+  return e;
+}

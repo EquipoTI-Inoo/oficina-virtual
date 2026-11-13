@@ -16,7 +16,7 @@ import { ROLES_FINANZAS } from "../dominio/pagos";
 import { CAUSAS_ATRASO, ETIQUETA_CAUSA } from "../dominio/kpis";
 import { archivoReporte } from "../dominio/reporte";
 import { TareasDelProyecto } from "./tareas";
-import { CMS, TAMANO } from "./proyecto";
+import { CMS, TAMANO, TextoComentario } from "./proyecto";
 import { EntregablesEquipo } from "./entregables";
 import { ConsumoDelServicio, TicketsDelSoporte } from "./consumo";
 import { BlogsDelSoporte, KanbanPiezas } from "./piezas-proyecto";
@@ -192,10 +192,15 @@ function ProyectoEquipo() {
                     {d.etapas.map((e) => (
                       <tr key={e.id} style={{ cursor: "default" }}>
                         <td>
-                          <span className="negrita">{e.nombre}</span>
-                          <span className="texto-xs texto-muted" style={{ display: "block" }}>
-                            {e.avancePct} %{e.esperaCliente ? " · depende del cliente" : ""}
-                            {e.atrasada ? " · con retraso" : ""}
+                          {/* 13 nov (mapeo de lo editable): la etapa sale de la plantilla pero se puede renombrar. */}
+                          <input key={e.nombre} className="celda-texto negrita" aria-label={`Nombre de la etapa ${e.nombre}`} defaultValue={e.nombre}
+                            onBlur={(x) => { const v = x.target.value.trim(); if (v.length >= 2 && v !== e.nombre) void moverEtapa(e, { nombre: v }); else x.target.value = e.nombre; }}
+                            onKeyDown={(x) => x.key === "Enter" && (x.target as HTMLInputElement).blur()} />
+                          <span className="texto-xs texto-muted fila" style={{ gap: 8, flexWrap: "wrap" }}>
+                            {e.avancePct} %{e.atrasada ? " · con retraso" : ""}
+                            <label className="fila" style={{ gap: 4 }}>
+                              <input type="checkbox" checked={!!e.esperaCliente} onChange={(x) => void moverEtapa(e, { esperaCliente: x.target.checked })} /> depende del cliente
+                            </label>
                           </span>
                           {e.reunionClave && <span className="texto-xs texto-primario" style={{ display: "block" }}>Reunión clave: {e.reunionClave}</span>}
                           {(e.atrasada || e.causaAtraso) && <CausaAtraso etapa={e} alGuardar={(cuerpo) => moverEtapa(e, cuerpo)} />}
@@ -818,7 +823,7 @@ function ComentariosEquipo({ servicioId }: { servicioId: string }) {
             )}
           </span>
           <span className="texto-xs texto-muted">{fDiaHora(c.creadoEn)}</span>
-          <span className="texto-sm">{c.texto}</span>
+          <TextoComentario servicioId={servicioId} c={c} alCambiar={() => void lista.recargar()} />
         </div>
       ))}
       <div className="entrada">
