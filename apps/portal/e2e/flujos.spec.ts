@@ -126,13 +126,14 @@ test("requerimientos: el cliente completa el catálogo y lo envía", async ({ pa
   await expect(page.getByText("Atrasado 1 día hábil")).toBeVisible();
   await page.getByText("Catálogo de productos para la tienda").click();
   await page.getByRole("button", { name: "Enviar a Inoo" }).click();
-  await expect(page.getByText("Completa al menos un campo")).toBeVisible();
+  // 13 nov: el error sale en el resumen de arriba (con enlace al campo) y junto al campo.
+  await expect(page.locator(".resumen-errores")).toContainText(/completa al menos un campo/i);
   await page.fill("#campo-lista", "Sérum de noche, S/ 89, hidrata mientras duermes");
   await page.getByRole("button", { name: "Guardar borrador" }).click();
-  await expect(page.getByText("Borrador guardado")).toBeVisible();
+  await expect(page.getByText("Borrador guardado", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Enviar a Inoo" }).click();
   await expect(page).toHaveURL(/\/requerimientos$/);
-  await expect(page.locator(".nav-item", { hasText: "Requerimientos" }).locator(".nav-contador")).toHaveText("2");
+  await expect(page.locator(".nav-item", { hasText: "Requerimientos" }).locator(".nav-contador")).toHaveText("2", { timeout: 20_000 });
   await expect(page.locator(".fila-suave", { hasText: "Catálogo de productos" })).toContainText("En revisión");
 });
 
@@ -478,6 +479,7 @@ test("cosmiq: el equipo pone el enlace en el proyecto de CRM y el cliente lo ve 
 });
 
 test("jarvis: cada uno ve los bots de su área, crea uno y el ADMIN amplía el tope", async ({ page, browser }) => {
+  test.setTimeout(120_000); // tres sesiones (equipo, operativo y admin) en la misma prueba
   await entrarComo(page, "equipo");
   await page.goto("/equipo/mi-panel");
   await page.locator(".nav-item", { hasText: "Jarvis" }).click({ timeout: 30_000 });

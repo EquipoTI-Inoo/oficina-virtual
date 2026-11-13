@@ -239,7 +239,7 @@ function Requerimiento() {
               <p className="negrita">{Object.keys(errores).length === 1 ? "Falta 1 respuesta" : `Faltan ${Object.keys(errores).length} respuestas`} para poder enviarlo</p>
               <ul>
                 {Object.entries(errores).map(([k, m]) => (
-                  <li key={k}><button type="button" className="enlace" onClick={() => irACampo(k)}>{etiquetaDe(k)}</button>: {m.toLowerCase()}</li>
+                  <li key={k}><button type="button" className="enlace" onClick={() => irACampo(k)}>{etiquetaDe(k)}</button>: {m.charAt(0).toLowerCase() + m.slice(1)}</li>
                 ))}
               </ul>
             </div>
