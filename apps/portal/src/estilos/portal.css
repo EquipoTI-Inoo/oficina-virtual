@@ -65,6 +65,8 @@
   --r-pill: 999px;
   --sombra-tarjeta: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
   --sombra-flotante: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --sombra-suave: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --c-velo: rgba(0, 0, 0, 0.36);
 
 
   /* 13 nov (orden del diseño): colores que estaban sueltos en el CSS y las pantallas */
@@ -1554,7 +1556,7 @@ a.avatar:hover {
 .velo {
   position: fixed;
   inset: 0;
-  background: rgba(32, 36, 60, 0.32);
+  background: var(--c-velo);
   display: grid;
   place-items: center;
   z-index: 60;
@@ -1927,7 +1929,7 @@ a.avatar:hover {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(32, 36, 60, 0.32);
+  background: var(--c-velo);
 }
 .cajon .lateral {
   position: absolute;
@@ -2227,7 +2229,7 @@ a.avatar:hover {
   cursor: pointer;
 }
 .jarvis-item:hover { background: var(--c-blanco); }
-.jarvis-item[aria-current="true"] { background: var(--c-blanco); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); font-weight: 600; }
+.jarvis-item[aria-current="true"] { background: var(--c-blanco); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); font-weight: 600; }
 .jarvis-item-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jarvis-consumo { margin-top: auto; display: grid; gap: 6px; padding: 12px 6px 2px; border-top: 1px solid var(--c-borde); }
 .avatar-bot {
@@ -2318,7 +2320,7 @@ a.avatar:hover {
 .calendario-titulo { font-size: var(--t-xl); font-weight: 600; margin-left: 6px; color: var(--c-tinta); }
 .segmentado { display: inline-flex; padding: 3px; gap: 2px; background: var(--c-neutro-suave); border-radius: var(--r-sm); }
 .segmentado button { border: 0; background: transparent; padding: 6px 12px; border-radius: var(--r-sm); font-size: var(--t-sm); font-weight: 600; color: var(--c-muted); cursor: pointer; }
-.segmentado button.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
+.segmentado button.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
 
 .mini-mes { display: grid; gap: 8px; }
 .mini-mes-grilla { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: var(--t-xs); }
@@ -2468,7 +2470,7 @@ button.cuenta { cursor: pointer; }
 
 /* Proyectos → Tableros de InooWork (2 nov): como el workspace de InooWork, con el estilo del portal */
 .segmentado a { padding: 6px 12px; border-radius: var(--r-sm); font-size: var(--t-sm); font-weight: 600; color: var(--c-muted); text-decoration: none; }
-.segmentado a.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
+.segmentado a.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
 .tableros-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .tablero-tarjeta { display: grid; gap: 8px; padding: 16px 18px; border-top: 4px solid; color: inherit; text-decoration: none; }
 .tablero-tarjeta:hover { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
