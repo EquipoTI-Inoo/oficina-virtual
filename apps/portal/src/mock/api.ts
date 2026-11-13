@@ -17,7 +17,7 @@ import * as D from "./datos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { calcularKpis, type CausaAtraso, validarAtraso, validarEdicionEtapa } from "../dominio/kpis";
+import { calcularKpis, type CausaAtraso, validarAtraso, validarEdicionEtapa, validarEtapaNueva, avanceEntre } from "../dominio/kpis";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief } from "../dominio/taller-web";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import {
@@ -2676,6 +2676,39 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   return avanceServicio(s, true);
 });
 
+ruta("POST", "/servicios-contratados/:id/etapas", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = E.servicios.find((x) => x.id === p.id);
+  if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas");
+  const b = await cuerpo<{ nombre?: string; fechaEstimada?: string | null; esperaCliente?: boolean; despuesDe?: string | null }>(req);
+  const errores = validarEtapaNueva(b);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const todas = E.etapas.filter((x) => x.servicioContratadoId === s.id).sort((a, c) => (a.periodo ?? "").localeCompare(c.periodo ?? "") || a.orden - c.orden);
+  const ref = b.despuesDe ? todas.find((x) => x.id === b.despuesDe) : todas.filter((x) => x.periodo === (todas.at(-1)?.periodo ?? null)).at(-1);
+  if (b.despuesDe && !ref) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "despuesDe", mensaje: "Esa etapa no es de este proyecto" }]);
+  const periodo = ref?.periodo ?? null;
+  const orden = (ref?.orden ?? 0) + 1;
+  const siguiente = todas.find((x) => x.periodo === periodo && x.orden === orden);
+  for (const x of todas) if (x.periodo === periodo && x.orden >= orden) x.orden += 1;
+  E.etapas.push({ id: nuevoId(20), servicioContratadoId: s.id, clienteId: s.clienteId, periodo, orden, nombre: b.nombre!.trim(), avancePct: avanceEntre(ref?.avancePct ?? 1, siguiente?.avancePct ?? null),
+    esperaCliente: !!b.esperaCliente, reunionClave: null, estado: "SIN_INICIAR", fechaInicio: null, fechaEstimada: b.fechaEstimada ?? null, fechaFin: null });
+  return { __status: 201, ...avanceServicio(s, true) };
+});
+ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", (ctx, p) => {
+  soloEquipo(ctx);
+  const s = E.servicios.find((x) => x.id === p.id);
+  const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
+  if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  if (e.estado !== "SIN_INICIAR") throw new ErrorApi(409, "ETAPA_INICIADA", "Esa etapa ya empezó: no se quita (puedes renombrarla o completarla)");
+  const hermanas = E.etapas.filter((x) => x.servicioContratadoId === s.id && x.periodo === e.periodo);
+  if (hermanas.length <= 1) throw new ErrorApi(409, "ULTIMA_ETAPA", "El proyecto necesita al menos una etapa");
+  E.etapas = E.etapas.filter((x) => x !== e);
+  for (const x of hermanas) if (x !== e && x.orden > e.orden) x.orden -= 1;
+  for (const t of E.tareas) if (t.etapaId === e.id) t.etapaId = null;
+  for (const x of E.entregables) if (x.etapaId === e.id) x.etapaId = null;
+  return avanceServicio(s, true);
+});
+
 /** Servicio contratado visible para quien llama (404 si no existe o es de otro cliente). */
 function buscarServicio(ctx: Ctx, id: string) {
   const s = E.servicios.find((x) => x.id === id);
@@ -3497,7 +3530,7 @@ function crearPendientes(ctx: Ctx, s: D.ServicioContratadoDemo, r: D.ReunionDemo
 
 const comentarioProyectoVista = (ctx: Ctx, c: D.ComentarioProyectoDemo): S<"ComentarioProyecto"> => {
   const autor = E.usuarios.find((u) => u.id === c.autorId)!;
-  const r: S<"ComentarioProyecto"> = { id: c.id, texto: c.texto, autor: persona(autor.id)!, deEquipo: autor.tipo === "EQUIPO", creadoEn: c.creadoEn };
+  const r: S<"ComentarioProyecto"> = { id: c.id, texto: c.texto, autor: persona(autor.id)!, deEquipo: autor.tipo === "EQUIPO", creadoEn: c.creadoEn, editadoEn: c.editadoEn ?? null };
   if (ctx.esEquipo) r.interno = c.interno;
   return r;
 };
@@ -3535,6 +3568,7 @@ ruta("PATCH", "/servicios-contratados/:id/comentarios/:comentario", async (ctx, 
   const texto = ((await cuerpo<{ texto?: string }>(req)).texto ?? "").trim();
   if (texto.length < 2 || texto.length > 2000) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" }]);
   c.texto = texto;
+  c.editadoEn = new Date().toISOString();
   return comentarioProyectoVista(ctx, c);
 });
 ruta("DELETE", "/servicios-contratados/:id/comentarios/:comentario", (ctx, p) => {

@@ -75,7 +75,7 @@ import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type Co
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso, validarEdicionEtapa } from "../dominio/kpis";
+import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso, validarEdicionEtapa, validarEtapaNueva, avanceEntre } from "../dominio/kpis";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
 import { conConsumo } from "./ia-modelos";
@@ -4879,6 +4879,7 @@ interface FilaComentarioProyecto {
   id: string;
   texto: string;
   interno: boolean;
+  editado_en: Date | null;
   creado_en: Date;
   autor_id: string;
   autor_nombre: string;
@@ -4886,10 +4887,10 @@ interface FilaComentarioProyecto {
   autor_tipo: "EQUIPO" | "CLIENTE" | "SERVICIO";
 }
 const SELECT_COMENTARIO_PROYECTO = `
-  SELECT c.id, c.texto, c.interno, c.creado_en, u.id AS autor_id, u.nombre AS autor_nombre, u.cargo AS autor_cargo, u.tipo AS autor_tipo
+  SELECT c.id, c.texto, c.interno, c.creado_en, c.editado_en, u.id AS autor_id, u.nombre AS autor_nombre, u.cargo AS autor_cargo, u.tipo AS autor_tipo
   FROM comentario_proyecto c JOIN usuario u ON u.id = c.autor_id`;
 const comentarioProyectoVista = (ctx: Ctx, c: FilaComentarioProyecto): S<"ComentarioProyecto"> => {
-  const r: S<"ComentarioProyecto"> = { id: c.id, texto: c.texto, autor: { id: c.autor_id, nombre: c.autor_nombre, cargo: c.autor_cargo }, deEquipo: c.autor_tipo === "EQUIPO", creadoEn: iso(c.creado_en)! };
+  const r: S<"ComentarioProyecto"> = { id: c.id, texto: c.texto, autor: { id: c.autor_id, nombre: c.autor_nombre, cargo: c.autor_cargo }, deEquipo: c.autor_tipo === "EQUIPO", creadoEn: iso(c.creado_en)!, editadoEn: iso(c.editado_en) };
   if (ctx.esEquipo) r.interno = c.interno;
   return r;
 };
@@ -4930,7 +4931,7 @@ ruta("PATCH", "/servicios-contratados/:id/comentarios/:comentario", async (ctx, 
   const b = (await cuerpo()) as { texto?: unknown };
   const texto = typeof b.texto === "string" ? b.texto.trim() : "";
   if (texto.length < 2 || texto.length > 2000) validacion([{ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" }]);
-  await ctx.c.query("UPDATE comentario_proyecto SET texto = $2 WHERE id = $1", [c.id, texto]);
+  await ctx.c.query("UPDATE comentario_proyecto SET texto = $2, editado_en = now() WHERE id = $1", [c.id, texto]);
   return comentarioProyectoVista(ctx, (await ctx.c.query<FilaComentarioProyecto>(`${SELECT_COMENTARIO_PROYECTO} WHERE c.id = $1`, [c.id])).rows[0]);
 });
 ruta("DELETE", "/servicios-contratados/:id/comentarios/:comentario", async (ctx, p) => {
@@ -5032,6 +5033,44 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
       typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.esperaCliente === "boolean" ? b.esperaCliente : null],
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
+  return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
+});
+
+// 13 nov (pedido): agregar o quitar etapas después de contratar. El orden queda seguido (sin huecos), porque
+// «no se completa si la anterior no lo está» mira la etapa de orden - 1.
+ruta("POST", "/servicios-contratados/:id/etapas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { nombre?: string; fechaEstimada?: string | null; esperaCliente?: boolean; despuesDe?: string | null };
+  validacion(validarEtapaNueva(b));
+  const todas = (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE servicio_contratado_id = $1 ORDER BY periodo NULLS FIRST, orden FOR UPDATE", [s.id])).rows;
+  const ref = b.despuesDe ? todas.find((e) => e.id === b.despuesDe) : todas.filter((e) => e.periodo === (todas.at(-1)?.periodo ?? null)).at(-1);
+  if (b.despuesDe && !ref) validacion([{ campo: "despuesDe", mensaje: "Esa etapa no es de este proyecto" }]);
+  const periodo = ref?.periodo ?? null;
+  const hermanas = todas.filter((e) => e.periodo === periodo);
+  const orden = (ref?.orden ?? 0) + 1;
+  const siguiente = hermanas.find((e) => e.orden === orden);
+  await ctx.c.query("UPDATE etapa_proyecto SET orden = orden + 1000 WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 AND orden >= $3", [s.id, periodo, orden]);
+  await ctx.c.query("UPDATE etapa_proyecto SET orden = orden - 999 WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 AND orden >= 1000", [s.id, periodo]);
+  await ctx.c.query(
+    `INSERT INTO etapa_proyecto (servicio_contratado_id, cliente_id, periodo, orden, nombre, avance_pct, espera_cliente, fecha_estimada, actualizado_por)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::date, $9)`,
+    [s.id, s.cliente_id, periodo, orden, b.nombre!.trim(), avanceEntre(ref?.avance_pct ?? 1, siguiente?.avance_pct ?? null), !!b.esperaCliente, b.fechaEstimada ?? null, ctx.u.usuarioId],
+  );
+  return { __status: 201, ...(await avanceServicio(ctx, s, periodo ?? PERIODO_ACTUAL())) };
+});
+
+ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const e = esUuid(p.etapa) ? (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2 FOR UPDATE", [p.etapa, s.id])).rows[0] : undefined;
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  if (e.estado !== "SIN_INICIAR") throw new ErrorApi(409, "ETAPA_INICIADA", "Esa etapa ya empezó: no se quita (puedes renombrarla o completarla)");
+  const cuantas = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2", [s.id, e.periodo])).rows[0].n;
+  if (cuantas <= 1) throw new ErrorApi(409, "ULTIMA_ETAPA", "El proyecto necesita al menos una etapa");
+  await ctx.c.query("DELETE FROM etapa_proyecto WHERE id = $1", [e.id]);
+  await ctx.c.query("UPDATE etapa_proyecto SET orden = orden + 1000 WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 AND orden > $3", [s.id, e.periodo, e.orden]);
+  await ctx.c.query("UPDATE etapa_proyecto SET orden = orden - 1001 WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 AND orden >= 1000", [s.id, e.periodo]);
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
 });
 

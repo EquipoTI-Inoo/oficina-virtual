@@ -469,7 +469,7 @@ function Comentarios({ servicioId }: { servicioId: string }) {
               {c.autor.nombre}
               {c.deEquipo && <span className="texto-primario"> · Inoo</span>}
             </p>
-            <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>{fDiaHora(c.creadoEn)}</p>
+            <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>{fDiaHora(c.creadoEn)}{c.editadoEn ? <span title={`Corregido el ${fDiaHora(c.editadoEn)}`}> · editado</span> : null}</p>
             <TextoComentario servicioId={servicioId} c={c} alCambiar={() => void lista.recargar()} />
           </div>
         </div>

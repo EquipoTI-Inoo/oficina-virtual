@@ -291,8 +291,29 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       const c = (await llamar("POST", `/servicios-contratados/${WEB}/comentarios`, VALERIA, { texto: "¿Podemos ver la portada el jueves?" })).json;
       assert.equal((await llamar("PATCH", `/servicios-contratados/${WEB}/comentarios/${c.id}`, DIEGO, { texto: "Otro texto" })).status, 403, "solo quien lo escribió");
       assert.equal((await llamar("PATCH", `/servicios-contratados/${WEB}/comentarios/${c.id}`, VALERIA, { texto: "¿Podemos ver la portada el viernes?" })).json.texto, "¿Podemos ver la portada el viernes?");
+      assert.ok((await llamar("GET", `/servicios-contratados/${WEB}/comentarios`, DIEGO)).json.datos.find((x: any) => x.id === c.id).editadoEn, "queda marcado como editado");
       assert.equal((await llamar("DELETE", `/servicios-contratados/${WEB}/comentarios/${c.id}`, VALERIA)).status, 204);
       assert.ok(!(await llamar("GET", `/servicios-contratados/${WEB}/comentarios`, DIEGO)).json.datos.some((x: any) => x.id === c.id));
+    });
+    test("13 nov: agregar y quitar etapas después de contratar; el orden queda seguido", async () => {
+      await reiniciar();
+      const antes = (await llamar("GET", `/servicios-contratados/${WEB}`, DIEGO)).json.etapas;
+      const [e1, e2] = antes;
+      assert.deepEqual((await llamar("POST", `/servicios-contratados/${WEB}/etapas`, DIEGO, { nombre: "x" })).json.errores.map((e: any) => e.campo), ["nombre"]);
+      assert.equal((await llamar("POST", `/servicios-contratados/${WEB}/etapas`, VALERIA, { nombre: "Fotos de producto" })).status, 403);
+      const r = await llamar("POST", `/servicios-contratados/${WEB}/etapas`, DIEGO, { nombre: "Fotos de producto", despuesDe: e1.id, esperaCliente: true });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      const despues = (await llamar("GET", `/servicios-contratados/${WEB}`, DIEGO)).json.etapas;
+      assert.equal(despues.length, antes.length + 1);
+      assert.deepEqual(despues.slice(0, 3).map((e: any) => e.nombre), [e1.nombre, "Fotos de producto", e2.nombre]);
+      const nueva = despues[1];
+      assert.ok(nueva.avancePct >= e1.avancePct && nueva.avancePct <= e2.avancePct, `avance ${nueva.avancePct} entre ${e1.avancePct} y ${e2.avancePct}`);
+      assert.equal(nueva.esperaCliente, true);
+      assert.deepEqual(despues.map((e: any) => e.orden), despues.map((_: any, i: number) => despues[0].orden + i), "sin huecos");
+      assert.equal((await llamar("DELETE", `/servicios-contratados/${WEB}/etapas/${e1.id}`, DIEGO)).status, 409, "ya empezó (está completada)");
+      assert.equal((await llamar("DELETE", `/servicios-contratados/${WEB}/etapas/${nueva.id}`, DIEGO)).status, 200);
+      const fin = (await llamar("GET", `/servicios-contratados/${WEB}`, DIEGO)).json.etapas;
+      assert.deepEqual(fin.map((e: any) => [e.nombre, e.orden]), antes.map((e: any) => [e.nombre, e.orden]), "vuelve a quedar como antes");
     });
     test("áreas que lidera (9 nov): solo un super usuario las cambia y queda en el historial", async () => {
       await reiniciar();

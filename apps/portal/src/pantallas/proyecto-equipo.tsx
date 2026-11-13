@@ -89,6 +89,28 @@ function ProyectoEquipo() {
       avisar({ titulo: "No se pudo mover la etapa", texto: errorDe(e) });
     }
   };
+  // 13 nov (pedido): agregar y quitar etapas después de contratar.
+  const agregarEtapa = async (cuerpo: Record<string, unknown>) => {
+    try {
+      const av = await api<S<"AvanceServicio">>(`/servicios-contratados/${d.servicioContratadoId}/etapas`, { metodo: "POST", cuerpo });
+      perfil.setDatos({ ...d, ...av });
+      avisar({ titulo: "Etapa agregada" });
+      return true;
+    } catch (e) {
+      avisar({ titulo: "No se pudo agregar la etapa", texto: errorDe(e) });
+      return false;
+    }
+  };
+  const quitarEtapa = async (etapa: S<"EtapaProyecto">) => {
+    if (!window.confirm(`¿Quitar la etapa «${etapa.nombre}»? Las tareas y entregables que tenga quedan sin etapa.`)) return;
+    try {
+      const av = await api<S<"AvanceServicio">>(`/servicios-contratados/${d.servicioContratadoId}/etapas/${etapa.id}`, { metodo: "DELETE" });
+      perfil.setDatos({ ...d, ...av });
+      avisar({ titulo: "Etapa quitada" });
+    } catch (e) {
+      avisar({ titulo: "No se pudo quitar", texto: errorDe(e) });
+    }
+  };
   const textoPaso = (d.siguientePaso?.texto ?? "").replace(/^Siguiente paso: /, "") ?? "";
   const descargarReporte = async () => {
     try {
@@ -186,6 +208,7 @@ function ProyectoEquipo() {
                       <th style={{ width: 150 }}>Estado</th>
                       <th style={{ width: 150 }}>Fin previsto</th>
                       <th style={{ width: 100 }}>Lista el</th>
+                      <th style={{ width: 44 }}><span className="sr-only">Quitar</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -218,12 +241,20 @@ function ProyectoEquipo() {
                           <input className="input" type="date" aria-label={`Fin previsto de ${e.nombre}`} value={e.fechaEstimada ?? ""} onChange={(x) => x.target.value && void moverEtapa(e, { fechaEstimada: x.target.value })} />
                         </td>
                         <td className="texto-muted">{e.fechaFin ? fCorta(e.fechaFin) : "—"}</td>
+                        <td>
+                          {e.estado === "SIN_INICIAR" && d.etapas.length > 1 && (
+                            <button className="boton-icono" aria-label={`Quitar la etapa ${e.nombre}`} title="Quitar etapa (solo si no empezó)" onClick={() => void quitarEtapa(e)}>
+                              <LuTrash2 size={14} />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
+            {vista === "TABLA" && <AgregarEtapa etapas={d.etapas} alAgregar={(cuerpo) => agregarEtapa(cuerpo)} />}
             <div className="campo">
               <label htmlFor="siguiente-paso">Siguiente paso (lo ve el cliente)</label>
               <div className="fila" style={{ gap: 8 }}>
@@ -270,6 +301,48 @@ function ProyectoEquipo() {
 }
 
 /** Calendario del equipo: fines de etapa, reuniones, tareas y lo que se le pidió al cliente. */
+/** 13 nov (pedido): una etapa nueva, después de la que se elija (por defecto, al final). */
+function AgregarEtapa({ etapas, alAgregar }: { etapas: S<"EtapaProyecto">[]; alAgregar: (cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+  const [abierto, setAbierto] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [despues, setDespues] = useState(etapas.at(-1)?.id ?? "");
+  const [fecha, setFecha] = useState("");
+  const [cliente, setCliente] = useState(false);
+  if (!abierto) {
+    return (
+      <button className="boton boton--chico" style={{ justifySelf: "start" }} onClick={() => { setDespues(etapas.at(-1)?.id ?? ""); setAbierto(true); }}>
+        <LuPlus size={14} /> Agregar etapa
+      </button>
+    );
+  }
+  const guardar = async () => {
+    if (await alAgregar({ nombre, despuesDe: despues || null, fechaEstimada: fecha || null, esperaCliente: cliente })) {
+      setNombre(""); setFecha(""); setCliente(false); setAbierto(false);
+    }
+  };
+  return (
+    <div className="fila-suave pila" style={{ gap: 10, padding: 12 }} role="group" aria-label="Nueva etapa">
+      <div className="grid-2" style={{ gap: 10 }}>
+        <label className="campo"><span>Nombre de la etapa</span>
+          <div className="entrada"><input autoFocus value={nombre} maxLength={120} onChange={(x) => setNombre(x.target.value)} placeholder="Ej.: Fotos de producto" /></div></label>
+        <label className="campo"><span>Va después de</span>
+          <select className="input" value={despues} onChange={(x) => setDespues(x.target.value)}>
+            {etapas.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+          </select></label>
+        <label className="campo"><span>Fin previsto (opcional)</span>
+          <div className="entrada"><input type="date" value={fecha} onChange={(x) => setFecha(x.target.value)} /></div></label>
+        <label className="fila texto-sm" style={{ gap: 8, alignSelf: "end", paddingBottom: 10 }}>
+          <input type="checkbox" checked={cliente} onChange={(x) => setCliente(x.target.checked)} /> Depende del cliente
+        </label>
+      </div>
+      <span className="fila" style={{ gap: 8 }}>
+        <button className="boton boton--chico boton--primario" disabled={nombre.trim().length < 2} onClick={() => void guardar()}>Agregar</button>
+        <button className="boton boton--chico" onClick={() => setAbierto(false)}>Cancelar</button>
+      </span>
+    </div>
+  );
+}
+
 function CalendarioEquipo({ d }: { d: Perfil }) {
   const tareas = useConsulta<{ datos: S<"Tarea">[] }>(`/servicios-contratados/${d.servicioContratadoId}/tareas`);
   const reqs = useConsulta<{ datos: S<"Requerimiento">[] }>(`/clientes/${d.clienteId}/requerimientos?servicioContratadoId=${d.servicioContratadoId}`);
@@ -822,7 +895,7 @@ function ComentariosEquipo({ servicioId }: { servicioId: string }) {
               </span>
             )}
           </span>
-          <span className="texto-xs texto-muted">{fDiaHora(c.creadoEn)}</span>
+          <span className="texto-xs texto-muted">{fDiaHora(c.creadoEn)}{c.editadoEn ? <span title={`Corregido el ${fDiaHora(c.editadoEn)}`}> · editado</span> : null}</span>
           <TextoComentario servicioId={servicioId} c={c} alCambiar={() => void lista.recargar()} />
         </div>
       ))}

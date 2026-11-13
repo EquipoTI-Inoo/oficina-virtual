@@ -149,3 +149,19 @@ export function validarEdicionEtapa(b: { nombre?: unknown; esperaCliente?: unkno
   if (b.esperaCliente !== undefined && typeof b.esperaCliente !== "boolean") e.push({ campo: "esperaCliente", mensaje: "Debe ser verdadero o falso" });
   return e;
 }
+
+/**
+ * 13 nov (pedido): agregar una etapa después de contratar. Va después de `despues` (o al final) y su % de avance
+ * queda entre el de la etapa anterior y el de la siguiente, para que el avance siga creciendo en orden.
+ */
+export function validarEtapaNueva(b: { nombre?: unknown; fechaEstimada?: unknown; esperaCliente?: unknown; despuesDe?: unknown }): { campo: string; mensaje: string }[] {
+  const e: { campo: string; mensaje: string }[] = [];
+  if (!(typeof b.nombre === "string" && b.nombre.trim().length >= 2 && b.nombre.trim().length <= 120)) e.push({ campo: "nombre", mensaje: "Ponle un nombre (entre 2 y 120 caracteres)" });
+  if (b.fechaEstimada != null && !(typeof b.fechaEstimada === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fechaEstimada))) e.push({ campo: "fechaEstimada", mensaje: "Usa el formato AAAA-MM-DD" });
+  if (b.esperaCliente !== undefined && typeof b.esperaCliente !== "boolean") e.push({ campo: "esperaCliente", mensaje: "Debe ser verdadero o falso" });
+  if (b.despuesDe != null && typeof b.despuesDe !== "string") e.push({ campo: "despuesDe", mensaje: "Etapa no válida" });
+  return e;
+}
+/** El % de avance de una etapa nueva puesta entre dos (o al final, 100). */
+export const avanceEntre = (anterior: number, siguiente: number | null) =>
+  siguiente === null ? 100 : Math.max(1, Math.min(100, Math.max(anterior, Math.round((anterior + siguiente) / 2))));

@@ -1885,6 +1885,30 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /servicios-contratados/{servicioContratadoId}/etapas:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Servicios]
+      operationId: agregarEtapa
+      summary: 'Agrega una etapa después de contratar (13 nov): después de `despuesDe` o al final; su % queda entre la anterior y la siguiente'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre]
+              properties:
+                nombre: { type: string, minLength: 2, maxLength: 120 }
+                despuesDe: { type: [string, 'null'], format: uuid }
+                fechaEstimada: { type: [string, 'null'], format: date }
+                esperaCliente: { type: boolean }
+      responses:
+        '201': { description: Agregada, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /servicios-contratados/{servicioContratadoId}/etapas/{etapaId}:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1923,6 +1947,15 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Servicios]
+      operationId: quitarEtapa
+      summary: 'Quita una etapa que no empezó (13 nov). 409 si ya empezó o si es la única'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
 
   /clientes/{clienteId}/plan/contrato:
     parameters: [ { $ref: '#/components/parameters/ClienteId' } ]
@@ -8884,6 +8917,7 @@ components:
         deEquipo: { type: boolean }
         interno: { type: boolean, description: Solo equipo }
         creadoEn: { type: string, format: date-time }
+        editadoEn: { type: [string, 'null'], format: date-time, description: '13 nov: si quien lo escribió lo corrigió' }
     AvanceCliente:
       type: object
       required: [periodo, resumenMes, servicios]

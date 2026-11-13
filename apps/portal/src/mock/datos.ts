@@ -743,6 +743,7 @@ export interface ComentarioProyectoDemo {
   texto: string;
   interno: boolean;
   creadoEn: string;
+  editadoEn?: string | null;
 }
 export const COMENTARIOS_PROYECTO_INICIALES: ComentarioProyectoDemo[] = [
   { id: uid(24, 1), servicioContratadoId: uid(4, 3), clienteId: uid(2, 1), autorId: uid(1, 1), texto: "¿Las capacitaciones pueden ser presenciales en nuestra oficina?", interno: false, creadoEn: "2026-10-05T16:20:00Z" },

@@ -1262,6 +1262,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/etapas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agrega una etapa después de contratar (13 nov): después de `despuesDe` o al final; su % queda entre la anterior y la siguiente */
+        post: operations["agregarEtapa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/etapas/{etapaId}": {
         parameters: {
             query?: never;
@@ -1275,7 +1294,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /** Quita una etapa que no empezó (13 nov). 409 si ya empezó o si es la única */
+        delete: operations["quitarEtapa"];
         options?: never;
         head?: never;
         /**
@@ -7248,6 +7268,11 @@ export interface components {
             interno?: boolean;
             /** Format: date-time */
             creadoEn: string;
+            /**
+             * Format: date-time
+             * @description 13 nov: si quien lo escribió lo corrigió
+             */
+            editadoEn?: string | null;
         };
         AvanceCliente: {
             periodo: components["schemas"]["Periodo"];
@@ -10862,6 +10887,65 @@ export interface operations {
             };
             403: components["responses"]["SinPermiso"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    agregarEtapa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    /** Format: uuid */
+                    despuesDe?: string | null;
+                    /** Format: date */
+                    fechaEstimada?: string | null;
+                    esperaCliente?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Agregada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvanceServicio"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    quitarEtapa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                etapaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvanceServicio"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
         };
     };
     actualizarEtapa: {
