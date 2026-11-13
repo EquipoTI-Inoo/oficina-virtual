@@ -80,7 +80,7 @@ export function FilaRequerimiento({ r, accion = "Completar" }: { r: Req; accion?
       </span>
       <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
         <Etiqueta tono={tono}>{texto}</Etiqueta>
-        {pendiente && <span className="texto-primario negrita texto-sm">{accion} →</span>}
+        {pendiente && <span className="texto-primario negrita texto-sm">{accion}</span>}
       </span>
     </Enlace>
   );
@@ -221,7 +221,7 @@ function Requerimiento() {
       <Enlace a={esEquipo ? `/equipo/clientes/${clienteActivo()}` : "/requerimientos"} className="volver">
         ← {esEquipo ? "Ficha del cliente" : "Requerimientos"}
       </Enlace>
-      <Cabecera antetitulo={r.servicioTitulo.toUpperCase()} titulo={r.titulo} bajada={r.descripcion ?? undefined} accion={<Etiqueta tono={tono}>{estado}</Etiqueta>} />
+      <Cabecera antetitulo={r.servicioTitulo} titulo={r.titulo} bajada={r.descripcion ?? undefined} accion={<Etiqueta tono={tono}>{estado}</Etiqueta>} />
       <div className="con-lateral">
         <div className="pila">
           {r.estado === "OBSERVADO" && r.notaEquipo && (

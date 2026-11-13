@@ -157,7 +157,7 @@ function Soporte() {
             Usa «Pedir cambios» en el detalle del entregable. Tus comentarios quedarán vinculados a la versión correcta.
           </p>
           <Enlace a="/entregables" className="enlace">
-            Ir a entregables por revisar →
+            Ir a entregables por revisar
           </Enlace>
         </div>
       </div>
@@ -478,7 +478,7 @@ function TablaClientes({ filas: todasLasFilas, todas }: { filas: S<"FilaPanelCli
                   <td style={{ fontSize: "var(--t-md)", color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
                   <td>
                     <Enlace a={`/equipo/clientes/${f.cliente.id}`} className="enlace" style={{ fontSize: "var(--t-xs)" }}>
-                      Ver ficha →
+                      Ver ficha
                     </Enlace>
                   </td>
                 </tr>
@@ -592,7 +592,7 @@ function TarjetaMarca({ clienteId }: { clienteId: string }) {
       <div className="pila" style={{ gap: 6, marginTop: 6 }}>
         <span className="texto-xs negrita texto-muted">TUS PROYECTOS</span>
         {(m.proyectos ?? []).map((x) => (
-          <Enlace key={x.servicioContratadoId} a={`/equipo/proyectos/${x.servicioContratadoId}`} className="enlace texto-sm">{x.titulo} →</Enlace>
+          <Enlace key={x.servicioContratadoId} a={`/equipo/proyectos/${x.servicioContratadoId}`} className="enlace texto-sm">{x.titulo}</Enlace>
         ))}
       </div>
     </section>

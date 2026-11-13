@@ -217,7 +217,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
           <details>
             <summary className="texto-sm negrita">Columnas ({d.columnas.length})</summary>
             <ul className="texto-sm" style={{ marginTop: 6 }}>
-              {d.columnas.map((c) => <li key={c.id}>{c.titulo} → <span className={c.uso === "NO_SE_PASA" ? "texto-muted" : undefined}>{USO[c.uso]}</span></li>)}
+              {d.columnas.map((c) => <li key={c.id}>{c.titulo} <span className={c.uso === "NO_SE_PASA" ? "texto-muted" : undefined}>{USO[c.uso]}</span></li>)}
             </ul>
             <p className="texto-xs texto-muted">Los archivos de las columnas de archivo van al historial del ítem. Las automatizaciones de Monday no se pasan.</p>
           </details>

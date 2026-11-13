@@ -209,7 +209,7 @@ export function PantallaIngreso() {
         <div style={{ width: "min(480px, 100%)", textAlign: "center", marginTop: 72, display: "grid", gap: 10 }}>
           <span className="texto-sm texto-muted">¿Aún no tienes acceso?</span>
           <a className="enlace" style={{ justifyContent: "center" }} href="mailto:hola@inoo.pe">
-            Contactar a mi equipo Inoo →
+            Contactar a mi equipo Inoo
           </a>
           <span className="texto-xs texto-muted">© 2026 Inoo · Privacidad y términos</span>
         </div>
@@ -351,7 +351,7 @@ function Inicio() {
   return (
     <>
       <Cabecera
-        antetitulo={fHoyLargo(HOY_PORTAL).toUpperCase()}
+        antetitulo={fHoyLargo(HOY_PORTAL)}
         titulo={`Hola, ${nombre} 👋`}
         ligero
         bajada={`Así van tus proyectos con Inoo${cuenta?.nombre ? `, ${cuenta.nombre}` : ""}.`}
@@ -398,7 +398,7 @@ function Inicio() {
       <section className="seccion">
         <div className="seccion-cab">
           <h2 className="seccion-titulo">Tus proyectos</h2>
-          <Enlace a="/servicios" className="enlace">Ver todos →</Enlace>
+          <Enlace a="/servicios" className="enlace">Ver todos</Enlace>
         </div>
         {!d.servicios.length && <p className="texto-sm texto-muted">Tu equipo Inoo está preparando tus proyectos. Aquí vas a ver cómo avanza cada uno.</p>}
         <div className="proyectos-cliente">
@@ -418,7 +418,7 @@ function Inicio() {
                     {x.siguientePaso}
                   </span>
                 )}
-                <span className="enlace texto-sm" style={{ marginTop: "auto" }}>Ver proyecto →</span>
+                <span className="enlace texto-sm" style={{ marginTop: "auto" }}>Ver proyecto</span>
               </Enlace>
             );
           })}
@@ -562,7 +562,7 @@ export function AsiVaElMes({ progreso: a, proxima, nota, conEnlace = true }: { p
       {nota && <p className="texto-xs texto-muted" style={{ marginTop: 16 }}>{nota}</p>}
       {conEnlace && (
         <Enlace a="/servicios" className="enlace" style={{ marginTop: 18 }}>
-          Ver mis servicios →
+          Ver mis servicios
         </Enlace>
       )}
     </div>
@@ -657,7 +657,7 @@ function TarjetaServicio({ s }: { s: S<"ServicioCliente"> }) {
         </span>
       )}
       <Enlace a={`/servicios/${s.servicioContratadoId}`} className="enlace">
-        Ver proyecto →
+        Ver proyecto
       </Enlace>
     </div>
   );

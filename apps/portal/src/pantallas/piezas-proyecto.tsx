@@ -79,13 +79,13 @@ export function KanbanPiezas({ clienteId, servicioId, soloBlogs = false }: { cli
                   </div>
                   <span>{p.notaEstado}</span>
                   <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: "var(--t-xs)" }}>
-                    Abrir pieza →
+                    Abrir pieza
                   </Enlace>
                 </article>
               ))}
               {col.columna === "APROBADO" && col.piezas.length > 3 && (
                 <button className="enlace" style={{ fontSize: "var(--t-xs)", padding: "2px 6px 6px", justifyContent: "flex-start" }} onClick={() => setExpandida(!expandida)}>
-                  {expandida ? "Ver menos →" : `Ver las otras ${col.piezas.length - 3} aprobadas →`}
+                  {expandida ? "Ver menos" : `Ver las otras ${col.piezas.length - 3} aprobadas →`}
                 </button>
               )}
             </section>
@@ -191,7 +191,7 @@ export function BlogsDelSoporte({ clienteId, servicioId, incluidos }: { clienteI
         <Cargando />
       )}
       <button className="enlace texto-sm" style={{ justifySelf: "start" }} onClick={() => setAbierto(true)}>
-        Ver tablero →
+        Ver tablero
       </button>
       <Modal
         abierto={abierto}

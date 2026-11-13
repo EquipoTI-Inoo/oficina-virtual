@@ -37,7 +37,7 @@ function Cuenta() {
   const actual = pestanas.find((x) => x.a === ruta)?.a ?? "/cuenta";
   return (
     <>
-      <Cabecera antetitulo={cuentaActiva(sesion)?.nombre?.toUpperCase()} titulo="Mi cuenta" bajada="Tus datos, pagos, usuarios y cómo contactarnos." />
+      <Cabecera antetitulo={cuentaActiva(sesion)?.nombre} titulo="Mi cuenta" bajada="Tus datos, pagos, usuarios y cómo contactarnos." />
       <nav className="pestanas" role="tablist" aria-label="Secciones de mi cuenta" style={{ marginBottom: 20, maxWidth: "100%", overflowX: "auto" }}>
         {pestanas.map((x) => (
           <Enlace key={x.a} a={x.a} role="tab" aria-selected={x.a === actual} className="pestana" style={{ display: "inline-flex", alignItems: "center", whiteSpace: "nowrap" }}>

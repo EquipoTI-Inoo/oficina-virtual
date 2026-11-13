@@ -75,7 +75,7 @@ export function PantallaPruebas() {
                       <span className="negrita" style={{ display: "block" }}>{u.nombre}</span>
                       <span className="texto-xs texto-muted">{u.descripcion}</span>
                     </span>
-                    <span className="texto-primario negrita texto-sm" style={{ flexShrink: 0 }}>{entrando === u.id ? "Entrando…" : "Entrar →"}</span>
+                    <span className="texto-primario negrita texto-sm" style={{ flexShrink: 0 }}>{entrando === u.id ? "Entrando…" : "Entrar"}</span>
                   </button>
                 ))}
               </div>

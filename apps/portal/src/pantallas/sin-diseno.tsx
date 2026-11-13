@@ -280,7 +280,7 @@ function CalendarioEquipo() {
                       </td>
                       <td>
                         <Enlace a={`/equipo/piezas/${p.id}`} className="enlace" style={{ fontSize: "var(--t-xs)" }}>
-                          Abrir →
+                          Abrir
                         </Enlace>
                       </td>
                     </tr>

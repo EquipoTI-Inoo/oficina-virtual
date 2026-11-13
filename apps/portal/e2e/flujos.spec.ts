@@ -81,7 +81,7 @@ test("piezas en el proyecto: Kanban en Social Media Pro, blogs en el soporte web
   await piezas.getByText("Abrir pieza").first().click();
   await expect(page.getByText("← Volver al proyecto")).toBeVisible({ timeout: 30_000 });
   await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000001");
-  await page.getByRole("button", { name: "Ver tablero →" }).click({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Ver tablero" }).click({ timeout: 30_000 });
   const tablero = page.getByRole("dialog", { name: "Tablero de blogs" });
   await expect(tablero.getByRole("button", { name: "Nuevo blog" })).toBeVisible();
   await expect(tablero.locator(".kanban-tarjeta").first()).toContainText("ARTÍCULO DE BLOG");

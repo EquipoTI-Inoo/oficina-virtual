@@ -10,7 +10,7 @@
   --c-primario-hover: #7a22c4;
   --c-primario-suave: #f4eafe;
   --c-primario-borde: #e4ccfb;
-  --c-tinta: #111111;
+  --c-tinta: #000000;
   --c-texto: #333333;
   --c-muted: #616161; /* 6,2:1 sobre blanco */
   --c-tenue: #8a8a8a;
@@ -46,8 +46,8 @@
   /* 13 nov · Marca Inoo (manual, nov 2026): 80 % blanco y negro; morado y verde solo como acentos.
      El morado puro (#ad4dfa, 4:1) y el verde (#21f921, 1,4:1) no alcanzan contraste para texto: van en detalles
      (líneas, puntos, barras). Para texto y selección se usa el morado oscuro --c-primario (6:1). */
-  --c-accion: #111111;
-  --c-accion-hover: #2b2b2b;
+  --c-accion: #000000;
+  --c-accion-hover: #262626;
   --c-marca-morado: #ad4dfa;
   --c-marca-verde: #21f921;
   --c-marca-morado-suave: #b273e6;
@@ -74,7 +74,7 @@
   --c-superficie-sutil: #fbfbfb;
   --c-esqueleto: #ececec;
   --c-esqueleto-brillo: #f6f6f6;
-  --c-lienzo-oscuro: #111111;
+  --c-lienzo-oscuro: #000000;
   --c-sobre-oscuro: #cbd5e1;
   --c-peligro-borde: #f3c7c2;
   --c-alerta-borde: #f5c26b;
@@ -2771,3 +2771,18 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .resumen-cifras { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .resumen-cifra { padding: 14px 16px; display: grid; gap: 2px; }
 .resumen-cifra strong { font-size: var(--t-3xl); font-weight: 600; color: var(--c-tinta); }
+
+/* 13 nov · 2.ª auditoría (frontend-design): fuera las marcas de plantilla.
+   - Sin MAYÚSCULAS espaciadas en etiquetas: las etiquetas van en frase normal; el morado ya las distingue.
+   - Las tarjetas se separan con el borde, sin sombra; la sombra queda solo para lo que flota (menús, modales).
+   - Negro puro (#000) como pide el manual; la línea en degradado es el único gesto de marca. */
+.antetitulo { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: var(--t-sm); }
+.nav-grupo, .logo-sub, .tabla th, .ficha-seccion, .panel-lateral-cab { text-transform: none; letter-spacing: 0; }
+.nav-grupo { font-weight: 600; color: var(--c-texto); }
+.tabla th { font-weight: 600; color: var(--c-texto); }
+.tarjeta { box-shadow: none; }
+.titulo { letter-spacing: -0.025em; }
+.antetitulo::first-letter { text-transform: uppercase; }
+/* Lo que el cliente debe hacer: fondo neutro con borde; el morado queda en el ícono (80 % blanco y negro). */
+.pendiente-cliente:not(.pendiente-cliente--alerta) { background: var(--c-blanco); border: 1px solid var(--c-borde-medio); }
+.pendiente-cliente:not(.pendiente-cliente--alerta):hover { border-color: var(--c-primario); filter: none; }

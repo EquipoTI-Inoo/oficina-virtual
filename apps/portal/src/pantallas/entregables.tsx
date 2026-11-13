@@ -62,7 +62,7 @@ export function FilaEntregable({ e, a }: { e: Entregable; a: string }) {
       </span>
       <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
         <EtiquetaEntregable e={e} />
-        {e.estado === "LISTO_REVISION" && comoCliente() && <span className="texto-primario negrita texto-sm">Revisar →</span>}
+        {e.estado === "LISTO_REVISION" && comoCliente() && <span className="texto-primario negrita texto-sm">Revisar</span>}
       </span>
     </Enlace>
   );
@@ -146,7 +146,7 @@ function DetalleEntregable({ volver }: { volver?: string }) {
       <Enlace a={volver ?? `/equipo/proyectos/${d.servicioContratadoId}`} className="volver">
         ← {volver ? "Entregables por revisar" : "Volver al proyecto"}
       </Enlace>
-      <Cabecera antetitulo={`${d.servicioTitulo}${d.etapaNombre ? ` · ${d.etapaNombre}` : ""}`.toUpperCase()} titulo={d.titulo} bajada={d.descripcion ?? undefined} accion={<EtiquetaEntregable e={d} />} />
+      <Cabecera antetitulo={`${d.servicioTitulo}${d.etapaNombre ? ` · ${d.etapaNombre}` : ""}`} titulo={d.titulo} bajada={d.descripcion ?? undefined} accion={<EtiquetaEntregable e={d} />} />
       <div className="con-lateral">
         <div className="pila">
           <section className="tarjeta" style={{ padding: 16, display: "grid", gap: 12 }}>

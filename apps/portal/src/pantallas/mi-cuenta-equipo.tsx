@@ -87,7 +87,7 @@ function MiCuenta() {
           <p className="texto-sm texto-muted">
             {d.jarvis.mensajesMes} {d.jarvis.mensajesMes === 1 ? "respuesta" : "respuestas"}{d.jarvis.area ? ` · se cobra a ${nombreArea(d.jarvis.area)}` : ""}
           </p>
-          <Enlace a="/equipo/jarvis" className="enlace texto-sm">Abrir Jarvis →</Enlace>
+          <Enlace a="/equipo/jarvis" className="enlace texto-sm">Abrir Jarvis</Enlace>
         </Tarjeta>
 
         <Tarjeta titulo="Contraseña y sesiones" icono={<LuKeyRound size={18} />}>

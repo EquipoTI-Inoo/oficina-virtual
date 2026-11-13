@@ -49,7 +49,7 @@ function Proyecto() {
         ← Mis servicios
       </Enlace>
       <Cabecera
-        antetitulo={linea ? linea.toUpperCase() : undefined}
+        antetitulo={linea ? linea : undefined}
         titulo={d.titulo}
         bajada={[d.descripcion, d.responsable && `Responsable en Inoo: ${d.responsable.nombre}`].filter(Boolean).join(" · ") || undefined}
         accion={<Etiqueta tono={tono}>{estado}</Etiqueta>}
@@ -112,7 +112,7 @@ function Proyecto() {
                   <Etiqueta tono="violeta">{d.porRevisar.length} pendientes</Etiqueta>
                 </div>
                 <Enlace a="/entregables" className="enlace">
-                  Ver todos los entregables →
+                  Ver todos los entregables
                 </Enlace>
               </div>
               <div className="grid-2">
@@ -274,7 +274,7 @@ function RequerimientosDelServicio({ servicioId }: { servicioId: string }) {
           </div>
         </div>
         <Enlace a="/requerimientos" className="enlace">
-          Ver todos →
+          Ver todos
         </Enlace>
       </div>
       <div className="lista-suave">

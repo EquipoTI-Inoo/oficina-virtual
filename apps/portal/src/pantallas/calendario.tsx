@@ -161,7 +161,7 @@ function Calendario() {
             )}
             <button className="boton boton--chico" onClick={() => setGoogle(true)}>{g?.conectado ? "Administrar" : "Conectar"}</button>
           </div>}
-          <Enlace a="/equipo/calendarios" className="enlace texto-sm">Planes de contenido de clientes →</Enlace>
+          <Enlace a="/equipo/calendarios" className="enlace texto-sm">Planes de contenido de clientes</Enlace>
         </aside>
 
         <section className="calendario-principal" aria-label="Calendario">

@@ -124,7 +124,7 @@ function ProyectoEquipo() {
         />
       )}
       <Cabecera
-        antetitulo={detalleServicio({ ...d, cantidadMensual: d.progreso?.totales ?? 0, unidad: "piezas" }).toUpperCase() || undefined}
+        antetitulo={detalleServicio({ ...d, cantidadMensual: d.progreso?.totales ?? 0, unidad: "piezas" }) || undefined}
         titulo={d.titulo}
         accion={
           <span className="fila" style={{ gap: 10 }}>

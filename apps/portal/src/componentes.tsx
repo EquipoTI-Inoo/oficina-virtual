@@ -220,7 +220,7 @@ export function TarjetaPieza({ p, accion = "Revisar pieza" }: { p: S<"PiezaResum
         <div className="tarjeta-pieza-pie">
           <span>{p.fechaProgramada ? fCortaSegura(p.fechaProgramada) : ""}</span>
           <Enlace a={`/entregables/${p.id}`} className="enlace">
-            {accion} →
+            {accion}
           </Enlace>
         </div>
       </div>
@@ -581,7 +581,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
           {/* El recuadro sirve para comunicar feriados, días no laborables y fechas especiales del cliente. */}
           <span>{aviso ? (aviso.tipo === "ANIVERSARIO" ? aviso.mensaje : textoAviso(aviso)) : "Tu equipo Inoo, a un mensaje de distancia."}</span>
           <Enlace a="/cuenta/ayuda" className="enlace">
-            Contactar a mi equipo →
+            Contactar a mi equipo
           </Enlace>
         </div>
       ) : (

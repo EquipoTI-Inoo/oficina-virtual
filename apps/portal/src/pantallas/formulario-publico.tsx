@@ -62,7 +62,7 @@ export function PantallaFormularioPublico() {
   return (
     <Marco>
       <header style={{ display: "grid", gap: 6 }}>
-        <span className="texto-xs negrita" style={{ color: "var(--c-primario)", letterSpacing: "0.04em" }}>{f.servicioTitulo.toUpperCase()}</span>
+        <span className="texto-xs negrita" style={{ color: "var(--c-primario)", letterSpacing: "0.04em" }}>{f.servicioTitulo}</span>
         <h1 style={{ fontSize: "var(--t-4xl)", fontWeight: 600, lineHeight: 1.2 }}>{f.titulo}</h1>
         {f.descripcion && <p className="texto-sm texto-muted" style={{ margin: 0 }}>{f.descripcion}</p>}
       </header>
