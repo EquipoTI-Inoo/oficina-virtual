@@ -3,7 +3,9 @@
  * MCP del portal para Hermes («Mi Jarvis»). Lee el portal y, desde el 6 nov, propone acciones: crear una tarea,
  * un comentario interno o un pendiente del calendario. Nada se hace hasta que la persona lo aprueba en el chat.
  * Desde el 9 nov (0.3.0) también busca y lee en el Google Drive que la persona conectó en Mi cuenta → Conexiones,
- * y (0.4.0) lista y lee su bóveda personal mientras ella la tiene abierta.
+ * y (0.4.0) lista y lee su bóveda personal mientras ella la tiene abierta. Desde el 13 nov (0.5.0) usa las
+ * herramientas que activó cada persona en Jarvis → Mis herramientas: lee sus skills (skill_leer, skill_archivo) y usa
+ * los servicios que conectó (conector_herramientas, conector_usar); el portal hace de puente con su cuenta.
  *
  * Hermes lo lanza como servidor stdio (ver config.example.yaml). Habla JSON-RPC por líneas en
  * stdin/stdout (Model Context Protocol) y llama a la API del portal como la persona que está chateando
@@ -127,6 +129,44 @@ const HERRAMIENTAS = [
     run: ({ accesoId, conversacion }) => api(`/me/boveda/accesos/${enc(accesoId)}/secreto`, conversacion),
   },
   {
+    name: "skill_leer",
+    description:
+      "Lee completa una skill de la persona que chatea (la lista de sus skills viene en tus instrucciones, con su id). " +
+      "Devuelve las instrucciones y los nombres de sus archivos de referencia. Léela antes de aplicarla y síguela.",
+    inputSchema: { type: "object", properties: { skill: id("Id de la skill (p. ej. copywriting)") }, required: ["skill"] },
+    run: ({ skill, conversacion }) => api(`/me/jarvis/skills/${enc(skill)}`, conversacion),
+  },
+  {
+    name: "skill_archivo",
+    description: "Lee un archivo de referencia de una skill (los nombres vienen en skill_leer). Úsalo solo si la skill dice que lo necesitas.",
+    inputSchema: { type: "object", properties: { skill: id("Id de la skill"), archivo: id("Nombre del archivo, tal como lo devolvió skill_leer") }, required: ["skill", "archivo"] },
+    run: ({ skill, archivo, conversacion }) => api(`/me/jarvis/skills/${enc(skill)}/archivos/${enc(archivo)}`, conversacion),
+  },
+  {
+    name: "conector_herramientas",
+    description:
+      "Lista las herramientas de un servicio que conectó la persona que chatea (la lista de sus servicios viene en tus instrucciones, con su id): " +
+      "nombre, para qué sirve y qué argumentos pide (JSON Schema). Pídela antes de usar conector_usar.",
+    inputSchema: { type: "object", properties: { conector: id("Id del servicio (p. ej. exa, github)") }, required: ["conector"] },
+    run: ({ conector, conversacion }) => api(`/me/jarvis/conectores/${enc(conector)}/herramientas`, conversacion),
+  },
+  {
+    name: "conector_usar",
+    description:
+      "Usa una herramienta de un servicio que conectó la persona, con su cuenta. Devuelve el resultado como texto. " +
+      "Si la herramienta cambia algo en ese servicio (crear, borrar, enviar), confírmalo antes con la persona en el chat.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        conector: id("Id del servicio"),
+        herramienta: id("Nombre de la herramienta (de conector_herramientas)"),
+        argumentos: { type: "object", description: "Los argumentos que pide la herramienta" },
+      },
+      required: ["conector", "herramienta"],
+    },
+    run: ({ conector, herramienta, argumentos, conversacion }) => api(`/me/jarvis/conectores/${enc(conector)}/usar`, conversacion, { herramienta, argumentos: argumentos ?? {} }),
+  },
+  {
     name: "proponer_accion",
     description:
       "Propone hacer algo en el portal. NO lo hace: la persona lo ve en el chat y lo aprueba o lo rechaza. Úsalo solo cuando te lo pidan. " +
@@ -160,7 +200,7 @@ async function atender(msg) {
       return responder(idMsg, {
         protocolVersion: params?.protocolVersion ?? VERSION_PROTOCOLO,
         capabilities: { tools: {} },
-        serverInfo: { name: "inoo-portal", version: "0.4.0" },
+        serverInfo: { name: "inoo-portal", version: "0.5.0" },
       });
     case "ping":
       return responder(idMsg, {});

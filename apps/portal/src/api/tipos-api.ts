@@ -2393,6 +2393,140 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/jarvis/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Catálogo de skills (las de Inoo y las propias), con cuáles activó la persona. Filtra por texto, categoría o solo activas */
+        get: operations["catalogoSkillsPersona"];
+        put?: never;
+        /** La persona escribe una skill para sí (queda activa y solo ella la ve) */
+        post: operations["crearSkillPropia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/skills/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        /** La skill completa: instrucciones y nombres de sus archivos */
+        get: operations["leerSkillCatalogo"];
+        /** Activa o desactiva la skill para el Jarvis de la persona */
+        put: operations["activarSkillPersona"];
+        post?: never;
+        /** Borra una skill propia (las del catálogo de Inoo no se borran: se desactivan) */
+        delete: operations["borrarSkillPropia"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/skills/{slug}/archivos/{nombre}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                nombre: string;
+            };
+            cookie?: never;
+        };
+        /** Un archivo de referencia de la skill, como texto */
+        get: operations["leerArchivoSkill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/conectores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Catálogo de conectores (servidores MCP remotos), con cuáles conectó la persona */
+        get: operations["catalogoConectoresPersona"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/conectores/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Conecta el servicio al Jarvis de la persona (con su token si lo pide). El token se guarda cifrado y no vuelve nunca */
+        put: operations["conectarConectorPersona"];
+        post?: never;
+        /** Desconecta el servicio y borra el token */
+        delete: operations["desconectarConectorPersona"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/conectores/{slug}/herramientas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        /** Las herramientas que ofrece el servicio conectado (las pide al servidor MCP con la cuenta de la persona) */
+        get: operations["herramientasConectorPersona"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/jarvis/conectores/{slug}/usar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Llama una herramienta del servicio conectado y devuelve su resultado como texto */
+        post: operations["usarConectorPersona"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jarvis/skills": {
         parameters: {
             query?: never;
@@ -5760,6 +5894,66 @@ export interface components {
             creadoEn: string;
             enDrive: boolean;
             puedeBorrar: boolean;
+        };
+        SkillCatalogo: {
+            /** @example copywriting */
+            slug: string;
+            nombre: string;
+            descripcion: string;
+            /** @example Marketing */
+            categoria: string;
+            /** @description Repositorio de donde salió */
+            origen: string | null;
+            licencia: string | null;
+            /** @description La escribió la persona (solo ella la ve) */
+            propia: boolean;
+            activa: boolean;
+            /** @description La original trae scripts: Jarvis usa solo sus instrucciones y archivos de texto */
+            tieneScripts: boolean;
+        };
+        SkillCatalogoDetalle: components["schemas"]["SkillCatalogo"] & {
+            instrucciones: string;
+            archivos: {
+                nombre: string;
+                largo: number;
+            }[];
+        };
+        SkillPropiaEntrada: {
+            nombre: string;
+            descripcion?: string | null;
+            instrucciones: string;
+            archivos?: {
+                nombre: string;
+                texto: string;
+            }[];
+        };
+        ConectorCatalogo: {
+            /** @example github */
+            slug: string;
+            nombre: string;
+            descripcion: string;
+            categoria: string;
+            url: string;
+            /** @enum {string} */
+            auth: "NINGUNA" | "TOKEN" | "TOKEN_OPCIONAL";
+            /** @description Dónde sacar el token */
+            ayudaToken: string | null;
+            origen: string | null;
+            conectado: boolean;
+            /** @description Lo conectó con un token propio (el token nunca vuelve) */
+            conToken: boolean;
+            /** Format: date-time */
+            conectadoEn: string | null;
+            /** Format: date-time */
+            ultimoUso: string | null;
+        };
+        HerramientaConector: {
+            nombre: string;
+            descripcion: string;
+            /** @description JSON Schema de los argumentos */
+            parametros: {
+                [key: string]: unknown;
+            };
         };
         ConexionPersonal: {
             /** @example google-drive */
@@ -13121,6 +13315,302 @@ export interface operations {
                 };
                 content?: never;
             };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    catalogoSkillsPersona: {
+        parameters: {
+            query?: {
+                q?: string;
+                categoria?: string;
+                activas?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["SkillCatalogo"][];
+                        categorias: string[];
+                        /** @description Cuántas tiene activas la persona */
+                        activas: number;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    crearSkillPropia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillPropiaEntrada"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillCatalogo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    leerSkillCatalogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillCatalogoDetalle"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    activarSkillPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    activa: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillCatalogo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    borrarSkillPropia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    leerArchivoSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                nombre: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        nombre: string;
+                        texto: string;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    catalogoConectoresPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ConectorCatalogo"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    conectarConectorPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConectorCatalogo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    desconectarConectorPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Desconectado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    herramientasConectorPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["HerramientaConector"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    usarConectorPersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    herramienta: string;
+                    argumentos?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        texto: string;
+                        esError: boolean;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
         };
     };

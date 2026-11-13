@@ -19,7 +19,12 @@ const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const opcional = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** Lo único que Jarvis puede mandar por POST: una propuesta que su dueño aprueba en el chat. */
-export const esPropuestaJarvis = (req: Request) => req.method === "POST" && /\/jarvis\/propuestas$/.test(new URL(req.url, "http://localhost").pathname);
+export const esPropuestaJarvis = (req: Request) => {
+  if (req.method !== "POST") return false;
+  const ruta = new URL(req.url, "http://localhost").pathname;
+  // 13 nov: también usar un conector que la persona conectó (su servicio, con su cuenta; el portal no cambia).
+  return /\/jarvis\/propuestas$/.test(ruta) || /\/me\/jarvis\/conectores\/[a-z0-9-]+\/usar$/.test(ruta);
+};
 
 /** Cada propuesta pendiente de una persona; más que eso, primero tiene que decidir. */
 export const MAX_PENDIENTES_JARVIS = 10;

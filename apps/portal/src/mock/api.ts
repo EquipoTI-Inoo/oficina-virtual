@@ -10,6 +10,7 @@
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
 import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
+import { slugDe as slugSkill, textoMisHerramientas, validarSkillPropia, validarTokenConector, type ArchivoTexto, type AuthConector } from "../dominio/herramientas-persona";
 import { contextoDeEvento, EVENTOS_JARVIS, TOPE_DIARIO_AUTOMATIZACION, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { components } from "../api/tipos-api";
@@ -150,6 +151,11 @@ interface Estado {
     estado: "PENDIENTE" | "EN_CURSO" | "HECHA" | "FALLIDA"; sesionId: string | null; error: string | null; creadoEn: string; terminadoEn: string | null }[];
   /** Conexiones personales (9 nov): «usuario:proveedor» → cuenta; y los «state» de OAuth pendientes. */
   conexiones: Record<string, { cuenta: string; creadoEn: string; ultimoUso: string | null }>;
+  /** 13 nov: catálogo de skills y conectores, y lo que activó cada persona. */
+  skillsCatalogo: SkillCatalogoMock[];
+  skillsPersona: { usuarioId: string; skillId: string; activadaEn: string; ultimoUso: string | null }[];
+  conectoresCatalogo: ConectorCatalogoMock[];
+  conectoresPersona: Record<string, { conToken: boolean; conectadoEn: string; ultimoUso: string | null }>;
   estadosConexion: Record<string, { usuarioId: string; ruta: string }>;
   /** Bóveda personal (9 nov): lo que se guardaría (opaco: la contraseña llega cifrada desde el navegador). */
   bovedas: Record<string, { sal: string; iteraciones: number; llaveEnvuelta: string }>;
@@ -250,7 +256,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -4049,8 +4055,177 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, q, req) => {
   // 9 nov: en los chats de trabajo el bot sabe sus skills y sus conectores.
   const herramientas = configurar ? null : herramientasActivas(bot.id);
   if (herramientas) anotarUsoSkills(herramientas.skillIds, bot.id, b.sesionId, ctx.usuario.id, "CHAT");
-  return hablarConBot(hermes, { botId: bot.id, sistema: `${sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR")}${herramientas?.texto ?? ""}`, mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
+  return hablarConBot(hermes, { botId: bot.id, sistema: `${sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR")}${herramientas?.texto ?? ""}${configurar ? "" : misHerramientasMock(ctx.usuario.id)}`, mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, req.signal);
 });
+
+
+// ───────────────────────────── mis herramientas de Jarvis (13 nov): catálogo de skills y conectores por persona
+
+interface SkillCatalogoMock {
+  id: string; slug: string; nombre: string; descripcion: string; categoria: string; origen: string | null; licencia: string | null;
+  instrucciones: string; archivos: ArchivoTexto[]; tieneScripts: boolean; duenoId: string | null;
+}
+interface ConectorCatalogoMock {
+  id: string; slug: string; nombre: string; descripcion: string; categoria: string; url: string; auth: AuthConector; ayudaToken: string | null; origen: string | null;
+}
+function skillsCatalogoIniciales(): SkillCatalogoMock[] {
+  const s = (slug: string, nombre: string, categoria: string, descripcion: string, instrucciones: string, extra: Partial<SkillCatalogoMock> = {}): SkillCatalogoMock => ({
+    id: `skill-${slug}`, slug, nombre, descripcion, categoria, origen: null, licencia: null, instrucciones, archivos: [], tieneScripts: false, duenoId: null, ...extra,
+  });
+  return [
+    s("marca-inoo", "Marca Inoo", "Inoo", "Cómo suena y se ve Inoo: tono directo, paleta y tipografía.", "# Marca Inoo\n\nTono directo y cercano. Poppins, blanco y negro, morado y verde solo como acentos."),
+    s("copywriting", "Copywriting", "Marketing", "Escribir o reescribir textos de una página (inicio, landing, precios) y elegir el titular.", "# Copywriting\n\nDiagnostica primero qué te dieron (brief en blanco, voz real o un cambio puntual) y cambia solo lo necesario.",
+      { origen: "https://github.com/coreyhaines31/marketingskills", licencia: "MIT", archivos: [{ nombre: "titulares.md", texto: "Fórmulas de titulares: resultado + plazo; problema + promesa." }] }),
+    s("call-prep", "Preparar una reunión de ventas", "Ventas", "Antes de una llamada con un cliente o prospecto: contexto, objetivos y preguntas.", "# Preparar una reunión\n\nResume la cuenta, define el objetivo de la llamada y propone 5 preguntas.",
+      { origen: "https://github.com/anthropics/knowledge-work-plugins", licencia: "Apache-2.0" }),
+    s("frontend-design", "Frontend Design", "Diseño", "Criterio de diseño para interfaces con identidad propia, sin verse de plantilla.", "# Frontend Design\n\nDefine una dirección visual antes de escribir código.",
+      { origen: "https://github.com/anthropics/skills", licencia: "Apache-2.0", tieneScripts: false }),
+    s("xlsx", "Excel", "Documentos", "Crear, leer y editar planillas de Excel.", "# Excel\n\nUsa fórmulas, no valores fijos.", { origen: "https://github.com/anthropics/skills", licencia: "Apache-2.0", tieneScripts: true }),
+  ];
+}
+function conectoresCatalogoIniciales(): ConectorCatalogoMock[] {
+  const c = (slug: string, nombre: string, categoria: string, url: string, auth: AuthConector, descripcion: string, ayudaToken: string | null = null): ConectorCatalogoMock =>
+    ({ id: `conector-${slug}`, slug, nombre, descripcion, categoria, url, auth, ayudaToken, origen: null });
+  return [
+    c("exa", "Exa", "Investigación", "https://mcp.exa.ai/mcp", "NINGUNA", "Busca en internet y lee páginas web completas."),
+    c("context7", "Context7", "Desarrollo", "https://mcp.context7.com/mcp", "TOKEN_OPCIONAL", "Documentación al día de librerías y frameworks.", "Funciona sin token, con límites."),
+    c("deepwiki", "DeepWiki", "Desarrollo", "https://mcp.deepwiki.com/mcp", "NINGUNA", "Explica cualquier repositorio público de GitHub."),
+    c("github", "GitHub", "Desarrollo", "https://api.githubcopilot.com/mcp/", "TOKEN", "Tus repositorios, issues y pull requests.", "En GitHub: Settings → Developer settings → Personal access tokens → Fine-grained."),
+    c("apify", "Apify", "Investigación", "https://mcp.apify.com", "TOKEN", "Saca datos de webs y redes con los actores de Apify.", "En apify.com: Settings → API & Integrations."),
+  ];
+}
+const miSkillVistaMock = (ctx: Ctx, s: SkillCatalogoMock): S<"SkillCatalogo"> => ({
+  slug: s.slug, nombre: s.nombre, descripcion: s.descripcion, categoria: s.categoria, origen: s.origen, licencia: s.licencia, propia: s.duenoId !== null,
+  activa: E.skillsPersona.some((x) => x.usuarioId === ctx.usuario.id && x.skillId === s.id), tieneScripts: s.tieneScripts,
+});
+function miSkillMock(ctx: Ctx, slug: string) {
+  soloEquipo(ctx);
+  const s = E.skillsCatalogo.find((x) => x.slug === slug && (x.duenoId === null || x.duenoId === ctx.usuario.id));
+  if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa skill", "Revisa el nombre en Jarvis → Mis herramientas.");
+  return s;
+}
+function miSesionMock(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.jarvis || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "Esto lo configura cada persona desde su sesión", "Entra a Jarvis → Mis herramientas.");
+}
+const llaveConector = (usuarioId: string, conectorId: string) => `${usuarioId}:${conectorId}`;
+const miConectorVistaMock = (ctx: Ctx, c: ConectorCatalogoMock): S<"ConectorCatalogo"> => {
+  const x = E.conectoresPersona[llaveConector(ctx.usuario.id, c.id)];
+  return { ...c, conectado: !!x, conToken: !!x?.conToken, conectadoEn: x?.conectadoEn ?? null, ultimoUso: x?.ultimoUso ?? null };
+};
+function miConectorMock(ctx: Ctx, slug: string) {
+  soloEquipo(ctx);
+  const c = E.conectoresCatalogo.find((x) => x.slug === slug);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese conector", "Mira la lista en Jarvis → Mis herramientas → Conectores.");
+  return c;
+}
+function miConectadoMock(ctx: Ctx, c: ConectorCatalogoMock) {
+  const x = E.conectoresPersona[llaveConector(ctx.usuario.id, c.id)];
+  if (!x) throw new ErrorApi(409, "SIN_CONEXION", `No tienes ${c.nombre} conectado`, "Conéctalo en Jarvis → Mis herramientas → Conectores.");
+  return x;
+}
+
+ruta("GET", "/me/jarvis/skills", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const t = (q.get("q") ?? "").trim().toLowerCase();
+  const cat = (q.get("categoria") ?? "").trim();
+  const visibles = E.skillsCatalogo.filter((s) => s.duenoId === null || s.duenoId === ctx.usuario.id);
+  const datos = visibles
+    .filter((s) => !t || `${s.nombre} ${s.descripcion} ${s.slug}`.toLowerCase().includes(t))
+    .filter((s) => !cat || s.categoria === cat)
+    .map((s) => miSkillVistaMock(ctx, s))
+    .filter((s) => q.get("activas") !== "true" || s.activa)
+    .sort((a, b) => Number(a.propia ? 0 : 1) - Number(b.propia ? 0 : 1) || a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
+  return { datos, categorias: [...new Set(visibles.map((s) => s.categoria))].sort(), activas: E.skillsPersona.filter((x) => x.usuarioId === ctx.usuario.id).length };
+});
+ruta("POST", "/me/jarvis/skills", async (ctx, _p, _q, req) => {
+  miSesionMock(ctx);
+  const b = await cuerpo<Record<string, unknown>>(req);
+  const e = validarSkillPropia(b);
+  if (e.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, e);
+  const base = `${slugSkill(String(b.nombre)).slice(0, 66)}-${ctx.usuario.id.replace(/-/g, "").slice(0, 6)}`;
+  let slug = base;
+  for (let i = 2; E.skillsCatalogo.some((x) => x.slug === slug); i++) slug = `${base.slice(0, 74)}-${i}`;
+  const s: SkillCatalogoMock = {
+    id: crypto.randomUUID(), slug, nombre: String(b.nombre).trim(), descripcion: typeof b.descripcion === "string" ? b.descripcion.trim() : "", categoria: "Mis skills",
+    origen: null, licencia: null, instrucciones: String(b.instrucciones).trim(), archivos: ((b.archivos as ArchivoTexto[] | undefined) ?? []).map((a) => ({ nombre: a.nombre.trim(), texto: a.texto })),
+    tieneScripts: false, duenoId: ctx.usuario.id,
+  };
+  E.skillsCatalogo.push(s);
+  E.skillsPersona.push({ usuarioId: ctx.usuario.id, skillId: s.id, activadaEn: new Date().toISOString(), ultimoUso: null });
+  return { __status: 201, ...miSkillVistaMock(ctx, s) };
+});
+ruta("GET", "/me/jarvis/skills/:slug", (ctx, p) => {
+  const s = miSkillMock(ctx, p.slug);
+  const uso = E.skillsPersona.find((x) => x.usuarioId === ctx.usuario.id && x.skillId === s.id);
+  if (uso) uso.ultimoUso = new Date().toISOString();
+  return { ...miSkillVistaMock(ctx, s), instrucciones: s.instrucciones, archivos: s.archivos.map((a) => ({ nombre: a.nombre, largo: a.texto.length })) };
+});
+ruta("GET", "/me/jarvis/skills/:slug/archivos/:nombre", (ctx, p) => {
+  const s = miSkillMock(ctx, p.slug);
+  const a = s.archivos.find((x) => x.nombre === p.nombre);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa skill no tiene ese archivo", `Tiene: ${s.archivos.map((x) => x.nombre).join(", ") || "ninguno"}.`);
+  return { nombre: a.nombre, texto: a.texto };
+});
+ruta("PUT", "/me/jarvis/skills/:slug", async (ctx, p, _q, req) => {
+  miSesionMock(ctx);
+  const s = miSkillMock(ctx, p.slug);
+  const b = await cuerpo<{ activa?: unknown }>(req);
+  if (typeof b.activa !== "boolean") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "activa", mensaje: "Indica si la activas (true) o no (false)" }]);
+  E.skillsPersona = E.skillsPersona.filter((x) => !(x.usuarioId === ctx.usuario.id && x.skillId === s.id));
+  if (b.activa) E.skillsPersona.push({ usuarioId: ctx.usuario.id, skillId: s.id, activadaEn: new Date().toISOString(), ultimoUso: null });
+  return miSkillVistaMock(ctx, s);
+});
+ruta("DELETE", "/me/jarvis/skills/:slug", (ctx, p) => {
+  miSesionMock(ctx);
+  const s = miSkillMock(ctx, p.slug);
+  if (s.duenoId !== ctx.usuario.id) throw new ErrorApi(403, "SIN_PERMISO", "Las skills del catálogo de Inoo no se borran", "Desactívala si no la quieres en tu Jarvis.");
+  E.skillsCatalogo = E.skillsCatalogo.filter((x) => x.id !== s.id);
+  E.skillsPersona = E.skillsPersona.filter((x) => x.skillId !== s.id);
+  return null;
+});
+ruta("GET", "/me/jarvis/conectores", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: [...E.conectoresCatalogo].sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre)).map((c) => miConectorVistaMock(ctx, c)) };
+});
+ruta("PUT", "/me/jarvis/conectores/:slug", async (ctx, p, _q, req) => {
+  miSesionMock(ctx);
+  const c = miConectorMock(ctx, p.slug);
+  const b = await cuerpo<{ token?: unknown }>(req);
+  const e = validarTokenConector(c.auth, b.token);
+  if (e.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, e);
+  E.conectoresPersona[llaveConector(ctx.usuario.id, c.id)] = { conToken: typeof b.token === "string" && !!b.token.trim(), conectadoEn: new Date().toISOString(), ultimoUso: null };
+  return miConectorVistaMock(ctx, c);
+});
+ruta("DELETE", "/me/jarvis/conectores/:slug", (ctx, p) => {
+  miSesionMock(ctx);
+  const c = miConectorMock(ctx, p.slug);
+  const k = llaveConector(ctx.usuario.id, c.id);
+  if (!E.conectoresPersona[k]) throw new ErrorApi(404, "NO_ENCONTRADO", `No tienes ${c.nombre} conectado`);
+  delete E.conectoresPersona[k];
+  return null;
+});
+ruta("GET", "/me/jarvis/conectores/:slug/herramientas", (ctx, p) => {
+  const c = miConectorMock(ctx, p.slug);
+  miConectadoMock(ctx, c);
+  return { datos: [{ nombre: "buscar", descripcion: `(Demo) Busca en ${c.nombre}. En la demo no se llama al servicio real.`, parametros: { type: "object", properties: { consulta: { type: "string" } }, required: ["consulta"] } }] };
+});
+ruta("POST", "/me/jarvis/conectores/:slug/usar", async (ctx, p, _q, req) => {
+  const c = miConectorMock(ctx, p.slug);
+  const x = miConectadoMock(ctx, c);
+  const b = await cuerpo<{ herramienta?: unknown; argumentos?: unknown }>(req);
+  if (typeof b.herramienta !== "string" || !/^[A-Za-z0-9_.\-/]{1,120}$/.test(b.herramienta)) {
+    throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "herramienta", mensaje: "Indica el nombre de la herramienta (de conector_herramientas)" }]);
+  }
+  x.ultimoUso = new Date().toISOString();
+  return { texto: `(Demo) Respuesta simulada de ${c.nombre} para «${b.herramienta}».`, esError: false };
+});
+function misHerramientasMock(usuarioId: string) {
+  const skills = E.skillsPersona.filter((x) => x.usuarioId === usuarioId).map((x) => E.skillsCatalogo.find((s) => s.id === x.skillId)).filter((s): s is SkillCatalogoMock => !!s)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const conectores = E.conectoresCatalogo.filter((c) => E.conectoresPersona[llaveConector(usuarioId, c.id)]).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return textoMisHerramientas(skills, conectores);
+}
 
 // ───────────────────────────── Jarvis avanzado (9 nov): skills, conectores, rutinas, automatizaciones, biblioteca
 

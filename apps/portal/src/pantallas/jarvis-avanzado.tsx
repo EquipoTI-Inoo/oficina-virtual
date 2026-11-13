@@ -13,16 +13,18 @@ import { LuBookOpen, LuDownload, LuPause, LuPlay, LuPlus, LuTrash2, LuPencil, Lu
 import { api, Enlace, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
 import { MAX_ARCHIVOS_SKILL, MAX_TEXTO_ARCHIVO } from "../dominio/jarvis-avanzado";
+import { MisHerramientas } from "./mis-herramientas";
 
 type Bot = S<"BotJarvis">;
-export type VistaJarvis = "CHATS" | "SKILLS" | "RUTINAS" | "AUTOMATIZACIONES" | "BIBLIOTECA" | "CONECTORES" | "ACTIVIDAD";
+export type VistaJarvis = "CHATS" | "MIS_HERRAMIENTAS" | "SKILLS" | "RUTINAS" | "AUTOMATIZACIONES" | "BIBLIOTECA" | "CONECTORES" | "ACTIVIDAD";
 export const VISTAS_JARVIS: { clave: VistaJarvis; nombre: string }[] = [
   { clave: "CHATS", nombre: "Chats" },
-  { clave: "SKILLS", nombre: "Skills" },
+  { clave: "MIS_HERRAMIENTAS", nombre: "Mis herramientas" },
+  { clave: "SKILLS", nombre: "Skills del área" },
   { clave: "RUTINAS", nombre: "Rutinas" },
   { clave: "AUTOMATIZACIONES", nombre: "Automatizaciones" },
   { clave: "BIBLIOTECA", nombre: "Biblioteca" },
-  { clave: "CONECTORES", nombre: "Conectores" },
+  { clave: "CONECTORES", nombre: "Conectores del área" },
   { clave: "ACTIVIDAD", nombre: "Actividad" },
 ];
 
@@ -74,6 +76,7 @@ function UltimaEjecucion({ e, alAbrirChat }: { e: S<"EjecucionJarvis"> | null; a
 
 export function PanelJarvisAvanzado({ vista, espacio, bots, alAbrirChat }: { vista: VistaJarvis; espacio: string | null; bots: Bot[]; alAbrirChat: (botId: string, sesion: string) => void }) {
   const propios = bots.filter((b) => !b.prestadoDe);
+  if (vista === "MIS_HERRAMIENTAS") return <MisHerramientas />;
   if (vista === "SKILLS") return <Skills espacio={espacio} />;
   if (vista === "RUTINAS") return <Rutinas espacio={espacio} bots={propios} alAbrirChat={alAbrirChat} />;
   if (vista === "AUTOMATIZACIONES") return <Automatizaciones espacio={espacio} bots={propios} alAbrirChat={alAbrirChat} />;

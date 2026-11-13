@@ -22,6 +22,7 @@ import { pruebasCuentas } from "./flujo-cuentas";
 import { pruebasEmpresas } from "./flujo-empresas";
 import { pruebasJarvisAvanzado } from "./flujo-jarvis-avanzado";
 import { pruebasConexiones } from "./flujo-conexiones";
+import { pruebasHerramientasPersona } from "./flujo-herramientas-persona";
 import { pruebasBoveda } from "./flujo-boveda";
 import { pruebasPanel } from "./flujo-panel";
 import { pruebasArchivos } from "./flujo-archivos";
@@ -63,9 +64,11 @@ let tablas = "";
 let feriadosMigracion: { fecha: string; nombre: string }[] = [];
 // Igual con las reglas globales de correo de la 0017 (regla_correo referencia a cliente).
 let reglasCorreo = "";
+// Y las skills del catálogo de la 0057 (skill_catalogo referencia a usuario por las skills propias).
+let skillsCatalogo = "";
 async function reiniciar() {
   const feriados = feriadosMigracion.map((f) => `('FERIADO', '${f.nombre.replace(/'/g, "''")}', DATE '${f.fecha}', DATE '${f.fecha}', DATE '${f.fecha}' - 7)`).join(",\n");
-  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${reglasCorreo}\n${SEMILLAS}\nINSERT INTO tope_ia_area (area, tope_diario_usd, tope_mensual_usd) SELECT a, 3, 30 FROM unnest(enum_range(NULL::area_equipo)) AS a;`);
+  await db.exec(`TRUNCATE ${tablas} RESTART IDENTITY CASCADE;\nINSERT INTO aviso (tipo, titulo, fecha_inicio, fecha_fin, visible_desde) VALUES ${feriados};\n${reglasCorreo}\n${skillsCatalogo}\n${SEMILLAS}\nINSERT INTO tope_ia_area (area, tope_diario_usd, tope_mensual_usd) SELECT a, 3, 30 FROM unnest(enum_range(NULL::area_equipo)) AS a;`);
   reiniciarTablerosSimulados();
 }
 
@@ -126,9 +129,10 @@ before(async () => {
   await db.exec(sql("migraciones/0054_actualizaciones_tablero.sql"));
   await db.exec(sql("migraciones/0055_automatizaciones_cliente_tope.sql"));
   await db.exec(sql("migraciones/0056_comentario_editado.sql"));
+  await db.exec(sql("migraciones/0057_herramientas_persona.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
-    "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
+    "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('conector_catalogo', 'servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
   );
   tablas = rows[0].t;
   feriadosMigracion = (await db.query<{ fecha: string; nombre: string }>(
@@ -136,6 +140,8 @@ before(async () => {
   )).rows;
   const reglas = (await db.query<{ evento: string; plantilla: string; destinatarios: string; descripcion: string }>("SELECT evento, plantilla, destinatarios, descripcion FROM regla_correo WHERE cliente_id IS NULL")).rows;
   const q = (t: string) => `'${t.replace(/'/g, "''")}'`;
+  const sk = (await db.query<{ fila: string }>("SELECT row_to_json(s)::text AS fila FROM skill_catalogo s WHERE dueno_id IS NULL")).rows;
+  skillsCatalogo = sk.length ? `INSERT INTO skill_catalogo SELECT * FROM json_populate_recordset(NULL::skill_catalogo, ${q(`[${sk.map((r) => r.fila).join(",")}]`)});` : "";
   reglasCorreo = `INSERT INTO regla_correo (evento, plantilla, destinatarios, descripcion) VALUES ${reglas.map((r) => `(${q(r.evento)}, ${q(r.plantilla)}, ${q(r.destinatarios)}, ${q(r.descripcion)})`).join(", ")};`;
   await reiniciar();
   usarBaseDatos(desdePglite(db as never));
@@ -149,6 +155,7 @@ pruebasCuentas("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosO
 pruebasEmpresas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasJarvisAvanzado("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasConexiones("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasHerramientasPersona("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasBoveda("Postgres", (req) => manejarSolicitudDb(req), reiniciar, true);
 pruebasPanel("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasEquipo("Postgres", (req) => manejarSolicitudDb(req), reiniciar, eventosOutbox);

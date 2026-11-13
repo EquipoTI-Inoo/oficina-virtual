@@ -50,6 +50,8 @@ import { hashClave, hashToken, nuevoToken as nuevoTokenEnlace, verificarClave } 
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, HORAS_ENLACE_RESTABLECER, rutaCrearClave } from "../dominio/claves";
 import { fotoDeEmpleado, inooworkConectado, leerEmpleados, sincronizarPersona } from "./inoowork";
 import { descifrarConLlaveCruda, validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
+import { slugDe as slugSkill, textoMisHerramientas, validarSkillPropia, validarTokenConector, type ArchivoTexto, type AuthConector } from "../dominio/herramientas-persona";
+import { ErrorMcp, listarHerramientasMcp, usarHerramientaMcp, type DestinoMcp, type HerramientaMcp } from "./mcp-cliente";
 import { accesoDe, buscarEnDrive, canjearCodigo, cifrar, descifrar, leerDeDrive, nuevoInicio, PROVEEDORES, proveedorPorRuta, revocar, SinPermisoConexion } from "./conexiones";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
@@ -3030,7 +3032,9 @@ ruta("POST", "/jarvis/bots/:id/chat", async (ctx, p, q, cuerpo) => {
   // 9 nov: en los chats de trabajo el bot sabe sus skills y sus conectores; cada skill usada queda en la actividad.
   const herramientas = configurar ? null : await herramientasActivasDb(ctx.c, bot.id);
   if (herramientas) await anotarUsoSkillsDb(ctx.c, herramientas.skillIds, bot.id, b.sesionId, ctx.u.usuarioId, "CHAT");
-  const sistema = `${sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR")}${herramientas?.texto ?? ""}`;
+  // 13 nov: y las herramientas que activó la persona que chatea (sus skills y sus conectores).
+  const mias = configurar ? "" : await misHerramientasDb(ctx.c, ctx.u.usuarioId);
+  const sistema = `${sistemaDelBot(bot, areaUso, configurar ? "CONFIGURAR" : "TRABAJAR")}${herramientas?.texto ?? ""}${mias}`;
   return hablarConBot(hermes, { botId: bot.id, sistema, mensaje: contenidoDelMensaje(b.mensaje, await leerImagenes(b.archivos).catch(imagenNoLeida)), sesionId: b.sesionId, alActualizarTrabajo, alTerminar }, ctx.senal);
 });
 
@@ -3256,6 +3260,202 @@ ruta("PUT", "/jarvis/bots/:id/herramientas", async (ctx, p, _q, cuerpo) => {
   await ctx.c.query("UPDATE bot_jarvis SET actualizado_en = now() WHERE id = $1", [bot.id]);
   return { ...(await herramientasIdsDb(ctx.c, bot.id)), puedeEditar: true } satisfies S<"HerramientasBot">;
 });
+
+// ── mis herramientas (13 nov): cada persona activa skills del catálogo, escribe las suyas y conecta servicios MCP.
+// Nada viene activado de base. El MCP del portal (Hermes) usa estas mismas rutas como la persona que chatea.
+
+interface FilaSkillCatalogo {
+  id: string; slug: string; nombre: string; descripcion: string; categoria: string; origen: string | null; licencia: string | null;
+  tiene_scripts: boolean; dueno_id: string | null; activa: boolean;
+}
+const SELECT_SKILL_CATALOGO = `SELECT s.id, s.slug, s.nombre, s.descripcion, s.categoria, s.origen, s.licencia, s.tiene_scripts, s.dueno_id,
+  EXISTS (SELECT 1 FROM skill_persona sp WHERE sp.skill_id = s.id AND sp.usuario_id = $1) AS activa
+  FROM skill_catalogo s`;
+const skillCatalogoVista = (x: FilaSkillCatalogo): S<"SkillCatalogo"> => ({
+  slug: x.slug, nombre: x.nombre, descripcion: x.descripcion, categoria: x.categoria, origen: x.origen, licencia: x.licencia,
+  propia: x.dueno_id !== null, activa: x.activa, tieneScripts: x.tiene_scripts,
+});
+/** Una skill del catálogo de Inoo o propia de quien pregunta (la RLS ya oculta las de otros). */
+async function skillCatalogoDb(ctx: Ctx, slug: string) {
+  soloEquipo(ctx);
+  const x = (await ctx.c.query<FilaSkillCatalogo>(`${SELECT_SKILL_CATALOGO} WHERE s.slug = $2 AND (s.dueno_id IS NULL OR s.dueno_id = $1)`, [ctx.u.usuarioId, slug])).rows[0];
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa skill", "Revisa el nombre en Jarvis → Mis herramientas.");
+  return x;
+}
+/** Activar, crear o conectar lo hace la persona desde su sesión (no Jarvis ni «ver como cliente»). */
+function exigirMiSesion(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.u.jarvis || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "Esto lo configura cada persona desde su sesión", "Entra a Jarvis → Mis herramientas.");
+}
+
+ruta("GET", "/me/jarvis/skills", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const filtros: string[] = ["(s.dueno_id IS NULL OR s.dueno_id = $1)"];
+  const args: unknown[] = [ctx.u.usuarioId];
+  const t = (q.get("q") ?? "").trim().slice(0, 80);
+  if (t) { args.push(`%${t.replace(/[\\%_]/g, (m) => `\\${m}`)}%`); filtros.push(`(s.nombre ILIKE $${args.length} OR s.descripcion ILIKE $${args.length} OR s.slug ILIKE $${args.length})`); }
+  const cat = (q.get("categoria") ?? "").trim();
+  if (cat) { args.push(cat); filtros.push(`s.categoria = $${args.length}`); }
+  if (q.get("activas") === "true") filtros.push("EXISTS (SELECT 1 FROM skill_persona sp WHERE sp.skill_id = s.id AND sp.usuario_id = $1)");
+  const filas = (await ctx.c.query<FilaSkillCatalogo>(`${SELECT_SKILL_CATALOGO} WHERE ${filtros.join(" AND ")} ORDER BY (s.dueno_id IS NULL), s.categoria, s.nombre LIMIT 500`, args)).rows;
+  const categorias = (await ctx.c.query<{ categoria: string }>("SELECT DISTINCT categoria FROM skill_catalogo WHERE dueno_id IS NULL OR dueno_id = $1 ORDER BY categoria", [ctx.u.usuarioId])).rows.map((r) => r.categoria);
+  const activas = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM skill_persona WHERE usuario_id = $1", [ctx.u.usuarioId])).rows[0].n;
+  return { datos: filas.map(skillCatalogoVista), categorias, activas };
+});
+
+ruta("POST", "/me/jarvis/skills", async (ctx, _p, _q, cuerpo) => {
+  exigirMiSesion(ctx);
+  const b = (await cuerpo()) as Record<string, unknown>;
+  errores422(validarSkillPropia(b));
+  // Las skills propias de otros no se ven (RLS): el sufijo de la persona evita chocar con ellas.
+  const base = `${slugSkill(String(b.nombre)).slice(0, 66)}-${ctx.u.usuarioId.replace(/-/g, "").slice(0, 6)}`;
+  let slug = base;
+  for (let i = 2; (await ctx.c.query("SELECT 1 FROM skill_catalogo WHERE slug = $1", [slug])).rows.length; i++) slug = `${base.slice(0, 74)}-${i}`;
+  const archivos = ((b.archivos as ArchivoTexto[] | undefined) ?? []).map((a) => ({ nombre: a.nombre.trim(), texto: a.texto }));
+  const id = (await ctx.c.query<{ id: string }>(
+    `INSERT INTO skill_catalogo (slug, nombre, descripcion, categoria, instrucciones, archivos, dueno_id) VALUES ($1, $2, $3, 'Mis skills', $4, $5, $6) RETURNING id`,
+    [slug, String(b.nombre).trim(), typeof b.descripcion === "string" ? b.descripcion.trim() : "", String(b.instrucciones).trim(), JSON.stringify(archivos), ctx.u.usuarioId],
+  )).rows[0].id;
+  await ctx.c.query("INSERT INTO skill_persona (usuario_id, skill_id) VALUES ($1, $2)", [ctx.u.usuarioId, id]);
+  return { __status: 201, ...skillCatalogoVista((await ctx.c.query<FilaSkillCatalogo>(`${SELECT_SKILL_CATALOGO} WHERE s.id = $2`, [ctx.u.usuarioId, id])).rows[0]) };
+});
+
+ruta("GET", "/me/jarvis/skills/:slug", async (ctx, p) => {
+  const x = await skillCatalogoDb(ctx, p.slug);
+  const d = (await ctx.c.query<{ instrucciones: string; archivos: ArchivoTexto[] }>("SELECT instrucciones, archivos FROM skill_catalogo WHERE id = $1", [x.id])).rows[0];
+  if (x.activa) await ctx.c.query("UPDATE skill_persona SET ultimo_uso = now() WHERE usuario_id = $1 AND skill_id = $2", [ctx.u.usuarioId, x.id]);
+  return { ...skillCatalogoVista(x), instrucciones: d.instrucciones, archivos: (d.archivos ?? []).map((a) => ({ nombre: a.nombre, largo: a.texto.length })) } satisfies S<"SkillCatalogoDetalle">;
+});
+
+ruta("GET", "/me/jarvis/skills/:slug/archivos/:nombre", async (ctx, p) => {
+  const x = await skillCatalogoDb(ctx, p.slug);
+  const archivos = (await ctx.c.query<{ archivos: ArchivoTexto[] }>("SELECT archivos FROM skill_catalogo WHERE id = $1", [x.id])).rows[0].archivos ?? [];
+  const a = archivos.find((y) => y.nombre === p.nombre);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa skill no tiene ese archivo", `Tiene: ${archivos.map((y) => y.nombre).join(", ") || "ninguno"}.`);
+  return { nombre: a.nombre, texto: a.texto };
+});
+
+ruta("PUT", "/me/jarvis/skills/:slug", async (ctx, p, _q, cuerpo) => {
+  exigirMiSesion(ctx);
+  const x = await skillCatalogoDb(ctx, p.slug);
+  const b = (await cuerpo()) as { activa?: unknown };
+  if (typeof b.activa !== "boolean") errores422([{ campo: "activa", mensaje: "Indica si la activas (true) o no (false)" }]);
+  if (b.activa) await ctx.c.query("INSERT INTO skill_persona (usuario_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [ctx.u.usuarioId, x.id]);
+  else await ctx.c.query("DELETE FROM skill_persona WHERE usuario_id = $1 AND skill_id = $2", [ctx.u.usuarioId, x.id]);
+  return skillCatalogoVista({ ...x, activa: b.activa === true });
+});
+
+ruta("DELETE", "/me/jarvis/skills/:slug", async (ctx, p) => {
+  exigirMiSesion(ctx);
+  const x = await skillCatalogoDb(ctx, p.slug);
+  if (x.dueno_id !== ctx.u.usuarioId) throw new ErrorApi(403, "SIN_PERMISO", "Las skills del catálogo de Inoo no se borran", "Desactívala si no la quieres en tu Jarvis.");
+  await ctx.c.query("DELETE FROM skill_catalogo WHERE id = $1", [x.id]);
+  return null;
+});
+
+interface FilaConectorCatalogo {
+  id: string; slug: string; nombre: string; descripcion: string; categoria: string; url: string; auth: AuthConector; cabecera: string; prefijo: string;
+  ayuda_token: string | null; origen: string | null; token_cifrado: string | null; conectado_en: Date | null; ultimo_uso: Date | null; conectado: boolean;
+}
+const SELECT_CONECTOR_CATALOGO = `SELECT c.id, c.slug, c.nombre, c.descripcion, c.categoria, c.url, c.auth, c.cabecera, c.prefijo, c.ayuda_token, c.origen,
+  cp.token_cifrado, cp.conectado_en, cp.ultimo_uso, (cp.usuario_id IS NOT NULL) AS conectado
+  FROM conector_catalogo c LEFT JOIN conector_persona cp ON cp.conector_id = c.id AND cp.usuario_id = $1`;
+const conectorCatalogoVista = (x: FilaConectorCatalogo): S<"ConectorCatalogo"> => ({
+  slug: x.slug, nombre: x.nombre, descripcion: x.descripcion, categoria: x.categoria, url: x.url, auth: x.auth, ayudaToken: x.ayuda_token, origen: x.origen,
+  conectado: x.conectado, conToken: !!x.token_cifrado, conectadoEn: iso(x.conectado_en), ultimoUso: iso(x.ultimo_uso),
+});
+async function conectorCatalogoDb(ctx: Ctx, slug: string) {
+  soloEquipo(ctx);
+  const x = (await ctx.c.query<FilaConectorCatalogo>(`${SELECT_CONECTOR_CATALOGO} WHERE c.slug = $2 AND c.activo`, [ctx.u.usuarioId, slug])).rows[0];
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese conector", "Mira la lista en Jarvis → Mis herramientas → Conectores.");
+  return x;
+}
+/** El servidor MCP de ese conector, con el token de la persona. Solo si lo conectó. */
+function destinoDe(x: FilaConectorCatalogo): DestinoMcp {
+  if (!x.conectado) throw new ErrorApi(409, "SIN_CONEXION", `No tienes ${x.nombre} conectado`, "Conéctalo en Jarvis → Mis herramientas → Conectores.");
+  const cabeceras: Record<string, string> = {};
+  if (x.token_cifrado) cabeceras[x.cabecera] = `${x.prefijo}${descifrar(x.token_cifrado)}`;
+  return { url: x.url, cabeceras };
+}
+const conMcp = async <T>(x: FilaConectorCatalogo, fn: () => Promise<T>) => {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof ErrorApi) throw e;
+    if (e instanceof ErrorMcp && e.tipo === "AUTH") throw new ErrorApi(409, "CONEXION_VENCIDA", `${x.nombre} no aceptó tu token`, "Vuelve a conectarlo con un token vigente en Jarvis → Mis herramientas.");
+    throw new ErrorApi(502, "SERVICIO_NO_DISPONIBLE", `${x.nombre} no respondió bien`, e instanceof Error ? e.message.slice(0, 300) : undefined);
+  }
+};
+/** Las herramientas de cada servicio por persona, 10 minutos (pedirlas en cada mensaje sería lento). */
+const herramientasEnCache = new Map<string, { hasta: number; datos: HerramientaMcp[] }>();
+export function olvidarHerramientasConectores() {
+  herramientasEnCache.clear();
+}
+
+ruta("GET", "/me/jarvis/conectores", async (ctx) => {
+  soloEquipo(ctx);
+  const filas = (await ctx.c.query<FilaConectorCatalogo>(`${SELECT_CONECTOR_CATALOGO} WHERE c.activo ORDER BY c.categoria, c.nombre`, [ctx.u.usuarioId])).rows;
+  return { datos: filas.map(conectorCatalogoVista) };
+});
+
+ruta("PUT", "/me/jarvis/conectores/:slug", async (ctx, p, _q, cuerpo) => {
+  exigirMiSesion(ctx);
+  const x = await conectorCatalogoDb(ctx, p.slug);
+  const b = (await cuerpo()) as { token?: unknown };
+  errores422(validarTokenConector(x.auth, b.token));
+  const token = typeof b.token === "string" && b.token.trim() ? b.token.trim() : null;
+  await ctx.c.query(
+    `INSERT INTO conector_persona (usuario_id, conector_id, token_cifrado) VALUES ($1, $2, $3)
+     ON CONFLICT (usuario_id, conector_id) DO UPDATE SET token_cifrado = EXCLUDED.token_cifrado, conectado_en = now()`,
+    [ctx.u.usuarioId, x.id, token ? cifrar(token) : null],
+  );
+  herramientasEnCache.delete(`${ctx.u.usuarioId}:${x.id}`);
+  return conectorCatalogoVista((await ctx.c.query<FilaConectorCatalogo>(`${SELECT_CONECTOR_CATALOGO} WHERE c.id = $2`, [ctx.u.usuarioId, x.id])).rows[0]);
+});
+
+ruta("DELETE", "/me/jarvis/conectores/:slug", async (ctx, p) => {
+  exigirMiSesion(ctx);
+  const x = await conectorCatalogoDb(ctx, p.slug);
+  if (!x.conectado) throw new ErrorApi(404, "NO_ENCONTRADO", `No tienes ${x.nombre} conectado`);
+  await ctx.c.query("DELETE FROM conector_persona WHERE usuario_id = $1 AND conector_id = $2", [ctx.u.usuarioId, x.id]);
+  herramientasEnCache.delete(`${ctx.u.usuarioId}:${x.id}`);
+  return null;
+});
+
+ruta("GET", "/me/jarvis/conectores/:slug/herramientas", async (ctx, p) => {
+  const x = await conectorCatalogoDb(ctx, p.slug);
+  const destino = destinoDe(x);
+  const k = `${ctx.u.usuarioId}:${x.id}`;
+  const c = herramientasEnCache.get(k);
+  if (c && c.hasta > Date.now()) return { datos: c.datos.map((h) => ({ nombre: h.nombre, descripcion: h.descripcion, parametros: h.parametros as Record<string, unknown> })) };
+  const datos = await conMcp(x, () => listarHerramientasMcp(destino));
+  herramientasEnCache.set(k, { hasta: Date.now() + 10 * 60_000, datos });
+  return { datos: datos.map((h) => ({ nombre: h.nombre, descripcion: h.descripcion, parametros: h.parametros as Record<string, unknown> })) };
+});
+
+ruta("POST", "/me/jarvis/conectores/:slug/usar", async (ctx, p, _q, cuerpo) => {
+  const x = await conectorCatalogoDb(ctx, p.slug);
+  const b = (await cuerpo()) as { herramienta?: unknown; argumentos?: unknown };
+  const e: { campo: string; mensaje: string }[] = [];
+  if (typeof b.herramienta !== "string" || !/^[A-Za-z0-9_.\-/]{1,120}$/.test(b.herramienta)) e.push({ campo: "herramienta", mensaje: "Indica el nombre de la herramienta (de conector_herramientas)" });
+  if (b.argumentos !== undefined && (typeof b.argumentos !== "object" || b.argumentos === null || Array.isArray(b.argumentos))) e.push({ campo: "argumentos", mensaje: "Los argumentos van como objeto" });
+  errores422(e);
+  const destino = destinoDe(x);
+  const r = await conMcp(x, () => usarHerramientaMcp(destino, b.herramienta as string, (b.argumentos as Record<string, unknown> | undefined) ?? {}));
+  await ctx.c.query("UPDATE conector_persona SET ultimo_uso = now() WHERE usuario_id = $1 AND conector_id = $2", [ctx.u.usuarioId, x.id]);
+  return r;
+});
+
+/** Lo que se le agrega al bot: el índice de las skills y conectores de la persona que chatea. */
+async function misHerramientasDb(c: Consultor, usuarioId: string) {
+  const skills = (await c.query<{ slug: string; nombre: string; descripcion: string }>(
+    "SELECT s.slug, s.nombre, s.descripcion FROM skill_persona sp JOIN skill_catalogo s ON s.id = sp.skill_id WHERE sp.usuario_id = $1 ORDER BY s.nombre", [usuarioId],
+  )).rows;
+  const conectores = (await c.query<{ slug: string; nombre: string; descripcion: string }>(
+    "SELECT c.slug, c.nombre, c.descripcion FROM conector_persona cp JOIN conector_catalogo c ON c.id = cp.conector_id WHERE cp.usuario_id = $1 AND c.activo ORDER BY c.nombre", [usuarioId],
+  )).rows;
+  return textoMisHerramientas(skills, conectores);
+}
 
 // ── ejecuciones (rutinas y automatizaciones)
 
@@ -3580,7 +3780,7 @@ async function correrEjecucionDb(e: { id: string; bot_id: string; usuario_id: st
       await c.query("UPDATE ejecucion_jarvis SET sesion_id = $2 WHERE id = $1", [e.id, sesionId]);
       const h = await herramientasActivasDb(c, bot.id);
       await anotarUsoSkillsDb(c, h.skillIds, bot.id, sesionId, e.usuario_id, e.es_auto ? "AUTOMATIZACION" : "RUTINA");
-      return { hermes, sesionId, mensaje, sistema: `${sistemaDelBot(bot, area, "TRABAJAR")}${h.texto}` } as const;
+      return { hermes, sesionId, mensaje, sistema: `${sistemaDelBot(bot, area, "TRABAJAR")}${h.texto}${await misHerramientasDb(c, e.usuario_id)}` } as const;
     });
     if ("error" in prep) {
       await terminar("FALLIDA", prep.error!);

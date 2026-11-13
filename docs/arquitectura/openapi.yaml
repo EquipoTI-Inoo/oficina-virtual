@@ -3504,6 +3504,156 @@ paths:
         '409': { description: Ya se decidió }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  # ───────────── Mis herramientas de Jarvis (13 nov): cada persona activa skills del catálogo, escribe las suyas y
+  # conecta servidores MCP remotos. Nada viene activado de base. El MCP del portal usa las mismas rutas como la
+  # persona que chatea (skill_leer, conector_herramientas, conector_usar).
+  /me/jarvis/skills:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: catalogoSkillsPersona
+      summary: 'Catálogo de skills (las de Inoo y las propias), con cuáles activó la persona. Filtra por texto, categoría o solo activas'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: categoria, in: query, schema: { type: string } }
+        - { name: activas, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, categorias, activas]
+                properties:
+                  datos: { type: array, items: { $ref: '#/components/schemas/SkillCatalogo' } }
+                  categorias: { type: array, items: { type: string } }
+                  activas: { type: integer, description: 'Cuántas tiene activas la persona' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    post:
+      tags: [Jarvis del equipo]
+      operationId: crearSkillPropia
+      summary: 'La persona escribe una skill para sí (queda activa y solo ella la ve)'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SkillPropiaEntrada' } } } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/SkillCatalogo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/jarvis/skills/{slug}:
+    parameters: [ { name: slug, in: path, required: true, schema: { type: string } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: leerSkillCatalogo
+      summary: 'La skill completa: instrucciones y nombres de sus archivos'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SkillCatalogoDetalle' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    put:
+      tags: [Jarvis del equipo]
+      operationId: activarSkillPersona
+      summary: 'Activa o desactiva la skill para el Jarvis de la persona'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [activa], properties: { activa: { type: boolean } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SkillCatalogo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: borrarSkillPropia
+      summary: 'Borra una skill propia (las del catálogo de Inoo no se borran: se desactivan)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /me/jarvis/skills/{slug}/archivos/{nombre}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+      - { name: nombre, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Jarvis del equipo]
+      operationId: leerArchivoSkill
+      summary: 'Un archivo de referencia de la skill, como texto'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [nombre, texto], properties: { nombre: { type: string }, texto: { type: string } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /me/jarvis/conectores:
+    get:
+      tags: [Jarvis del equipo]
+      operationId: catalogoConectoresPersona
+      summary: 'Catálogo de conectores (servidores MCP remotos), con cuáles conectó la persona'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ConectorCatalogo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /me/jarvis/conectores/{slug}:
+    parameters: [ { name: slug, in: path, required: true, schema: { type: string } } ]
+    put:
+      tags: [Jarvis del equipo]
+      operationId: conectarConectorPersona
+      summary: 'Conecta el servicio al Jarvis de la persona (con su token si lo pide). El token se guarda cifrado y no vuelve nunca'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { token: { type: [string, 'null'] } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ConectorCatalogo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Jarvis del equipo]
+      operationId: desconectarConectorPersona
+      summary: 'Desconecta el servicio y borra el token'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Desconectado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /me/jarvis/conectores/{slug}/herramientas:
+    parameters: [ { name: slug, in: path, required: true, schema: { type: string } } ]
+    get:
+      tags: [Jarvis del equipo]
+      operationId: herramientasConectorPersona
+      summary: 'Las herramientas que ofrece el servicio conectado (las pide al servidor MCP con la cuenta de la persona)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/HerramientaConector' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /me/jarvis/conectores/{slug}/usar:
+    parameters: [ { name: slug, in: path, required: true, schema: { type: string } } ]
+    post:
+      tags: [Jarvis del equipo]
+      operationId: usarConectorPersona
+      summary: 'Llama una herramienta del servicio conectado y devuelve su resultado como texto'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [herramienta], properties: { herramienta: { type: string }, argumentos: { type: object, additionalProperties: true } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [texto, esError], properties: { texto: { type: string }, esError: { type: boolean } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   # ───────────── Jarvis avanzado (9 nov): skills, conectores, rutinas, automatizaciones, biblioteca y actividad.
   # Todas las listas toman ?area= como /jarvis/bots: el espacio (un área o GERENCIA) entre los que ve la persona.
   /jarvis/skills:
@@ -7575,6 +7725,63 @@ components:
         creadoEn: { type: string, format: date-time }
         enDrive: { type: boolean }
         puedeBorrar: { type: boolean }
+
+    SkillCatalogo:
+      type: object
+      required: [slug, nombre, descripcion, categoria, origen, licencia, propia, activa, tieneScripts]
+      properties:
+        slug: { type: string, examples: [copywriting] }
+        nombre: { type: string }
+        descripcion: { type: string }
+        categoria: { type: string, examples: [Marketing] }
+        origen: { type: [string, 'null'], description: 'Repositorio de donde salió' }
+        licencia: { type: [string, 'null'] }
+        propia: { type: boolean, description: 'La escribió la persona (solo ella la ve)' }
+        activa: { type: boolean }
+        tieneScripts: { type: boolean, description: 'La original trae scripts: Jarvis usa solo sus instrucciones y archivos de texto' }
+
+    SkillCatalogoDetalle:
+      allOf:
+        - { $ref: '#/components/schemas/SkillCatalogo' }
+        - type: object
+          required: [instrucciones, archivos]
+          properties:
+            instrucciones: { type: string }
+            archivos: { type: array, items: { type: object, required: [nombre, largo], properties: { nombre: { type: string }, largo: { type: integer } } } }
+
+    SkillPropiaEntrada:
+      type: object
+      required: [nombre, instrucciones]
+      properties:
+        nombre: { type: string, maxLength: 80 }
+        descripcion: { type: [string, 'null'], maxLength: 600 }
+        instrucciones: { type: string, maxLength: 30000 }
+        archivos: { type: array, maxItems: 5, items: { type: object, required: [nombre, texto], properties: { nombre: { type: string }, texto: { type: string } } } }
+
+    ConectorCatalogo:
+      type: object
+      required: [slug, nombre, descripcion, categoria, url, auth, ayudaToken, origen, conectado, conToken, conectadoEn, ultimoUso]
+      properties:
+        slug: { type: string, examples: [github] }
+        nombre: { type: string }
+        descripcion: { type: string }
+        categoria: { type: string }
+        url: { type: string }
+        auth: { type: string, enum: [NINGUNA, TOKEN, TOKEN_OPCIONAL] }
+        ayudaToken: { type: [string, 'null'], description: 'Dónde sacar el token' }
+        origen: { type: [string, 'null'] }
+        conectado: { type: boolean }
+        conToken: { type: boolean, description: 'Lo conectó con un token propio (el token nunca vuelve)' }
+        conectadoEn: { type: [string, 'null'], format: date-time }
+        ultimoUso: { type: [string, 'null'], format: date-time }
+
+    HerramientaConector:
+      type: object
+      required: [nombre, descripcion, parametros]
+      properties:
+        nombre: { type: string }
+        descripcion: { type: string }
+        parametros: { type: object, additionalProperties: true, description: 'JSON Schema de los argumentos' }
 
     ConexionPersonal:
       type: object

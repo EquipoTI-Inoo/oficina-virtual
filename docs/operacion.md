@@ -88,7 +88,18 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
   Un área sin entrada ve sus bots, pero no puede chatear.
 - Nadie del equipo maneja llaves: la pasarela `/api/v1/ia-equipo` cobra a la persona por la marca de la
   conversación. Los topes por área se cambian en «Costos de IA».
-- **Conectores (MCP):** el portal guarda solo el catálogo. Un super usuario lo agrega en Jarvis → Conectores y
+- **Mis herramientas (0057, 13 nov):** cada persona arma su Jarvis en Jarvis → Mis herramientas. Activa skills del
+  catálogo (`skill_catalogo`), escribe las suyas y conecta servicios MCP remotos (`conector_catalogo`) con su cuenta.
+  Nada viene activado de base. El bot recibe solo la lista (nombre y para qué sirve) y lee cada skill con
+  `skill_leer`. Usa los servicios con `conector_herramientas` y `conector_usar`: el portal hace de puente y llama al
+  servidor MCP con el token de la persona, guardado cifrado. En el VPS no se instala nada por persona. Necesita el
+  MCP 0.5.0 (`integrations/hermes/mcp-portal.mjs` copiado a `/home/hermes/inoo/` y Hermes reiniciado).
+  - **Catálogo de skills:** se genera con `apps/portal/scripts/skills-a-sql.mjs`, a partir de los repos públicos de
+    Skillfera clonados en una carpeta (la lista de fuentes está en el script). El script imprime el SQL, que se
+    carga con `psql -1`. Es idempotente y no toca las skills propias.
+  - **Conectores nuevos:** por ahora se agregan con un `INSERT INTO conector_catalogo` (solo `https`, sin
+    credenciales). Siguen el modelo de los de la migración 0057.
+- **Conectores (MCP) del área:** el portal guarda solo el catálogo. Un super usuario lo agrega en Jarvis → Conectores y
   queda «Falta conectarlo». TI configura el servidor MCP y su credencial en el Hermes del área y lo marca
   «Conectado». Desde ahí los bots que lo tengan activo lo usan. El portal rechaza llaves o tokens en sus campos.
 - **Conexiones personales (0050):** cada persona conecta su propia cuenta en Mi cuenta → Conexiones (por ahora,

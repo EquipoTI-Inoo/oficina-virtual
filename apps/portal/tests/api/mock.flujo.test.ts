@@ -9,6 +9,7 @@ import { pruebasCuentas } from "./flujo-cuentas";
 import { pruebasEmpresas } from "./flujo-empresas";
 import { pruebasJarvisAvanzado } from "./flujo-jarvis-avanzado";
 import { pruebasConexiones } from "./flujo-conexiones";
+import { pruebasHerramientasPersona } from "./flujo-herramientas-persona";
 import { pruebasBoveda } from "./flujo-boveda";
 import { pruebasPanel } from "./flujo-panel";
 import { pruebasArchivos } from "./flujo-archivos";
@@ -41,6 +42,7 @@ pruebasCuentas("API simulada", manejar, reiniciarMock, eventos);
 pruebasEmpresas("API simulada", manejar, reiniciarMock);
 pruebasJarvisAvanzado("API simulada", manejar, reiniciarMock);
 pruebasConexiones("API simulada", manejar, reiniciarMock);
+pruebasHerramientasPersona("API simulada", manejar, reiniciarMock);
 pruebasBoveda("API simulada", manejar, reiniciarMock);
 pruebasPanel("API simulada", manejar, reiniciarMock);
 pruebasArchivos("API simulada", manejar, reiniciarMock, async (url) => {
