@@ -49,7 +49,7 @@ export function PantallaPruebas() {
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 16, background: "var(--c-fondo)" }}>
       <section className="tarjeta" style={{ width: "min(640px, 100%)", padding: 28, display: "grid", gap: 18 }}>
         <div className="fila entre" style={{ gap: 12 }}>
-          <span className="logo"><img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo</span>
+          <span className="logo"><img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} /></span>
           <button className="boton boton--chico" onClick={salir}><LuLogOut size={14} /> Salir</button>
         </div>
         <div>

@@ -34,7 +34,7 @@ export function PantallaCrearClave() {
   return (
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 16, background: "var(--c-fondo)" }}>
       <form className="tarjeta ingreso-form" onSubmit={enviar} noValidate style={{ width: "min(420px, 100%)", padding: 28 }}>
-        <span className="logo"><img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo</span>
+        <span className="logo"><img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} /></span>
         <div>
           <h1 style={{ fontSize: "var(--t-4xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>Crea tu contraseña</h1>
           <p className="texto-muted" style={{ marginTop: 10, fontSize: "var(--t-base)" }}>Con ella vas a entrar al portal desde ahora. Usa al menos {MIN_CLAVE} caracteres, con mayúsculas, minúsculas y números.</p>

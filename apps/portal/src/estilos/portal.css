@@ -172,25 +172,14 @@ p {
   color: var(--c-tinta);
   line-height: 1;
 }
-.logo::after {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--c-marca-verde);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
-  transform: translateY(-6px);
-}
-/* 2 nov: la marca de InooWork (la misma de su app), antes del nombre */
+/* 16 nov: el logo de inoo.pe (SVG, «INOO»), en vez del ícono viejo de InooWork y la palabra «inoo» escrita. */
 .logo-marca {
-  width: 34px;
-  height: 34px;
-  margin-right: 5px;
-  border-radius: var(--r-sm);
-  object-fit: cover;
+  display: block;
+  width: auto;
+  height: 30px;
   flex: none;
 }
-.superior-logo .logo-marca { width: 26px; height: 26px; border-radius: var(--r-sm); }
+.superior-logo .logo-marca { height: 22px; }
 .logo-sub {
   display: block;
   margin-top: 8px;

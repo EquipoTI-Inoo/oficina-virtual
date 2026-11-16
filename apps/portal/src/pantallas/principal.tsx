@@ -92,7 +92,7 @@ export function PantallaIngreso() {
     <div className="ingreso">
       <section className="ingreso-izq">
         <div>
-          <span className="logo"><img src="/marca/inoo.jpg" alt="" className="logo-marca" width={34} height={34} />inoo</span>
+          <span className="logo"><img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} /></span>
           <span className="logo-sub">Portal de clientes</span>
         </div>
         <div style={{ marginTop: 64 }}>

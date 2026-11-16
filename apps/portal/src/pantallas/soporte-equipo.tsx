@@ -861,7 +861,7 @@ export function PantallaMuestras() {
   return (
     <div style={{ padding: "48px 40px", maxWidth: 1440, margin: "0 auto" }}>
       <div className="fila entre">
-        <span className="logo">inoo</span>
+        <span className="logo"><img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} /></span>
         <span className="antetitulo" style={{ margin: 0 }}>Portal de clientes / Muestras editables</span>
       </div>
       <h1 style={{ fontSize: "var(--t-4xl)", fontWeight: 600, marginTop: 40 }}>Un mismo lenguaje, en cada momento.</h1>
