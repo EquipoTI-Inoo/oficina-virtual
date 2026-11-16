@@ -17,13 +17,15 @@ export interface AvisosArchivo {
   equipo(): Promise<{ id: string; nombre: string }[]>;
   avisar(usuarioId: string, titulo: string, cuerpo: string, enlace: string): Promise<void>;
 }
-export interface ComentarioArchivo { id: string; version: number; autor: string; texto: string; en: string }
+/** 16 nov (tanda 5): el punto del comentario en la imagen o el cuadro (0 a 1) y, en videos, el segundo. */
+export interface AnclaComentario { x: number; y: number; t: number | null }
+export interface ComentarioArchivo { id: string; version: number; autor: string; texto: string; en: string; ancla: AnclaComentario | null }
 export interface RepoArchivosTablero {
   guardar(a: { id: string; archivoId: string; version: number; nombre: string; mime: string; bytes: number; proyectoId: string; itemId: string; columnaId: string }, contenido: Uint8Array): Promise<void>;
   leer(proyectoId: string, id: string): Promise<{ nombre: string; mime: string; contenido: Uint8Array } | null>;
   borrar(proyectoId: string, archivoId: string): Promise<void>;
   comentarios(proyectoId: string, archivoId: string): Promise<ComentarioArchivo[]>;
-  comentar(c: { proyectoId: string; archivoId: string; version: number; autor: string; texto: string }): Promise<void>;
+  comentar(c: { proyectoId: string; archivoId: string; version: number; autor: string; texto: string; ancla: AnclaComentario | null }): Promise<void>;
 }
 type Fallar = (status: number, codigo: string, titulo: string, errores?: { campo: string; mensaje: string }[]) => Error;
 type Tableros = ReturnType<typeof crearTableros>;
@@ -135,7 +137,7 @@ export function crearArchivosTablero(fallar: Fallar, tableros: Tableros) {
       const equipo = avisos ? await avisos.equipo() : [];
       return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
     },
-    comentar: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, b: { texto?: unknown; version?: unknown; mencionIds?: unknown }, avisos?: AvisosArchivo) => {
+    comentar: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, b: { texto?: unknown; version?: unknown; mencionIds?: unknown; ancla?: unknown }, avisos?: AvisosArchivo) => {
       const tablero = await tableros.ver(proyectoId, yo);
       if (tablero.miPermiso === "LECTOR") throw fallar(403, "SIN_PERMISO", "Tienes permiso de lector: no puedes comentar");
       const a = await archivoDelTablero(proyectoId, archivoId, yo);
@@ -147,8 +149,20 @@ export function crearArchivosTablero(fallar: Fallar, tableros: Tableros) {
       if (!t || t.length > 5000) errores.push({ campo: "texto", mensaje: "Escribe el comentario (hasta 5000 caracteres)" });
       const version = b.version === undefined ? a.version : Number(b.version);
       if (!a.versiones.some((v) => v.version === version)) errores.push({ campo: "version", mensaje: "Esa versión no existe" });
+      // 16 nov (tanda 5): el punto va de 0 a 1; el segundo, solo en videos.
+      let ancla: AnclaComentario | null = null;
+      if (b.ancla !== undefined && b.ancla !== null) {
+        const x = b.ancla as { x?: unknown; y?: unknown; t?: unknown };
+        const dentro = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+        const mime = a.versiones.find((v) => v.version === version)?.mime ?? a.mime;
+        const t = x.t === undefined || x.t === null ? null : x.t;
+        if (typeof x !== "object" || !dentro(x.x) || !dentro(x.y)) errores.push({ campo: "ancla", mensaje: "El punto va de 0 a 1 en x e y" });
+        else if (t !== null && !(typeof t === "number" && Number.isFinite(t) && t >= 0 && t <= 86400 && /^video\//.test(mime))) errores.push({ campo: "ancla", mensaje: "El segundo solo va en videos" });
+        else if (!/^(image|video)\//.test(mime)) errores.push({ campo: "ancla", mensaje: "Solo se comenta en un punto de imágenes y videos" });
+        else ancla = { x: x.x as number, y: x.y as number, t: t as number | null };
+      }
       if (errores.length) throw fallar(422, "VALIDACION", "Revisa el comentario", errores);
-      await repo.comentar({ proyectoId, archivoId, version, autor: yo.nombre ?? "Alguien del equipo", texto: t });
+      await repo.comentar({ proyectoId, archivoId, version, autor: yo.nombre ?? "Alguien del equipo", texto: t, ancla });
       if (avisos) {
         const item = tablero.items.find((i) => Object.values(i.datos ?? {}).some((d) => normalizarArchivos(d).some((x) => x.id === archivoId)));
         const enlace = `/equipo/proyectos/tableros/${proyectoId}${item ? `?item=${encodeURIComponent(item.id)}` : ""}`;

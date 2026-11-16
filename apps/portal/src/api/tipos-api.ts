@@ -3479,6 +3479,61 @@ export interface paths {
         patch: operations["cambiarSubitemTablero"];
         trace?: never;
     };
+    "/marcas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Las marcas de los clientes que ve quien pregunta (16 nov) */
+        get: operations["listarMarcas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/marcas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agrega una marca al cliente (16 nov) */
+        post: operations["crearMarca"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marcas/{marcaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                marcaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Cambia el nombre de una marca o la desactiva (16 nov) */
+        patch: operations["cambiarMarca"];
+        trace?: never;
+    };
     "/tableros/{proyectoId}/candidatos": {
         parameters: {
             query?: never;
@@ -4993,6 +5048,16 @@ export interface components {
             leida: boolean;
             /** Format: date-time */
             creadoEn: string;
+        };
+        /** @description Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca */
+        MarcaCliente: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            clienteId: string;
+            clienteNombre: string;
+            nombre: string;
+            activa: boolean;
         };
         Marca: {
             descripcion?: string;
@@ -6525,6 +6590,18 @@ export interface components {
             enlace: string;
         };
         TableroResumen: {
+            /** @description Etiquetas libres (16 nov) */
+            etiquetas: string[];
+            /**
+             * Format: uuid
+             * @description El servicio contratado vinculado (16 nov)
+             */
+            servicioId: string | null;
+            /**
+             * Format: uuid
+             * @description Su marca (16 nov)
+             */
+            marcaId: string | null;
             /** @example PROJ-MKT01 */
             id: string;
             nombre: string;
@@ -6636,6 +6713,13 @@ export interface components {
                 }[];
             };
             datos: {
+                /** @description Punto en la imagen o el cuadro (16 nov) */
+                ancla: null | {
+                    x: number;
+                    y: number;
+                    /** @description Segundo del video */
+                    t: number | null;
+                };
                 id: string;
                 version: number;
                 autor: string;
@@ -6746,6 +6830,18 @@ export interface components {
         PermisoTablero: "LECTOR" | "COMENTADOR" | "EDITOR";
         /** @description Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente */
         TableroInooWork: {
+            /** @description Etiquetas libres (16 nov) */
+            etiquetas: string[];
+            /**
+             * Format: uuid
+             * @description El servicio contratado vinculado (16 nov)
+             */
+            servicioId: string | null;
+            /**
+             * Format: uuid
+             * @description Su marca (16 nov)
+             */
+            marcaId: string | null;
             id: string;
             nombre: string;
             miPermiso: components["schemas"]["PermisoTablero"];
@@ -6970,6 +7066,11 @@ export interface components {
             enlace: string;
         };
         ProyectoPipeline: {
+            /**
+             * Format: uuid
+             * @description La marca del servicio (16 nov)
+             */
+            marcaId?: string | null;
             /** Format: uuid */
             servicioContratadoId: string;
             /** Format: uuid */
@@ -10956,6 +11057,11 @@ export interface operations {
                     siguientePaso?: string | null;
                     estado?: components["schemas"]["EstadoServicio"];
                     marca?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description La ficha de marca del mismo cliente (16 nov); también fija el texto marca
+                     */
+                    marcaId?: string | null;
                     detalle?: components["schemas"]["DetalleServicio"];
                     /** Format: date */
                     fechaFin?: string | null;
@@ -15817,6 +15923,17 @@ export interface operations {
                     estado?: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "En Pausa" | "Cancelado";
                     /** @description Solo el líder (16 nov): privado = solo sus personas, ni los admins */
                     privado?: boolean;
+                    /**
+                     * Format: uuid
+                     * @description Una marca del mismo cliente (16 nov)
+                     */
+                    marcaId?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Un servicio del mismo cliente (16 nov)
+                     */
+                    servicioId?: string | null;
+                    etiquetas?: string[];
                 };
             };
         };
@@ -16087,6 +16204,91 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listarMarcas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["MarcaCliente"][];
+                    };
+                };
+            };
+        };
+    };
+    crearMarca: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarcaCliente"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    cambiarMarca: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                marcaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre?: string;
+                    activa?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarcaCliente"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
         };
     };
     candidatosTablero: {
@@ -17109,6 +17311,12 @@ export interface operations {
                     version?: number;
                     /** @description Personas del equipo mencionadas con @ (16 nov): reciben un aviso */
                     mencionIds?: string[];
+                    /** @description Comentar en un punto (16 nov): x, y de 0 a 1; t = segundo, solo videos */
+                    ancla?: {
+                        x: number;
+                        y: number;
+                        t?: number | null;
+                    };
                 };
             };
         };

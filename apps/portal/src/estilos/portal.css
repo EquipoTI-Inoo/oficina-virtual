@@ -2936,3 +2936,29 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .miniatura-grande { position: fixed; z-index: 60; width: 280px; height: auto; max-height: 280px; object-fit: contain; border-radius: var(--r-sm); background: var(--c-blanco); box-shadow: var(--sombra-flotante); border: 1px solid var(--c-borde); pointer-events: none; }
 .nombre-archivo { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabla-tablero .fila-soltar-fin td { position: static; width: auto; min-width: 0; max-width: none; box-shadow: none; }
+
+/* 16 nov (tanda 4): Proyectos con el árbol Empresa → Marca a la izquierda. */
+.proyectos-dos-columnas { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.arbol-empresas { display: grid; gap: 2px; position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow-y: auto; padding-right: 4px; }
+.arbol-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--c-texto); font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer; }
+.arbol-item:hover { background: var(--c-neutro-suave); }
+.arbol-item[aria-current="true"] { background: var(--c-primario-suave); color: var(--c-primario); font-weight: 600; }
+.arbol-item--hijo { padding-left: 30px; font-size: var(--t-xs); }
+.arbol-hijos { display: grid; gap: 1px; margin: 2px 0 4px; }
+.arbol-n { flex: none; font-size: var(--t-xs); color: var(--c-muted); }
+.recortar { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@media (max-width: 900px) {
+  .proyectos-dos-columnas { grid-template-columns: 1fr; }
+  .arbol-empresas { position: static; max-height: 220px; border: 1px solid var(--c-borde); border-radius: var(--r-md); padding: 6px; }
+}
+.etiqueta-libre { display: inline-block; padding: 1px 7px; border-radius: var(--r-pill); background: var(--c-neutro-suave); color: var(--c-muted); font-size: var(--t-xs); }
+
+/* 16 nov (tanda 5): comentarios anclados en un punto de la imagen o del cuadro del video. */
+.lienzo-anclas { position: relative; display: inline-block; max-width: 100%; max-height: 100%; line-height: 0; }
+.lienzo-anclas > img, .lienzo-anclas > video { display: block; max-width: 100%; max-height: 70vh; }
+.lienzo-anclas--marcando > img, .lienzo-anclas--marcando > video { outline: 2px dashed var(--c-marca-verde); outline-offset: 2px; }
+.lienzo-capa { position: absolute; inset: 0; cursor: crosshair; z-index: 3; }
+.pin-comentario { position: absolute; z-index: 2; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50% 50% 50% 0; border: 2px solid var(--c-sobre-color); background: var(--c-primario-solido); color: var(--c-sobre-color); font: inherit; font-size: var(--t-xs); font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45); }
+.pin-comentario--activo { background: var(--c-marca-verde); color: #000; transform: translate(-50%, -50%) scale(1.15); }
+.pin-comentario--nuevo { background: var(--c-marca-verde); color: #000; pointer-events: none; }
+.comentario-archivo--activo { outline: 2px solid var(--c-primario); outline-offset: 2px; border-radius: var(--r-sm); }

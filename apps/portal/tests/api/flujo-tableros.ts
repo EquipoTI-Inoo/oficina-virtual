@@ -7,7 +7,7 @@ import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
 import { usarFetchTableros } from "../../src/servidor/tableros";
 import { columnaDeTablero } from "../../src/dominio/tableros";
-import { crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
+import { CASA_OLIVA, crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
 
 const ADMIN = `demo.${uid(1, 4)}`;
 const ROSA = `demo.${uid(1, 5)}`;
@@ -44,6 +44,46 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", CAMILA)).status, 404);
       const otra = (await llamar("POST", "/tableros/PROJ-OPS01/miembros", ADMIN, { usuarioIds: [camila] })).json;
       assert.equal(otra.personas.filter((p: any) => p.id === "EMP-003").length, 1, "vuelve a quedar activa, sin duplicarse");
+    });
+
+    test("16 nov (tanda 4): marcas por empresa; el servicio y el tablero se enlazan a una marca y el tablero a un servicio, con etiquetas", async () => {
+      await reiniciar();
+      const nueva = await llamar("POST", `/clientes/${CASA_OLIVA}/marcas`, ADMIN, { nombre: "  Oliva   Kids " });
+      assert.equal(nueva.status, 201, JSON.stringify(nueva.json));
+      assert.deepEqual([nueva.json.nombre, nueva.json.clienteNombre, nueva.json.activa], ["Oliva Kids", "Casa Oliva", true]);
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/marcas`, ADMIN, { nombre: "oliva kids" })).status, 409, "no se repite");
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/marcas`, ADMIN, { nombre: " " })).status, 422);
+      assert.ok((await llamar("GET", "/marcas", ADMIN)).json.datos.some((m: any) => m.id === nueva.json.id));
+      assert.equal((await llamar("GET", "/marcas", VALERIA)).status, 403, "es del equipo");
+
+      // El servicio toma la marca (y su nombre, para el título).
+      const servicio = uid(4, 4);
+      const sv = await llamar("PATCH", `/servicios-contratados/${servicio}`, ADMIN, { marcaId: nueva.json.id });
+      assert.equal(sv.status, 200, JSON.stringify(sv.json));
+      const pipe = (await llamar("GET", "/panel/proyectos", ADMIN)).json.datos.find((x: any) => x.servicioContratadoId === servicio);
+      assert.equal(pipe.marcaId, nueva.json.id);
+      assert.ok(pipe.titulo.endsWith("Oliva Kids"), pipe.titulo);
+
+      // El tablero: primero su cliente; después la marca, el servicio y las etiquetas.
+      await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { cliente: "Casa Oliva" });
+      const t = await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { marcaId: nueva.json.id, servicioId: servicio, etiquetas: ["Urgente", "urgente", "  Q4 ", ""] });
+      assert.equal(t.status, 200, JSON.stringify(t.json));
+      assert.deepEqual([t.json.marcaId, t.json.servicioId, t.json.etiquetas], [nueva.json.id, servicio, ["Urgente", "Q4"]]);
+      const lista = (await llamar("GET", "/tableros", DIEGO)).json.datos.find((x: any) => x.id === "PROJ-OPS01");
+      assert.deepEqual([lista.marcaId, lista.servicioId, lista.etiquetas], [nueva.json.id, servicio, ["Urgente", "Q4"]]);
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { etiquetas: Array.from({ length: 11 }, (_, i) => `e${i}`) })).status, 422);
+
+      // Una marca o un servicio de otro cliente, no.
+      await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { cliente: "Inoo" });
+      assert.deepEqual((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { marcaId: nueva.json.id, servicioId: servicio })).json.errores.map((e: any) => e.campo), ["marcaId", "servicioId"]);
+      // Cambiar el cliente suelta la marca y el servicio.
+      const otro = (await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { cliente: "Nativa Café" })).json;
+      assert.deepEqual([otro.marcaId, otro.servicioId, otro.etiquetas], [null, null, ["Urgente", "Q4"]]);
+
+      // Renombrar la marca renombra el texto del servicio; desactivarla la deja fuera de las listas activas.
+      const ren = await llamar("PATCH", `/marcas/${nueva.json.id}`, ADMIN, { nombre: "Oliva Niños", activa: false });
+      assert.deepEqual([ren.json.nombre, ren.json.activa], ["Oliva Niños", false]);
+      assert.ok((await llamar("GET", "/panel/proyectos", ADMIN)).json.datos.find((x: any) => x.servicioContratadoId === servicio).titulo.endsWith("Oliva Niños"));
     });
 
     test("16 nov (Ernesto): un tablero privado lo ven solo sus personas, ni los admins; solo el líder lo cambia", async () => {

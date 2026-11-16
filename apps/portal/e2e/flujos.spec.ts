@@ -249,6 +249,8 @@ test("pagos: operaciones solo ve la alerta y Finanzas marca al cliente al día",
 test("proyectos: del pipeline al proyecto, crear una tarea, moverla y mencionar a alguien", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos");
+  // 16 nov (tanda 4): los servicios están en su propia pestaña.
+  await page.getByRole("tab", { name: /^Servicios/ }).click({ timeout: 30_000 });
   const espera = page.locator(".pipeline-columna", { hasText: "Esperando al cliente" });
   await expect(espera.getByText("Implementación de CRM - Casa Oliva")).toBeVisible({ timeout: 20_000 });
   await page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ }).click();
@@ -708,6 +710,47 @@ test("tableros (16 nov): arrastrar una fila la cambia de lugar; la fila de total
   await page.getByRole("button", { name: "Arrastrar Actualizar el portafolio web" }).dragTo(page.getByLabel("Nombre de Calendario de LinkedIn de octubre").locator("xpath=ancestor::tr"));
   const y = async (n: string) => (await page.getByLabel(`Nombre de ${n}`).boundingBox())?.y ?? 0;
   await expect.poll(async () => (await y("Actualizar el portafolio web")) < (await y("Calendario de LinkedIn de octubre")), { timeout: 20_000 }).toBe(true);
+});
+
+test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin numerado", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  await reiniciar(request);
+  const h = { authorization: "Bearer demo.00000000-0000-4000-8001-000000000003" };
+  const col = await (await request.post("/api/v1/tableros/PROJ-MKT01/columnas", { headers: h, data: { nombre: "Piezas", tipo: "file" } })).json();
+  const colId = col.columnas.find((c: any) => c.nombre === "Piezas").id;
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR42mNk+M9Qz0AEYBxVSFIAAPNbB/3E14+zAAAAAElFTkSuQmCC";
+  const subida = await request.post(`/api/v1/tableros/PROJ-MKT01/items/item-mkt-1/columnas/${colId}/archivos`, { headers: h, data: { nombre: "pieza.png", mime: "image/png", base64: png } });
+  expect(subida.ok()).toBe(true);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-MKT01");
+  await page.getByRole("button", { name: "Ver pieza.png" }).click({ timeout: 30_000 });
+  const visor = page.getByRole("dialog");
+  await visor.getByRole("button", { name: "Comentar en un punto" }).click();
+  const capa = visor.getByRole("button", { name: "Elegir el punto del comentario" });
+  const caja = (await capa.boundingBox())!;
+  await page.mouse.click(caja.x + caja.width * 0.25, caja.y + caja.height * 0.5);
+  await expect(visor.getByText("Punto elegido")).toBeVisible();
+  await visor.getByLabel("Comentario").fill("El logo aquí, más grande");
+  await visor.getByRole("button", { name: /^Comentar en la V1/ }).click();
+  await expect(visor.getByRole("button", { name: /^Comentario 1 de Diego Castro/ })).toBeVisible({ timeout: 20_000 });
+  await expect(visor.getByRole("button", { name: /Punto 1/ })).toBeVisible();
+});
+
+test("proyectos (16 nov, tanda 4): pestañas Proyectos y Servicios con el filtro Empresa → Marca", async ({ page }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "admin");
+  await page.goto("/equipo/proyectos");
+  const arbol = page.getByRole("navigation", { name: "Filtrar por empresa y marca" });
+  await expect(page.getByRole("link", { name: /Marketing interno de Inoo/ })).toBeVisible({ timeout: 30_000 });
+  await arbol.getByRole("button", { name: /^Sin cliente/ }).click();
+  await expect(page.getByRole("link", { name: /Marketing interno de Inoo/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Operaciones y procesos/ })).toBeVisible();
+  await page.getByRole("tab", { name: /^Servicios/ }).click();
+  await arbol.getByRole("button", { name: /^Casa Oliva/ }).click();
+  await arbol.getByRole("button", { name: /^Casa Oliva Spa/ }).click();
+  await expect(page.locator(".pipeline-tarjeta")).toHaveCount(0);
+  await arbol.getByRole("button", { name: /^Todas las empresas/ }).click();
+  await expect(page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ })).toBeVisible();
 });
 
 test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su tablero", async ({ page }) => {

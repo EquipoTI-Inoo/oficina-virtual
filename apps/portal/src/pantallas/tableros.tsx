@@ -13,6 +13,7 @@ import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from 
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso, usePortal } from "../componentes";
+import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
@@ -99,6 +100,74 @@ function ClienteDelTablero({ actual, cambiar }: { actual: string | null; cambiar
         </>
       )}
     </form>
+  );
+}
+
+/**
+ * 16 nov (tanda 4, Ernesto): la marca del cliente, el servicio contratado al que pertenece (0 o 1) y etiquetas libres.
+ * Las marcas y los servicios se filtran por el cliente del tablero; una marca nueva se crea aquí mismo.
+ */
+function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean>; editable: boolean }) {
+  const avisar = useAviso();
+  const marcas = useConsulta<{ datos: S<"MarcaCliente">[] }>("/marcas");
+  const servicios = useConsulta<{ datos: S<"ProyectoPipeline">[] }>("/panel/proyectos");
+  const [etiqueta, setEtiqueta] = useState("");
+  const mismo = (nombre: string) => !!t.cliente && (claveCliente(nombre) === claveCliente(t.cliente) || (esClienteInterno(t.cliente) && /^inoo\b/i.test(nombre)));
+  const suyas = (marcas.datos?.datos ?? []).filter((m) => mismo(m.clienteNombre) && (m.activa || m.id === t.marcaId));
+  const susServicios = (servicios.datos?.datos ?? []).filter((s) => mismo(s.clienteNombre));
+  const clienteId = susServicios[0]?.clienteId ?? suyas[0]?.clienteId ?? null;
+  const nuevaMarca = async () => {
+    const nombre = window.prompt(`Nombre de la marca nueva de ${t.cliente}`);
+    if (!nombre?.trim() || !clienteId) return;
+    try {
+      const m = await api<S<"MarcaCliente">>(`/clientes/${clienteId}/marcas`, { metodo: "POST", cuerpo: { nombre } });
+      marcas.recargar();
+      await cambiar("", "PATCH", { marcaId: m.id });
+    } catch (e) {
+      avisar({ titulo: "No se pudo crear la marca", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
+    }
+  };
+  const quitarEtiqueta = (x: string) => void cambiar("", "PATCH", { etiquetas: t.etiquetas.filter((y) => y !== x) });
+  const agregarEtiqueta = () => {
+    const x = etiqueta.trim();
+    setEtiqueta("");
+    if (x) void cambiar("", "PATCH", { etiquetas: [...t.etiquetas, x] });
+  };
+  return (
+    <div className="fila" style={{ gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+      <label className="fila texto-sm" style={{ gap: 8 }}>
+        <span className="negrita">Marca</span>
+        <select className="input" style={{ width: 200, height: 36 }} disabled={!editable || !marcas.datos} value={t.marcaId ?? ""}
+          onChange={(e) => (e.target.value === "__nueva" ? void nuevaMarca() : void cambiar("", "PATCH", { marcaId: e.target.value || null }))}>
+          <option value="">Sin marca</option>
+          {suyas.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.activa ? "" : " (inactiva)"}</option>)}
+          {editable && clienteId && <option value="__nueva">Nueva marca…</option>}
+        </select>
+      </label>
+      <label className="fila texto-sm" style={{ gap: 8 }}>
+        <span className="negrita">Servicio</span>
+        <select className="input" style={{ width: 260, height: 36 }} disabled={!editable || !servicios.datos} value={t.servicioId ?? ""}
+          onChange={(e) => void cambiar("", "PATCH", { servicioId: e.target.value || null })}>
+          <option value="">Sin servicio vinculado</option>
+          {susServicios.map((s) => <option key={s.servicioContratadoId} value={s.servicioContratadoId}>{s.titulo}</option>)}
+        </select>
+        {t.servicioId && <Enlace a={`/equipo/proyectos/${t.servicioId}`} className="enlace texto-xs">Ver servicio</Enlace>}
+      </label>
+      <span className="fila texto-sm" style={{ gap: 6, flexWrap: "wrap" }}>
+        <span className="negrita">Etiquetas</span>
+        {t.etiquetas.map((x) => (
+          <span key={x} className="chip texto-xs" style={{ gap: 4 }}>
+            {x}
+            {editable && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar la etiqueta ${x}`} onClick={() => quitarEtiqueta(x)}><LuX size={11} /></button>}
+          </span>
+        ))}
+        {editable && t.etiquetas.length < 10 && (
+          <input className="input" style={{ width: 140, height: 32 }} aria-label="Nueva etiqueta" placeholder="+ Etiqueta" maxLength={30} value={etiqueta}
+            onChange={(e) => setEtiqueta(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarEtiqueta(); } }} onBlur={agregarEtiqueta} />
+        )}
+        {!editable && !t.etiquetas.length && <span className="texto-xs texto-muted">Sin etiquetas</span>}
+      </span>
+    </div>
   );
 }
 
@@ -202,6 +271,7 @@ function TableroProyecto() {
       )}
       {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
       {t.puedeEditar && <EstadoDelTablero t={t} cambiar={cambiar} />}
+      {t.cliente && <VinculosDelTablero t={t} cambiar={cambiar} editable={t.puedeEditar} />}
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div className="segmentado" role="tablist" aria-label="Vista del tablero">
           {vistas.map((v) => (

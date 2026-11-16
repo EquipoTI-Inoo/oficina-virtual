@@ -47,7 +47,7 @@ import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tarea
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
-import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -164,9 +164,11 @@ interface Estado {
   historialMonday: (FilaHistorial & { proyectoId: string })[];
   /** Columna «Archivos» de los tableros (11 nov). */
   archivosTablero: { id: string; archivoId: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array }[];
-  comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string }[];
+  comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string; ancla: { x: number; y: number; t: number | null } | null }[];
   /** Actualizaciones de los ítems de los tableros (12 nov) y los avisos de la campana que generan. */
   actualizacionesTablero: (FilaActualizacion & { proyectoId: string; itemId: string })[];
+  /** 16 nov (tanda 4): las marcas de cada cliente. */
+  marcas: { id: string; clienteId: string; nombre: string; activa: boolean }[];
   avisosEquipo: { id: string; usuarioId: string; titulo: string; cuerpo: string; enlace: string; creadoEn: string }[];
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
@@ -256,7 +258,7 @@ function estadoInicial(): Estado {
     consumoJarvis: [],
     sesionesCerradas: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -1666,11 +1668,62 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.ver(p.id, yoTablero(ctx));
 });
+// ───────────────────────────── Marcas (16 nov, tanda 4)
+const marcaVistaMock = (m: Estado["marcas"][number]): S<"MarcaCliente"> => ({ id: m.id, clienteId: m.clienteId, clienteNombre: E.clientes.find((c) => c.id === m.clienteId)?.nombre ?? "", nombre: m.nombre, activa: m.activa });
+const nombreMarcaMock = (x: unknown) => (typeof x === "string" && x.trim().length >= 1 && x.trim().length <= 120 ? x.trim().replace(/\s+/g, " ") : null);
+ruta("GET", "/marcas", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: E.marcas.filter((m) => veCliente(ctx, m.clienteId, true)).map(marcaVistaMock).sort((a, b) => a.clienteNombre.localeCompare(b.clienteNombre, "es") || a.nombre.localeCompare(b.nombre, "es")) };
+});
+ruta("POST", "/clientes/:id/marcas", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id, true);
+  const nombre = nombreMarcaMock((await cuerpo<{ nombre?: unknown }>(req))?.nombre);
+  if (!nombre) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "nombre", mensaje: "Escribe el nombre de la marca (hasta 120 caracteres)" }]);
+  if (E.marcas.some((m) => m.clienteId === c.id && m.nombre.toLowerCase() === nombre.toLowerCase())) throw new ErrorApi(409, "YA_EXISTE", "Esa marca ya existe en este cliente");
+  const m = { id: crypto.randomUUID(), clienteId: c.id, nombre, activa: true };
+  E.marcas.push(m);
+  return { __status: 201, ...marcaVistaMock(m) };
+});
+ruta("PATCH", "/marcas/:id", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const m = E.marcas.find((x) => x.id === p.id);
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa marca");
+  accesoCliente(ctx, m.clienteId, true);
+  const b = await cuerpo<{ nombre?: unknown; activa?: unknown }>(req);
+  const nombre = b.nombre === undefined ? undefined : nombreMarcaMock(b.nombre);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (nombre === null) errores.push({ campo: "nombre", mensaje: "Escribe el nombre de la marca (hasta 120 caracteres)" });
+  if (b.activa !== undefined && typeof b.activa !== "boolean") errores.push({ campo: "activa", mensaje: "Debe ser true o false" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (nombre && E.marcas.some((x) => x.id !== m.id && x.clienteId === m.clienteId && x.nombre.toLowerCase() === nombre.toLowerCase())) throw new ErrorApi(409, "YA_EXISTE", "Esa marca ya existe en este cliente");
+  if (nombre) { m.nombre = nombre; for (const s of E.servicios) if (s.marcaId === m.id) s.marca = nombre; }
+  if (typeof b.activa === "boolean") m.activa = b.activa;
+  return marcaVistaMock(m);
+});
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  const b = await cuerpo<{ cliente?: unknown; estado?: unknown }>(req);
+  const b = await cuerpo<{ cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown }>(req);
   if (b.cliente !== undefined) b.cliente = asegurarClienteMock(ctx, b.cliente);
-  return TABLEROS.cambiarProyecto(p.id, yoTablero(ctx), b);
+  const yo = yoTablero(ctx);
+  const vinculos: { marcaId?: string | null; servicioId?: string | null } = {};
+  if (b.marcaId !== undefined || b.servicioId !== undefined) {
+    const cliente = typeof b.cliente === "string" ? b.cliente : (await TABLEROS.ver(p.id, yo)).cliente;
+    const mismo = (clienteId: string) => { const n = E.clientes.find((c) => c.id === clienteId)?.nombre ?? ""; return !!cliente && (claveCliente(n) === claveCliente(cliente) || (esClienteInterno(cliente) && /^inoo\b/i.test(n))); };
+    const errores: { campo: string; mensaje: string }[] = [];
+    if (b.marcaId !== undefined) {
+      const m = E.marcas.find((x) => x.id === b.marcaId);
+      if (b.marcaId !== null && !(m && mismo(m.clienteId))) errores.push({ campo: "marcaId", mensaje: "Esa marca no es del cliente del proyecto" });
+      vinculos.marcaId = m?.id ?? null;
+    }
+    if (b.servicioId !== undefined) {
+      const s = E.servicios.find((x) => x.id === b.servicioId);
+      if (b.servicioId !== null && !(s && mismo(s.clienteId))) errores.push({ campo: "servicioId", mensaje: "Ese servicio no es del cliente del proyecto" });
+      vinculos.servicioId = s?.id ?? null;
+    }
+    if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  }
+  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, ...vinculos });
 });
 function avisosAutomatizacionMock<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
   const { avisosAutomatizacion, ...vista } = t;
@@ -1809,7 +1862,7 @@ const repoArchivosTablero: RepoArchivosTablero = {
     E.archivosTablero = E.archivosTablero.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
     E.comentariosArchivo = E.comentariosArchivo.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
   },
-  comentarios: async (proyectoId, archivoId) => E.comentariosArchivo.filter((x) => x.proyectoId === proyectoId && x.archivoId === archivoId).map(({ id, version, autor, texto, en }) => ({ id, version, autor, texto, en })),
+  comentarios: async (proyectoId, archivoId) => E.comentariosArchivo.filter((x) => x.proyectoId === proyectoId && x.archivoId === archivoId).map(({ id, version, autor, texto, en, ancla }) => ({ id, version, autor, texto, en, ancla: ancla ?? null })),
   comentar: async (c) => { E.comentariosArchivo.push({ ...c, id: crypto.randomUUID(), en: new Date().toISOString() }); },
 };
 // ───────────────────────────── Columnas de los tableros (11 nov): la biblioteca de tipos de Monday
@@ -3288,7 +3341,7 @@ function proyectoPipeline(s: D.ServicioContratadoDemo): S<"ProyectoPipeline"> {
   const tareas = E.tareas.filter((t) => t.servicioContratadoId === s.id && t.estado !== "HECHA");
   const c = E.clientes.find((x) => x.id === s.clienteId)!;
   return {
-    servicioContratadoId: s.id, clienteId: s.clienteId, clienteNombre: c.nombre, titulo: tituloDe(s), codigo: s.codigo as S<"CodigoServicio">, estado: s.estado,
+    servicioContratadoId: s.id, clienteId: s.clienteId, clienteNombre: c.nombre, titulo: tituloDe(s), marcaId: s.marcaId ?? null, codigo: s.codigo as S<"CodigoServicio">, estado: s.estado,
     columna: columnaProyecto({ estado: s.estado, avance, esperaCliente: !!etapaActual?.esperaCliente, requerimientosAtrasados: atrasados }),
     avance, responsable: persona(s.responsableId ?? (c.accountManagerId === undefined ? E.usuarios[2].id : c.accountManagerId)),
     tareas: { abiertas: tareas.length, vencidas: tareas.filter((t) => tareaVencida(t, D.HOY)).length },
@@ -3451,7 +3504,7 @@ function validarReunion(b: { titulo?: unknown; fecha?: unknown; estado?: unknown
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
-  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null }>(req);
+  const b = await cuerpo<{ siguientePaso?: string | null; estado?: string; marca?: string | null; marcaId?: string | null; detalle?: Record<string, unknown>; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null }>(req);
   // Cambiar el responsable es de gestión (AM y ADMIN).
   if (b.responsableId !== undefined) exigirRol(ctx, s.clienteId, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
@@ -3459,12 +3512,15 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, req) => {
   if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle, s));
   if (b.responsableId != null && !esDelEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
+  const marcaNueva = b.marcaId ? E.marcas.find((m) => m.id === b.marcaId) : null;
+  if (b.marcaId && marcaNueva?.clienteId !== s.clienteId) errores.push({ campo: "marcaId", mensaje: "Esa marca no es de este cliente" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (b.marcaId !== undefined) { s.marcaId = marcaNueva?.id ?? null; s.marca = marcaNueva?.nombre ?? null; }
   if (b.siguientePaso !== undefined) s.siguientePaso = b.siguientePaso?.trim() ?? "";
   if (b.estado !== undefined && b.estado !== s.estado) s.standbyDesde = b.estado === "STANDBY" ? new Date().toISOString() : null;
   if (b.estado !== undefined) s.estado = b.estado as D.ServicioContratadoDemo["estado"];
   if (b.responsableId !== undefined) s.responsableId = b.responsableId;
-  if (b.marca !== undefined) s.marca = b.marca?.trim() || null;
+  if (b.marca !== undefined && b.marcaId === undefined) s.marca = b.marca?.trim() || null;
   if (b.detalle !== undefined) s.detalle = b.detalle;
   if (b.fechaFin !== undefined) s.fechaFin = b.fechaFin;
   if (b.alcance !== undefined) s.alcance = b.alcance?.trim() || null;

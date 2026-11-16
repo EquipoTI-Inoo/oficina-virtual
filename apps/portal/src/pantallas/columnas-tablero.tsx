@@ -438,6 +438,8 @@ function EditorLista({ t, col, item, elegidos, cerrar, guardar }: { t: Tablero; 
 
 // ═════════════════════════════════════════════ visor de archivos: versiones y comentarios (como en Monday)
 
+const segundos = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
 type Comentarios = S<"ComentariosArchivo">;
 const pesoArchivo = (b: number) => (b > 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const fechaCorta = (f: string) => (f ? new Date(f).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" }) : "");
@@ -450,6 +452,26 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
   const [url, setUrl] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [nota, setNota] = useState<{ texto: string; menciones: string[] }>({ texto: "", menciones: [] });
+  // 16 nov (tanda 5, Ernesto): comentar en un punto de la imagen, o en un segundo y un punto del video.
+  const [marcando, setMarcando] = useState(false);
+  const [ancla, setAncla] = useState<{ x: number; y: number; t: number | null } | null>(null);
+  const [resaltado, setResaltado] = useState<string | null>(null);
+  const [tiempo, setTiempo] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const fijarPunto = (e: { clientX: number; clientY: number; currentTarget: HTMLElement }) => {
+    const medio = e.currentTarget.parentElement?.querySelector("img, video") as HTMLElement | null;
+    const r = (medio ?? e.currentTarget).getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    const vid = videoRef.current;
+    if (vid) vid.pause();
+    setAncla({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000, t: vid ? Math.round(vid.currentTime * 10) / 10 : null });
+    setMarcando(false);
+  };
+  const irA = (x: { id: string; ancla: { t: number | null } | null }) => {
+    setResaltado(x.id);
+    if (x.ancla?.t != null && videoRef.current) { videoRef.current.currentTime = x.ancla.t; videoRef.current.pause(); setTiempo(x.ancla.t); }
+  };
   const texto = nota.texto;
   const [subiendo, setSubiendo] = useState(false);
   const a = r.datos?.archivo;
@@ -469,6 +491,9 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
       .finally(() => vivo && setCargando(false));
     return () => { vivo = false; if (creada) URL.revokeObjectURL(creada); };
   }, [t.id, v?.id, vista, tipo]);
+
+  // Los comentarios con punto de esta versión, numerados en orden.
+  const anclados = (r.datos?.datos ?? []).filter((x) => x.ancla && x.version === v?.version).map((x, i) => ({ ...x, n: i + 1 }));
 
   const descargar = async (x: { id: string; nombre: string }) => {
     try {
@@ -498,8 +523,9 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
   const comentar = async () => {
     if (!texto.trim() || !v) return;
     try {
-      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`, { metodo: "POST", cuerpo: { texto: texto.trim(), version: v.version, mencionIds: nota.menciones } }));
+      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`, { metodo: "POST", cuerpo: { texto: texto.trim(), version: v.version, mencionIds: nota.menciones, ...(ancla ? { ancla } : {}) } }));
       setNota({ texto: "", menciones: [] });
+      setAncla(null);
     } catch (e) {
       avisar({ titulo: "No se pudo comentar", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
     }
@@ -527,8 +553,18 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
                   <button className="boton boton--chico" onClick={() => void descargar(v)}>Descargar {pesoArchivo(v.bytes)}</button>
                 </div>
               ) : cargando || !url ? <span className="texto-sm" style={{ color: "var(--c-sobre-oscuro)" }}>{cargando ? "Cargando la vista previa…" : "No se pudo cargar la vista previa"}</span>
-                : vista === "IMAGEN" ? <img src={url} alt={v.nombre} />
-                  : vista === "VIDEO" ? <video src={url} controls />
+                : vista === "IMAGEN" || vista === "VIDEO" ? (
+                  <span className={`lienzo-anclas${marcando ? " lienzo-anclas--marcando" : ""}`}>
+                    {vista === "IMAGEN" ? <img src={url} alt={v.nombre} />
+                      : <video ref={videoRef} src={url} controls onTimeUpdate={(e) => setTiempo(e.currentTarget.currentTime)} onSeeked={(e) => setTiempo(e.currentTarget.currentTime)} />}
+                    {anclados.filter((x) => x.ancla!.t === null || Math.abs(x.ancla!.t - tiempo) < 1).map((x) => (
+                      <button key={x.id} type="button" className={`pin-comentario${resaltado === x.id ? " pin-comentario--activo" : ""}`} style={{ left: `${x.ancla!.x * 100}%`, top: `${x.ancla!.y * 100}%` }}
+                        aria-label={`Comentario ${x.n} de ${x.autor}: ${x.texto}`} title={`${x.autor}: ${x.texto}`} onClick={() => irA(x)}>{x.n}</button>
+                    ))}
+                    {ancla && <span className="pin-comentario pin-comentario--nuevo" style={{ left: `${ancla.x * 100}%`, top: `${ancla.y * 100}%` }} aria-hidden>+</span>}
+                    {marcando && <span className="lienzo-capa" role="button" tabIndex={0} aria-label="Elegir el punto del comentario" onClick={fijarPunto} />}
+                  </span>
+                )
                     : vista === "AUDIO" ? <audio src={url} controls />
                       : <iframe src={url} title={v.nombre} />}
             </div>
@@ -561,12 +597,18 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
                 <div className="pila" style={{ gap: 8, maxHeight: 380, overflow: "auto" }}>
                   {!r.datos!.datos.length && <p className="texto-sm texto-muted">Todavía no hay comentarios.</p>}
                   {r.datos!.datos.map((x) => (
-                    <div key={x.id} className="comentario-archivo">
+                    <div key={x.id} className={`comentario-archivo${resaltado === x.id ? " comentario-archivo--activo" : ""}`}>
                       <span className="fila entre texto-xs" style={{ gap: 6 }}>
                         <span><span className="negrita">{x.autor}</span> <span className="texto-muted">· {fechaCorta(x.en)}</span></span>
                         <button type="button" className="etiqueta-version" onClick={() => setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null)} title="Ver esa versión">V{x.version}</button>
                       </span>
                       <p className="texto-sm" style={{ whiteSpace: "pre-wrap", marginTop: 2 }}>{x.texto}</p>
+                      {x.ancla && (
+                        <button type="button" className="enlace texto-xs fila" style={{ gap: 4, background: "none", border: 0, padding: 0, cursor: "pointer" }}
+                          onClick={() => { if (x.version !== v.version) setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null); irA(x); }}>
+                          <LuMapPin size={12} /> Punto {anclados.find((y) => y.id === x.id)?.n ?? ""}{x.ancla.t !== null ? ` · ${segundos(x.ancla.t)}` : ""}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -574,6 +616,20 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
                   <p className="texto-xs texto-muted">Tienes permiso de lector: puedes ver los comentarios, pero no escribir.</p>
                 ) : (
                   <>
+                    {(vista === "IMAGEN" || vista === "VIDEO") && (
+                      <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+                        <button type="button" className="boton boton--chico" aria-pressed={marcando} onClick={() => { setMarcando(!marcando); if (!marcando) setAncla(null); }}>
+                          <LuMapPin size={13} /> {ancla ? "Cambiar el punto" : "Comentar en un punto"}
+                        </button>
+                        {marcando && <span className="texto-xs texto-muted">Haz clic en {vista === "VIDEO" ? "el cuadro del video (se pausa en ese segundo)" : "la imagen"}.</span>}
+                        {ancla && !marcando && (
+                          <span className="texto-xs fila" style={{ gap: 4 }}>
+                            Punto elegido{ancla.t !== null ? ` en ${segundos(ancla.t)}` : ""}
+                            <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label="Quitar el punto" onClick={() => setAncla(null)}><LuX size={11} /></button>
+                          </span>
+                        )}
+                      </span>
+                    )}
                     <CampoMenciones equipo={r.datos?.equipo ?? []} valor={nota} cambiar={setNota} etiqueta="Comentario" alEnviar={() => void comentar()}
                       placeholder={`Comentar la V${v.version}… Usa @ para mencionar a alguien`} />
                     <button className="boton boton--chico boton--primario" style={{ justifySelf: "end" }} disabled={!texto.trim()} onClick={() => void comentar()}>Comentar en la V{v.version}</button>

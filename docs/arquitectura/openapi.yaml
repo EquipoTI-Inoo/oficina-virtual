@@ -1673,6 +1673,7 @@ paths:
                 siguientePaso: { type: [string, 'null'], description: 'Lo que ve el cliente como «Siguiente paso»' }
                 estado: { $ref: '#/components/schemas/EstadoServicio' }
                 marca: { type: [string, 'null'] }
+                marcaId: { type: [string, 'null'], format: uuid, description: 'La ficha de marca del mismo cliente (16 nov); también fija el texto marca' }
                 detalle: { $ref: '#/components/schemas/DetalleServicio' }
                 fechaFin: { type: [string, 'null'], format: date }
                 responsableId: { type: [string, 'null'], format: uuid, description: 'Responsable del proyecto en Inoo' }
@@ -4831,6 +4832,9 @@ paths:
                 cliente: { type: string, maxLength: 120 }
                 estado: { type: string, enum: ['Sin Iniciar', 'En Progreso', 'En Revisión', 'Completado', 'Soporte Continuo', 'En Pausa', 'Cancelado'] }
                 privado: { type: boolean, description: 'Solo el líder (16 nov): privado = solo sus personas, ni los admins' }
+                marcaId: { type: [string, 'null'], format: uuid, description: 'Una marca del mismo cliente (16 nov)' }
+                servicioId: { type: [string, 'null'], format: uuid, description: 'Un servicio del mismo cliente (16 nov)' }
+                etiquetas: { type: array, maxItems: 10, items: { type: string, maxLength: 30 } }
       responses:
         '200':
           description: OK
@@ -5000,6 +5004,53 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
+
+  /marcas:
+    get:
+      tags: [Clientes]
+      operationId: listarMarcas
+      summary: 'Las marcas de los clientes que ve quien pregunta (16 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/MarcaCliente' } } } } } } }
+
+  /clientes/{clienteId}/marcas:
+    parameters:
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Clientes]
+      operationId: crearMarca
+      summary: 'Agrega una marca al cliente (16 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [nombre], properties: { nombre: { type: string, maxLength: 120 } } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/MarcaCliente' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /marcas/{marcaId}:
+    parameters:
+      - { name: marcaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Clientes]
+      operationId: cambiarMarca
+      summary: 'Cambia el nombre de una marca o la desactiva (16 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { nombre: { type: string, maxLength: 120 }, activa: { type: boolean } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MarcaCliente' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
 
   /tableros/{proyectoId}/candidatos:
     parameters:
@@ -5596,6 +5647,7 @@ paths:
                 texto: { type: string, maxLength: 5000 }
                 version: { type: integer }
                 mencionIds: { type: array, items: { type: string, format: uuid }, description: 'Personas del equipo mencionadas con @ (16 nov): reciben un aviso' }
+                ancla: { type: object, required: [x, y], properties: { x: { type: number, minimum: 0, maximum: 1 }, y: { type: number, minimum: 0, maximum: 1 }, t: { type: [number, 'null'] } }, description: 'Comentar en un punto (16 nov): x, y de 0 a 1; t = segundo, solo videos' }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentariosArchivo' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
@@ -6985,6 +7037,16 @@ components:
         enlace: { type: [string, 'null'], description: Ruta interna del portal }
         leida: { type: boolean }
         creadoEn: { type: string, format: date-time }
+    MarcaCliente:
+      type: object
+      description: 'Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca'
+      required: [id, clienteId, clienteNombre, nombre, activa]
+      properties:
+        id: { type: string, format: uuid }
+        clienteId: { type: string, format: uuid }
+        clienteNombre: { type: string }
+        nombre: { type: string, maxLength: 120 }
+        activa: { type: boolean }
     Marca:
       type: object
       properties:
@@ -8346,8 +8408,11 @@ components:
         enlace: { type: string, description: Ruta del portal }
     TableroResumen:
       type: object
-      required: [id, nombre, cliente, color, lider, miembros, items, puedeEditar, esMio]
+      required: [id, nombre, cliente, color, lider, miembros, items, puedeEditar, esMio, marcaId, servicioId, etiquetas]
       properties:
+        etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
+        servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }
+        marcaId: { type: [string, 'null'], format: uuid, description: 'Su marca (16 nov)' }
         id: { type: string, examples: [PROJ-MKT01] }
         nombre: { type: string }
         cliente: { type: [string, 'null'], description: 'El cliente que el proyecto tiene en InooWork; null = sin asignar' }
@@ -8458,8 +8523,9 @@ components:
           type: array
           items:
             type: object
-            required: [id, version, autor, texto, en]
+            required: [id, version, autor, texto, en, ancla]
             properties:
+              ancla: { oneOf: [ { type: 'null' }, { type: object, required: [x, y, t], properties: { x: { type: number, minimum: 0, maximum: 1 }, y: { type: number, minimum: 0, maximum: 1 }, t: { type: [number, 'null'], description: 'Segundo del video' } } } ], description: 'Punto en la imagen o el cuadro (16 nov)' }
               id: { type: string }
               version: { type: integer }
               autor: { type: string }
@@ -8588,8 +8654,11 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas]
       properties:
+        etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
+        servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }
+        marcaId: { type: [string, 'null'], format: uuid, description: 'Su marca (16 nov)' }
         id: { type: string }
         nombre: { type: string }
         miPermiso: { $ref: '#/components/schemas/PermisoTablero' }
@@ -8804,6 +8873,7 @@ components:
       type: object
       required: [servicioContratadoId, clienteId, clienteNombre, titulo, codigo, estado, columna, avance, tareas, requerimientosPendientes, requerimientosAtrasados]
       properties:
+        marcaId: { type: [string, 'null'], format: uuid, description: 'La marca del servicio (16 nov)' }
         servicioContratadoId: { type: string, format: uuid }
         clienteId: { type: string, format: uuid }
         clienteNombre: { type: string }

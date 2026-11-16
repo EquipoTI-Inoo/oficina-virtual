@@ -187,6 +187,10 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     puedeBorrar: yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId),
     // 16 nov: privado (solo sus personas, ni los admins); lo cambia solo el líder.
     privado: esPrivado(p),
+    // 16 nov (tanda 4): marca, servicio vinculado y etiquetas libres, guardados en el JSON de InooWork.
+    marcaId: typeof p.portalMarcaId === "string" ? p.portalMarcaId : null,
+    servicioId: typeof p.portalServicioId === "string" ? p.portalServicioId : null,
+    etiquetas: etiquetasDe(p),
     puedeHacerPrivado: !!yo.empleadoId && p.leaderId === yo.empleadoId && !p.archived,
     // 16 nov: compartir como en Docs. El permiso de quien mira, el de cada persona y (para editores) los enlaces.
     miPermiso: permisoEn(p, yo.empleadoId, yo.esAdmin) ?? "LECTOR",
@@ -201,6 +205,23 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
 
 const hoyLima = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
 const estadosDe = (p: ProyectoIW) => new Map((p.items ?? []).map((i) => [i.id, i.status]));
+
+// ───────────────────────────── etiquetas libres de los tableros (16 nov, tanda 4)
+const MAX_ETIQUETAS = 10;
+const etiquetasDe = (p: ProyectoIW): string[] => (Array.isArray(p.portalEtiquetas) ? (p.portalEtiquetas as unknown[]).filter((x): x is string => typeof x === "string") : []);
+/** Recortadas y sin repetir (sin importar mayúsculas). null si no es una lista válida. */
+export function limpiarEtiquetas(x: unknown): string[] | null {
+  if (!Array.isArray(x)) return null;
+  const xs: string[] = [];
+  for (const e of x) {
+    if (typeof e !== "string") return null;
+    const t = e.trim().replace(/\s+/g, " ");
+    if (!t) continue;
+    if (t.length > 30) return null;
+    if (!xs.some((y) => y.toLowerCase() === t.toLowerCase())) xs.push(t);
+  }
+  return xs.length > MAX_ETIQUETAS ? null : xs;
+}
 
 export function crearTableros(fallar: Fallar) {
   const protegido = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -267,6 +288,9 @@ export function crearTableros(fallar: Fallar) {
           esMio: !!yo.empleadoId && personasDelProyecto(p).some((x) => x.id === yo.empleadoId),
           archivadoEn: p.archivedAt ?? null,
           privado: esPrivado(p),
+          marcaId: typeof p.portalMarcaId === "string" ? p.portalMarcaId : null,
+          servicioId: typeof p.portalServicioId === "string" ? p.portalServicioId : null,
+          etiquetas: etiquetasDe(p),
         })),
     })),
     /**
@@ -390,9 +414,15 @@ export function crearTableros(fallar: Fallar) {
       return !!p && !p.deleted;
     }),
     /** Cliente y estado del proyecto (6 nov: «Completado» lo culmina y a los 14 días se archiva). */
-    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown }) => cambiar(id, yo, (p) => {
+    /**
+     * `marcaId` y `servicioId` llegan ya revisados por la ruta (que son del mismo cliente); aquí solo se guardan.
+     * Cambiar el cliente suelta la marca y el servicio, que eran del anterior.
+     */
+    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: string | null; servicioId?: string | null; etiquetas?: unknown }) => cambiar(id, yo, (p) => {
       const errores: { campo: string; mensaje: string }[] = [];
-      if (b.cliente === undefined && b.estado === undefined && b.privado === undefined) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: cliente, estado o privado" });
+      if ([b.cliente, b.estado, b.privado, b.marcaId, b.servicioId, b.etiquetas].every((x) => x === undefined)) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: cliente, estado, privado, marca, servicio o etiquetas" });
+      const etiquetas = b.etiquetas === undefined ? undefined : limpiarEtiquetas(b.etiquetas);
+      if (etiquetas === null) errores.push({ campo: "etiquetas", mensaje: `Hasta ${MAX_ETIQUETAS} etiquetas de hasta 30 caracteres` });
       if (b.privado !== undefined) {
         if (typeof b.privado !== "boolean") errores.push({ campo: "privado", mensaje: "Debe ser true o false" });
         else if (!(yo.empleadoId && p.leaderId === yo.empleadoId)) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto lo hace privado o lo vuelve a abrir");
@@ -405,6 +435,11 @@ export function crearTableros(fallar: Fallar) {
       if (b.estado !== undefined) aplicarEstadoProyecto(p, b.estado as string);
       if (b.privado === true) p.portalPrivado = true;
       else if (b.privado === false) delete p.portalPrivado;
+      if (b.cliente !== undefined && b.marcaId === undefined) { delete p.portalMarcaId; }
+      if (b.cliente !== undefined && b.servicioId === undefined) { delete p.portalServicioId; }
+      if (b.marcaId !== undefined) { if (b.marcaId) p.portalMarcaId = b.marcaId; else delete p.portalMarcaId; }
+      if (b.servicioId !== undefined) { if (b.servicioId) p.portalServicioId = b.servicioId; else delete p.portalServicioId; }
+      if (etiquetas) { if (etiquetas.length) p.portalEtiquetas = etiquetas; else delete p.portalEtiquetas; }
     }),
     /**
      * Proceso diario (6 nov): los proyectos «Completado» reciben su fecha de culminado si no la tienen (los que se

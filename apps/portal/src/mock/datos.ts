@@ -159,6 +159,8 @@ export const DIAS_NO_HABILES = diasNoLaborables(AVISOS_INICIALES);
 
 export interface ServicioContratadoDemo {
   id: string;
+  /** 16 nov (tanda 4): la ficha de su marca. */
+  marcaId?: string | null;
   /** Cuándo se cerró (6 nov): se ve en «Culminado» 14 días y después se archiva. */
   culminadoEn?: string | null;
   clienteId: string;

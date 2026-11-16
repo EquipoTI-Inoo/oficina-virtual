@@ -300,6 +300,21 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", com, DIEGO, { texto: "x", mencionIds: [uid(1, 1)] })).status, 422, "una clienta no es del equipo");
       await llamar("POST", com, DIEGO, { texto: "@Camila Paredes revisa el logo", mencionIds: [uid(1, 6)] });
       assert.ok((await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.some((n: any) => n.titulo.startsWith("Diego Castro te mencionó en un archivo")));
+      // 16 nov (tanda 5): comentarios en un punto; en un texto no hay punto que marcar.
+      assert.deepEqual((await llamar("POST", com, DIEGO, { texto: "aquí", ancla: { x: 0.5, y: 0.5 } })).json.errores.map((e: any) => e.campo), ["ancla"]);
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+      const img = await llamar("POST", ruta, DIEGO, { nombre: "boceto.png", mime: "image/png", base64: png });
+      assert.equal(img.status, 200, JSON.stringify(img.json));
+      const fi = it(img.json).datos[arch.id].find((x: any) => x.nombre === "boceto.png");
+      const ci = `/tableros/${T}/archivos/${fi.id}/comentarios`;
+      assert.equal((await llamar("POST", ci, DIEGO, { texto: "x", ancla: { x: 1.2, y: 0.5 } })).status, 422, "fuera de la imagen");
+      assert.equal((await llamar("POST", ci, DIEGO, { texto: "x", ancla: { x: 0.2, y: 0.5, t: 3 } })).status, 422, "el segundo es solo para videos");
+      const ok = await llamar("POST", ci, DIEGO, { texto: "Este logo más grande", ancla: { x: 0.25, y: 0.75 } });
+      assert.equal(ok.status, 200, JSON.stringify(ok.json));
+      assert.deepEqual(ok.json.datos.map((x: any) => [x.texto, x.ancla]), [["Este logo más grande", { x: 0.25, y: 0.75, t: null }]]);
+      await llamar("POST", ci, CAMILA, { texto: "General" });
+      assert.equal((await llamar("GET", ci, DIEGO)).json.datos[1].ancla, null, "sin punto: comentario general");
+      await llamar("DELETE", `${ruta}/${fi.id}`, DIEGO);
       assert.equal((await llamar("GET", `/tableros/PROJ-OPS01/archivos/${f.id}/comentarios`, DIEGO)).status, 404, "no es de ese tablero");
 
       const sin = await llamar("DELETE", `${ruta}/${f.id}`, DIEGO);

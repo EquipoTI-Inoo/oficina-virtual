@@ -6,7 +6,8 @@
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
 import { useState, type FormEvent, type ReactNode } from "react";
-import { LuArchive, LuClipboardList, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
+import { LuArchive, LuBuilding2, LuClipboardList, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag } from "react-icons/lu";
+import { claveCliente } from "../dominio/clientes-tablero";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
@@ -78,10 +79,22 @@ function PipelineProyectos() {
   const yoId = sesion?.usuario.id;
   // ¿Hay algo en «Todos» que no sea suyo? Con los datos sin filtro por persona.
   const veMas = !mios && (!!(r.datos?.datos ?? []).some((t) => !t.esMio) || !!(d?.datos ?? []).some((p) => p.responsable?.id !== yoId));
-  const tableros = (r.datos?.datos ?? []).filter((t) => (!mios || t.esMio) && (!q || `${t.cliente ?? ""} ${t.nombre} ${t.area ?? ""} ${t.lider?.nombre ?? ""}`.toLowerCase().includes(q)));
+  const tablerosTodos = (r.datos?.datos ?? []).filter((t) => (!mios || t.esMio) && (!q || `${t.cliente ?? ""} ${t.nombre} ${t.area ?? ""} ${t.lider?.nombre ?? ""} ${t.etiquetas.join(" ")}`.toLowerCase().includes(q)));
+  // 16 nov (tanda 4, Ernesto): Proyectos (tableros) y Servicios (lo que el cliente compró) separados en la misma sección,
+  // con el mismo filtro de Empresa → Marca a la izquierda y etiquetas libres para los tableros.
+  const [pestana, setPestana] = useState<"PROYECTOS" | "SERVICIOS">("PROYECTOS");
+  const [filtro, setFiltro] = useState<{ empresa: string | null; marca: string | null }>({ empresa: null, marca: null });
+  const [etiqueta, setEtiqueta] = useState<string | null>(null);
+  const marcas = useConsulta<{ datos: S<"MarcaCliente">[] }>("/marcas");
+  const pasa = (cliente: string | null, marcaId: string | null) =>
+    (!filtro.empresa || claveCliente(cliente ?? "Sin cliente") === filtro.empresa) && (!filtro.marca || (filtro.marca === "__sin" ? !marcaId : marcaId === filtro.marca));
+  const tableros = tablerosTodos.filter((t) => pasa(t.cliente, t.marcaId) && (!etiqueta || t.etiquetas.includes(etiqueta)));
+  const servicios = (d?.datos ?? []).filter((p) => pasa(p.clienteNombre, p.marcaId ?? null));
+  const etiquetas = [...new Set(tablerosTodos.filter((t) => pasa(t.cliente, t.marcaId)).flatMap((t) => t.etiquetas))].sort((a, b) => a.localeCompare(b, "es"));
+  const arbol = arbolEmpresas(pestana === "PROYECTOS" ? tablerosTodos.map((t) => ({ cliente: t.cliente, marcaId: t.marcaId })) : (d?.datos ?? []).map((p) => ({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null })), marcas.datos?.datos ?? []);
   return (
     <>
-      <Cabecera titulo="Proyectos" bajada="Cada tarjeta es un proyecto. Los que tienen el ícono de tablero vienen de InooWork, y lo que cambies en ellos también se ve allá." />
+      <Cabecera titulo="Proyectos" bajada="Proyectos son los tableros de trabajo (los mismos de InooWork); Servicios, lo que cada cliente contrató. Filtra por empresa y marca a la izquierda." />
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         {/* Solo si ves más proyectos de los que llevas (ADMIN, leads, por cuenta): si no, los dos dan lo mismo (6 nov). */}
         {(veMas || mios) && <div className="chips" role="group" aria-label="Qué proyectos ver">
@@ -114,15 +127,58 @@ function PipelineProyectos() {
       )}
       {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} cabecera={<CabeceraNuevo tipo="TABLERO" cambiar={setCreando} tablero />} alCerrar={() => setCreando(null)} />}
       {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
+      {!archivados && (
+        <div className="segmentado" role="tablist" aria-label="Qué ver" style={{ marginBottom: 14 }}>
+          <button role="tab" aria-selected={pestana === "PROYECTOS"} className={pestana === "PROYECTOS" ? "activo" : undefined} onClick={() => setPestana("PROYECTOS")}>Proyectos ({tablerosTodos.length})</button>
+          <button role="tab" aria-selected={pestana === "SERVICIOS"} className={pestana === "SERVICIOS" ? "activo" : undefined} onClick={() => setPestana("SERVICIOS")}>Servicios ({d?.datos.length ?? 0})</button>
+        </div>
+      )}
       {archivados ? <Archivados texto={q} /> : error ? (
         <ErrorCarga error={error} reintentar={recargar} />
       ) : !d ? (
         <Cargando />
       ) : (
-        <div className="pipeline" role="list" aria-label="Pipeline de proyectos">
+        <div className="proyectos-dos-columnas">
+        <nav className="arbol-empresas" aria-label="Filtrar por empresa y marca">
+          <button type="button" className="arbol-item" aria-current={!filtro.empresa || undefined} onClick={() => setFiltro({ empresa: null, marca: null })}>
+            <span>Todas las empresas</span><span className="arbol-n">{arbol.reduce((n, e) => n + e.total, 0)}</span>
+          </button>
+          {arbol.map((e) => {
+            const abierta = filtro.empresa === e.clave;
+            return (
+              <div key={e.clave}>
+                <button type="button" className="arbol-item" aria-current={(abierta && !filtro.marca) || undefined} aria-expanded={abierta} onClick={() => setFiltro({ empresa: abierta && !filtro.marca ? null : e.clave, marca: null })}>
+                  <span className="fila" style={{ gap: 6, minWidth: 0 }}><LuBuilding2 size={14} style={{ flex: "none" }} /><span className="recortar">{e.nombre}</span></span><span className="arbol-n">{e.total}</span>
+                </button>
+                {abierta && (e.marcas.length > 0 || e.sinMarca > 0) && (
+                  <div className="arbol-hijos">
+                    {e.marcas.map((m) => (
+                      <button key={m.id} type="button" className="arbol-item arbol-item--hijo" aria-current={filtro.marca === m.id || undefined} onClick={() => setFiltro({ empresa: e.clave, marca: filtro.marca === m.id ? null : m.id })}>
+                        <span className="recortar">{m.nombre}</span><span className="arbol-n">{m.n}</span>
+                      </button>
+                    ))}
+                    {e.marcas.length > 0 && e.sinMarca > 0 && (
+                      <button type="button" className="arbol-item arbol-item--hijo" aria-current={filtro.marca === "__sin" || undefined} onClick={() => setFiltro({ empresa: e.clave, marca: filtro.marca === "__sin" ? null : "__sin" })}>
+                        <span className="texto-muted">Sin marca</span><span className="arbol-n">{e.sinMarca}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+        <div style={{ minWidth: 0 }}>
+        {pestana === "PROYECTOS" && etiquetas.length > 0 && (
+          <div className="chips" role="group" aria-label="Filtrar por etiqueta" style={{ marginBottom: 12 }}>
+            <LuTag size={14} aria-hidden style={{ alignSelf: "center", color: "var(--c-muted)" }} />
+            {etiquetas.map((x) => <button key={x} type="button" className="chip" aria-pressed={etiqueta === x} onClick={() => setEtiqueta(etiqueta === x ? null : x)}>{x}</button>)}
+          </div>
+        )}
+        <div className="pipeline" role="list" aria-label={pestana === "PROYECTOS" ? "Proyectos" : "Servicios"}>
           {d.columnas.map((c) => {
-            const xs = d.datos.filter((p) => p.columna === c.clave);
-            const ts = tableros.filter((t) => columnaDeTablero(t.estado, t.items) === c.clave);
+            const xs = pestana === "SERVICIOS" ? servicios.filter((p) => p.columna === c.clave) : [];
+            const ts = pestana === "PROYECTOS" ? tableros.filter((t) => columnaDeTablero(t.estado, t.items) === c.clave) : [];
             return (
               <section key={c.clave} className="pipeline-columna" data-columna={c.clave} data-vacia={!xs.length && !ts.length || undefined} role="listitem" aria-label={`${c.titulo}: ${xs.length + ts.length}`}>
                 <header className="pipeline-cab">
@@ -135,13 +191,15 @@ function PipelineProyectos() {
                     <TarjetaProyecto key={p.servicioContratadoId} p={p} />
                   ))}
                   {ts.map((t) => (
-                    <TarjetaTablero key={t.id} t={t} />
+                    <TarjetaTablero key={t.id} t={t} marca={(marcas.datos?.datos ?? []).find((m) => m.id === t.marcaId)?.nombre} />
                   ))}
-                  {!xs.length && !ts.length && <p className="texto-xs texto-muted pipeline-vacio">Sin proyectos</p>}
+                  {!xs.length && !ts.length && <p className="texto-xs texto-muted pipeline-vacio">{pestana === "PROYECTOS" ? "Sin proyectos" : "Sin servicios"}</p>}
                 </div>
               </section>
             );
           })}
+        </div>
+        </div>
         </div>
       )}
     </>
@@ -242,18 +300,38 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar }: { equipo: { id: 
   );
 }
 
-function TarjetaTablero({ t }: { t: S<"TableroResumen"> }) {
+/** Empresa → Marca, con cuántos hay en cada una (16 nov, tanda 4). La empresa se reconoce por el nombre (claveCliente). */
+function arbolEmpresas(xs: { cliente: string | null; marcaId: string | null }[], marcas: S<"MarcaCliente">[]) {
+  const empresas = new Map<string, { clave: string; nombre: string; total: number; sinMarca: number; porMarca: Map<string, number> }>();
+  for (const x of xs) {
+    const nombre = x.cliente ?? "Sin cliente";
+    const clave = claveCliente(nombre);
+    const e = empresas.get(clave) ?? { clave, nombre, total: 0, sinMarca: 0, porMarca: new Map<string, number>() };
+    e.total++;
+    if (x.marcaId) e.porMarca.set(x.marcaId, (e.porMarca.get(x.marcaId) ?? 0) + 1);
+    else e.sinMarca++;
+    empresas.set(clave, e);
+  }
+  return [...empresas.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((e) => ({
+    clave: e.clave, nombre: e.nombre, total: e.total, sinMarca: e.sinMarca,
+    marcas: marcas.filter((m) => claveCliente(m.clienteNombre) === e.clave && (m.activa || e.porMarca.has(m.id)))
+      .map((m) => ({ id: m.id, nombre: m.nombre, n: e.porMarca.get(m.id) ?? 0 })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+  }));
+}
+
+function TarjetaTablero({ t, marca }: { t: S<"TableroResumen">; marca?: string }) {
   const pct = t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0;
   return (
     <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="pipeline-tarjeta">
       <span className="fila entre" style={{ gap: 8 }}>
-        <span className="texto-xs texto-muted" style={t.cliente ? undefined : { color: "var(--c-alerta)" }}>{t.cliente ?? "Sin cliente"}</span>
+        <span className="texto-xs texto-muted" style={t.cliente ? undefined : { color: "var(--c-alerta)" }}>{t.cliente ?? "Sin cliente"}{marca ? ` · ${marca}` : ""}</span>
         <span style={{ color: "var(--c-primario)", display: "inline-flex" }} title="Tablero de InooWork" aria-label="Tablero de InooWork" role="img">
           <LuSquareKanban size={16} />
         </span>
       </span>
       <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{t.privado && <LuLock size={12} aria-label="Privado" style={{ marginRight: 4, verticalAlign: "-1px" }} />}{t.nombre}</span>
       <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total} completados{t.area ? ` · ${t.area}` : ""}</span>
+      {t.etiquetas.length > 0 && <span className="fila" style={{ gap: 4, flexWrap: "wrap" }}>{t.etiquetas.map((x) => <span key={x} className="etiqueta-libre">{x}</span>)}</span>}
       <span className="fila" style={{ gap: 8 }}>
         <span style={{ flex: 1 }}>
           <Barra pct={pct} tono={t.items.vencidos ? "ambar" : undefined} />

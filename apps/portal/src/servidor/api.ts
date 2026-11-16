@@ -1493,6 +1493,8 @@ const fechaIso = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 1
 
 interface FilaServicio {
   id: string;
+  /** 16 nov (0058): la ficha de la marca; `marca` sigue con su nombre. */
+  marca_id?: string | null;
   culminado_en?: Date | null;
   cliente_id: string;
   cliente_nombre: string;
@@ -4745,6 +4747,7 @@ ruta("GET", "/panel/proyectos", async (ctx, _p, q) => {
     const abiertas = tareas.filter((t) => t.servicio_contratado_id === sc.id);
     datos.push({
       servicioContratadoId: sc.id, clienteId: sc.cliente_id, clienteNombre: sc.cliente_nombre, titulo: tituloServicio(sc.nombre, sc.marca ?? sc.cliente_nombre),
+      marcaId: sc.marca_id ?? null,
       codigo: sc.codigo, estado: sc.estado,
       columna: columnaProyecto({ estado: sc.estado, avance, esperaCliente: !!actual?.espera_cliente, requerimientosAtrasados: atrasados }),
       avance, responsable: sc.responsable_id ? { id: sc.responsable_id, nombre: sc.resp_nombre ?? "" } : am.get(sc.cliente_id) ?? null,
@@ -4962,7 +4965,7 @@ const esDelEquipo = async (ctx: Ctx, id: unknown) =>
 ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
-  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; detalle?: unknown; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null };
+  const b = (await cuerpo()) as { siguientePaso?: string | null; estado?: string; marca?: string | null; marcaId?: string | null; detalle?: unknown; fechaFin?: string | null; responsableId?: string | null; alcance?: string | null };
   // Cambiar el responsable es de gestión (AM y ADMIN).
   if (b.responsableId !== undefined) exigirRol(ctx, s.cliente_id, ROLES_GESTION);
   const errores: { campo: string; mensaje: string }[] = [];
@@ -4970,11 +4973,15 @@ ruta("PATCH", "/servicios-contratados/:id", async (ctx, p, _q, cuerpo) => {
   if (b.detalle !== undefined) errores.push(...validarDetalle(b.detalle, s));
   if (b.responsableId != null && !(await esDelEquipoDb(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
   if (b.fechaFin != null && !/^\d{4}-\d{2}-\d{2}$/.test(b.fechaFin)) errores.push({ campo: "fechaFin", mensaje: "Usa el formato AAAA-MM-DD" });
+  // 16 nov (tanda 4): la marca del servicio es una ficha de su mismo cliente.
+  const marcaNueva = b.marcaId ? (await ctx.c.query<{ id: string; nombre: string; cliente_id: string }>("SELECT id, nombre, cliente_id FROM marca WHERE id = $1", [esUuid(b.marcaId) ? b.marcaId : null])).rows[0] : null;
+  if (b.marcaId && marcaNueva?.cliente_id !== s.cliente_id) errores.push({ campo: "marcaId", mensaje: "Esa marca no es de este cliente" });
   validacion(errores);
   const cambios: [string, unknown][] = [];
+  if (b.marcaId !== undefined) cambios.push(["marca_id", marcaNueva?.id ?? null], ["marca", marcaNueva?.nombre ?? null]);
   if (b.siguientePaso !== undefined) cambios.push(["siguiente_paso", b.siguientePaso?.trim() || null]);
   if (b.estado !== undefined) cambios.push(["estado", b.estado]);
-  if (b.marca !== undefined) cambios.push(["marca", b.marca?.trim() || null]);
+  if (b.marca !== undefined && b.marcaId === undefined) cambios.push(["marca", b.marca?.trim() || null]);
   if (b.detalle !== undefined) cambios.push(["detalle", JSON.stringify(b.detalle)]);
   if (b.fechaFin !== undefined) cambios.push(["fecha_fin", b.fechaFin]);
   if (b.responsableId !== undefined) cambios.push(["responsable_id", b.responsableId]);
@@ -5592,11 +5599,81 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.ver(p.id, await yoTablero(ctx));
 });
+// ───────────────────────────── Marcas (16 nov, tanda 4): Empresa → Marca → Proyectos
+
+type FilaMarca = { id: string; cliente_id: string; cliente_nombre: string; nombre: string; activa: boolean };
+const marcaVista = (m: FilaMarca): S<"MarcaCliente"> => ({ id: m.id, clienteId: m.cliente_id, clienteNombre: m.cliente_nombre, nombre: m.nombre, activa: m.activa });
+const SELECT_MARCA = "SELECT m.id, m.cliente_id, c.nombre AS cliente_nombre, m.nombre, m.activa FROM marca m JOIN cliente c ON c.id = m.cliente_id";
+const nombreMarca = (x: unknown) => (typeof x === "string" && x.trim().length >= 1 && x.trim().length <= 120 ? x.trim().replace(/\s+/g, " ") : null);
+
+/** Las marcas de los clientes que ve quien pregunta (la política de la tabla filtra por cuenta). */
+ruta("GET", "/marcas", async (ctx) => {
+  soloEquipo(ctx);
+  const a = await alcanceDb(ctx);
+  const filas = (await ctx.c.query<FilaMarca>(`${SELECT_MARCA} ORDER BY c.nombre, lower(m.nombre)`)).rows;
+  return { datos: filas.filter((m) => veCuenta(a, m.cliente_id) || a.todo).map(marcaVista) };
+});
+ruta("POST", "/clientes/:id/marcas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  const nombre = nombreMarca(((await cuerpo()) as { nombre?: unknown }).nombre);
+  if (!nombre) validacion([{ campo: "nombre", mensaje: "Escribe el nombre de la marca (hasta 120 caracteres)" }]);
+  try {
+    const id = (await ctx.c.query<{ id: string }>("INSERT INTO marca (cliente_id, nombre) VALUES ($1, $2) RETURNING id", [p.id, nombre])).rows[0].id;
+    return { __status: 201, ...marcaVista((await ctx.c.query<FilaMarca>(`${SELECT_MARCA} WHERE m.id = $1`, [id])).rows[0]) };
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") throw new ErrorApi(409, "YA_EXISTE", "Esa marca ya existe en este cliente");
+    throw e;
+  }
+});
+ruta("PATCH", "/marcas/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const m = esUuid(p.id) ? (await ctx.c.query<FilaMarca>(`${SELECT_MARCA} WHERE m.id = $1`, [p.id])).rows[0] : undefined;
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa marca");
+  await accesoCliente(ctx, m.cliente_id, true);
+  const b = (await cuerpo()) as { nombre?: unknown; activa?: unknown };
+  const nombre = b.nombre === undefined ? undefined : nombreMarca(b.nombre);
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (nombre === null) errores.push({ campo: "nombre", mensaje: "Escribe el nombre de la marca (hasta 120 caracteres)" });
+  if (b.activa !== undefined && typeof b.activa !== "boolean") errores.push({ campo: "activa", mensaje: "Debe ser true o false" });
+  validacion(errores);
+  try {
+    if (nombre) {
+      await ctx.c.query("UPDATE marca SET nombre = $2 WHERE id = $1", [m.id, nombre]);
+      await ctx.c.query("UPDATE servicio_contratado SET marca = $2 WHERE marca_id = $1", [m.id, nombre]);
+    }
+    if (typeof b.activa === "boolean") await ctx.c.query("UPDATE marca SET activa = $2 WHERE id = $1", [m.id, b.activa]);
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") throw new ErrorApi(409, "YA_EXISTE", "Esa marca ya existe en este cliente");
+    throw e;
+  }
+  return marcaVista((await ctx.c.query<FilaMarca>(`${SELECT_MARCA} WHERE m.id = $1`, [m.id])).rows[0]);
+});
+
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown };
+  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown };
   if (b.cliente !== undefined) b.cliente = await asegurarClienteDb(ctx, b.cliente);
-  return TABLEROS.cambiarProyecto(p.id, await yoTablero(ctx), b);
+  const yo = await yoTablero(ctx);
+  // 16 nov (tanda 4): la marca y el servicio tienen que ser del cliente del tablero (o del que se le pone ahora).
+  const vinculos: { marcaId?: string | null; servicioId?: string | null } = {};
+  if (b.marcaId !== undefined || b.servicioId !== undefined) {
+    const cliente = typeof b.cliente === "string" ? b.cliente : (await TABLEROS.ver(p.id, yo)).cliente;
+    const mismo = (nombre: string) => !!cliente && (claveCliente(nombre) === claveCliente(cliente) || (esClienteInterno(cliente) && ES_INOO.test(nombre)));
+    const errores: { campo: string; mensaje: string }[] = [];
+    if (b.marcaId !== undefined) {
+      const m = typeof b.marcaId === "string" && esUuid(b.marcaId) ? (await ctx.c.query<{ id: string; cliente: string }>("SELECT m.id, c.nombre AS cliente FROM marca m JOIN cliente c ON c.id = m.cliente_id WHERE m.id = $1", [b.marcaId])).rows[0] : null;
+      if (b.marcaId !== null && !(m && mismo(m.cliente))) errores.push({ campo: "marcaId", mensaje: "Esa marca no es del cliente del proyecto" });
+      vinculos.marcaId = m?.id ?? null;
+    }
+    if (b.servicioId !== undefined) {
+      const s = typeof b.servicioId === "string" && esUuid(b.servicioId) ? (await ctx.c.query<{ id: string; cliente: string }>("SELECT sc.id, c.nombre AS cliente FROM servicio_contratado sc JOIN cliente c ON c.id = sc.cliente_id WHERE sc.id = $1", [b.servicioId])).rows[0] : null;
+      if (b.servicioId !== null && !(s && mismo(s.cliente))) errores.push({ campo: "servicioId", mensaje: "Ese servicio no es del cliente del proyecto" });
+      vinculos.servicioId = s?.id ?? null;
+    }
+    validacion(errores);
+  }
+  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, ...vinculos });
 });
 /** 13 nov: los avisos que piden las automatizaciones del tablero (asignar o avisar a alguien). */
 async function avisosAutomatizacionDb<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
@@ -5761,12 +5838,12 @@ function repoArchivosTablero(ctx: Ctx): RepoArchivosTablero {
       await ctx.c.query("DELETE FROM archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
       await ctx.c.query("DELETE FROM comentario_archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
     },
-    comentarios: async (proyectoId, archivoId) => (await ctx.c.query<{ id: string; version: number; autor: string; texto: string; creado_en: Date }>(
-      "SELECT id, version, autor, texto, creado_en FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 AND archivo_id = $2 ORDER BY creado_en, id", [proyectoId, archivoId])).rows
-      .map((r) => ({ id: r.id, version: r.version, autor: r.autor, texto: r.texto, en: new Date(r.creado_en).toISOString() })),
+    comentarios: async (proyectoId, archivoId) => (await ctx.c.query<{ id: string; version: number; autor: string; texto: string; creado_en: Date; ancla_x: number | null; ancla_y: number | null; ancla_t: number | null }>(
+      "SELECT id, version, autor, texto, creado_en, ancla_x, ancla_y, ancla_t FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 AND archivo_id = $2 ORDER BY creado_en, id", [proyectoId, archivoId])).rows
+      .map((r) => ({ id: r.id, version: r.version, autor: r.autor, texto: r.texto, en: new Date(r.creado_en).toISOString(), ancla: r.ancla_x === null || r.ancla_y === null ? null : { x: r.ancla_x, y: r.ancla_y, t: r.ancla_t } })),
     comentar: async (c) => {
-      await ctx.c.query("INSERT INTO comentario_archivo_tablero (proyecto_iw_id, archivo_id, version, usuario_id, autor, texto) VALUES ($1, $2, $3, $4, $5, $6)",
-        [c.proyectoId, c.archivoId, c.version, ctx.u.usuarioId, c.autor.slice(0, 200), c.texto]);
+      await ctx.c.query("INSERT INTO comentario_archivo_tablero (proyecto_iw_id, archivo_id, version, usuario_id, autor, texto, ancla_x, ancla_y, ancla_t) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        [c.proyectoId, c.archivoId, c.version, ctx.u.usuarioId, c.autor.slice(0, 200), c.texto, c.ancla?.x ?? null, c.ancla?.y ?? null, c.ancla?.t ?? null]);
     },
   };
 }
