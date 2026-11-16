@@ -723,7 +723,7 @@ test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin
   expect(subida.ok()).toBe(true);
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos/tableros/PROJ-MKT01");
-  await page.getByRole("button", { name: "Ver pieza.png" }).click({ timeout: 30_000 });
+  await page.getByRole("button", { name: "pieza.png", exact: true }).click({ timeout: 30_000 });
   const visor = page.getByRole("dialog");
   await visor.getByRole("button", { name: "Comentar en un punto" }).click();
   const capa = visor.getByRole("button", { name: "Elegir el punto del comentario" });
