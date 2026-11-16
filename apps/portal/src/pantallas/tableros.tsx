@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuMessageSquare, LuPlus, LuTrash2, LuX } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
+import { BotonPersonas } from "./personas-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
@@ -150,6 +151,7 @@ function TableroProyecto() {
         accion={
           <span className="fila" style={{ gap: 8 }}>
             {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span>}
+            <BotonPersonas t={t} cambiar={cambiar} />
             {!t.archivado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
             {t.puedeBorrar && <button className="boton boton--chico boton--peligro" onClick={() => void borrarProyecto()}><LuTrash2 size={13} /> Borrar proyecto</button>}
           </span>

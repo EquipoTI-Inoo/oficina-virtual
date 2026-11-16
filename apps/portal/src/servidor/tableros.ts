@@ -498,6 +498,34 @@ export function crearTableros(fallar: Fallar) {
       const it = item(p, itemId);
       it.subitems = (it.subitems ?? []).filter((s) => s.id !== subId);
     }),
+    /**
+     * 16 nov (Ernesto: «problemas al agregar personas»): antes solo se elegían al crear el tablero. Agrega a quien edita
+     * (líder, miembro o admin); una persona quitada antes vuelve a quedar activa.
+     */
+    agregarMiembros: (id: string, yo: Yo, personas: PersonaIW[]) => cambiar(id, yo, (p) => {
+      if (!personas.length) validar([{ campo: "usuarioIds", mensaje: "Elige al menos a una persona del equipo con ficha en InooWork" }]);
+      const hoy = new Date().toISOString().slice(0, 10);
+      p.members ??= [];
+      for (const x of personas) {
+        if (x.id === p.leaderId) continue;
+        const ya = p.members.find((m) => m.employeeId === x.id);
+        if (ya) { ya.status = "active"; ya.name ||= x.nombre; } else p.members.push({ employeeId: x.id, name: x.nombre, avatar: "", addedAt: hoy, status: "active" });
+      }
+    }),
+    /** Quitar a alguien (16 nov): solo el líder o un admin, y nunca al líder. Sale de la lista y deja de ver el proyecto. */
+    quitarMiembro: (id: string, empleadoId: string, yo: Yo) => cambiar(id, yo, (p) => {
+      if (!(yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId))) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto o un admin puede quitar personas");
+      if (empleadoId === p.leaderId) throw fallar(409, "ES_LIDER", "El líder no se puede quitar del proyecto");
+      const m = (p.members ?? []).find((x) => x.employeeId === empleadoId && (x.status ?? "active") === "active");
+      if (!m) throw fallar(404, "NO_ENCONTRADO", "Esa persona no está en el proyecto");
+      p.members = (p.members ?? []).filter((x) => x.employeeId !== empleadoId);
+    }),
+    /** Quiénes faltan (16 nov): de una lista de candidatos, los que no están ya en el proyecto. */
+    sinEstar: <C extends { empleado: string }>(id: string, yo: Yo, candidatos: C[]) => protegido(async () => {
+      const p = await visible(id, yo);
+      const ya = new Set(personasDelProyecto(p).map((x) => x.id));
+      return candidatos.filter((c) => !ya.has(c.empleado));
+    }),
     crearGrupo: (id: string, yo: Yo, b: { nombre?: unknown; color?: unknown }) => cambiar(id, yo, (p) => {
       validar(validarGrupo(b, true));
       aplicarGrupo(p, b, null);

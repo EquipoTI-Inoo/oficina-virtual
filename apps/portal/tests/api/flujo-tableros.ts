@@ -26,6 +26,26 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", CAMILA, { cliente: "Otro" })).status, 404, "no es miembro");
     });
 
+    test("16 nov (Ernesto): un miembro agrega personas a un proyecto que ya existe; quitar es del líder o un admin", async () => {
+      await reiniciar();
+      const camila = uid(1, 6);
+      const cand = (await llamar("GET", "/tableros/PROJ-OPS01/candidatos", DIEGO)).json.datos;
+      assert.ok(cand.some((c: any) => c.id === camila), "Camila todavía no está");
+      assert.ok(!cand.some((c: any) => c.id === uid(1, 3)), "Diego ya está: no aparece");
+      assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", CAMILA)).status, 404);
+      const t = (await llamar("POST", "/tableros/PROJ-OPS01/miembros", DIEGO, { usuarioIds: [camila] })).json;
+      assert.ok(t.personas.some((p: any) => p.id === "EMP-003"), "Diego (miembro) la agrega");
+      assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", CAMILA)).status, 200, "ahora lo ve");
+      assert.deepEqual((await llamar("POST", "/tableros/PROJ-OPS01/miembros", DIEGO, { usuarioIds: [] })).json.errores.map((e: any) => e.campo), ["usuarioIds"]);
+      assert.equal((await llamar("DELETE", "/tableros/PROJ-OPS01/miembros/EMP-003", DIEGO)).status, 403, "un miembro no quita");
+      assert.equal((await llamar("DELETE", "/tableros/PROJ-OPS01/miembros/ADM-001", ADMIN)).status, 409, "el líder no se quita");
+      const sin = (await llamar("DELETE", "/tableros/PROJ-OPS01/miembros/EMP-003", ADMIN)).json;
+      assert.ok(!sin.personas.some((p: any) => p.id === "EMP-003"), "el líder o un admin la quita");
+      assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", CAMILA)).status, 404);
+      const otra = (await llamar("POST", "/tableros/PROJ-OPS01/miembros", ADMIN, { usuarioIds: [camila] })).json;
+      assert.equal(otra.personas.filter((p: any) => p.id === "EMP-003").length, 1, "vuelve a quedar activa, sin duplicarse");
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);

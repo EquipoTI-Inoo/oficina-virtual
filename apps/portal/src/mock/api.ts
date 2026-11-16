@@ -1753,6 +1753,21 @@ ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarSubitem(p.id, p.item, p.sub, yoTablero(ctx));
 });
+ruta("GET", "/tableros/:id/candidatos", async (ctx, p) => {
+  soloEquipo(ctx);
+  const faltan = await TABLEROS.sinEstar(p.id, yoTablero(ctx), equipoInooWork().map((u) => ({ ...u, empleado: u.inooworkEmpleadoId! })));
+  return { datos: faltan.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) };
+});
+ruta("POST", "/tableros/:id/miembros", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const b = await cuerpo<{ usuarioIds?: unknown }>(req);
+  const ids = Array.isArray(b?.usuarioIds) ? b.usuarioIds.filter((x): x is string => typeof x === "string") : [];
+  return TABLEROS.agregarMiembros(p.id, yoTablero(ctx), equipoInooWork().filter((u) => ids.includes(u.id)).map((u) => ({ id: u.inooworkEmpleadoId!, nombre: u.nombre })));
+});
+ruta("DELETE", "/tableros/:id/miembros/:empleado", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.quitarMiembro(p.id, p.empleado, yoTablero(ctx));
+});
 ruta("POST", "/tableros/:id/grupos", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   return TABLEROS.crearGrupo(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));

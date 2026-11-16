@@ -5687,6 +5687,23 @@ ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarSubitem(p.id, p.item, p.sub, await yoTablero(ctx));
 });
+/** 16 nov (Ernesto): personas de un proyecto que ya existe. */
+const idsDe = (b: unknown) => [...new Set(Array.isArray((b as { usuarioIds?: unknown })?.usuarioIds) ? ((b as { usuarioIds: unknown[] }).usuarioIds.filter((x) => typeof x === "string") as string[]) : [])];
+ruta("GET", "/tableros/:id/candidatos", async (ctx, p) => {
+  soloEquipo(ctx);
+  const faltan = await TABLEROS.sinEstar(p.id, await yoTablero(ctx), await equipoInooWork(ctx));
+  return { datos: faltan.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area })) };
+});
+ruta("POST", "/tableros/:id/miembros", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const ids = idsDe(await cuerpo());
+  const personas = (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id)).map((x) => ({ id: x.empleado, nombre: x.nombre }));
+  return TABLEROS.agregarMiembros(p.id, await yoTablero(ctx), personas);
+});
+ruta("DELETE", "/tableros/:id/miembros/:empleado", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.quitarMiembro(p.id, p.empleado, await yoTablero(ctx));
+});
 ruta("POST", "/tableros/:id/grupos", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   return TABLEROS.crearGrupo(p.id, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);

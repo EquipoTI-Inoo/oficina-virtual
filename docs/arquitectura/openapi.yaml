@@ -4979,6 +4979,71 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/candidatos:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: candidatosTablero
+      summary: 'Personas del equipo con ficha en InooWork que todavía no están en el proyecto (16 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos]
+                properties:
+                  datos:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, nombre, area]
+                      properties:
+                        id: { type: string, format: uuid }
+                        nombre: { type: string }
+                        area: { type: [string, 'null'] }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/miembros:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: agregarMiembrosTablero
+      summary: 'Agrega personas a un proyecto que ya existe (16 nov): el líder, un miembro o un admin'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [usuarioIds], properties: { usuarioIds: { type: array, items: { type: string, format: uuid } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/miembros/{empleadoId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: empleadoId, in: path, required: true, schema: { type: string }, description: 'Id de empleado de InooWork' }
+    delete:
+      tags: [Tableros]
+      operationId: quitarMiembroTablero
+      summary: 'Quita a una persona del proyecto (16 nov): solo el líder o un admin; el líder no se puede quitar'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
+
   /tableros/{proyectoId}/grupos:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
