@@ -5,7 +5,7 @@
  * líder o de un admin (los mismos que pueden borrar el proyecto), y el líder no se quita.
  */
 import { useEffect, useState } from "react";
-import { LuCopy, LuLink, LuUserMinus, LuUserPlus, LuUsers } from "react-icons/lu";
+import { LuCopy, LuLink, LuLock, LuUserMinus, LuUserPlus, LuUsers } from "react-icons/lu";
 import { api, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Cargando, Estructura, Modal, useAviso } from "../componentes";
 
@@ -54,6 +54,20 @@ function Personas({ t, cambiar, alCerrar }: { t: Tablero; cambiar: Cambiar; alCe
       <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Personas del proyecto</h2>
       <p className="texto-sm texto-muted">Quienes están aquí ven el tablero y se les puede asignar ítems. Lo que pueden hacer depende de su permiso: lector, comentador o editor.</p>
 
+      {t.puedeHacerPrivado ? (
+        <label className="fila-suave fila" style={{ gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+          <input type="checkbox" checked={t.privado} style={{ marginTop: 3 }} onChange={(e) => {
+            if (e.target.checked && !window.confirm("¿Hacer privado este tablero? Solo lo verán las personas de esta lista: ni los admins lo verán.")) return;
+            void cambiar("", "PATCH", { privado: e.target.checked });
+          }} />
+          <span className="pila" style={{ gap: 2 }}>
+            <span className="texto-sm negrita fila" style={{ gap: 6 }}><LuLock size={14} /> Tablero privado</span>
+            <span className="texto-xs texto-muted">Solo lo ven las personas de esta lista, ni los admins. Para RR. HH., gerencia o temas sensibles.</span>
+          </span>
+        </label>
+      ) : t.privado ? (
+        <p className="texto-xs texto-muted fila" style={{ gap: 6 }}><LuLock size={13} /> Tablero privado: solo lo ven las personas de esta lista.</p>
+      ) : null}
       <ul className="pila" style={{ gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
         {t.personas.map((p) => {
           const lider = p.id === t.lider?.id;

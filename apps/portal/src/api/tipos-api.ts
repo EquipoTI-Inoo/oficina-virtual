@@ -3417,6 +3417,26 @@ export interface paths {
         patch: operations["cambiarItemTablero"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/items/{itemId}/mover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Arrastrar y soltar (16 nov): mueve el ítem antes de otro del grupo de destino, o al final del grupo sin antesDe */
+        post: operations["moverItemTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/items/{itemId}/subitems": {
         parameters: {
             query?: never;
@@ -6524,6 +6544,8 @@ export interface components {
                 vencidos: number;
             };
             archivadoEn?: string | null;
+            /** @description Tablero privado (16 nov) */
+            privado?: boolean;
             puedeEditar: boolean;
         };
         PersonaInooWork: {
@@ -6727,6 +6749,10 @@ export interface components {
             id: string;
             nombre: string;
             miPermiso: components["schemas"]["PermisoTablero"];
+            /** @description Solo lo ven su líder y sus miembros, ni los admins (16 nov) */
+            privado: boolean;
+            /** @description Solo el líder lo cambia */
+            puedeHacerPrivado: boolean;
             /** @description El permiso de cada persona del proyecto (por id de empleado de InooWork). 16 nov */
             permisos: {
                 [key: string]: components["schemas"]["PermisoTablero"];
@@ -15789,6 +15815,8 @@ export interface operations {
                     cliente?: string;
                     /** @enum {string} */
                     estado?: "Sin Iniciar" | "En Progreso" | "En Revisión" | "Completado" | "Soporte Continuo" | "En Pausa" | "Cancelado";
+                    /** @description Solo el líder (16 nov): privado = solo sus personas, ni los admins */
+                    privado?: boolean;
                 };
             };
         };
@@ -15888,6 +15916,46 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CambioItemTablero"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    moverItemTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    grupoId?: string;
+                    antesDe?: string | null;
+                };
             };
         };
         responses: {

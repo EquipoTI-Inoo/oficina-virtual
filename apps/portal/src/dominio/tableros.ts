@@ -50,8 +50,7 @@ const COLUMNAS_FIJAS = new Set(["name", "assignee", "priority", "status", "dueDa
 
 // ───────────────────────────── permisos (los mismos de InooWork, pages/Projects.tsx, más los del portal: compartir-tablero.ts)
 
-export const veProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) =>
-  esAdmin || (!!empleadoId && (p.leaderId === empleadoId || (p.members ?? []).some((m) => m.employeeId === empleadoId)));
+export const veProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) => permisoEn(p, empleadoId, esAdmin) !== null;
 /** 16 nov: edita quien tiene permiso de editor en el portal (los miembros sin permiso guardado lo son, como antes). */
 export const editaProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) => permisoEn(p, empleadoId, esAdmin) === "EDITOR";
 /** 16 nov: comenta el comentador o el editor; el lector solo mira. */

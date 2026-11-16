@@ -14,7 +14,7 @@ import {
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
-import { enlacesDe, esPermiso, fijarPermiso, mayorPermiso, nuevoEnlace, permisoEn, type PermisoTablero } from "../dominio/compartir-tablero";
+import { enlacesDe, esPermiso, esPrivado, fijarPermiso, mayorPermiso, nuevoEnlace, ocultoPara, permisoEn, type PermisoTablero } from "../dominio/compartir-tablero";
 import { leerToken, tokenDe } from "./firma-enlace";
 import { automatizacionesDe, correrAutomatizaciones, MAX_AUTOMATIZACIONES_TABLERO, textoAutomatizacion, validarAutomatizacionTablero, type AutomatizacionTablero, type AvisoAutomatizacion } from "../dominio/automatizaciones-tablero";
 import { clientesDeTableros } from "../dominio/cliente-de-tablero";
@@ -185,6 +185,9 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     archivado: !!p.archived, archivadoEn: p.archivedAt ?? null,
     puedeDesarchivar: !!p.archived && editaProyecto(p, yo.empleadoId, yo.esAdmin),
     puedeBorrar: yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId),
+    // 16 nov: privado (solo sus personas, ni los admins); lo cambia solo el líder.
+    privado: esPrivado(p),
+    puedeHacerPrivado: !!yo.empleadoId && p.leaderId === yo.empleadoId && !p.archived,
     // 16 nov: compartir como en Docs. El permiso de quien mira, el de cada persona y (para editores) los enlaces.
     miPermiso: permisoEn(p, yo.empleadoId, yo.esAdmin) ?? "LECTOR",
     permisos: Object.fromEntries(personasDelProyecto(p).map((x) => [x.id, permisoEn(p, x.id, false) ?? "LECTOR"])),
@@ -247,21 +250,23 @@ export function crearTableros(fallar: Fallar) {
      * 13 nov (auditoría): lo pendiente en tableros de varias personas de una sola lectura (Mi panel, «Mi área» y el
      * calendario). Son sus ítems: no depende de quién pregunta (eso ya lo revisa la ruta).
      */
-    pendientesDeVarios: (empleados: string[], prueba?: boolean) => protegido(async () => {
+    /** `vistoPor`: quien mira (16 nov): los tableros privados donde no está no aparecen. */
+    pendientesDeVarios: (empleados: string[], prueba?: boolean, vistoPor?: string | null) => protegido(async () => {
       if (!empleados.length) return new Map<string, PendienteTablero[]>();
-      const ps = await listarIW(prueba);
+      const ps = (await listarIW(prueba)).filter((p) => vistoPor === undefined || !ocultoPara(p, vistoPor));
       return new Map(empleados.map((e) => [e, pendientesDe(ps, e)]));
     }),
     /** Con `archivados`, solo los archivados (13 nov): guardados, fuera de las listas del día a día. */
-    listar: (yo: Yo, o: { archivados?: boolean } = {}) => protegido(async () => ({
+    listar: (yo: Yo, o: { archivados?: boolean; vistoPor?: string | null } = {}) => protegido(async () => ({
       conectado: tablerosConectados() && !yo.prueba,
       datos: (await listarIW(yo.prueba))
-        .filter((p) => (o.archivados ? !!p.archived || p.status === "Cancelado" : !p.archived) && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
+        .filter((p) => (o.archivados ? !!p.archived || p.status === "Cancelado" : !p.archived) && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin) && (o.vistoPor === undefined || !ocultoPara(p, o.vistoPor)))
         .map((p) => ({
           id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
           lider: persona(p.leaderId, p.leaderName), miembros: personasDelProyecto(p).length, items: resumenProyecto(p), puedeEditar: editaProyecto(p, yo.empleadoId, yo.esAdmin),
           esMio: !!yo.empleadoId && personasDelProyecto(p).some((x) => x.id === yo.empleadoId),
           archivadoEn: p.archivedAt ?? null,
+          privado: esPrivado(p),
         })),
     })),
     /**
@@ -385,15 +390,21 @@ export function crearTableros(fallar: Fallar) {
       return !!p && !p.deleted;
     }),
     /** Cliente y estado del proyecto (6 nov: «Completado» lo culmina y a los 14 días se archiva). */
-    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown }) => cambiar(id, yo, (p) => {
+    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown }) => cambiar(id, yo, (p) => {
       const errores: { campo: string; mensaje: string }[] = [];
-      if (b.cliente === undefined && b.estado === undefined) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: cliente o estado" });
+      if (b.cliente === undefined && b.estado === undefined && b.privado === undefined) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: cliente, estado o privado" });
+      if (b.privado !== undefined) {
+        if (typeof b.privado !== "boolean") errores.push({ campo: "privado", mensaje: "Debe ser true o false" });
+        else if (!(yo.empleadoId && p.leaderId === yo.empleadoId)) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto lo hace privado o lo vuelve a abrir");
+      }
       const cliente = typeof b.cliente === "string" ? b.cliente.trim() : "";
       if (b.cliente !== undefined && !(cliente && cliente.length <= 120)) errores.push({ campo: "cliente", mensaje: "Escribe el nombre del cliente" });
       if (b.estado !== undefined && !ESTADOS_PROYECTO_IW.includes(b.estado as (typeof ESTADOS_PROYECTO_IW)[number])) errores.push({ campo: "estado", mensaje: `Usa uno de: ${ESTADOS_PROYECTO_IW.join(", ")}` });
       validar(errores);
       if (b.cliente !== undefined) p.clientName = cliente;
       if (b.estado !== undefined) aplicarEstadoProyecto(p, b.estado as string);
+      if (b.privado === true) p.portalPrivado = true;
+      else if (b.privado === false) delete p.portalPrivado;
     }),
     /**
      * Proceso diario (6 nov): los proyectos «Completado» reciben su fecha de culminado si no la tienen (los que se
@@ -438,6 +449,28 @@ export function crearTableros(fallar: Fallar) {
       });
       return t && { ...t, avisosAutomatizacion: avisos };
     },
+    /**
+     * 16 nov (Ernesto: arrastrar y soltar): mueve un ítem antes de otro (o al final de un grupo). El orden es el del
+     * arreglo de ítems de InooWork, así que InooWork lo ve igual.
+     */
+    moverItem: (id: string, itemId: string, yo: Yo, b: { grupoId?: unknown; antesDe?: unknown }) => cambiar(id, yo, (p) => {
+      const it = item(p, itemId);
+      const grupoId = typeof b.grupoId === "string" ? b.grupoId : it.groupId;
+      if (!(p.groups ?? []).some((g) => g.id === grupoId)) validar([{ campo: "grupoId", mensaje: "Ese grupo no es de este proyecto" }]);
+      const antes = b.antesDe === undefined || b.antesDe === null ? null : (p.items ?? []).find((x) => x.id === b.antesDe);
+      if (b.antesDe !== undefined && b.antesDe !== null && (!antes || antes.id === itemId || antes.groupId !== grupoId)) validar([{ campo: "antesDe", mensaje: "Ese ítem no está en el grupo de destino" }]);
+      const resto = (p.items ?? []).filter((x) => x.id !== itemId);
+      it.groupId = grupoId;
+      let i = antes ? resto.indexOf(antes) : -1;
+      if (i < 0) {
+        // Al final del grupo: después de su último ítem (o al final de todo si el grupo está vacío).
+        const ultimo = resto.map((x) => x.groupId).lastIndexOf(grupoId);
+        i = ultimo < 0 ? resto.length : ultimo + 1;
+      }
+      resto.splice(i, 0, it);
+      p.items = resto;
+      marcarCambio(it, quienDe(yo));
+    }),
     crearAutomatizacion: (id: string, yo: Yo, b: { cuando?: unknown; hacer?: unknown; activa?: unknown }) => cambiar(id, yo, (p) => {
       validar(validarAutomatizacionTablero(b, p));
       const xs = automatizacionesDe(p);

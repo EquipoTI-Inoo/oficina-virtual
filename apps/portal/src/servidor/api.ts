@@ -4486,7 +4486,7 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   const empleado = ctx.u.esPrueba ? null : (await ctx.c.query<{ e: string | null }>("SELECT inoowork_empleado_id AS e FROM usuario WHERE id = $1", [yo])).rows[0]?.e;
   if (empleado) {
     try {
-      const pend = (await TABLEROS.pendientesDeVarios([empleado])).get(empleado) ?? [];
+      const pend = (await TABLEROS.pendientesDeVarios([empleado], false, (await yoTablero(ctx)).empleadoId)).get(empleado) ?? [];
       eventos.push(...pendientesComoEventos(pend, desde!, hasta!, hoy).map((x) => ({ ...baseAgenda({ id: x.id, tipo: x.tipo, titulo: x.titulo, fecha: x.fecha }), detalle: x.detalle, enlace: x.enlace, vencido: x.vencido })));
     } catch {
       /* InooWork no respondió: el calendario sale sin los ítems de tableros */
@@ -4657,7 +4657,7 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
     miArea = [];
     // 13 nov (auditoría): la carga de cada persona suma sus ítems de tableros (una sola lectura de InooWork).
     const empleados = new Map((await ctx.c.query<{ id: string; e: string | null }>("SELECT id, inoowork_empleado_id AS e FROM usuario WHERE id = ANY($1::uuid[])", [`{${gente.map((g) => g.id).join(",")}}`])).rows.map((r) => [r.id, r.e]));
-    const pend = await TABLEROS.pendientesDeVarios([...empleados.values()].filter((e): e is string => !!e), !!ctx.u.esPrueba).catch(() => new Map());
+    const pend = await TABLEROS.pendientesDeVarios([...empleados.values()].filter((e): e is string => !!e), !!ctx.u.esPrueba, (await yoTablero(ctx)).empleadoId).catch(() => new Map());
     for (const g of gente) {
       const suyas = (await ctx.c.query<FilaTarea>(`${SELECT_TAREA} WHERE t.responsable_id = $1 AND t.estado <> 'HECHA'`, [g.id])).rows.map(tareaVistaDb);
       const items = (pend.get(empleados.get(g.id) ?? "") ?? []) as { vencido: boolean }[];
@@ -4670,8 +4670,9 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   let items: { vencido: boolean }[] = [];
   if (empleadoPanel) {
     try {
-      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: empleadoPanel, esAdmin: false, prueba: !!ctx.u.esPrueba })).datos);
-      items = (await TABLEROS.pendientesDeVarios([empleadoPanel], !!ctx.u.esPrueba)).get(empleadoPanel) ?? [];
+      const vistoPor = (await yoTablero(ctx)).empleadoId;
+      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: empleadoPanel, esAdmin: false, prueba: !!ctx.u.esPrueba }, { vistoPor })).datos);
+      items = (await TABLEROS.pendientesDeVarios([empleadoPanel], !!ctx.u.esPrueba, vistoPor)).get(empleadoPanel) ?? [];
     } catch {
       /* InooWork no respondió */
     }
@@ -5641,6 +5642,10 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
     .map((t) => tareaComoPendiente({ id: t.id, titulo: t.titulo, estado: t.estado, fecha: t.fecha, servicioId: t.sc, proyecto: tituloServicio(t.servicio, t.marca ?? t.cliente), cliente: t.cliente }, HOY_LIMA()));
   const datos = [...r.datos, ...tareas].sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es"));
   return { ...r, datos };
+});
+ruta("POST", "/tableros/:id/items/:item/mover", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  return TABLEROS.moverItem(p.id, p.item, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
 });
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);

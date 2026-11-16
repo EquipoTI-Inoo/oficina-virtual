@@ -447,7 +447,7 @@ test("cronograma: el equipo ve el proyecto en Gantt y calendario; el cliente tam
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos/00000000-0000-4000-8004-000000000004");
-  await expect(page.locator(".nav-grupo", { hasText: "Agencia" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("complementary", { name: "Menú principal" }).getByRole("link", { name: "Proyectos" })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Gantt" }).click({ timeout: 30_000 });
   const gantt = page.getByRole("table", { name: "Gantt de etapas" });
   await expect(gantt.getByRole("rowheader", { name: "Arquitectura y benchmark" })).toBeVisible();
@@ -697,6 +697,17 @@ test("tableros (16 nov): Diego comparte el tablero con un enlace de lector y Cam
   await expect(camila).toHaveURL(/\/equipo\/proyectos\/tableros\/PROJ-OPS01$/, { timeout: 30_000 });
   await expect(camila.getByText("Solo lectura")).toBeVisible({ timeout: 20_000 });
   await camila.close();
+});
+
+test("tableros (16 nov): arrastrar una fila la cambia de lugar; la fila de totales cuenta los ítems", async ({ page }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-MKT01");
+  const totales = page.getByRole("row", { name: "Totales de Octubre" });
+  await expect(totales).toContainText("4 ítems", { timeout: 30_000 });
+  await page.getByRole("button", { name: "Arrastrar Actualizar el portafolio web" }).dragTo(page.getByLabel("Nombre de Calendario de LinkedIn de octubre").locator("xpath=ancestor::tr"));
+  const y = async (n: string) => (await page.getByLabel(`Nombre de ${n}`).boundingBox())?.y ?? 0;
+  await expect.poll(async () => (await y("Actualizar el portafolio web")) < (await y("Calendario de LinkedIn de octubre")), { timeout: 20_000 }).toBe(true);
 });
 
 test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su tablero", async ({ page }) => {

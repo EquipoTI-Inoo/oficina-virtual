@@ -46,6 +46,38 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(otra.personas.filter((p: any) => p.id === "EMP-003").length, 1, "vuelve a quedar activa, sin duplicarse");
     });
 
+    test("16 nov (Ernesto): un tablero privado lo ven solo sus personas, ni los admins; solo el líder lo cambia", async () => {
+      await reiniciar();
+      assert.ok((await ids(ADMIN)).includes("PROJ-MKT01"), "antes el admin lo ve");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", CAMILA, { privado: true })).status, 403, "un miembro no lo hace privado");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { privado: "sí" })).status, 422);
+      const t = (await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { privado: true })).json;
+      assert.deepEqual([t.privado, t.puedeHacerPrivado], [true, true]);
+      assert.ok(!(await ids(ADMIN)).includes("PROJ-MKT01"), "el admin ya no lo ve en la lista");
+      assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", ADMIN)).status, 404, "ni entrando directo");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", ADMIN, { privado: false })).status, 404);
+      const comoCamila = (await llamar("GET", "/tableros/PROJ-MKT01", CAMILA)).json;
+      assert.deepEqual([comoCamila.privado, comoCamila.puedeHacerPrivado], [true, false], "su miembro sí lo ve");
+      assert.equal((await llamar("GET", "/tableros", DIEGO)).json.datos.find((x: any) => x.id === "PROJ-MKT01").privado, true);
+      await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { privado: false });
+      assert.ok((await ids(ADMIN)).includes("PROJ-MKT01"), "abierto otra vez");
+    });
+
+    test("16 nov (Ernesto): arrastrar y soltar mueve un ítem antes de otro o al final de otro grupo", async () => {
+      await reiniciar();
+      const orden = (t: any) => t.items.map((i: any) => `${i.grupoId}:${i.id}`);
+      const m = "/tableros/PROJ-OPS01/items";
+      let t = (await llamar("POST", `${m}/item-ops-2/mover`, DIEGO, { antesDe: "item-ops-1" })).json;
+      assert.deepEqual(orden(t), ["g-ops-1:item-ops-2", "g-ops-1:item-ops-1", "g-ops-2:item-ops-3"]);
+      t = (await llamar("POST", `${m}/item-ops-2/mover`, DIEGO, { grupoId: "g-ops-2" })).json;
+      assert.deepEqual(orden(t), ["g-ops-1:item-ops-1", "g-ops-2:item-ops-3", "g-ops-2:item-ops-2"], "al final del otro grupo");
+      t = (await llamar("POST", `${m}/item-ops-2/mover`, DIEGO, { grupoId: "g-ops-2", antesDe: "item-ops-3" })).json;
+      assert.deepEqual(orden(t), ["g-ops-1:item-ops-1", "g-ops-2:item-ops-2", "g-ops-2:item-ops-3"]);
+      assert.equal((await llamar("POST", `${m}/item-ops-2/mover`, DIEGO, { grupoId: "g-ops-1", antesDe: "item-ops-3" })).status, 422, "antesDe de otro grupo");
+      assert.equal((await llamar("POST", `${m}/item-ops-2/mover`, DIEGO, { grupoId: "g-nada" })).status, 422);
+      assert.equal((await llamar("POST", `${m}/item-ops-2/mover`, CAMILA, { antesDe: "item-ops-1" })).status, 404, "no es miembro");
+    });
+
     test("16 nov: compartir con enlace como en Docs (lector, comentador, editor); apagar o regenerar lo invalida", async () => {
       await reiniciar();
       const t0 = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;

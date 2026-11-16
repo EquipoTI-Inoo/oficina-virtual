@@ -3,11 +3,11 @@
  * Columnas de los tableros (11 nov 2026): la biblioteca de tipos de Monday. La celda de cada tipo, la biblioteca
  * para agregar columnas, su configuración y el resumen de los números al pie.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, LuPhone, LuPlay, LuPlus, LuSearch, LuStar, LuThumbsUp, LuTrash2, LuX,
   LuCircleDot, LuType, LuUsers, LuCalendar, LuHash, LuList, LuSquareCheck, LuAlignLeft, LuTag, LuCalendarRange, LuCalendarDays, LuClock, LuTimer,
   LuGlobe, LuLink, LuFlag, LuPalette, LuPaperclip, LuFileText, LuMousePointerClick, LuGitBranch, LuNetwork, LuCopy, LuSigma, LuChartBar, LuHistory,
-  LuRefreshCw, LuFingerprint, LuListOrdered } from "react-icons/lu";
+  LuRefreshCw, LuFingerprint, LuListOrdered, LuFileVideo, LuFileAudio, LuFileImage } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
 import { Modal, useAviso } from "../componentes";
@@ -217,7 +217,7 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
       );
     }
     case "file": {
-      const xs = Array.isArray(dato) ? (dato as { id: string; nombre: string; bytes: number; version?: number }[]) : [];
+      const xs = Array.isArray(dato) ? (dato as ArchivoCelda[]) : [];
       const subir = async (f: File) => {
         if (f.size > 50 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 50 MB" });
         await cambiar(`/items/${item.id}/columnas/${col.id}/archivos`, "POST", { nombre: f.name, mime: f.type || "application/octet-stream", base64: await enBase64(f) });
@@ -226,8 +226,9 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
         <span className="fila" style={{ gap: 4, flexWrap: "wrap" }}>
           {xs.map((a) => (
             <span key={a.id} className="chip" style={{ padding: "1px 6px", gap: 4 }}>
-              <button type="button" className="texto-xs" style={{ background: "none", border: 0, cursor: "pointer", padding: 0 }} onClick={() => setVisor(a.id)} title={`Ver ${a.nombre}`}>
-                {a.nombre}{(a.version ?? 1) > 1 && <span className="texto-muted"> · V{a.version}</span>}
+              <button type="button" className="texto-xs fila" style={{ background: "none", border: 0, cursor: "pointer", padding: 0, gap: 4 }} onClick={() => setVisor(a.id)} title={`Ver ${a.nombre}`}>
+                <Miniatura tableroId={t.id} archivo={a} />
+                <span className="nombre-archivo">{a.nombre}</span>{(a.version ?? 1) > 1 && <span className="texto-muted"> · V{a.version}</span>}
               </button>
               {editable && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={() => window.confirm(`¿Quitar «${a.nombre}» con todas sus versiones y comentarios?`) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
             </span>
@@ -248,6 +249,53 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
         ? <input key={texto} className="celda-texto" aria-label={etiqueta} defaultValue={texto} placeholder="—" onBlur={(e) => e.target.value.trim() !== texto && void guardar(e.target.value.trim() || null)} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         : <span>{texto || vacio}</span>;
   }
+}
+
+// ───────────────────────────── miniaturas (16 nov, Ernesto: «miniaturas en vez del nombre y vista previa al pasar el mouse»)
+
+type ArchivoCelda = { id: string; nombre: string; bytes: number; mime?: string; version?: number; versiones?: { id: string; version: number; bytes: number; mime: string }[] };
+const ES_IMAGEN = /^image\/(png|jpe?g|gif|webp)$/;
+const MAX_MINIATURA = 5 * 1024 * 1024;
+/** Una descarga por versión mientras dure la página (las miniaturas se repiten al volver a dibujar la tabla). */
+const MINIATURAS = new Map<string, Promise<string | null>>();
+function urlMiniatura(tableroId: string, versionId: string, mime: string) {
+  const clave = `${tableroId}/${versionId}`;
+  if (!MINIATURAS.has(clave)) {
+    MINIATURAS.set(clave, api<Blob | string>(`/tableros/${tableroId}/archivos/${versionId}?enLinea=1`)
+      .then((b) => URL.createObjectURL(b instanceof Blob ? b : new Blob([b], { type: mime })))
+      .catch(() => null));
+  }
+  return MINIATURAS.get(clave)!;
+}
+
+function Miniatura({ tableroId, archivo }: { tableroId: string; archivo: ArchivoCelda }) {
+  const ultima = archivo.versiones?.[archivo.versiones.length - 1];
+  const mime = ultima?.mime ?? archivo.mime ?? "";
+  const imagen = !!ultima && ES_IMAGEN.test(mime) && (ultima.bytes ?? archivo.bytes) <= MAX_MINIATURA;
+  const ref = useRef<HTMLSpanElement>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [grande, setGrande] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!imagen || !ref.current) return;
+    let vivo = true;
+    // Solo cuando la fila se ve en pantalla.
+    const obs = new IntersectionObserver((xs) => {
+      if (!xs.some((x) => x.isIntersecting)) return;
+      obs.disconnect();
+      void urlMiniatura(tableroId, ultima!.id, mime).then((u) => vivo && setUrl(u));
+    });
+    obs.observe(ref.current);
+    return () => { vivo = false; obs.disconnect(); };
+  }, [imagen, tableroId, ultima?.id, mime]);
+  const Icono = /^video\//.test(mime) ? LuFileVideo : /^audio\//.test(mime) ? LuFileAudio : mime === "application/pdf" ? LuFileText : /^image\//.test(mime) ? LuFileImage : LuPaperclip;
+  return (
+    <span ref={ref} className="miniatura" aria-hidden
+      onMouseEnter={(e) => { if (url) { const r = e.currentTarget.getBoundingClientRect(); setGrande({ x: r.left, y: r.bottom + 6 }); } }}
+      onMouseLeave={() => setGrande(null)}>
+      {url ? <img src={url} alt="" /> : <Icono size={14} />}
+      {grande && url && <img className="miniatura-grande" src={url} alt="" style={{ left: Math.min(grande.x, window.innerWidth - 300), top: Math.min(grande.y, window.innerHeight - 300) }} />}
+    </span>
+  );
 }
 
 /** Se marca al instante; si no se pudo guardar, vuelve a como estaba. */
@@ -543,6 +591,11 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
 // ═════════════════════════════════════════════ pie de los números
 
 export function PieNumeros({ col, items }: { col: Columna; items: Item[] }) {
+  // 16 nov: también cuenta las casillas marcadas.
+  if (col.tipo === "checkbox") {
+    const n = items.filter((i) => i.valores[col.id] === "✓").length;
+    return <span className="texto-xs"><span className="negrita">{n}</span><span className="texto-muted"> de {items.length}</span></span>;
+  }
   if (col.tipo !== "number") return null;
   const c = cfg(col);
   const r = resumenNumeros(items.map((i) => String(i.valores[col.id] ?? "")), c.resumen);

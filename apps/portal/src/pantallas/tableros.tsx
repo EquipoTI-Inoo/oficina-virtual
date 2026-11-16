@@ -5,7 +5,7 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuMessageSquare, LuPlus, LuTrash2, LuX } from "react-icons/lu";
+import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
 import { BotonPersonas } from "./personas-tablero";
@@ -24,6 +24,21 @@ const NOMBRE_VISTA: Record<Vista, string> = { TABLA: "Tabla", KANBAN: "Kanban", 
 const fecha = (f: string | null | undefined) => (f ? new Date(`${f}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
 
 // ═════════════════════════════════════════════ tablero
+
+/** 16 nov (Ernesto, «sumas y contadores»): cuántos hay de cada valor, en una barra de colores como la de Monday. */
+function BarraReparto({ valores, colores, etiqueta }: { valores: string[]; colores: Record<string, string>; etiqueta: string }) {
+  const conteo = new Map<string, number>();
+  for (const v of valores) conteo.set(v || "Sin definir", (conteo.get(v || "Sin definir") ?? 0) + 1);
+  const total = valores.length;
+  if (!total) return null;
+  const partes = [...conteo.entries()].sort((a, b) => b[1] - a[1]);
+  const texto = partes.map(([v, n]) => `${v}: ${n}`).join(" · ");
+  return (
+    <span className="barra-reparto" role="img" aria-label={`${etiqueta}: ${texto}`} title={texto}>
+      {partes.map(([v, n]) => <span key={v} style={{ width: `${(n / total) * 100}%`, background: colores[v] ?? "var(--c-borde-fuerte)" }} />)}
+    </span>
+  );
+}
 
 type Ultima = { autorId: string | null; autor: string; texto: string; creadoEn: string };
 /** 16 nov: cuándo abriste cada ítem por última vez (en este navegador), para marcar lo nuevo. */
@@ -171,6 +186,7 @@ function TableroProyecto() {
         bajada={t.descripcion ?? undefined}
         accion={
           <span className="fila" style={{ gap: 8 }}>
+            {t.privado && <span className="chip texto-xs" title="Solo lo ven sus personas, ni los admins"><LuLock size={12} /> Privado</span>}
             {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">{t.miPermiso === "COMENTADOR" ? "Puedes ver y comentar" : "Solo lectura"}</span>}
             <BotonPersonas t={t} cambiar={cambiar} />
             {!t.archivado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
@@ -287,11 +303,24 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
   const columnas = 7 + t.columnas.length + (editable ? 1 : 0);
   // 16 nov (Ernesto): «Última actualización» va siempre al final de la fila, como en Monday.
   const enOrden = [...t.columnas.filter((c) => c.tipo !== "last_updated"), ...t.columnas.filter((c) => c.tipo === "last_updated")];
-  const conPie = t.columnas.some((c) => c.tipo === "number");
+  // 16 nov (Ernesto): la fila de totales va siempre (contadores de ítems, estados y prioridades), no solo con números.
   // 12 nov, como en Monday: agrupar por otra columna, ordenar con el encabezado y elegir varios para cambiarlos juntos.
   const [agrupar, setAgrupar] = useState<Agrupar>("GRUPO");
   const [orden, setOrden] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  // 16 nov (Ernesto): arrastrar y soltar filas (reordenar o pasar a otro grupo), solo con los grupos reales y sin orden.
+  const [arrastrado, setArrastrado] = useState<string | null>(null);
+  const [sobre, setSobre] = useState<string | null>(null);
+  const arrastrable = editable && agrupar === "GRUPO" && !orden;
+  const soltarEn = (grupoId: string, antesDe: string | null) => (e: DragEvent) => {
+    e.preventDefault();
+    const id = arrastrado ?? e.dataTransfer.getData("text/plain");
+    setArrastrado(null);
+    setSobre(null);
+    if (!id || id === antesDe) return;
+    void cambiar(`/items/${id}/mover`, "POST", { grupoId, antesDe });
+  };
+  const sobreEn = (clave: string) => (e: DragEvent) => { if (arrastrado) { e.preventDefault(); if (sobre !== clave) setSobre(clave); } };
   const secciones = useMemo(() => seccionesDe(t, items, agrupar), [t, items, agrupar]);
   const ordenar = (xs: Item[]) => (orden ? [...xs].sort((a, b) => comparar(a, b, orden.col) * orden.dir) : xs);
   const alOrdenar = (col: string) => setOrden((o) => (!o || o.col !== col ? { col, dir: 1 } : o.dir === 1 ? { col, dir: -1 } : null));
@@ -370,7 +399,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                 <table className="tabla tabla-tablero">
                   <thead>
                     <tr>
-                      <th style={{ width: 52 }}>
+                      <th style={{ width: 76 }}>
                         {editable && <input type="checkbox" aria-label={`Elegir todos los ítems de ${g.nombre}`} checked={todos}
                           onChange={(e) => setSel((s) => { const n = new Set(s); for (const i of suyos) (e.target.checked ? n.add(i.id) : n.delete(i.id)); return n; })} />}
                       </th>
@@ -396,9 +425,17 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                     {suyos.map((i) => {
                       const abierto = abiertos.has(i.id);
                       return [
-                        <tr key={i.id} className={sel.has(i.id) ? "fila-elegida" : undefined}>
+                        <tr key={i.id} className={[sel.has(i.id) ? "fila-elegida" : "", sobre === i.id ? "fila-soltar" : "", arrastrado === i.id ? "fila-arrastrada" : ""].filter(Boolean).join(" ") || undefined}
+                          onDragOver={real && arrastrable ? sobreEn(i.id) : undefined} onDrop={real && arrastrable ? soltarEn(g.id, i.id) : undefined}>
                           <td>
                             <span className="fila" style={{ gap: 2 }}>
+                              {real && arrastrable && (
+                                <span className="asa-fila" draggable role="button" tabIndex={-1} aria-label={`Arrastrar ${i.nombre}`} title="Arrastrar para mover"
+                                  onDragStart={(e) => { e.dataTransfer.setData("text/plain", i.id); e.dataTransfer.effectAllowed = "move"; const fila = e.currentTarget.closest("tr"); if (fila) e.dataTransfer.setDragImage(fila, 20, 20); setArrastrado(i.id); }}
+                                  onDragEnd={() => { setArrastrado(null); setSobre(null); }}>
+                                  <LuGripVertical size={14} />
+                                </span>
+                              )}
                               {editable && <input type="checkbox" aria-label={`Elegir ${i.nombre}`} checked={sel.has(i.id)} onChange={() => setSel((s) => alternar(s, i.id))} />}
                               <button className="boton-icono" aria-label={abierto ? `Ocultar subítems de ${i.nombre}` : `Ver subítems de ${i.nombre}`} aria-expanded={abierto} onClick={() => setAbiertos(alternar(abiertos, i.id))}>
                                 <LuChevronRight size={14} style={{ transform: abierto ? "rotate(90deg)" : undefined }} />
@@ -446,10 +483,21 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                           : []),
                       ];
                     })}
+                    {editable && real && arrastrado && (
+                      <tr className={`fila-soltar-fin${sobre === `fin:${g.id}` ? " fila-soltar" : ""}`} onDragOver={sobreEn(`fin:${g.id}`)} onDrop={soltarEn(g.id, null)}>
+                        <td colSpan={columnas + 1} className="texto-xs texto-muted">Soltar al final de {g.nombre}</td>
+                      </tr>
+                    )}
                     {editable && real && <FilaNueva columnas={columnas} etiqueta={`Nuevo ítem en ${g.nombre}`} texto="+ Agregar ítem" crear={(nombre) => cambiar("/items", "POST", { nombre, grupoId: g.id })} />}
-                    {conPie && suyos.length > 0 && (
-                      <tr className="fila-pie">
-                        <td colSpan={7} />
+                    {suyos.length > 0 && (
+                      <tr className="fila-pie" aria-label={`Totales de ${g.nombre}`}>
+                        <td />
+                        <td><span className="texto-xs negrita">{suyos.length} {suyos.length === 1 ? "ítem" : "ítems"}</span></td>
+                        <td />
+                        <td><BarraReparto valores={suyos.map((i) => i.estado)} colores={COLOR_ESTADO as Record<string, string>} etiqueta="Estados" /></td>
+                        <td><BarraReparto valores={suyos.map((i) => i.prioridad ?? "")} colores={COLOR_PRIORIDAD as Record<string, string>} etiqueta="Prioridades" /></td>
+                        <td>{(() => { const n = suyos.filter((i) => i.vencido).length; return n ? <span className="texto-xs" style={{ color: "var(--c-semaforo-rojo-intenso)" }}>{n} {n === 1 ? "vencido" : "vencidos"}</span> : null; })()}</td>
+                        <td />
                         {enOrden.map((c) => <td key={c.id}><PieNumeros col={c} items={suyos} /></td>)}
                         {editable && <td colSpan={2} />}
                       </tr>

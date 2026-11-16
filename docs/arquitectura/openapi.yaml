@@ -4830,6 +4830,7 @@ paths:
               properties:
                 cliente: { type: string, maxLength: 120 }
                 estado: { type: string, enum: ['Sin Iniciar', 'En Progreso', 'En Revisión', 'Completado', 'Soporte Continuo', 'En Pausa', 'Cancelado'] }
+                privado: { type: boolean, description: 'Solo el líder (16 nov): privado = solo sus personas, ni los admins' }
       responses:
         '200':
           description: OK
@@ -4908,6 +4909,27 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TableroInooWork' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/items/{itemId}/mover:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: moverItemTablero
+      summary: 'Arrastrar y soltar (16 nov): mueve el ítem antes de otro del grupo de destino, o al final del grupo sin antesDe'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { grupoId: { type: string }, antesDe: { type: [string, 'null'] } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
@@ -8344,6 +8366,7 @@ components:
             completados: { type: integer }
             vencidos: { type: integer }
         archivadoEn: { type: [string, 'null'] }
+        privado: { type: boolean, description: 'Tablero privado (16 nov)' }
         puedeEditar: { type: boolean }
     PersonaInooWork:
       type: object
@@ -8565,11 +8588,13 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado]
       properties:
         id: { type: string }
         nombre: { type: string }
         miPermiso: { $ref: '#/components/schemas/PermisoTablero' }
+        privado: { type: boolean, description: 'Solo lo ven su líder y sus miembros, ni los admins (16 nov)' }
+        puedeHacerPrivado: { type: boolean, description: 'Solo el líder lo cambia' }
         permisos: { type: object, additionalProperties: { $ref: '#/components/schemas/PermisoTablero' }, description: 'El permiso de cada persona del proyecto (por id de empleado de InooWork). 16 nov' }
         enlaces:
           type: array

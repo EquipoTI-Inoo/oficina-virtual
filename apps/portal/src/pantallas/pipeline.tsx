@@ -6,7 +6,7 @@
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
 import { useState, type FormEvent, type ReactNode } from "react";
-import { LuArchive, LuClipboardList, LuListTodo, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
+import { LuArchive, LuClipboardList, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
@@ -252,7 +252,7 @@ function TarjetaTablero({ t }: { t: S<"TableroResumen"> }) {
           <LuSquareKanban size={16} />
         </span>
       </span>
-      <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{t.nombre}</span>
+      <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{t.privado && <LuLock size={12} aria-label="Privado" style={{ marginRight: 4, verticalAlign: "-1px" }} />}{t.nombre}</span>
       <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total} completados{t.area ? ` · ${t.area}` : ""}</span>
       <span className="fila" style={{ gap: 8 }}>
         <span style={{ flex: 1 }}>

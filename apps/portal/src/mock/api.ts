@@ -1711,6 +1711,10 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
   });
   return { ...r, datos: [...r.datos, ...tareas].sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es")) };
 });
+ruta("POST", "/tableros/:id/items/:item/mover", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.moverItem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const b = await cuerpo<Record<string, unknown>>(req);
@@ -5081,7 +5085,7 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   // 13 nov: los ítems de tableros con fecha.
   const empleadoAgenda = E.usuarios.find((u) => u.id === yo)?.inooworkEmpleadoId;
   if (empleadoAgenda) {
-    for (const x of pendientesComoEventos((await TABLEROS.pendientesDeVarios([empleadoAgenda])).get(empleadoAgenda) ?? [], desde!, hasta!, hoy)) {
+    for (const x of pendientesComoEventos((await TABLEROS.pendientesDeVarios([empleadoAgenda], false, yoTablero(ctx).empleadoId)).get(empleadoAgenda) ?? [], desde!, hasta!, hoy)) {
       eventos.push({ ...base({ id: x.id, tipo: x.tipo, titulo: x.titulo, fecha: x.fecha }), detalle: x.detalle, enlace: x.enlace, vencido: x.vencido });
     }
   }
@@ -5231,8 +5235,9 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
   let items: { vencido: boolean }[] = [];
   if (objetivo.inooworkEmpleadoId) {
     try {
-      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: objetivo.inooworkEmpleadoId, esAdmin: false })).datos);
-      items = (await TABLEROS.pendientesDeVarios([objetivo.inooworkEmpleadoId])).get(objetivo.inooworkEmpleadoId) ?? [];
+      const vistoPor = yoTablero(ctx).empleadoId;
+      deInooWork = tablerosDelPanel((await TABLEROS.listar({ empleadoId: objetivo.inooworkEmpleadoId, esAdmin: false }, { vistoPor })).datos);
+      items = (await TABLEROS.pendientesDeVarios([objetivo.inooworkEmpleadoId], false, vistoPor)).get(objetivo.inooworkEmpleadoId) ?? [];
     } catch {
       /* InooWork no respondió */
     }

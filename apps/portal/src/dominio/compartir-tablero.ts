@@ -20,7 +20,8 @@ export const mayorPermiso = (a: PermisoTablero, b: PermisoTablero) => (RANGO[a] 
 
 /** El permiso de alguien en el proyecto, o null si no lo ve. */
 export function permisoEn(p: ProyectoIW, empleadoId: string | null, esAdmin: boolean): PermisoTablero | null {
-  if (esAdmin) return "EDITOR";
+  // 16 nov (Ernesto): un tablero privado (RR. HH., gerencia) lo ven solo su líder y sus miembros, ni los admins.
+  if (esAdmin && !esPrivado(p)) return "EDITOR";
   if (!empleadoId) return null;
   if (p.leaderId === empleadoId) return "EDITOR";
   const m = (p.members ?? []).find((x) => x.employeeId === empleadoId);
@@ -29,6 +30,13 @@ export function permisoEn(p: ProyectoIW, empleadoId: string | null, esAdmin: boo
   const guardado = (p.portalPermisos as Record<string, unknown> | undefined)?.[empleadoId];
   return esPermiso(guardado) ? guardado : "EDITOR";
 }
+
+export const esPrivado = (p: ProyectoIW) => p.portalPrivado === true;
+/** ¿Está la persona en el proyecto (líder o miembro)? */
+export const estaEn = (p: ProyectoIW, empleadoId: string | null | undefined) =>
+  !!empleadoId && (p.leaderId === empleadoId || (p.members ?? []).some((m) => m.employeeId === empleadoId));
+/** Para vistas de otra persona (Mi área, su panel, su calendario): lo privado solo si quien mira también está. */
+export const ocultoPara = (p: ProyectoIW, vistoPor: string | null | undefined) => esPrivado(p) && !estaEn(p, vistoPor);
 
 export function fijarPermiso(p: ProyectoIW, empleadoId: string, permiso: PermisoTablero) {
   const xs = { ...((p.portalPermisos as Record<string, PermisoTablero> | undefined) ?? {}) };
