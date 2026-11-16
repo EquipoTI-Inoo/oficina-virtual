@@ -314,6 +314,26 @@ test("mi cuenta: la foto de perfil abre pagos, usuarios y ayuda", async ({ page 
   await expect(page.getByText("Pagos y facturación")).toBeVisible();
 });
 
+test("menú del avatar (16 nov, Ernesto): Agencia sale del lateral y el tema se elige ahí", async ({ page }) => {
+  await entrarComo(page, "admin");
+  await page.goto("/equipo/mi-panel");
+  const lateral = page.getByRole("complementary", { name: "Menú principal" });
+  await expect(lateral.getByRole("link", { name: "Mi panel" })).toBeVisible({ timeout: 30_000 });
+  await expect(lateral.getByRole("link", { name: "Empresas" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
+  await expect(page.getByRole("menuitem", { name: "Mi panel" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Empresas" })).toBeVisible();
+  await page.getByRole("radio", { name: "Oscuro" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-tema", "oscuro");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-tema", "oscuro");
+  await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
+  await page.getByRole("radio", { name: "Sistema" }).click();
+  await expect(page.locator("html")).not.toHaveAttribute("data-tema", /./);
+  await page.getByRole("menuitem", { name: "Empresas" }).click();
+  await expect(page).toHaveURL(/\/equipo\/empresas$/);
+});
+
 test("mi cuenta: quien solo lee no ve pagos", async ({ page }) => {
   await entrarComo(page, "lector");
   await page.goto("/inicio");

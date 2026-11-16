@@ -16,7 +16,11 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, them
 
 export default function RaizLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="es" className={poppins.variable}>
+    <html lang="es" className={poppins.variable} suppressHydrationWarning>
+      <head>
+        {/* 16 nov: el tema elegido (claro u oscuro) se aplica antes de pintar, para que no parpadee. */}
+        <script dangerouslySetInnerHTML={{ __html: 'try{var t=localStorage.getItem("inoo.tema");if(t==="claro"||t==="oscuro")document.documentElement.dataset.tema=t}catch(e){}' }} />
+      </head>
       <body>
         <Proveedores>{children}</Proveedores>
       </body>

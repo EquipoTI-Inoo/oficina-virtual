@@ -3,7 +3,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks } from "react-icons/lu";
+  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor } from "react-icons/lu";
 import { pideAccion } from "./dominio/por-revisar";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
 
@@ -385,12 +385,50 @@ const NAV_EQUIPO = [
   { a: "/equipo/proyectos", texto: "Proyectos", icono: <LuSquareKanban /> },
   { a: "/equipo/clientes", texto: "Clientes", icono: <LuUsers /> },
   // Empresas (6 nov): Inoo y cada cliente con su gente, proyectos y accesos. No es para quien trabaja por proyecto.
-  { a: "/equipo/empresas", texto: "Empresas", icono: <LuBuilding2 />, grupo: "Agencia", porCuenta: true },
-  { a: "/equipo/organigrama", texto: "Organigrama", icono: <LuNetwork />, grupo: "Agencia" },
-  { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, permiso: "GESTIONAR_EQUIPO" },
-  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone /> },
-  { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, permiso: "COSTOS_IA" },
+  // 16 nov (Ernesto): lo de «Agencia» pasó al menú del avatar (arriba a la derecha); el lateral queda para el día a día.
+  { a: "/equipo/empresas", texto: "Empresas", icono: <LuBuilding2 />, porCuenta: true, enMenu: true },
+  { a: "/equipo/organigrama", texto: "Organigrama", icono: <LuNetwork />, enMenu: true },
+  { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, permiso: "GESTIONAR_EQUIPO", enMenu: true },
+  { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone />, enMenu: true },
+  { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, permiso: "COSTOS_IA", enMenu: true },
 ];
+/** Lo que cada persona puede ver del menú (por permiso y por su nivel de acceso). */
+function navPara(espacio: "cliente" | "equipo", sesion: S<"Sesion"> | null) {
+  const nivel = sesion?.usuario.nivelAcceso;
+  return (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO)
+    .filter((n) => !("permiso" in n) || sesion?.usuario.permisos?.some((x) => x === n.permiso))
+    .filter((n) => !("porCuenta" in n) || (!!nivel && nivel !== "PROYECTO"))
+    .map((n) => (n.a === "/equipo/clientes" && nivel === "PROYECTO" ? { ...n, texto: "Mis marcas" } : n));
+}
+
+// ───────────────────────────── tema (16 nov, Ernesto): claro, oscuro o según el sistema, en este navegador
+type Tema = "claro" | "oscuro" | "sistema";
+const CLAVE_TEMA = "inoo.tema";
+function aplicarTema(t: Tema) {
+  if (t === "sistema") delete document.documentElement.dataset.tema;
+  else document.documentElement.dataset.tema = t;
+}
+function SelectorTema() {
+  const [tema, setTema] = useState<Tema>("sistema");
+  useEffect(() => {
+    try { const t = localStorage.getItem(CLAVE_TEMA); if (t === "claro" || t === "oscuro") setTema(t); } catch { /* sin almacenamiento */ }
+  }, []);
+  const elegir = (t: Tema) => {
+    setTema(t);
+    aplicarTema(t);
+    try { if (t === "sistema") localStorage.removeItem(CLAVE_TEMA); else localStorage.setItem(CLAVE_TEMA, t); } catch { /* solo por esta visita */ }
+  };
+  const opciones: [Tema, string, ReactNode][] = [["claro", "Claro", <LuSun key="c" size={14} />], ["oscuro", "Oscuro", <LuMoon key="o" size={14} />], ["sistema", "Sistema", <LuMonitor key="s" size={14} />]];
+  return (
+    <div className="menu-cuenta-tema" role="radiogroup" aria-label="Tema">
+      {opciones.map(([t, texto, icono]) => (
+        <button key={t} type="button" role="radio" aria-checked={tema === t} className={tema === t ? "activo" : undefined} onClick={() => elegir(t)}>
+          {icono}{texto}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** Equipo: elige un cliente para entrar a su ficha, o «Todas las cuentas» para ver la lista. */
 function CuentaEquipo({ alNavegar }: { alNavegar?: () => void }) {
@@ -530,11 +568,7 @@ function ListaNotificaciones({ alCerrar }: { alCerrar: () => void }) {
 function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN; por proyecto, «Clientes» son sus marcas.
-  const nivel = sesion?.usuario.nivelAcceso;
-  const nav = (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO)
-    .filter((n) => !("permiso" in n) || sesion?.usuario.permisos?.some((x) => x === n.permiso))
-    .filter((n) => !("porCuenta" in n) || (!!nivel && nivel !== "PROYECTO"))
-    .map((n) => (n.a === "/equipo/clientes" && nivel === "PROYECTO" ? { ...n, texto: "Mis marcas" } : n));
+  const nav = navPara(espacio, sesion).filter((n) => !("enMenu" in n));
   const u = sesion?.usuario;
   const salir = () => {
     cerrarSesion();
@@ -635,17 +669,16 @@ function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | nul
   }, [abierto]);
   const esAdmin = rolCliente(sesion) === "ADMIN_CLIENTE";
   const opciones = espacio === "equipo" ? [
+    // 16 nov (Ernesto): sin repetir lo que ya está en el lateral (Mi panel, Calendario, Jarvis).
     { a: "/equipo/mi-cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
-    { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuLayoutDashboard size={16} /> },
-    { a: "/equipo/calendario", texto: "Mi calendario", icono: <LuCalendarDays size={16} /> },
     { a: "/equipo/boveda", texto: "Mi bóveda", icono: <LuVault size={16} /> },
-    { a: "/equipo/jarvis", texto: "Jarvis", icono: <LuBot size={16} /> },
   ] : [
     { a: "/cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
     ...(esAdmin ? [{ a: "/cuenta/pagos", texto: "Pagos", icono: <LuWallet size={16} /> }] : []),
     { a: "/cuenta/usuarios", texto: "Usuarios", icono: <LuUsers size={16} /> },
     { a: "/cuenta/ayuda", texto: "Ayuda", icono: <LuLifeBuoy size={16} /> },
   ];
+  const agencia = espacio === "equipo" ? navPara("equipo", sesion).filter((n) => "enMenu" in n) : [];
   const salir = () => {
     cerrarSesion();
     ir("/ingresar");
@@ -667,6 +700,15 @@ function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | nul
               {o.texto}
             </Enlace>
           ))}
+          {agencia.length > 0 && <span className="menu-cuenta-grupo">Agencia</span>}
+          {agencia.map((o) => (
+            <Enlace key={o.a} a={o.a} role="menuitem" className="menu-cuenta-item" onClick={() => setAbierto(false)}>
+              {o.icono}
+              {o.texto}
+            </Enlace>
+          ))}
+          <span className="menu-cuenta-grupo">Tema</span>
+          <SelectorTema />
           <button type="button" role="menuitem" className="menu-cuenta-item menu-cuenta-salir" onClick={salir}>
             <LuLogOut size={16} />
             Cerrar sesión

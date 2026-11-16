@@ -401,7 +401,18 @@ a.avatar:hover {
 }
 .menu-cuenta-item svg {
   color: var(--c-muted);
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
+.menu-cuenta-caja { border: 1px solid var(--c-borde); }
+/* 16 nov: grupos del menú del avatar (Agencia, Tema) y el selector de tema. */
+.menu-cuenta-grupo { margin-top: 6px; padding: 8px 10px 2px; border-top: 1px solid var(--c-borde); font-size: var(--t-xs); color: var(--c-muted); }
+.menu-cuenta-tema { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 4px 6px 2px; padding: 3px; border-radius: var(--r-sm); background: var(--c-fondo); }
+.menu-cuenta-tema button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border: 0; border-radius: var(--r-xs); background: none; color: var(--c-muted); font: inherit; font-size: var(--t-xs); cursor: pointer; }
+.menu-cuenta-tema button:hover { color: var(--c-tinta); }
+.menu-cuenta-tema button.activo { background: var(--c-blanco); color: var(--c-tinta); box-shadow: var(--sombra-suave); font-weight: 600; }
+.menu-cuenta-tema button:focus-visible { outline: 2px solid var(--c-primario); outline-offset: 1px; }
 .menu-cuenta-salir {
   margin-top: 4px;
   border-top: 1px solid var(--c-borde);
@@ -2897,3 +2908,9 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
   --c-velo: rgba(0, 0, 0, 0.6);
 }
 :root[data-tema="oscuro"] .logo-marca { filter: invert(1); }
+
+/* 16 nov: el recuadro de ayuda y la persona van anclados abajo a la izquierda del lateral (no pegados al menú). */
+.lateral-interior { min-height: calc(100vh - 52px); }
+.app--flotante .lateral-interior { min-height: calc(100vh - 140px); }
+.cajon .lateral-interior { min-height: 100%; position: static; }
+.lateral-interior > .ayuda { margin-top: auto; }
