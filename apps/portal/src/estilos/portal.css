@@ -46,6 +46,11 @@
   /* 13 nov · Marca Inoo (manual, nov 2026): 80 % blanco y negro; morado y verde solo como acentos.
      El morado puro (#ad4dfa, 4:1) y el verde (#21f921, 1,4:1) no alcanzan contraste para texto: van en detalles
      (líneas, puntos, barras). Para texto y selección se usa el morado oscuro --c-primario (6:1). */
+  /* 16 nov (modo oscuro): texto que va siempre en blanco sobre un fondo de color, el texto de los botones negros
+     (en oscuro el botón pasa a blanco y su texto a negro) y el morado de los fondos que llevan texto blanco. */
+  --c-sobre-color: #ffffff;
+  --c-sobre-accion: #ffffff;
+  --c-primario-solido: #8b2fd6;
   --c-accion: #000000;
   --c-accion-hover: #262626;
   --c-marca-morado: #ad4dfa;
@@ -264,7 +269,7 @@ p {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--c-primario);
+  background: var(--c-primario-solido);
   box-shadow: 0 0 0 2px var(--c-blanco);
 }
 .contenido {
@@ -407,7 +412,7 @@ a.avatar:hover {
 }
 .avatar--cliente {
   background: var(--c-avatar-cliente);
-  color: var(--c-oliva);
+  color: var(--c-sobre-avatar-cliente, var(--c-oliva));
 }
 .avatar--xl {
   width: 64px;
@@ -692,9 +697,9 @@ a.avatar:hover {
   margin-top: auto;
 }
 .kpi--destacado {
-  background: var(--c-primario);
+  background: var(--c-primario-solido);
   border-color: var(--c-primario);
-  color: var(--c-blanco);
+  color: var(--c-sobre-color);
 }
 .kpi--destacado .kpi-cab,
 .kpi--destacado .kpi-pie,
@@ -775,7 +780,7 @@ a.avatar:hover {
 .boton--primario {
   background: var(--c-accion);
   border-color: var(--c-accion);
-  color: var(--c-blanco);
+  color: var(--c-sobre-accion);
 }
 .boton--primario:hover {
   background: var(--c-accion-hover);
@@ -1242,7 +1247,7 @@ a.avatar:hover {
   background: var(--c-primario-suave);
   overflow: hidden;
 }
-.medidor > span { display: block; height: 100%; border-radius: inherit; background: var(--c-primario); }
+.medidor > span { display: block; height: 100%; border-radius: inherit; background: var(--c-primario-solido); }
 .medidor--alerta > span { background: var(--c-semaforo-naranja); }
 .medidor--excedido > span { background: var(--c-semaforo-rojo); }
 .estado-consumo { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
@@ -1296,7 +1301,7 @@ a.avatar:hover {
   border-radius: var(--r-xs);
 }
 .gantt-barra--hecha { background: var(--c-barra-verde); }
-.gantt-barra--curso { background: var(--c-primario); }
+.gantt-barra--curso { background: var(--c-primario-solido); }
 .gantt-barra--atrasada { background: var(--c-semaforo-naranja); }
 .gantt-barra--pendiente { background: var(--c-primario-borde); }
 .gantt-hoy {
@@ -1751,7 +1756,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
   justify-items: center;
 }
 .embudo-etapa {
-  color: var(--c-blanco);
+  color: var(--c-sobre-color);
   text-align: center;
   padding: 8px 0;
   font-size: var(--t-xs);
@@ -1840,7 +1845,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
   border-color: var(--c-exito);
 }
 .hito-punto--actual {
-  background: var(--c-primario);
+  background: var(--c-primario-solido);
   border-color: var(--c-primario);
 }
 
@@ -2122,9 +2127,9 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
   font-variant-numeric: tabular-nums;
 }
 .tablero-col--accion .tablero-contador {
-  background: var(--c-primario);
+  background: var(--c-primario-solido);
   border-color: var(--c-primario);
-  color: var(--c-blanco);
+  color: var(--c-sobre-color);
 }
 .tablero-ayuda {
   font-size: var(--t-xs);
@@ -2232,7 +2237,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
   display: inline-grid;
   place-items: center;
   flex: none;
-  color: var(--c-blanco);
+  color: var(--c-sobre-color);
   font-size: var(--t-xs);
   font-weight: 700;
 }
@@ -2277,8 +2282,8 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 }
 .burbuja-jarvis--yo {
   justify-self: end;
-  background: var(--c-primario);
-  color: var(--c-blanco);
+  background: var(--c-primario-solido);
+  color: var(--c-sobre-color);
 }
 .burbuja-jarvis--jarvis {
   justify-self: start;
@@ -2324,7 +2329,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 .mini-mes-grilla button:hover { background: var(--c-fondo); }
 .mini-mes-grilla button.fuera { color: var(--c-muted); opacity: 0.85; }
 .mini-mes-grilla button.elegido { background: var(--c-primario-suave); color: var(--c-primario); font-weight: 600; }
-.mini-mes-grilla button.hoy { background: var(--c-primario); color: var(--c-blanco); font-weight: 600; }
+.mini-mes-grilla button.hoy { background: var(--c-primario-solido); color: var(--c-sobre-color); font-weight: 600; }
 
 .vista-mes { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .vista-mes-cab { padding: 8px; font-size: var(--t-xs); font-weight: 600; color: var(--c-muted); text-transform: uppercase; text-align: center; border-bottom: 1px solid var(--c-borde); }
@@ -2335,10 +2340,10 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 .vista-mes-dia.feriado { background: var(--c-semaforo-rojo-suave); }
 .num-dia { align-self: center; border: 0; background: none; width: 26px; height: 26px; border-radius: 50%; font-size: var(--t-xs); font-weight: 600; color: var(--c-texto); cursor: pointer; }
 .num-dia:hover { background: var(--c-neutro-suave); }
-.num-dia.hoy { background: var(--c-primario); color: var(--c-blanco); }
+.num-dia.hoy { background: var(--c-primario-solido); color: var(--c-sobre-color); }
 .chip-agenda { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; border: 0; border-radius: var(--r-xs); background: transparent; padding: 2px 5px; font-size: var(--t-xs); text-align: left; color: var(--c-tinta); cursor: pointer; }
 .chip-agenda:hover { background: var(--c-neutro-suave); }
-.chip-agenda--lleno { color: var(--c-blanco); }
+.chip-agenda--lleno { color: var(--c-sobre-color); }
 .chip-agenda--lleno:hover { filter: brightness(0.95); background: inherit; }
 .chip-agenda--hecho .chip-texto { text-decoration: line-through; opacity: 0.7; }
 .chip-agenda .punto { flex: none; width: 7px; height: 7px; border-radius: 50%; }
@@ -2352,7 +2357,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 .vista-horas-dia { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border: 0; background: none; color: var(--c-muted); cursor: pointer; }
 .vista-horas-dia .num { font-size: var(--t-2xl); font-weight: 600; color: var(--c-tinta); width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
 .vista-horas-dia.hoy, .vista-horas-dia.hoy .num { color: var(--c-primario); }
-.vista-horas-dia.hoy .num { background: var(--c-primario); color: var(--c-blanco); }
+.vista-horas-dia.hoy .num { background: var(--c-primario-solido); color: var(--c-sobre-color); }
 .vista-horas-cuerpo { height: calc(100dvh - 330px); min-height: 380px; overflow-y: auto; }
 .vista-horas-grilla { display: grid; position: relative; }
 .vista-horas-etiquetas { position: relative; }
@@ -2481,7 +2486,7 @@ button.cuenta { cursor: pointer; }
 .celda-texto:focus { border-color: var(--c-primario); background: var(--c-blanco); outline: none; }
 .celda-select, .celda-fecha { width: 100%; min-width: 150px; border: 1px solid transparent; border-radius: var(--r-xs); padding: 4px 6px; background: transparent; font: inherit; color: inherit; cursor: pointer; }
 .celda-select:hover, .celda-fecha:hover { border-color: var(--c-borde); }
-.pildora { display: inline-block; width: 100%; min-width: 96px; border: 0; border-radius: var(--r-xs); padding: 5px 8px; color: var(--c-blanco); font: inherit; font-size: var(--t-xs); font-weight: 600; text-align: center; text-align-last: center; cursor: pointer; appearance: none; }
+.pildora { display: inline-block; width: 100%; min-width: 96px; border: 0; border-radius: var(--r-xs); padding: 5px 8px; color: var(--c-sobre-color); font: inherit; font-size: var(--t-xs); font-weight: 600; text-align: center; text-align-last: center; cursor: pointer; appearance: none; }
 .pildora option { color: var(--c-texto); background: var(--c-blanco); }
 .pildora--chica { width: auto; min-width: 0; padding: 2px 8px; font-size: var(--t-xs); }
 .contador-sub { flex: none; min-width: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--c-neutro-suave); color: var(--c-muted); font-size: var(--t-xs); text-align: center; }
@@ -2492,7 +2497,7 @@ button.cuenta { cursor: pointer; }
 .kanban-tablero { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
 .kanban-columna { display: grid; align-content: start; gap: 8px; min-height: 160px; padding: 8px; border-radius: var(--r-md); background: var(--c-neutro-suave); }
 .kanban-columna--sobre { outline: 2px dashed var(--c-primario); }
-.kanban-cabecera { display: flex; justify-content: space-between; padding: 6px 10px; border-radius: var(--r-sm); color: var(--c-blanco); font-size: var(--t-sm); font-weight: 700; }
+.kanban-cabecera { display: flex; justify-content: space-between; padding: 6px 10px; border-radius: var(--r-sm); color: var(--c-sobre-color); font-size: var(--t-sm); font-weight: 700; }
 .kanban-item { display: grid; gap: 6px; padding: 10px 12px; cursor: grab; }
 .calendario-tablero { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .calendario-tablero-dia { text-align: center; text-transform: capitalize; }
@@ -2729,7 +2734,7 @@ main, .contenido, .principal { min-width: 0; }
 .th-redimensionable { position: relative; }
 .th-asa { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; touch-action: none; }
 .th-asa::after { content: ""; position: absolute; top: 25%; bottom: 25%; left: 4px; width: 1px; background: var(--c-borde); }
-.th-asa:hover::after, .redimensionando .th-asa::after { background: var(--c-primario); width: 2px; }
+.th-asa:hover::after, .redimensionando .th-asa::after { background: var(--c-primario-solido); width: 2px; }
 .redimensionando, .redimensionando * { cursor: col-resize !important; user-select: none; }
 .tabla-tablero td { overflow: hidden; }
 /* 16 nov (Ernesto): al deslizar a la derecha, la casilla y el nombre del ítem quedan fijos, como en Monday. */
@@ -2800,3 +2805,95 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .icono-tipo-columna { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: var(--r-xs); color: #fff; }
 .tipo-columna { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; text-align: left; cursor: pointer; border: 1px solid var(--c-borde); transition: border-color 0.15s; }
 .tipo-columna:hover, .tipo-columna:focus-visible { border-color: var(--c-primario); }
+
+/* ───────────────────────── Modo oscuro (16 nov, pedido de Ernesto)
+   El portal sigue el tema del sistema. Solo cambian los tokens: todo el CSS y las pantallas usan var(--c-*).
+   Se puede forzar con <html data-tema="claro|oscuro"> (preferencia de la persona en este navegador). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+  color-scheme: dark;
+  --c-primario: #a35ef0;
+  --c-primario-hover: #b57af5;
+  --c-primario-suave: #2a1840;
+  --c-primario-borde: #4b2b72;
+  --c-primario-solido: #8b2fd6;
+  --c-tinta: #ffffff;
+  --c-texto: #e6e6e6;
+  --c-muted: #a3a3a3;
+  --c-tenue: #7d7d7d;
+  --c-borde: #2a2a2a;
+  --c-fondo: #0d0d0d;
+  --c-blanco: #161616;
+  --c-exito: #4cc96f;
+  --c-exito-suave: #12301c;
+  --c-alerta: #e7b25a;
+  --c-alerta-suave: #33270f;
+  --c-info: #7fb0f0;
+  --c-info-suave: #142338;
+  --c-neutro-suave: #222222;
+  --c-semaforo-naranja-suave: #3a2410;
+  --c-semaforo-rojo-suave: #3a1714;
+  --c-semaforo-rojo-intenso: #ff9d94;
+  --c-avatar-cliente: #3a2a20;
+  --c-sobre-avatar-cliente: #f3ded0;
+  --c-accion: #ffffff;
+  --c-accion-hover: #e0e0e0;
+  --c-sobre-accion: #000000;
+  --c-error: #ff7b6e;
+  --c-borde-medio: #333333;
+  --c-borde-fuerte: #444444;
+  --c-superficie-sutil: #1c1c1c;
+  --c-esqueleto: #222222;
+  --c-esqueleto-brillo: #2c2c2c;
+  --c-peligro-borde: #5c2620;
+  --c-alerta-borde: #6b4f1c;
+  --sombra-tarjeta: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --sombra-flotante: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --sombra-suave: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --c-velo: rgba(0, 0, 0, 0.6);
+  }
+  :root:not([data-tema="claro"]) .logo-marca { filter: invert(1); }
+}
+:root[data-tema="oscuro"] {
+  color-scheme: dark;
+  --c-primario: #a35ef0;
+  --c-primario-hover: #b57af5;
+  --c-primario-suave: #2a1840;
+  --c-primario-borde: #4b2b72;
+  --c-primario-solido: #8b2fd6;
+  --c-tinta: #ffffff;
+  --c-texto: #e6e6e6;
+  --c-muted: #a3a3a3;
+  --c-tenue: #7d7d7d;
+  --c-borde: #2a2a2a;
+  --c-fondo: #0d0d0d;
+  --c-blanco: #161616;
+  --c-exito: #4cc96f;
+  --c-exito-suave: #12301c;
+  --c-alerta: #e7b25a;
+  --c-alerta-suave: #33270f;
+  --c-info: #7fb0f0;
+  --c-info-suave: #142338;
+  --c-neutro-suave: #222222;
+  --c-semaforo-naranja-suave: #3a2410;
+  --c-semaforo-rojo-suave: #3a1714;
+  --c-semaforo-rojo-intenso: #ff9d94;
+  --c-avatar-cliente: #3a2a20;
+  --c-sobre-avatar-cliente: #f3ded0;
+  --c-accion: #ffffff;
+  --c-accion-hover: #e0e0e0;
+  --c-sobre-accion: #000000;
+  --c-error: #ff7b6e;
+  --c-borde-medio: #333333;
+  --c-borde-fuerte: #444444;
+  --c-superficie-sutil: #1c1c1c;
+  --c-esqueleto: #222222;
+  --c-esqueleto-brillo: #2c2c2c;
+  --c-peligro-borde: #5c2620;
+  --c-alerta-borde: #6b4f1c;
+  --sombra-tarjeta: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --sombra-flotante: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --sombra-suave: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --c-velo: rgba(0, 0, 0, 0.6);
+}
+:root[data-tema="oscuro"] .logo-marca { filter: invert(1); }
