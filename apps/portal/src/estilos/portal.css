@@ -2743,6 +2743,17 @@ main, .contenido, .principal { min-width: 0; }
 .th-asa:hover::after, .redimensionando .th-asa::after { background: var(--c-primario); width: 2px; }
 .redimensionando, .redimensionando * { cursor: col-resize !important; user-select: none; }
 .tabla-tablero td { overflow: hidden; }
+/* 16 nov (Ernesto): al deslizar a la derecha, la casilla y el nombre del ítem quedan fijos, como en Monday. */
+.tabla-tablero thead th:nth-child(-n+2),
+.tabla-tablero tbody tr:not(.fila-pie):not(.fila-nueva) td:nth-child(-n+2) { position: sticky; z-index: 1; background: var(--c-blanco); }
+.tabla-tablero thead th:nth-child(1),
+.tabla-tablero tbody tr:not(.fila-pie):not(.fila-nueva) td:nth-child(1) { left: 0; width: 52px; min-width: 52px; max-width: 52px; }
+.tabla-tablero thead th:nth-child(2),
+.tabla-tablero tbody tr:not(.fila-pie):not(.fila-nueva) td:nth-child(2) { left: 52px; box-shadow: 1px 0 0 var(--c-borde); }
+.tabla-tablero thead th:nth-child(-n+2) { z-index: 3; }
+.tabla-tablero tbody tr:hover td:nth-child(-n+2) { background: linear-gradient(var(--c-superficie-sutil), var(--c-superficie-sutil)), var(--c-blanco); }
+.tabla-tablero .fila-subitem td:nth-child(-n+2) { background: var(--c-fondo); }
+.tabla-tablero .fila-elegida td:nth-child(-n+2) { background: linear-gradient(var(--c-primario-suave), var(--c-primario-suave)), var(--c-blanco); }
 
 /* Panel del ítem editable (13 nov). */
 .panel-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 4px; }

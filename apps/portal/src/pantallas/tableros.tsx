@@ -262,6 +262,8 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
     void cambiar(`/items/${i.id}`, "DELETE");
   };
   const columnas = 7 + t.columnas.length + (editable ? 1 : 0);
+  // 16 nov (Ernesto): «Última actualización» va siempre al final de la fila, como en Monday.
+  const enOrden = [...t.columnas.filter((c) => c.tipo !== "last_updated"), ...t.columnas.filter((c) => c.tipo === "last_updated")];
   const conPie = t.columnas.some((c) => c.tipo === "number");
   // 12 nov, como en Monday: agrupar por otra columna, ordenar con el encabezado y elegir varios para cambiarlos juntos.
   const [agrupar, setAgrupar] = useState<Agrupar>("GRUPO");
@@ -355,7 +357,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                       <Th col="prioridad" base={110}>Prioridad</Th>
                       <Th col="fecha" base={140}>Fecha límite</Th>
                       <th style={ancho("notas", 180)} className="th-redimensionable">Descripción<Asa col="notas" /></th>
-                      {t.columnas.map((c) => (
+                      {enOrden.map((c) => (
                         <th key={c.id} style={ancho(c.id, c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120)} className="th-redimensionable" title={info(c.tipo)?.nombre ?? c.tipo}>
                           {editable
                             ? <button type="button" className="boton-texto" style={{ font: "inherit", color: "inherit", textTransform: "inherit", letterSpacing: "inherit" }} aria-label={`Configurar la columna ${c.nombre}`} onClick={() => setConfigurando(c)}>{c.nombre}</button>
@@ -394,7 +396,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                           <td><Pildora valor={i.prioridad as PrioridadItem} opciones={PRIORIDADES_ITEM} color={(v) => COLOR_PRIORIDAD[v]} editable={editable} etiqueta={`Prioridad de ${i.nombre}`} guardar={(prioridad) => void item(i, { prioridad })} /></td>
                           <td><Fecha valor={i.fecha ?? null} vencido={i.vencido} editable={editable} etiqueta={`Fecha límite de ${i.nombre}`} guardar={(fecha) => void item(i, { fecha })} /></td>
                           <td><Texto valor={i.notas} editable={editable} etiqueta={`Descripción de ${i.nombre}`} placeholder="Agregar" guardar={(notas) => void item(i, { notas })} /></td>
-                          {t.columnas.map((c) => (
+                          {enOrden.map((c) => (
                             <td key={c.id}><CeldaColumna t={t} col={c} item={i} cambiar={cambiar} editable={editable} /></td>
                           ))}
                           {editable && <td />}
@@ -423,7 +425,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                     {conPie && suyos.length > 0 && (
                       <tr className="fila-pie">
                         <td colSpan={7} />
-                        {t.columnas.map((c) => <td key={c.id}><PieNumeros col={c} items={suyos} /></td>)}
+                        {enOrden.map((c) => <td key={c.id}><PieNumeros col={c} items={suyos} /></td>)}
                         {editable && <td colSpan={2} />}
                       </tr>
                     )}
