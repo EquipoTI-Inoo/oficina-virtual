@@ -257,6 +257,17 @@ export function crearTableros(fallar: Fallar) {
         })),
     })),
     /**
+     * 16 nov (Ernesto): los tableros sin archivar que ve quien pregunta, con su cliente, para la ficha de Empresas.
+     * En InooWork el cliente es solo un nombre: quien llama lo compara con `claveCliente`.
+     */
+    conCliente: (yo: Yo) => protegido(async () =>
+      (await listarIW(yo.prueba))
+        .filter((p) => !p.archived && !p.deleted && !!p.clientName?.trim() && veProyecto(p, yo.empleadoId, yo.esAdmin))
+        .map((p) => {
+          const r = resumenProyecto(p);
+          return { cliente: p.clientName!.trim(), id: p.id, nombre: p.name, estado: p.status || null, lider: p.leaderName || null, items: r.total, completados: r.completados };
+        })),
+    /**
      * Borrar un proyecto (13 nov): solo el líder o un admin, como en InooWork. Es un borrado suave (deleted), así que
      * se puede recuperar desde InooWork; desaparece del portal.
      */

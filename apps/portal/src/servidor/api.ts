@@ -61,7 +61,7 @@ import { crearTableros, pendientesComoEventos, tareaComoPendiente, type Yo } fro
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
-import { clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
@@ -2367,6 +2367,24 @@ async function proyectosEmpresaDb(ctx: Ctx, servicios: FilaServicio[]): Promise<
   })));
 }
 const servicioVigente = (e: S<"EstadoServicio">) => e === "ACTIVO" || e === "STANDBY";
+/**
+ * 16 nov (Ernesto: «entras a una empresa y no salen sus proyectos»): los tableros de Proyectos viven en InooWork y se
+ * unen al cliente solo por el nombre. Se agrupan por `claveCliente`; los internos («Inoo», «Inoo Marketing»…) van a Inoo.
+ * Si InooWork no responde, la ficha sale sin tableros en vez de fallar.
+ */
+async function tablerosPorEmpresaDb(ctx: Ctx, internos: { nombre: string }[]) {
+  const claves = new Set(["inoo", ...internos.map((c) => claveCliente(c.nombre))]);
+  const mapa = new Map<string, S<"TableroEmpresa">[]>();
+  try {
+    for (const { cliente, ...t } of await TABLEROS.conCliente(await yoTablero(ctx))) {
+      const k = claves.has(claveCliente(cliente)) || ES_INOO.test(cliente) ? "inoo" : claveCliente(cliente);
+      mapa.set(k, [...(mapa.get(k) ?? []), t]);
+    }
+  } catch {
+    /* InooWork no respondió */
+  }
+  return (nombreOInoo: string) => mapa.get(nombreOInoo === "inoo" ? "inoo" : claveCliente(nombreOInoo)) ?? [];
+}
 
 ruta("GET", "/panel/empresas", async (ctx) => {
   await exigirEmpresas(ctx);
@@ -2387,13 +2405,14 @@ ruta("GET", "/panel/empresas", async (ctx) => {
      ) x JOIN usuario w ON w.id = x.u AND w.activo WHERE x.cliente_id = ANY($1::uuid[])`, [ids],
   )).rows;
   for (const f of filas) if (!admins.has(f.u)) conAcceso.set(f.id, (conAcceso.get(f.id) ?? 0) + 1);
+  const tableros = await tablerosPorEmpresaDb(ctx, internos);
   const inoo: S<"EmpresaResumen"> = {
     id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length,
-    proyectosActivos: internos.reduce((t, c) => t + (proyectos.get(c.id) ?? 0), 0), equipoConAcceso: admins.size,
+    proyectosActivos: internos.reduce((t, c) => t + (proyectos.get(c.id) ?? 0), 0), tablerosActivos: tableros("inoo").length, equipoConAcceso: admins.size,
   };
   return {
     datos: [inoo, ...externos.map((c): S<"EmpresaResumen"> => ({
-      id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado, personas: personas.get(c.id) ?? 0, proyectosActivos: proyectos.get(c.id) ?? 0, equipoConAcceso: conAcceso.get(c.id) ?? 0,
+      id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado, personas: personas.get(c.id) ?? 0, proyectosActivos: proyectos.get(c.id) ?? 0, tablerosActivos: tableros(c.nombre).length, equipoConAcceso: conAcceso.get(c.id) ?? 0,
     }))],
   };
 });
@@ -2405,10 +2424,12 @@ ruta("GET", "/panel/empresas/:id", async (ctx, p) => {
     const { internos } = await clientesDeEmpresasDb(ctx);
     const servicios = (await Promise.all(internos.map((c) => serviciosDelCliente(ctx, c.id)))).flat();
     const admins = equipo.filter(esAdminFila);
+    const tableros = (await tablerosPorEmpresaDb(ctx, internos))("inoo");
     return {
-      empresa: { id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length, proyectosActivos: servicios.filter((s) => servicioVigente(s.estado)).length, equipoConAcceso: admins.length },
+      empresa: { id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length, proyectosActivos: servicios.filter((s) => servicioVigente(s.estado)).length, tablerosActivos: tableros.length, equipoConAcceso: admins.length },
       gente: equipo.map((u) => ({ id: u.id, nombre: u.nombre, email: u.email, cargo: u.cargo, rolCliente: null, area: u.area, nivel: nivelDe(accesoDeFila(u)), esLead: u.es_lead, invitacionPendiente: false })),
       proyectos: await proyectosEmpresaDb(ctx, servicios),
+      tableros,
       accesos: await accesosEmpresaDb(ctx, internos.map((c) => c.id), servicios, equipo),
     } satisfies S<"EmpresaDetalle">;
   }
@@ -2419,13 +2440,15 @@ ruta("GET", "/panel/empresas/:id", async (ctx, p) => {
   )).rows;
   const servicios = await serviciosDelCliente(ctx, c.id);
   const accesos = await accesosEmpresaDb(ctx, [c.id], servicios, equipo);
+  const tableros = (await tablerosPorEmpresaDb(ctx, []))(c.nombre);
   return {
     empresa: {
-      id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado, personas: gente.length, proyectosActivos: servicios.filter((s) => servicioVigente(s.estado)).length,
+      id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado, personas: gente.length, proyectosActivos: servicios.filter((s) => servicioVigente(s.estado)).length, tablerosActivos: tableros.length,
       equipoConAcceso: accesos.filter((x) => x.motivo !== "ADMIN").length,
     },
     gente: gente.map((g) => ({ id: g.id, nombre: g.nombre, email: g.email, cargo: g.cargo, rolCliente: g.rol, area: null, nivel: null, esLead: false, invitacionPendiente: !!g.pendiente })),
     proyectos: await proyectosEmpresaDb(ctx, servicios),
+    tableros,
     accesos,
   } satisfies S<"EmpresaDetalle">;
 });

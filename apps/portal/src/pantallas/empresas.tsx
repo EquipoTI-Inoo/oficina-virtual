@@ -61,7 +61,7 @@ function ListaEmpresas() {
             </span>
             <span className="texto-xs texto-muted" style={{ display: "grid", gap: 2 }}>
               <span>{plural(e.personas, e.tipo === "AGENCIA" ? "persona en el equipo" : "persona del cliente", e.tipo === "AGENCIA" ? "personas en el equipo" : "personas del cliente")}</span>
-              <span>{plural(e.proyectosActivos, "proyecto activo", "proyectos activos")}</span>
+              <span>{plural(e.tablerosActivos, "proyecto", "proyectos")} · {plural(e.proyectosActivos, "servicio activo", "servicios activos")}</span>
               <span>{e.tipo === "AGENCIA" ? plural(e.equipoConAcceso, "persona ve todo", "personas ven todo") : plural(e.equipoConAcceso, "persona de Inoo con acceso", "personas de Inoo con acceso")}</span>
             </span>
           </Enlace>
@@ -135,7 +135,29 @@ function DetalleEmpresa() {
           {!inoo && <p className="texto-xs texto-muted">Los usuarios del cliente los invita y administra su administrador desde su cuenta, o el equipo desde la ficha.</p>}
         </Bloque>
 
-        <Bloque titulo={`Proyectos (${d.proyectos.length})`} icono={<LuFolderKanban size={18} />}>
+        <Bloque titulo={`Proyectos (${d.tableros.length})`} icono={<LuFolderKanban size={18} />}>
+          {d.tableros.length ? (
+            <ul style={lista}>
+              {d.tableros.map((t) => {
+                const avance = t.items ? Math.round((t.completados / t.items) * 100) : 0;
+                return (
+                  <li key={t.id} style={{ display: "grid", gap: 4 }}>
+                    <span className="fila entre" style={{ gap: 8 }}>
+                      <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="enlace texto-sm negrita">{t.nombre}</Enlace>
+                      {t.estado && <Etiqueta tono="gris">{t.estado}</Etiqueta>}
+                    </span>
+                    <span className="barra" aria-label={`${t.completados} de ${t.items} ítems completados`}><span style={{ width: `${avance}%` }} /></span>
+                    <span className="texto-xs texto-muted">{t.completados} de {plural(t.items, "ítem completado", "ítems completados")}{t.lider ? ` · Líder: ${t.lider}` : ""}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="texto-sm texto-muted">{inoo ? "No hay proyectos internos. Se crean desde Proyectos con el cliente «Inoo»." : "Todavía no tiene proyectos en Proyectos."}</p>
+          )}
+        </Bloque>
+
+        <Bloque titulo={`Servicios contratados (${d.proyectos.length})`} icono={<LuFolderKanban size={18} />}>
           {d.proyectos.length ? (
             <ul style={lista}>
               {d.proyectos.map((x) => (
@@ -150,7 +172,7 @@ function DetalleEmpresa() {
               ))}
             </ul>
           ) : (
-            <p className="texto-sm texto-muted">{inoo ? "No hay proyectos internos. Se crean desde Proyectos con el cliente «Inoo (interno)»." : "Todavía no tiene proyectos."}</p>
+            <p className="texto-sm texto-muted">{inoo ? "No hay servicios internos." : "Todavía no tiene servicios contratados."}</p>
           )}
         </Bloque>
 

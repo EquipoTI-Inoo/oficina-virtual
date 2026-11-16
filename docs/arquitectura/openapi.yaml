@@ -7847,14 +7847,15 @@ components:
 
     EmpresaResumen:
       type: object
-      required: [id, nombre, tipo, estado, personas, proyectosActivos, equipoConAcceso]
+      required: [id, nombre, tipo, estado, personas, proyectosActivos, tablerosActivos, equipoConAcceso]
       properties:
         id: { type: string, description: '«inoo» o el id del cliente' }
         nombre: { type: string }
         tipo: { type: string, enum: [AGENCIA, CLIENTE] }
         estado: { oneOf: [ { $ref: '#/components/schemas/EstadoCliente' }, { type: 'null' } ], description: 'null en Inoo' }
         personas: { type: integer, description: 'Inoo: el equipo activo. Cliente: sus usuarios del portal' }
-        proyectosActivos: { type: integer, description: 'Activos o en standby' }
+        proyectosActivos: { type: integer, description: 'Servicios activos o en standby' }
+        tablerosActivos: { type: integer, description: 'Tableros de Proyectos (InooWork) sin archivar con este cliente, que quien pregunta puede ver (16 nov)' }
         equipoConAcceso: { type: integer, description: 'Cliente: personas del equipo con acceso (AM, asignadas y de sus proyectos), sin contar a los ADMIN. Inoo: quienes ven todo' }
 
     PersonaEmpresa:
@@ -7881,6 +7882,17 @@ components:
         porcentaje: { type: integer }
         responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
 
+    TableroEmpresa:
+      type: object
+      required: [id, nombre, estado, lider, items, completados]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        estado: { type: [string, 'null'] }
+        lider: { oneOf: [ { type: string }, { type: 'null' } ], description: 'Nombre del líder' }
+        items: { type: integer }
+        completados: { type: integer }
+
     AccesoEmpresa:
       type: object
       required: [persona, acceso, motivo, proyectos]
@@ -7892,11 +7904,12 @@ components:
 
     EmpresaDetalle:
       type: object
-      required: [empresa, gente, proyectos, accesos]
+      required: [empresa, gente, proyectos, tableros, accesos]
       properties:
         empresa: { $ref: '#/components/schemas/EmpresaResumen' }
         gente: { type: array, items: { $ref: '#/components/schemas/PersonaEmpresa' } }
         proyectos: { type: array, items: { $ref: '#/components/schemas/ProyectoEmpresa' } }
+        tableros: { type: array, items: { $ref: '#/components/schemas/TableroEmpresa' }, description: 'Los tableros de Proyectos con este cliente (16 nov: antes no salían)' }
         accesos: { type: array, items: { $ref: '#/components/schemas/AccesoEmpresa' } }
 
     MiCuentaEquipo:

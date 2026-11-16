@@ -35,6 +35,7 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       const oliva = todas.find((e: any) => e.id === CASA_OLIVA);
       assert.ok(oliva.personas >= 1, "Casa Oliva tiene usuarios en el portal");
       assert.ok(oliva.proyectosActivos >= 1);
+      assert.equal(typeof oliva.tablerosActivos, "number", "16 nov: también cuenta sus tableros de Proyectos");
       assert.ok(oliva.equipoConAcceso >= 1, "al menos su AM");
 
       const deDiego = (await llamar("GET", "/panel/empresas", DIEGO)).json.datos.map((e: any) => e.id);
@@ -54,6 +55,8 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       assert.ok(d.gente.every((g: any) => g.area === null && g.nivel === null), "la gente del cliente no tiene área ni nivel de Inoo");
       assert.ok(d.proyectos.length >= 1);
       assert.ok(d.proyectos.every((x: any) => typeof x.porcentaje === "number" && typeof x.titulo === "string"));
+      assert.ok(Array.isArray(d.tableros), "16 nov: sus tableros de Proyectos");
+      assert.equal(d.tableros.length, d.empresa.tablerosActivos);
 
       const diego = d.accesos.find((a: any) => a.persona.id === DIEGO_ID);
       assert.equal(diego?.acceso, "COMPLETO");

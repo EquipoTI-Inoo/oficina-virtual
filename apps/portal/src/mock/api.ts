@@ -3151,14 +3151,14 @@ const proyectosEmpresa = (clientes: D.ClienteDemo[]): S<"ProyectoEmpresa">[] =>
 function resumenCliente(c: D.ClienteDemo): S<"EmpresaResumen"> {
   return {
     id: c.id, nombre: c.nombre, tipo: "CLIENTE", estado: c.estado ?? "ACTIVO", personas: E.miembros.filter((m) => m.clienteId === c.id).length,
-    proyectosActivos: serviciosDe(c.id).filter((s) => vigente(s.estado)).length, equipoConAcceso: accesosEmpresa([c]).filter((x) => x.motivo !== "ADMIN").length,
+    proyectosActivos: serviciosDe(c.id).filter((s) => vigente(s.estado)).length, tablerosActivos: 0, equipoConAcceso: accesosEmpresa([c]).filter((x) => x.motivo !== "ADMIN").length,
   };
 }
 function resumenInoo(internos: D.ClienteDemo[]): S<"EmpresaResumen"> {
   const equipo = equipoActivo();
   return {
     id: "inoo", nombre: "Inoo", tipo: "AGENCIA", estado: null, personas: equipo.length,
-    proyectosActivos: internos.reduce((t, c) => t + serviciosDe(c.id).filter((s) => vigente(s.estado)).length, 0), equipoConAcceso: equipo.filter(esAdminDemo).length,
+    proyectosActivos: internos.reduce((t, c) => t + serviciosDe(c.id).filter((s) => vigente(s.estado)).length, 0), tablerosActivos: 0, equipoConAcceso: equipo.filter(esAdminDemo).length,
   };
 }
 
@@ -3176,6 +3176,7 @@ ruta("GET", "/panel/empresas/:id", (ctx, p) => {
       empresa: resumenInoo(internos),
       gente: equipoActivo().map((u) => ({ id: u.id, nombre: u.nombre, email: u.email, cargo: u.cargo ?? null, rolCliente: null, area: u.area ?? null, nivel: nivelDe(u), esLead: !!u.esLead, invitacionPendiente: false })),
       proyectos: proyectosEmpresa(internos),
+      tableros: [],
       accesos: accesosEmpresa(internos),
     } satisfies S<"EmpresaDetalle">;
   }
@@ -3187,6 +3188,7 @@ ruta("GET", "/panel/empresas/:id", (ctx, p) => {
       return { id: u.id, nombre: u.nombre, email: u.email, cargo: u.cargo ?? null, rolCliente: m.rol, area: null, nivel: null, esLead: false, invitacionPendiente: !!m.invitacionPendiente };
     }),
     proyectos: proyectosEmpresa([c]),
+    tableros: [],
     accesos: accesosEmpresa([c]),
   } satisfies S<"EmpresaDetalle">;
 });

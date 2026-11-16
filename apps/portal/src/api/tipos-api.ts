@@ -6028,8 +6028,10 @@ export interface components {
             estado: components["schemas"]["EstadoCliente"] | null;
             /** @description Inoo: el equipo activo. Cliente: sus usuarios del portal */
             personas: number;
-            /** @description Activos o en standby */
+            /** @description Servicios activos o en standby */
             proyectosActivos: number;
+            /** @description Tableros de Proyectos (InooWork) sin archivar con este cliente, que quien pregunta puede ver (16 nov) */
+            tablerosActivos: number;
             /** @description Cliente: personas del equipo con acceso (AM, asignadas y de sus proyectos), sin contar a los ADMIN. Inoo: quienes ven todo */
             equipoConAcceso: number;
         };
@@ -6056,6 +6058,15 @@ export interface components {
             porcentaje: number;
             responsable: components["schemas"]["PersonaMini"] | null;
         };
+        TableroEmpresa: {
+            id: string;
+            nombre: string;
+            estado: string | null;
+            /** @description Nombre del líder */
+            lider: string | null;
+            items: number;
+            completados: number;
+        };
         AccesoEmpresa: {
             persona: components["schemas"]["PersonaEquipo"];
             /** @enum {string} */
@@ -6072,6 +6083,8 @@ export interface components {
             empresa: components["schemas"]["EmpresaResumen"];
             gente: components["schemas"]["PersonaEmpresa"][];
             proyectos: components["schemas"]["ProyectoEmpresa"][];
+            /** @description Los tableros de Proyectos con este cliente (16 nov: antes no salían) */
+            tableros: components["schemas"]["TableroEmpresa"][];
             accesos: components["schemas"]["AccesoEmpresa"][];
         };
         MiCuentaEquipo: {
