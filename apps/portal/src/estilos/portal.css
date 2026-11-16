@@ -2720,6 +2720,9 @@ main, .contenido, .principal { min-width: 0; }
 .boton-conversacion { display: inline-flex; align-items: center; gap: 3px; border: 0; background: none; color: var(--c-tenue); padding: 3px 5px; border-radius: var(--r-xs); cursor: pointer; font: inherit; font-size: var(--t-xs); flex: none; }
 .boton-conversacion:hover { background: var(--c-primario-suave); color: var(--c-primario); }
 .boton-conversacion--con { color: var(--c-primario); font-weight: 600; }
+/* 16 nov: actualizaciones nuevas que no viste (como el punto de Monday). */
+.boton-conversacion--nuevo { position: relative; color: var(--c-primario); font-weight: 700; }
+.boton-conversacion--nuevo::after { content: ""; position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--c-marca-verde); box-shadow: 0 0 0 2px var(--c-blanco); }
 @media (max-width: 640px) { .panel-lateral { width: 100%; } .actualizacion--respuesta { margin-left: 14px; } }
 /* Mi trabajo (12 nov). */
 .mi-trabajo-grupo { border-left: 3px solid var(--c-borde); padding-left: 14px; }

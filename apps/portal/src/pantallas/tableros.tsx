@@ -12,7 +12,7 @@ import { BotonPersonas } from "./personas-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso } from "../componentes";
+import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso, usePortal } from "../componentes";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
@@ -24,6 +24,22 @@ const NOMBRE_VISTA: Record<Vista, string> = { TABLA: "Tabla", KANBAN: "Kanban", 
 const fecha = (f: string | null | undefined) => (f ? new Date(`${f}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
 
 // ═════════════════════════════════════════════ tablero
+
+type Ultima = { autorId: string | null; autor: string; texto: string; creadoEn: string };
+/** 16 nov: cuándo abriste cada ítem por última vez (en este navegador), para marcar lo nuevo. */
+function useVistos(tableroId: string): [Record<string, string>, (itemId: string) => void] {
+  const clave = `inoo.vistos.${tableroId}`;
+  const [vistos, setVistos] = useState<Record<string, string>>({});
+  useEffect(() => {
+    try { setVistos(JSON.parse(localStorage.getItem(clave) ?? "{}")); } catch { setVistos({}); }
+  }, [clave]);
+  const marcar = useCallback((itemId: string) => setVistos((v) => {
+    const n = { ...v, [itemId]: new Date().toISOString() };
+    try { localStorage.setItem(clave, JSON.stringify(n)); } catch { /* sin almacenamiento: solo por esta visita */ }
+    return n;
+  }), [clave]);
+  return [vistos, marcar];
+}
 
 export function PantallaTablero() {
   return (
@@ -96,7 +112,9 @@ function TableroProyecto() {
   const [estado, setEstado] = useState("");
   // 12 nov: el panel del ítem (conversación, archivos, Monday). «?item=» lo abre directo (los avisos de la campana).
   const [panel, setPanel] = useState<string | null>(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("item")));
-  const conteo = useConsulta<{ datos: Record<string, number> }>(`/tableros/${params.id}/actualizaciones`);
+  const conteo = useConsulta<{ datos: Record<string, number>; ultimas: Record<string, Ultima> }>(`/tableros/${params.id}/actualizaciones`);
+  const yoId = usePortal().sesion?.usuario.id ?? null;
+  const [vistos, marcarVisto] = useVistos(params.id ?? "");
   const t = r.datos;
   const items = useMemo(
     () => (t?.items ?? []).filter((i) =>
@@ -138,7 +156,10 @@ function TableroProyecto() {
     }
   };
   const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO", "CARGA"])];
-  const ctx = { t, items, cambiar, editable: t.puedeEditar, abrir: (i: Item) => setPanel(i.id), conteo: conteo.datos?.datos ?? {} };
+  const ultimas = conteo.datos?.ultimas ?? {};
+  // 16 nov (Ernesto): hay algo nuevo si la última actualización es de otra persona y es posterior a la última vez que abriste el ítem.
+  const nuevos = new Set(Object.entries(ultimas).filter(([id, u]) => u.autorId !== yoId && (!vistos[id] || u.creadoEn > vistos[id])).map(([id]) => id));
+  const ctx = { t, items, cambiar, editable: t.puedeEditar, abrir: (i: Item) => { marcarVisto(i.id); setPanel(i.id); }, conteo: conteo.datos?.datos ?? {}, ultimas, nuevos };
   const enPanel = panel ? t.items.find((i) => i.id === panel) : undefined;
 
   return (
@@ -196,7 +217,7 @@ function TableroProyecto() {
   );
 }
 
-type Ctx = { t: Tablero; items: Item[]; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean>; editable: boolean; abrir: (i: Item) => void; conteo: Record<string, number> };
+type Ctx = { t: Tablero; items: Item[]; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean>; editable: boolean; abrir: (i: Item) => void; conteo: Record<string, number>; ultimas: Record<string, Ultima>; nuevos: Set<string> };
 
 // ───────────────────────────── celdas
 
@@ -242,7 +263,7 @@ function Fecha({ valor, guardar, editable, etiqueta, vencido }: { valor: string 
 
 // ───────────────────────────── tabla (como el workspace de InooWork)
 
-function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
+function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevos }: Ctx) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
   const [biblioteca, setBiblioteca] = useState(false);
@@ -388,7 +409,9 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                             <span className="fila" style={{ gap: 6 }}>
                               <Texto valor={i.nombre} editable={editable} etiqueta={`Nombre de ${i.nombre}`} guardar={(nombre) => void item(i, { nombre })} />
                               {i.subitems.length > 0 && <span className="contador-sub">{i.subitems.length}</span>}
-                              <button className={`boton-conversacion${conteo[i.id] ? " boton-conversacion--con" : ""}`} aria-label={`Abrir ${i.nombre}${conteo[i.id] ? ` (${conteo[i.id]} actualizaciones)` : ""}`} title="Actualizaciones, archivos e historial" onClick={() => abrir(i)}>
+                              <button className={`boton-conversacion${conteo[i.id] ? " boton-conversacion--con" : ""}${nuevos.has(i.id) ? " boton-conversacion--nuevo" : ""}`}
+                                aria-label={`Abrir ${i.nombre}${conteo[i.id] ? ` (${conteo[i.id]} actualizaciones${nuevos.has(i.id) ? ", hay nuevas" : ""})` : ""}`}
+                                title={ultimas[i.id] ? `${ultimas[i.id].autor}: ${ultimas[i.id].texto}` : "Actualizaciones, archivos e historial"} onClick={() => abrir(i)}>
                                 <LuMessageSquare size={14} />{conteo[i.id] ? <span>{conteo[i.id]}</span> : null}
                               </button>
                             </span>
@@ -574,7 +597,7 @@ function FilaNueva({ columnas, etiqueta, texto, crear, sangria }: { columnas: nu
 
 // ───────────────────────────── kanban (por estado; se arrastra para cambiarlo)
 
-function VistaKanban({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
+function VistaKanban({ t, items, cambiar, editable, abrir, conteo, nuevos }: Ctx) {
   const [sobre, setSobre] = useState<string | null>(null);
   const soltar = (e: DragEvent, estado: string) => {
     e.preventDefault();
@@ -603,7 +626,7 @@ function VistaKanban({ t, items, cambiar, editable, abrir, conteo }: Ctx) {
                 <span className="fila" style={{ gap: 6 }}>
                   <span className="pildora pildora--chica" style={{ background: COLOR_PRIORIDAD[i.prioridad as PrioridadItem] }}>{i.prioridad}</span>
                   {i.subitems.length > 0 && <span className="texto-xs texto-muted">{i.subitems.filter((s) => s.estado === "Completado").length}/{i.subitems.length} subítems</span>}
-                  {conteo[i.id] ? <span className="texto-xs texto-muted fila" style={{ gap: 3 }}><LuMessageSquare size={11} /> {conteo[i.id]}</span> : null}
+                  {conteo[i.id] ? <span className={`texto-xs fila${nuevos.has(i.id) ? " boton-conversacion--nuevo" : " texto-muted"}`} style={{ gap: 3 }}><LuMessageSquare size={11} /> {conteo[i.id]}</span> : null}
                 </span>
               </article>
             ))}

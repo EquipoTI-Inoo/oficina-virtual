@@ -11,6 +11,7 @@ import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, Lu
 import type { IconType } from "react-icons";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
 import { Modal, useAviso } from "../componentes";
+import { CampoMenciones } from "./campo-menciones";
 import {
   COLORES_ETIQUETA, configInicial, FUNCIONES_FORMULA, info, LISTA_PAISES, resumenNumeros, textoDuracion, TIPOS_COLUMNA, ZONAS_HORARIAS,
   type ConfigColumna, type EtiquetaColumna, type TipoColumna,
@@ -400,7 +401,8 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
   const [pestana, setPestana] = useState<"VERSIONES" | "COMENTARIOS">("COMENTARIOS");
   const [url, setUrl] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
-  const [texto, setTexto] = useState("");
+  const [nota, setNota] = useState<{ texto: string; menciones: string[] }>({ texto: "", menciones: [] });
+  const texto = nota.texto;
   const [subiendo, setSubiendo] = useState(false);
   const a = r.datos?.archivo;
   const v = a?.versiones.find((x) => x.id === verId) ?? a?.versiones[a.versiones.length - 1];
@@ -448,8 +450,8 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
   const comentar = async () => {
     if (!texto.trim() || !v) return;
     try {
-      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`, { metodo: "POST", cuerpo: { texto: texto.trim(), version: v.version } }));
-      setTexto("");
+      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`, { metodo: "POST", cuerpo: { texto: texto.trim(), version: v.version, mencionIds: nota.menciones } }));
+      setNota({ texto: "", menciones: [] });
     } catch (e) {
       avisar({ titulo: "No se pudo comentar", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
     }
@@ -520,8 +522,15 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
                     </div>
                   ))}
                 </div>
-                <textarea className="input" style={{ minHeight: 70 }} aria-label="Comentario" placeholder={`Comentar la V${v.version}…`} value={texto} maxLength={5000} onChange={(e) => setTexto(e.target.value)} />
-                <button className="boton boton--chico boton--primario" style={{ justifySelf: "end" }} disabled={!texto.trim()} onClick={() => void comentar()}>Comentar en la V{v.version}</button>
+                {t.miPermiso === "LECTOR" ? (
+                  <p className="texto-xs texto-muted">Tienes permiso de lector: puedes ver los comentarios, pero no escribir.</p>
+                ) : (
+                  <>
+                    <CampoMenciones equipo={r.datos?.equipo ?? []} valor={nota} cambiar={setNota} etiqueta="Comentario" alEnviar={() => void comentar()}
+                      placeholder={`Comentar la V${v.version}… Usa @ para mencionar a alguien`} />
+                    <button className="boton boton--chico boton--primario" style={{ justifySelf: "end" }} disabled={!texto.trim()} onClick={() => void comentar()}>Comentar en la V{v.version}</button>
+                  </>
+                )}
               </div>
             )}
           </aside>

@@ -5454,10 +5454,29 @@ paths:
     get:
       tags: [Tableros]
       operationId: conteoActualizacionesTablero
-      summary: 'Cuántas actualizaciones tiene cada ítem del tablero (para el globito de la tabla)'
+      summary: 'Cuántas actualizaciones tiene cada ítem del tablero y la última de cada uno (para el globito de la tabla)'
       x-roles: [EQUIPO]
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: object, additionalProperties: { type: integer } } } } } } }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datos, ultimas]
+                properties:
+                  datos: { type: object, additionalProperties: { type: integer } }
+                  ultimas:
+                    type: object
+                    description: 'La última actualización de cada ítem, recortada (16 nov)'
+                    additionalProperties:
+                      type: object
+                      required: [autorId, autor, texto, creadoEn]
+                      properties:
+                        autorId: { type: [string, 'null'], format: uuid }
+                        autor: { type: string }
+                        texto: { type: string }
+                        creadoEn: { type: string, format: date-time }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
@@ -5554,6 +5573,7 @@ paths:
               properties:
                 texto: { type: string, maxLength: 5000 }
                 version: { type: integer }
+                mencionIds: { type: array, items: { type: string, format: uuid }, description: 'Personas del equipo mencionadas con @ (16 nov): reciben un aviso' }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentariosArchivo' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
@@ -8383,8 +8403,12 @@ components:
           items: { type: object, required: [id, nombre], properties: { id: { type: string }, nombre: { type: string } } }
     ComentariosArchivo:
       type: object
-      required: [archivo, datos]
+      required: [archivo, datos, equipo]
       properties:
+        equipo:
+          type: array
+          description: 'A quiénes se puede mencionar con @ (16 nov)'
+          items: { type: object, required: [id, nombre], properties: { id: { type: string, format: uuid }, nombre: { type: string } } }
         archivo:
           type: object
           required: [id, nombre, mime, bytes, version, versiones]

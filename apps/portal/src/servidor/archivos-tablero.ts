@@ -12,6 +12,11 @@ export const MAX_VERSIONES = 100;
 export interface VersionArchivo { id: string; version: number; nombre: string; mime: string; bytes: number; en: string; por: string | null }
 /** Lo que guarda el ítem: el archivo con los datos de su última versión y la lista de versiones. */
 export interface ArchivoColumna { id: string; nombre: string; mime: string; bytes: number; version: number; versiones: VersionArchivo[] }
+/** 16 nov: para las @menciones en comentarios de archivos (lo mismo que usan las actualizaciones). */
+export interface AvisosArchivo {
+  equipo(): Promise<{ id: string; nombre: string }[]>;
+  avisar(usuarioId: string, titulo: string, cuerpo: string, enlace: string): Promise<void>;
+}
 export interface ComentarioArchivo { id: string; version: number; autor: string; texto: string; en: string }
 export interface RepoArchivosTablero {
   guardar(a: { id: string; archivoId: string; version: number; nombre: string; mime: string; bytes: number; proyectoId: string; itemId: string; columnaId: string }, contenido: Uint8Array): Promise<void>;
@@ -125,20 +130,34 @@ export function crearArchivosTablero(fallar: Fallar, tableros: Tableros) {
         },
       });
     },
-    comentarios: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo) => {
+    comentarios: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, avisos?: AvisosArchivo) => {
       const a = await archivoDelTablero(proyectoId, archivoId, yo);
-      return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId) };
+      const equipo = avisos ? await avisos.equipo() : [];
+      return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
     },
-    comentar: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, b: { texto?: unknown; version?: unknown }) => {
+    comentar: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, b: { texto?: unknown; version?: unknown; mencionIds?: unknown }, avisos?: AvisosArchivo) => {
+      const tablero = await tableros.ver(proyectoId, yo);
+      if (tablero.miPermiso === "LECTOR") throw fallar(403, "SIN_PERMISO", "Tienes permiso de lector: no puedes comentar");
       const a = await archivoDelTablero(proyectoId, archivoId, yo);
       const t = typeof b.texto === "string" ? b.texto.trim() : "";
       const errores: { campo: string; mensaje: string }[] = [];
+      const equipo = avisos ? await avisos.equipo() : [];
+      const menciones = Array.isArray(b.mencionIds) ? [...new Set(b.mencionIds as unknown[])] : [];
+      if (menciones.length > 30 || menciones.some((x) => typeof x !== "string" || !equipo.some((p) => p.id === x))) errores.push({ campo: "mencionIds", mensaje: "Solo puedes mencionar a personas del equipo" });
       if (!t || t.length > 5000) errores.push({ campo: "texto", mensaje: "Escribe el comentario (hasta 5000 caracteres)" });
       const version = b.version === undefined ? a.version : Number(b.version);
       if (!a.versiones.some((v) => v.version === version)) errores.push({ campo: "version", mensaje: "Esa versión no existe" });
       if (errores.length) throw fallar(422, "VALIDACION", "Revisa el comentario", errores);
       await repo.comentar({ proyectoId, archivoId, version, autor: yo.nombre ?? "Alguien del equipo", texto: t });
-      return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId) };
+      if (avisos) {
+        const item = tablero.items.find((i) => Object.values(i.datos ?? {}).some((d) => normalizarArchivos(d).some((x) => x.id === archivoId)));
+        const enlace = `/equipo/proyectos/tableros/${proyectoId}${item ? `?item=${encodeURIComponent(item.id)}` : ""}`;
+        for (const m of menciones as string[]) {
+          if (m === yo.usuarioId) continue;
+          await avisos.avisar(m, `${yo.nombre ?? "Alguien del equipo"} te mencionó en un archivo de ${tablero.nombre}`, `${a.nombre}: «${t.length > 120 ? `${t.slice(0, 119)}…` : t}»`, enlace);
+        }
+      }
+      return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
     },
   };
 }

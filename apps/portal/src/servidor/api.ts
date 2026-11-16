@@ -5801,11 +5801,11 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versione
 });
 ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
   soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx));
+  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), repoActualizaciones(ctx));
 });
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>, repoActualizaciones(ctx));
 });
 
 const ACTUALIZACIONES = crearActualizaciones((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
@@ -5824,6 +5824,9 @@ function repoActualizaciones(ctx: Ctx): RepoActualizaciones {
     crear: async (a) => (await ctx.c.query<{ id: string }>(
       "INSERT INTO actualizacion_tablero (proyecto_iw_id, item_iw_id, padre_id, autor_id, autor, texto, menciones) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid[]) RETURNING id",
       [a.proyectoId, a.itemId, a.padreId, ctx.u.usuarioId, (ctx.u.nombre ?? "Alguien del equipo").slice(0, 200), a.texto, a.menciones])).rows[0].id,
+    ultimas: async (proyectoId) => Object.fromEntries((await ctx.c.query<{ item_iw_id: string; autor_id: string | null; autor: string; texto: string; creado_en: Date }>(
+      "SELECT DISTINCT ON (item_iw_id) item_iw_id, autor_id, autor, texto, creado_en FROM actualizacion_tablero WHERE proyecto_iw_id = $1 ORDER BY item_iw_id, creado_en DESC, id DESC", [proyectoId],
+    )).rows.map((r) => [r.item_iw_id, { autorId: r.autor_id, autor: r.autor, texto: r.texto, creadoEn: r.creado_en.toISOString() }])),
     una: async (proyectoId, id) => {
       if (!esUuid(id)) return null;
       const r = (await ctx.c.query<FilaActDb>("SELECT * FROM actualizacion_tablero WHERE proyecto_iw_id = $1 AND id = $2", [proyectoId, id])).rows[0];

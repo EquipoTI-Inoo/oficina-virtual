@@ -3833,7 +3833,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Cuántas actualizaciones tiene cada ítem del tablero (para el globito de la tabla) */
+        /** Cuántas actualizaciones tiene cada ítem del tablero y la última de cada uno (para el globito de la tabla) */
         get: operations["conteoActualizacionesTablero"];
         put?: never;
         post?: never;
@@ -6591,6 +6591,12 @@ export interface components {
             }[];
         };
         ComentariosArchivo: {
+            /** @description A quiénes se puede mencionar con @ (16 nov) */
+            equipo: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+            }[];
             archivo: {
                 id: string;
                 nombre: string;
@@ -16856,6 +16862,17 @@ export interface operations {
                         datos: {
                             [key: string]: number;
                         };
+                        /** @description La última actualización de cada ítem, recortada (16 nov) */
+                        ultimas: {
+                            [key: string]: {
+                                /** Format: uuid */
+                                autorId: string | null;
+                                autor: string;
+                                texto: string;
+                                /** Format: date-time */
+                                creadoEn: string;
+                            };
+                        };
                     };
                 };
             };
@@ -17022,6 +17039,8 @@ export interface operations {
                 "application/json": {
                     texto: string;
                     version?: number;
+                    /** @description Personas del equipo mencionadas con @ (16 nov): reciben un aviso */
+                    mencionIds?: string[];
                 };
             };
         };

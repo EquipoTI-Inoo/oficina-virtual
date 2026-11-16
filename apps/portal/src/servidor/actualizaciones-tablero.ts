@@ -18,6 +18,8 @@ export interface RepoActualizaciones {
   una(proyectoId: string, id: string): Promise<(FilaActualizacion & { itemId: string }) | null>;
   borrar(proyectoId: string, id: string): Promise<void>;
   editar(proyectoId: string, id: string, texto: string): Promise<void>;
+  /** 16 nov (Ernesto): la última actualización de cada ítem, para verla en la fila sin abrirlo. */
+  ultimas(proyectoId: string): Promise<Record<string, { autorId: string | null; autor: string; texto: string; creadoEn: string }>>;
   /** El equipo activo (para validar menciones y nombrarlas). */
   equipo(): Promise<PersonaAviso[]>;
   /** Un aviso en la campana (nunca a quien escribió). */
@@ -49,7 +51,8 @@ export function crearActualizaciones(fallar: Fallar, tableros: Tableros) {
     },
     conteo: async (repo: RepoActualizaciones, proyectoId: string, yo: Yo) => {
       await tableros.ver(proyectoId, yo);
-      return { datos: await repo.conteo(proyectoId) };
+      const [datos, ultimas] = await Promise.all([repo.conteo(proyectoId), repo.ultimas(proyectoId)]);
+      return { datos, ultimas: Object.fromEntries(Object.entries(ultimas).map(([k, u]) => [k, { ...u, texto: corto(u.texto, 160) }])) };
     },
     crear: async (repo: RepoActualizaciones, proyectoId: string, itemId: string, yo: Yo, b: { texto?: unknown; padreId?: unknown; mencionIds?: unknown }) => {
       const t = await tableros.ver(proyectoId, yo);
@@ -85,6 +88,8 @@ export function crearActualizaciones(fallar: Fallar, tableros: Tableros) {
       const responsable = item.responsable ? equipo.find((p) => p.empleadoId === item.responsable!.id)?.id : null;
       await aviso(responsable, `${quien} escribió en «${corto(item.nombre, 60)}» (${t.nombre})`);
       const xs = await repo.listar(proyectoId, itemId);
+      // 16 nov (Ernesto: «avisar cuando hay comentarios»): como en Monday, también a quienes ya escribieron en el ítem.
+      for (const x of xs) await aviso(x.autorId, `${quien} comentó en «${corto(item.nombre, 60)}» (${t.nombre})`);
       return { datos: vista(xs, equipo, yo), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
     },
     editar: async (repo: RepoActualizaciones, proyectoId: string, itemId: string, id: string, yo: Yo, b: { texto?: unknown }) => {

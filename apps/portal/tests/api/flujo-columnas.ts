@@ -146,10 +146,16 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.ok((await avisos(DIEGO)).some((x: string) => x.startsWith("Camila Paredes respondió tu actualización")));
       assert.ok(!(await avisos(DIEGO)).some((x: string) => x.includes("Diego Castro")), "nunca a uno mismo");
 
+      // 16 nov (Ernesto): la última actualización se ve en la fila, y quien ya participó recibe aviso de lo nuevo.
+      const u = (await llamar("GET", `/tableros/${T}/actualizaciones`, DIEGO)).json.ultimas["item-mkt-1"];
+      assert.deepEqual([u.autor, u.texto, u.autorId], ["Camila Paredes", "Sí, a las 4", uid(1, 6)]);
+      await llamar("POST", ruta, DIEGO, { texto: "Perfecto, gracias" });
+      assert.ok((await avisos(CAMILA)).some((x: string) => x.startsWith("Diego Castro comentó en")), "Camila ya había escrito en el ítem");
+
       assert.equal((await llamar("PATCH", `${ruta}/${a.id}`, CAMILA, { texto: "otra" })).status, 403, "solo quien la escribió edita");
       assert.equal((await llamar("PATCH", `${ruta}/${a.id}`, DIEGO, { texto: "Editada" })).json.datos[0].editadoEn !== null, true);
       assert.equal((await llamar("DELETE", `${ruta}/${a.id}`, CAMILA)).status, 403);
-      assert.deepEqual((await llamar("DELETE", `${ruta}/${a.id}`, DIEGO)).json.datos, [], "se borra con sus respuestas");
+      assert.equal((await llamar("DELETE", `${ruta}/${a.id}`, DIEGO)).json.datos.length, 1, "se borra con sus respuestas (queda la otra)");
     });
 
     test("el cliente de un tablero se empareja con el del portal o se crea solo; la carpeta de Drive se puede poner a mano", async () => {
@@ -289,6 +295,11 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       const c = await llamar("POST", com, CAMILA, { texto: "Listo en la V2" });
       assert.deepEqual(c.json.datos.map((x: any) => [x.version, x.autor, x.texto]), [[1, "Diego Castro", "En la V1 faltaba el logo"], [2, "Camila Paredes", "Listo en la V2"]]);
       assert.equal((await llamar("GET", com, VALERIA)).status, 403);
+      // 16 nov: @menciones en los comentarios de archivos.
+      assert.ok((await llamar("GET", com, DIEGO)).json.equipo.some((p: any) => p.nombre === "Camila Paredes"));
+      assert.equal((await llamar("POST", com, DIEGO, { texto: "x", mencionIds: [uid(1, 1)] })).status, 422, "una clienta no es del equipo");
+      await llamar("POST", com, DIEGO, { texto: "@Camila Paredes revisa el logo", mencionIds: [uid(1, 6)] });
+      assert.ok((await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.some((n: any) => n.titulo.startsWith("Diego Castro te mencionó en un archivo")));
       assert.equal((await llamar("GET", `/tableros/PROJ-OPS01/archivos/${f.id}/comentarios`, DIEGO)).status, 404, "no es de ese tablero");
 
       const sin = await llamar("DELETE", `${ruta}/${f.id}`, DIEGO);

@@ -1844,11 +1844,11 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versione
 });
 ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
   soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx));
+  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), repoActualizaciones(ctx));
 });
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), repoActualizaciones(ctx));
 });
 
 const ACTUALIZACIONES = crearActualizaciones((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
@@ -1859,6 +1859,13 @@ const repoActualizaciones = (ctx: Ctx): RepoActualizaciones => ({
     const id = crypto.randomUUID();
     E.actualizacionesTablero.push({ id, proyectoId: a.proyectoId, itemId: a.itemId, padreId: a.padreId, autorId: ctx.usuario.id, autor: ctx.usuario.nombre, texto: a.texto, menciones: a.menciones, creadoEn: new Date().toISOString(), editadoEn: null });
     return id;
+  },
+  ultimas: async (proyectoId) => {
+    const r: Record<string, { autorId: string | null; autor: string; texto: string; creadoEn: string }> = {};
+    for (const a of E.actualizacionesTablero.filter((x) => x.proyectoId === proyectoId)) {
+      if (!r[a.itemId] || a.creadoEn >= r[a.itemId].creadoEn) r[a.itemId] = { autorId: a.autorId, autor: a.autor, texto: a.texto, creadoEn: a.creadoEn };
+    }
+    return r;
   },
   una: async (proyectoId, id) => E.actualizacionesTablero.find((a) => a.proyectoId === proyectoId && a.id === id) ?? null,
   borrar: async (proyectoId, id) => { E.actualizacionesTablero = E.actualizacionesTablero.filter((a) => !(a.proyectoId === proyectoId && (a.id === id || a.padreId === id))); },
