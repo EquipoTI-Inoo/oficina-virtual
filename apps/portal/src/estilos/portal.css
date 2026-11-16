@@ -1364,6 +1364,13 @@ a.avatar:hover {
   gap: 3px;
   overflow: hidden;
 }
+/* 16 nov: la celda es un botón (al tocarla se ve el detalle del día). */
+button.calendario-celda { width: 100%; height: 100%; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.calendario-celda:hover { border-color: var(--c-primario); }
+button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); outline-offset: 1px; }
+.calendario-celda--elegida { border-color: var(--c-primario); background: var(--c-primario-suave); }
+.calendario-detalle { margin-top: 10px; padding: 12px; border: 1px solid var(--c-borde); border-radius: var(--r-sm); display: grid; gap: 8px; }
+.calendario-detalle-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .calendario-celda--vacia { border-style: dashed; opacity: 0.4; }
 .calendario-celda--hoy { border-color: var(--c-primario); box-shadow: inset 0 0 0 1px var(--c-primario); }
 .calendario-numero { font-size: var(--t-xs); color: var(--c-muted); }

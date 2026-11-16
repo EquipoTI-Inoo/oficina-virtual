@@ -18,6 +18,8 @@ export interface EventoCalendario {
   texto: string;
   tipo: TipoEvento;
   alerta?: boolean;
+  /** 16 nov (Ernesto: «no se puede hacer clic en el calendario»): a dónde lleva desde el detalle del día. */
+  ir?: { texto: string; accion: () => void };
 }
 const ETIQUETA_TIPO: Record<TipoEvento, string> = { ETAPA: "Fin de etapa", REUNION: "Reunión", TAREA: "Tarea", REQUERIMIENTO: "Requerimiento" };
 
@@ -115,6 +117,8 @@ export function CalendarioProyecto({ eventos, hoy = HOY_PORTAL }: { eventos: Eve
     setMes(iso(d.getTime()).slice(0, 7));
   };
   const delMes = eventos.filter((e) => e.fecha.startsWith(mes));
+  const [elegido, setElegido] = useState<string | null>(null);
+  const delDia = elegido ? eventos.filter((e) => e.fecha === elegido) : [];
   return (
     <div className="calendario-proyecto">
       <div className="fila entre" style={{ marginBottom: 10 }}>
@@ -134,20 +138,54 @@ export function CalendarioProyecto({ eventos, hoy = HOY_PORTAL }: { eventos: Eve
             {d}
           </span>
         ))}
-        {celdas.map((f, i) => (
-          <div key={f ?? `v${i}`} className={`calendario-celda${f === hoy ? " calendario-celda--hoy" : ""}${f ? "" : " calendario-celda--vacia"}`} role="gridcell" aria-label={f ? fCorta(f) : undefined}>
-            {f && <span className="calendario-numero">{Number(f.slice(8))}</span>}
-            {f &&
-              eventos
-                .filter((e) => e.fecha === f)
-                .map((e) => (
+        {celdas.map((f, i) => {
+          if (!f) return <div key={`v${i}`} className="calendario-celda calendario-celda--vacia" role="gridcell" />;
+          const deHoy = eventos.filter((e) => e.fecha === f);
+          return (
+            <div key={f} role="gridcell" aria-selected={elegido === f}>
+              <button
+                type="button"
+                className={`calendario-celda${f === hoy ? " calendario-celda--hoy" : ""}${elegido === f ? " calendario-celda--elegida" : ""}`}
+                aria-label={`${fCorta(f)}: ${deHoy.length ? `${deHoy.length} ${deHoy.length === 1 ? "evento" : "eventos"}` : "nada programado"}`}
+                aria-pressed={elegido === f}
+                onClick={() => setElegido(elegido === f ? null : f)}
+              >
+                <span className="calendario-numero">{Number(f.slice(8))}</span>
+                {deHoy.map((e) => (
                   <span key={e.tipo + e.texto} className={`calendario-evento calendario-evento--${e.tipo.toLowerCase()}${e.alerta ? " calendario-evento--alerta" : ""}`} title={`${ETIQUETA_TIPO[e.tipo]}: ${e.texto}`}>
                     {e.texto}
                   </span>
                 ))}
-          </div>
-        ))}
+              </button>
+            </div>
+          );
+        })}
       </div>
+      {elegido && (
+        <div className="calendario-detalle" aria-live="polite">
+          <div className="fila entre" style={{ gap: 8 }}>
+            <strong className="texto-sm">{fCorta(elegido)}</strong>
+            <button type="button" className="boton boton--chico" onClick={() => setElegido(null)}>Cerrar</button>
+          </div>
+          {delDia.length ? (
+            <ul className="calendario-detalle-lista">
+              {delDia.map((e) => (
+                <li key={e.tipo + e.texto} className="fila entre" style={{ gap: 8 }}>
+                  <span style={{ minWidth: 0 }}>
+                    <span className={`calendario-evento calendario-evento--${e.tipo.toLowerCase()}${e.alerta ? " calendario-evento--alerta" : ""}`} style={{ display: "inline-block", marginRight: 6 }}>
+                      {ETIQUETA_TIPO[e.tipo]}{e.alerta ? " · atrasado" : ""}
+                    </span>
+                    <span className="texto-sm">{e.texto}</span>
+                  </span>
+                  {e.ir && <button type="button" className="boton boton--chico" onClick={e.ir.accion}>{e.ir.texto}</button>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="texto-xs texto-muted">Nada programado este día.</p>
+          )}
+        </div>
+      )}
       {!delMes.length && <p className="texto-xs texto-muted" style={{ marginTop: 8 }}>Nada programado este mes.</p>}
       <div className="gantt-leyenda texto-xs texto-muted">
         {(Object.keys(ETIQUETA_TIPO) as TipoEvento[])

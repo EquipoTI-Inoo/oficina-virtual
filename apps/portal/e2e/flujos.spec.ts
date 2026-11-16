@@ -437,6 +437,13 @@ test("cronograma: el equipo ve el proyecto en Gantt y calendario; el cliente tam
   await expect(page.locator(".calendario-evento--tarea", { hasText: "Pedir las credenciales" })).toBeVisible();
   await page.getByRole("button", { name: "Mes siguiente" }).click();
   await expect(page.getByRole("grid", { name: "Calendario de noviembre 2026" })).toBeVisible();
+  // 16 nov (Ernesto): al tocar un día se ve su detalle y se puede ir a la tarea.
+  await page.getByRole("button", { name: "Mes anterior" }).click();
+  await page.locator("button.calendario-celda", { hasText: "Pedir las credenciales" }).click();
+  const detalle = page.locator(".calendario-detalle");
+  await expect(detalle).toContainText("Pedir las credenciales");
+  await detalle.getByRole("button", { name: "Ver tareas" }).first().click();
+  await expect(page.getByRole("tab", { name: "Tareas" })).toHaveAttribute("aria-selected", "true");
   const cliente = await browser.newPage();
   await entrarComo(cliente, "cliente");
   await cliente.goto("/servicios/00000000-0000-4000-8004-000000000004");

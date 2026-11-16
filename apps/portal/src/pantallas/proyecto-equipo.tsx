@@ -198,7 +198,7 @@ function ProyectoEquipo() {
             </div>
             <AvanceLineal avance={d.avance} />
             {vista === "GANTT" && <GanttEtapas etapas={d.etapas} reuniones={d.reuniones.filter((r) => r.estado !== "CANCELADA")} />}
-            {vista === "CALENDARIO" && <CalendarioEquipo d={d} />}
+            {vista === "CALENDARIO" && <CalendarioEquipo d={d} irA={(k) => (k === "ETAPAS" ? setVista("TABLA") : elegirPestana(k))} />}
             {vista === "TABLA" && (
               <div className="tabla-envoltura">
                 <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
@@ -343,14 +343,14 @@ function AgregarEtapa({ etapas, alAgregar }: { etapas: S<"EtapaProyecto">[]; alA
   );
 }
 
-function CalendarioEquipo({ d }: { d: Perfil }) {
+function CalendarioEquipo({ d, irA }: { d: Perfil; irA: (k: Pestana | "ETAPAS") => void }) {
   const tareas = useConsulta<{ datos: S<"Tarea">[] }>(`/servicios-contratados/${d.servicioContratadoId}/tareas`);
   const reqs = useConsulta<{ datos: S<"Requerimiento">[] }>(`/clientes/${d.clienteId}/requerimientos?servicioContratadoId=${d.servicioContratadoId}`);
   const reuniones = useConsulta<{ datos: S<"Reunion">[] }>(`/servicios-contratados/${d.servicioContratadoId}/reuniones`);
   const eventos: EventoCalendario[] = [
-    ...eventosDeEtapas(d.etapas),
+    ...eventosDeEtapas(d.etapas).map((e) => ({ ...e, ir: { texto: "Ver etapas", accion: () => irA("ETAPAS") } })),
     ...eventosDeReuniones(reuniones.datos?.datos ?? d.reuniones),
-    ...(tareas.datos?.datos ?? []).filter((t) => t.fechaLimite && t.estado !== "HECHA").map((t): EventoCalendario => ({ fecha: t.fechaLimite!, texto: t.titulo, tipo: "TAREA", alerta: t.vencida })),
+    ...(tareas.datos?.datos ?? []).filter((t) => t.fechaLimite && t.estado !== "HECHA").map((t): EventoCalendario => ({ fecha: t.fechaLimite!, texto: t.titulo, tipo: "TAREA", alerta: t.vencida, ir: { texto: "Ver tareas", accion: () => irA("TAREAS") } })),
     ...(reqs.datos?.datos ?? []).filter((r) => r.estado === "PENDIENTE" || r.estado === "OBSERVADO").map((r): EventoCalendario => ({ fecha: r.fechaLimite, texto: r.titulo, tipo: "REQUERIMIENTO", alerta: r.diasAtraso > 0 })),
   ];
   return <CalendarioProyecto eventos={eventos} />;
