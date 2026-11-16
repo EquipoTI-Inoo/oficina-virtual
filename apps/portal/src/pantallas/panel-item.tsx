@@ -221,6 +221,9 @@ export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Table
                   )}
                 </section>
               )}
+              {t.miPermiso === "LECTOR" ? (
+                <p className="texto-xs texto-muted">Tienes permiso de lector en este tablero: puedes leer la conversación, pero no escribir.</p>
+              ) : (
               <div className="pila" style={{ gap: 6 }}>
                 <CampoMenciones equipo={equipo} valor={nuevo} cambiar={setNuevo} etiqueta="Escribir una actualización" alEnviar={() => void publicar()}
                   placeholder="Escribe una actualización… Usa @ para mencionar a alguien del equipo." />
@@ -229,6 +232,7 @@ export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Table
                   <button className="boton boton--chico boton--primario" disabled={!nuevo.texto.trim()} onClick={() => void publicar()}>Publicar</button>
                 </span>
               </div>
+              )}
               {r.error ? <p className="texto-sm">No pudimos cargar la conversación.</p> : !r.datos ? <p className="texto-sm texto-muted">Cargando…</p> : !principales.length ? (
                 <div className="vacio-suave">
                   <LuMessageSquare size={22} />

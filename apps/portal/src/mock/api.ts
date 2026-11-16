@@ -1760,9 +1760,25 @@ ruta("GET", "/tableros/:id/candidatos", async (ctx, p) => {
 });
 ruta("POST", "/tableros/:id/miembros", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  const b = await cuerpo<{ usuarioIds?: unknown }>(req);
+  const b = await cuerpo<{ usuarioIds?: unknown; permiso?: unknown }>(req);
   const ids = Array.isArray(b?.usuarioIds) ? b.usuarioIds.filter((x): x is string => typeof x === "string") : [];
-  return TABLEROS.agregarMiembros(p.id, yoTablero(ctx), equipoInooWork().filter((u) => ids.includes(u.id)).map((u) => ({ id: u.inooworkEmpleadoId!, nombre: u.nombre })));
+  return TABLEROS.agregarMiembros(p.id, yoTablero(ctx), equipoInooWork().filter((u) => ids.includes(u.id)).map((u) => ({ id: u.inooworkEmpleadoId!, nombre: u.nombre })), b?.permiso ?? "EDITOR");
+});
+ruta("PATCH", "/tableros/:id/miembros/:empleado", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarPermiso(p.id, p.empleado, yoTablero(ctx), (await cuerpo<{ permiso?: unknown }>(req))?.permiso);
+});
+ruta("POST", "/tableros/:id/enlaces", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.crearEnlace(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("PATCH", "/tableros/:id/enlaces/:audiencia", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarEnlace(p.id, p.audiencia, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+});
+ruta("POST", "/tableros-unirse", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.unirse((await cuerpo<{ token?: unknown }>(req))?.token, yoTablero(ctx));
 });
 ruta("DELETE", "/tableros/:id/miembros/:empleado", async (ctx, p) => {
   soloEquipo(ctx);

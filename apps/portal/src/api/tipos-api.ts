@@ -3515,6 +3515,63 @@ export interface paths {
         delete: operations["quitarMiembroTablero"];
         options?: never;
         head?: never;
+        /** Cambia el permiso de una persona (lector, comentador o editor): el líder o un admin (16 nov) */
+        patch: operations["cambiarPermisoTablero"];
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/enlaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Crea el enlace para compartir de una audiencia; si ya había uno, lo reemplaza y el anterior deja de funcionar (16 nov). INVITADO todavía responde 409 */
+        post: operations["crearEnlaceTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/enlaces/{audiencia}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                audiencia: "EQUIPO" | "INVITADO";
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Cambia el permiso del enlace o lo apaga y prende (16 nov) */
+        patch: operations["cambiarEnlaceTablero"];
+        trace?: never;
+    };
+    "/tableros-unirse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Entra a un tablero con un enlace del equipo: queda como miembro con el permiso del enlace (si ya estaba, se queda con el mayor). 16 nov */
+        post: operations["unirseTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -6654,10 +6711,31 @@ export interface components {
                 disponible: boolean;
             }[];
         };
+        /**
+         * @description Como en Google Docs: el lector mira, el comentador además comenta y el editor cambia todo (16 nov)
+         * @enum {string}
+         */
+        PermisoTablero: "LECTOR" | "COMENTADOR" | "EDITOR";
         /** @description Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente */
         TableroInooWork: {
             id: string;
             nombre: string;
+            miPermiso: components["schemas"]["PermisoTablero"];
+            /** @description El permiso de cada persona del proyecto (por id de empleado de InooWork). 16 nov */
+            permisos: {
+                [key: string]: components["schemas"]["PermisoTablero"];
+            };
+            /** @description Los enlaces para compartir (solo los ve quien edita). 16 nov */
+            enlaces: {
+                /** @enum {string} */
+                audiencia: "EQUIPO" | "INVITADO";
+                permiso: components["schemas"]["PermisoTablero"];
+                activo: boolean;
+                /** @description Va en /equipo/proyectos/unirse/{token}. null si el portal no tiene SESION_SECRETO */
+                token: string | null;
+                /** Format: date-time */
+                creadoEn: string;
+            }[];
             /** @description null = sin asignar en InooWork */
             cliente?: string | null;
             descripcion?: string | null;
@@ -15987,6 +16065,7 @@ export interface operations {
             content: {
                 "application/json": {
                     usuarioIds: string[];
+                    permiso?: components["schemas"]["PermisoTablero"];
                 };
             };
         };
@@ -16036,6 +16115,179 @@ export interface operations {
             };
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarPermisoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                /** @description Id de empleado de InooWork */
+                empleadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    permiso: components["schemas"]["PermisoTablero"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    crearEnlaceTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    audiencia: "EQUIPO" | "INVITADO";
+                    permiso: components["schemas"]["PermisoTablero"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description El portal no tiene configurada la firma de enlaces */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarEnlaceTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                audiencia: "EQUIPO" | "INVITADO";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    permiso?: components["schemas"]["PermisoTablero"];
+                    activo?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unirseTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tableroId: string;
+                        permiso: components["schemas"]["PermisoTablero"];
+                    };
+                };
+            };
+            /** @description El enlace no existe */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             409: components["responses"]["Conflicto"];
             /** @description InooWork no respondió */
             502: {

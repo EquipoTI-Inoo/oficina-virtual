@@ -14,6 +14,8 @@ import {
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
+import { enlacesDe, esPermiso, fijarPermiso, mayorPermiso, nuevoEnlace, permisoEn, type PermisoTablero } from "../dominio/compartir-tablero";
+import { leerToken, tokenDe } from "./firma-enlace";
 import { automatizacionesDe, correrAutomatizaciones, MAX_AUTOMATIZACIONES_TABLERO, textoAutomatizacion, validarAutomatizacionTablero, type AutomatizacionTablero, type AvisoAutomatizacion } from "../dominio/automatizaciones-tablero";
 import { clientesDeTableros } from "../dominio/cliente-de-tablero";
 import { accionColumna, agregarColumna, borrarColumna, cambiarColumna, guardarValor, marcarCambio, type CambioColumna, type ColumnaIW, type Conectados, type Quien } from "../dominio/tableros";
@@ -183,6 +185,12 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     archivado: !!p.archived, archivadoEn: p.archivedAt ?? null,
     puedeDesarchivar: !!p.archived && editaProyecto(p, yo.empleadoId, yo.esAdmin),
     puedeBorrar: yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId),
+    // 16 nov: compartir como en Docs. El permiso de quien mira, el de cada persona y (para editores) los enlaces.
+    miPermiso: permisoEn(p, yo.empleadoId, yo.esAdmin) ?? "LECTOR",
+    permisos: Object.fromEntries(personasDelProyecto(p).map((x) => [x.id, permisoEn(p, x.id, false) ?? "LECTOR"])),
+    enlaces: editaProyecto(p, yo.empleadoId, yo.esAdmin)
+      ? enlacesDe(p).map((e) => ({ audiencia: e.audiencia, permiso: e.permiso, activo: e.activo, token: tokenDe(p.id, e), creadoEn: e.creadoEn }))
+      : [],
     // 13 nov: las automatizaciones del tablero («cuando X, hacer Y»), con su texto para leerlas.
     automatizaciones: automatizacionesDe(p).map((a) => ({ ...a, texto: textoAutomatizacion(a, p) })),
   };
@@ -502,15 +510,69 @@ export function crearTableros(fallar: Fallar) {
      * 16 nov (Ernesto: «problemas al agregar personas»): antes solo se elegían al crear el tablero. Agrega a quien edita
      * (líder, miembro o admin); una persona quitada antes vuelve a quedar activa.
      */
-    agregarMiembros: (id: string, yo: Yo, personas: PersonaIW[]) => cambiar(id, yo, (p) => {
+    agregarMiembros: (id: string, yo: Yo, personas: PersonaIW[], permiso: unknown = "EDITOR") => cambiar(id, yo, (p) => {
       if (!personas.length) validar([{ campo: "usuarioIds", mensaje: "Elige al menos a una persona del equipo con ficha en InooWork" }]);
+      if (!esPermiso(permiso)) validar([{ campo: "permiso", mensaje: "Usa LECTOR, COMENTADOR o EDITOR" }]);
       const hoy = new Date().toISOString().slice(0, 10);
       p.members ??= [];
       for (const x of personas) {
         if (x.id === p.leaderId) continue;
         const ya = p.members.find((m) => m.employeeId === x.id);
         if (ya) { ya.status = "active"; ya.name ||= x.nombre; } else p.members.push({ employeeId: x.id, name: x.nombre, avatar: "", addedAt: hoy, status: "active" });
+        fijarPermiso(p, x.id, permiso as PermisoTablero);
       }
+    }),
+    /** 16 nov: cambiar el permiso de alguien (lector, comentador, editor). El líder o un admin; el líder siempre edita. */
+    cambiarPermiso: (id: string, empleadoId: string, yo: Yo, permiso: unknown) => cambiar(id, yo, (p) => {
+      if (!(yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId))) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto o un admin cambia los permisos");
+      if (!esPermiso(permiso)) validar([{ campo: "permiso", mensaje: "Usa LECTOR, COMENTADOR o EDITOR" }]);
+      if (empleadoId === p.leaderId) throw fallar(409, "ES_LIDER", "El líder siempre puede editar");
+      if (!(p.members ?? []).some((m) => m.employeeId === empleadoId && (m.status ?? "active") === "active")) throw fallar(404, "NO_ENCONTRADO", "Esa persona no está en el proyecto");
+      fijarPermiso(p, empleadoId, permiso as PermisoTablero);
+    }),
+    /** 16 nov: el enlace para compartir de una audiencia; crearlo de nuevo reemplaza al anterior (deja de funcionar). */
+    crearEnlace: (id: string, yo: Yo, b: { audiencia?: unknown; permiso?: unknown }) => cambiar(id, yo, (p) => {
+      const errores: { campo: string; mensaje: string }[] = [];
+      if (b.audiencia !== "EQUIPO" && b.audiencia !== "INVITADO") errores.push({ campo: "audiencia", mensaje: "Usa EQUIPO o INVITADO" });
+      if (!esPermiso(b.permiso)) errores.push({ campo: "permiso", mensaje: "Usa LECTOR, COMENTADOR o EDITOR" });
+      validar(errores);
+      if (b.audiencia === "INVITADO") throw fallar(409, "PRONTO", "El enlace para invitados de afuera todavía no está disponible");
+      const e = nuevoEnlace(p, b.audiencia as "EQUIPO", b.permiso as PermisoTablero, yo.usuarioId ?? null);
+      if (!tokenDe(p.id, e)) throw fallar(503, "SIN_SECRETO", "El portal no tiene configurada la firma de enlaces (SESION_SECRETO)");
+    }),
+    cambiarEnlace: (id: string, audiencia: string, yo: Yo, b: { permiso?: unknown; activo?: unknown }) => cambiar(id, yo, (p) => {
+      const e = enlacesDe(p).find((x) => x.audiencia === audiencia);
+      if (!e) throw fallar(404, "NO_ENCONTRADO", "Este tablero no tiene ese enlace");
+      const errores: { campo: string; mensaje: string }[] = [];
+      if (b.permiso !== undefined && !esPermiso(b.permiso)) errores.push({ campo: "permiso", mensaje: "Usa LECTOR, COMENTADOR o EDITOR" });
+      if (b.activo !== undefined && typeof b.activo !== "boolean") errores.push({ campo: "activo", mensaje: "Debe ser true o false" });
+      validar(errores);
+      if (b.permiso !== undefined) e.permiso = b.permiso as PermisoTablero;
+      if (b.activo !== undefined) e.activo = b.activo as boolean;
+    }),
+    /**
+     * 16 nov: entrar con un enlace del equipo. Suma a quien lo abre con el permiso del enlace (si ya estaba, se queda con
+     * el mayor de los dos). Un enlace apagado, reemplazado o con la firma mal no sirve.
+     */
+    unirse: (token: unknown, yo: Yo) => protegido(async () => {
+      const t = leerToken(token);
+      const p = t ? await obtenerIW(t.proyectoId, yo.prueba) : null;
+      const e = p && !p.deleted ? enlacesDe(p).find((x) => x.id === t!.enlaceId) : undefined;
+      if (!p || !e || !e.activo) throw fallar(404, "ENLACE_NO_VALIDO", "Este enlace ya no funciona: pídele uno nuevo a quien te lo mandó");
+      if (e.audiencia !== "EQUIPO") throw fallar(409, "PRONTO", "El enlace para invitados de afuera todavía no está disponible");
+      if (!yo.empleadoId) {
+        if (yo.esAdmin) return { tableroId: p.id, permiso: "EDITOR" as PermisoTablero };
+        throw fallar(409, "SIN_FICHA_INOOWORK", "Necesitas tu ficha de InooWork para entrar a los proyectos");
+      }
+      const actual = permisoEn(p, yo.empleadoId, false);
+      if (actual && (p.leaderId === yo.empleadoId || mayorPermiso(actual, e.permiso) === actual)) return { tableroId: p.id, permiso: actual };
+      p.members ??= [];
+      const ya = p.members.find((m) => m.employeeId === yo.empleadoId);
+      if (ya) ya.status = "active";
+      else p.members.push({ employeeId: yo.empleadoId, name: yo.nombre ?? yo.empleadoId, avatar: "", addedAt: new Date().toISOString().slice(0, 10), status: "active" });
+      fijarPermiso(p, yo.empleadoId, e.permiso);
+      await guardarIW(p, yo.prueba);
+      return { tableroId: p.id, permiso: e.permiso };
     }),
     /** Quitar a alguien (16 nov): solo el líder o un admin, y nunca al líder. Sale de la lista y deja de ver el proyecto. */
     quitarMiembro: (id: string, empleadoId: string, yo: Yo) => cambiar(id, yo, (p) => {

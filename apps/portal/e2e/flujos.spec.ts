@@ -681,6 +681,24 @@ test("tableros de InooWork: Diego cambia el estado de un ítem y agrega uno; el 
   await expect(page.getByRole("region", { name: "Sin Iniciar" }).getByText("Brief de la campaña")).toBeVisible();
 });
 
+test("tableros (16 nov): Diego comparte el tablero con un enlace de lector y Camila entra con él", async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-OPS01");
+  await page.getByRole("button", { name: /^Personas/ }).click({ timeout: 30_000 });
+  await page.getByLabel("Permiso del enlace nuevo").selectOption("LECTOR");
+  await page.getByRole("button", { name: "Crear enlace" }).click();
+  const campo = page.getByLabel("Enlace para el equipo");
+  await expect(campo).toHaveValue(/\/equipo\/proyectos\/unirse\//, { timeout: 20_000 });
+  const url = new URL(await campo.inputValue());
+  const camila = await browser.newPage();
+  await entrarComo(camila, "operativo");
+  await camila.goto(url.pathname);
+  await expect(camila).toHaveURL(/\/equipo\/proyectos\/tableros\/PROJ-OPS01$/, { timeout: 30_000 });
+  await expect(camila.getByText("Solo lectura")).toBeVisible({ timeout: 20_000 });
+  await camila.close();
+});
+
 test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su tablero", async ({ page }) => {
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");

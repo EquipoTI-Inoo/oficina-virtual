@@ -46,6 +46,48 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(otra.personas.filter((p: any) => p.id === "EMP-003").length, 1, "vuelve a quedar activa, sin duplicarse");
     });
 
+    test("16 nov: compartir con enlace como en Docs (lector, comentador, editor); apagar o regenerar lo invalida", async () => {
+      await reiniciar();
+      const t0 = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
+      assert.equal(t0.miPermiso, "EDITOR", "un miembro sin permiso guardado edita, como antes");
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "INVITADO", permiso: "LECTOR" })).status, 409, "invitados: todavía no");
+      assert.deepEqual((await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "EQUIPO", permiso: "DUEÑO" })).json.errores.map((e: any) => e.campo), ["permiso"]);
+      const t1 = (await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "EQUIPO", permiso: "LECTOR" })).json;
+      const token = t1.enlaces.find((e: any) => e.audiencia === "EQUIPO").token;
+      assert.ok(typeof token === "string" && token.length > 20);
+      assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", CAMILA)).status, 404, "Camila todavía no está");
+
+      const malo = token.slice(0, -2) + (token.endsWith("aa") ? "bb" : "aa");
+      assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token: malo })).status, 404, "firma alterada");
+      const u = (await llamar("POST", "/tableros-unirse", CAMILA, { token })).json;
+      assert.deepEqual([u.tableroId, u.permiso], ["PROJ-OPS01", "LECTOR"]);
+      const comoCamila = (await llamar("GET", "/tableros/PROJ-OPS01", CAMILA)).json;
+      assert.equal(comoCamila.miPermiso, "LECTOR");
+      assert.equal(comoCamila.puedeEditar, false);
+      assert.deepEqual(comoCamila.enlaces, [], "el lector no ve los enlaces");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", CAMILA, { estado: "En Progreso" })).status, 403, "el lector no edita");
+      const item = comoCamila.items[0].id;
+      assert.equal((await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/actualizaciones`, CAMILA, { texto: "Hola" })).status, 403, "el lector no comenta");
+
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01/miembros/EMP-003", DIEGO, { permiso: "COMENTADOR" })).status, 403, "solo el líder o un admin cambia permisos");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01/miembros/EMP-003", ADMIN, { permiso: "COMENTADOR" })).json.permisos["EMP-003"], "COMENTADOR");
+      assert.ok([200, 201].includes((await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/actualizaciones`, CAMILA, { texto: "Ahora sí comento" })).status));
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01/miembros/ADM-001", ADMIN, { permiso: "LECTOR" })).status, 409, "el líder siempre edita");
+
+      // Volver a entrar con un enlace de menor permiso no la baja.
+      assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token })).json.permiso, "COMENTADOR");
+      // Apagar y regenerar.
+      await llamar("PATCH", "/tableros/PROJ-OPS01/enlaces/EQUIPO", DIEGO, { activo: false });
+      await llamar("DELETE", "/tableros/PROJ-OPS01/miembros/EMP-003", ADMIN);
+      assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token })).status, 404, "apagado");
+      const t2 = (await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "EQUIPO", permiso: "EDITOR" })).json;
+      const nuevo = t2.enlaces.find((e: any) => e.audiencia === "EQUIPO").token;
+      assert.notEqual(nuevo, token);
+      assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token })).status, 404, "el viejo ya no sirve");
+      assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token: nuevo })).json.permiso, "EDITOR");
+      assert.equal((await llamar("POST", "/tableros-unirse", VALERIA, { token: nuevo })).status, 403, "un cliente no usa enlaces del equipo");
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);

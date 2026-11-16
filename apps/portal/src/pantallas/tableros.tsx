@@ -150,7 +150,7 @@ function TableroProyecto() {
         bajada={t.descripcion ?? undefined}
         accion={
           <span className="fila" style={{ gap: 8 }}>
-            {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">Solo lectura: no eres miembro activo</span>}
+            {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">{t.miPermiso === "COMENTADOR" ? "Puedes ver y comentar" : "Solo lectura"}</span>}
             <BotonPersonas t={t} cambiar={cambiar} />
             {!t.archivado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
             {t.puedeBorrar && <button className="boton boton--chico boton--peligro" onClick={() => void borrarProyecto()}><LuTrash2 size={13} /> Borrar proyecto</button>}

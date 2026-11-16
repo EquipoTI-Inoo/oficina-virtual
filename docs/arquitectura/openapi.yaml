@@ -5020,7 +5020,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, required: [usuarioIds], properties: { usuarioIds: { type: array, items: { type: string, format: uuid } } } }
+            schema: { type: object, required: [usuarioIds], properties: { usuarioIds: { type: array, items: { type: string, format: uuid } }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
@@ -5032,6 +5032,23 @@ paths:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
       - { name: empleadoId, in: path, required: true, schema: { type: string }, description: 'Id de empleado de InooWork' }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarPermisoTablero
+      summary: 'Cambia el permiso de una persona (lector, comentador o editor): el líder o un admin (16 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [permiso], properties: { permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
     delete:
       tags: [Tableros]
       operationId: quitarMiembroTablero
@@ -5041,6 +5058,70 @@ paths:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/enlaces:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: crearEnlaceTablero
+      summary: 'Crea el enlace para compartir de una audiencia; si ya había uno, lo reemplaza y el anterior deja de funcionar (16 nov). INVITADO todavía responde 409'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [audiencia, permiso], properties: { audiencia: { type: string, enum: [EQUIPO, INVITADO] }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+        '503': { description: El portal no tiene configurada la firma de enlaces }
+
+  /tableros/{proyectoId}/enlaces/{audiencia}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: audiencia, in: path, required: true, schema: { type: string, enum: [EQUIPO, INVITADO] } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarEnlaceTablero
+      summary: 'Cambia el permiso del enlace o lo apaga y prende (16 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { permiso: { $ref: '#/components/schemas/PermisoTablero' }, activo: { type: boolean } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+
+  /tableros-unirse:
+    post:
+      tags: [Tableros]
+      operationId: unirseTablero
+      summary: 'Entra a un tablero con un enlace del equipo: queda como miembro con el permiso del enlace (si ya estaba, se queda con el mayor). 16 nov'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [tableroId, permiso], properties: { tableroId: { type: string }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
+        '404': { description: El enlace no existe, está apagado o fue reemplazado }
         '409': { $ref: '#/components/responses/Conflicto' }
         '502': { description: InooWork no respondió }
 
@@ -8452,13 +8533,32 @@ components:
               nombre: { type: string }
               bytes: { type: [integer, 'null'] }
               disponible: { type: boolean, description: Se copió al almacén del portal y se puede descargar. }
+    PermisoTablero:
+      type: string
+      enum: [LECTOR, COMENTADOR, EDITOR]
+      description: 'Como en Google Docs: el lector mira, el comentador además comenta y el editor cambia todo (16 nov)'
+
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces]
       properties:
         id: { type: string }
         nombre: { type: string }
+        miPermiso: { $ref: '#/components/schemas/PermisoTablero' }
+        permisos: { type: object, additionalProperties: { $ref: '#/components/schemas/PermisoTablero' }, description: 'El permiso de cada persona del proyecto (por id de empleado de InooWork). 16 nov' }
+        enlaces:
+          type: array
+          description: 'Los enlaces para compartir (solo los ve quien edita). 16 nov'
+          items:
+            type: object
+            required: [audiencia, permiso, activo, token, creadoEn]
+            properties:
+              audiencia: { type: string, enum: [EQUIPO, INVITADO] }
+              permiso: { $ref: '#/components/schemas/PermisoTablero' }
+              activo: { type: boolean }
+              token: { type: [string, 'null'], description: 'Va en /equipo/proyectos/unirse/{token}. null si el portal no tiene SESION_SECRETO' }
+              creadoEn: { type: string, format: date-time }
         cliente: { type: [string, 'null'], description: 'null = sin asignar en InooWork' }
         descripcion: { type: [string, 'null'] }
         color: { type: string }

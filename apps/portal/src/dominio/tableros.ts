@@ -7,6 +7,7 @@
  *
  * Aquí: el formato de InooWork, quién ve y edita, y los cambios sobre el JSON del proyecto.
  */
+import { permisoEn } from "./compartir-tablero";
 
 import { alternarCronometro, alternarVoto, info, validarConfig, valorDeColumna, type ConfigColumna, type ContextoValor, type Cronometro, type TipoColumna } from "./columnas";
 
@@ -47,12 +48,17 @@ export const TIPOS_VISTA = ["table", "kanban", "calendar", "timeline", "chart"] 
 /** Columnas fijas de InooWork; las demás de las vistas son personalizadas (su valor va en item[col.id]). */
 const COLUMNAS_FIJAS = new Set(["name", "assignee", "priority", "status", "dueDate", "notes"]);
 
-// ───────────────────────────── permisos (los mismos de InooWork, pages/Projects.tsx)
+// ───────────────────────────── permisos (los mismos de InooWork, pages/Projects.tsx, más los del portal: compartir-tablero.ts)
 
 export const veProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) =>
   esAdmin || (!!empleadoId && (p.leaderId === empleadoId || (p.members ?? []).some((m) => m.employeeId === empleadoId)));
-export const editaProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) =>
-  esAdmin || (!!empleadoId && (p.leaderId === empleadoId || (p.members ?? []).some((m) => m.employeeId === empleadoId && (m.status ?? "active") === "active")));
+/** 16 nov: edita quien tiene permiso de editor en el portal (los miembros sin permiso guardado lo son, como antes). */
+export const editaProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) => permisoEn(p, empleadoId, esAdmin) === "EDITOR";
+/** 16 nov: comenta el comentador o el editor; el lector solo mira. */
+export const comentaProyecto = (p: ProyectoIW, empleadoId: string | null, esAdmin: boolean) => {
+  const x = permisoEn(p, empleadoId, esAdmin);
+  return x === "EDITOR" || x === "COMENTADOR";
+};
 
 // ───────────────────────────── vista para el portal
 

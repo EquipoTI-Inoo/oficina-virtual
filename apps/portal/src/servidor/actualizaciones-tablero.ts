@@ -55,6 +55,8 @@ export function crearActualizaciones(fallar: Fallar, tableros: Tableros) {
       const t = await tableros.ver(proyectoId, yo);
       const item = t.items.find((i) => i.id === itemId);
       if (!item) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese ítem");
+      // 16 nov: con permiso de lector solo se mira (como en Docs).
+      if (t.miPermiso === "LECTOR") throw fallar(403, "SIN_PERMISO", "Tienes permiso de lector: no puedes comentar");
       const texto = validarTexto(b);
       const equipo = await repo.equipo();
       const errores: { campo: string; mensaje: string }[] = [];
