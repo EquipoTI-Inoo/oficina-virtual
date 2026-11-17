@@ -3655,6 +3655,44 @@ export interface paths {
         patch: operations["cambiarMarca"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/ia/resumen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** IA (16 nov): en qué va el tablero y qué sigue. Sin IA disponible, el resumen por reglas (conIa = false) */
+        post: operations["resumirTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/ia/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** IA (16 nov): propone ítems (con responsable, fecha y grupo) desde un texto; no crea nada. Sin IA, una línea = un ítem */
+        post: operations["itemsDesdeTexto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/candidatos": {
         parameters: {
             query?: never;
@@ -16630,6 +16668,81 @@ export interface operations {
             };
             404: components["responses"]["NoEncontrado"];
             409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    resumirTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        texto: string;
+                        conIa: boolean;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    itemsDesdeTexto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        conIa: boolean;
+                        propuestas: {
+                            nombre: string;
+                            /** @description Id de empleado de InooWork */
+                            responsableId: string | null;
+                            /** Format: date */
+                            fecha: string | null;
+                            grupoId: string | null;
+                            nota: string | null;
+                        }[];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
         };
     };

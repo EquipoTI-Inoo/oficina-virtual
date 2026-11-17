@@ -9,6 +9,7 @@ import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, Lu
 import { PanelItem } from "./panel-item";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
 import { BotonPersonas } from "./personas-tablero";
+import { BotonIaTablero } from "./ia-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
@@ -258,6 +259,7 @@ function TableroProyecto() {
             {t.privado && <span className="chip texto-xs" title="Solo lo ven sus personas, ni los admins"><LuLock size={12} /> Privado</span>}
             {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">{t.miPermiso === "COMENTADOR" ? "Puedes ver y comentar" : "Solo lectura"}</span>}
             <BotonPersonas t={t} cambiar={cambiar} />
+            {!t.archivado && <BotonIaTablero t={t} cambiar={cambiar} />}
             {!t.archivado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
             {t.puedeBorrar && <button className="boton boton--chico boton--peligro" onClick={() => void borrarProyecto()}><LuTrash2 size={13} /> Borrar proyecto</button>}
           </span>

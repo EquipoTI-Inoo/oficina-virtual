@@ -737,6 +737,25 @@ test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin
   await expect(visor.getByRole("button", { name: /Punto 1/ })).toBeVisible();
 });
 
+test("IA del tablero (16 nov): resume y propone ítems desde un texto; se agregan los elegidos", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  await reiniciar(request);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-OPS01");
+  await page.getByRole("button", { name: "IA", exact: true }).click({ timeout: 30_000 });
+  const ia = page.getByRole("dialog");
+  await ia.getByRole("button", { name: "Resumir el tablero" }).click();
+  await expect(ia.getByText(/^Estado: 0 de 3 ítems completados/)).toBeVisible({ timeout: 20_000 });
+  await ia.getByRole("tab", { name: "Crear ítems desde un texto" }).click();
+  await ia.getByLabel(/Pega notas de una reunión/).fill(["- Enviar contrato a Nativa @Rosa 20/11", "- Pedir logos nuevos"].join("\n"));
+  await ia.getByRole("button", { name: "Proponer ítems" }).click();
+  await expect(ia.getByLabel("Nombre del ítem")).toHaveCount(2, { timeout: 20_000 });
+  await ia.getByRole("checkbox", { name: "Agregar Pedir logos nuevos" }).uncheck();
+  await ia.getByRole("button", { name: "Agregar 1" }).click();
+  await expect(page.getByLabel("Nombre de Enviar contrato a Nativa")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel("Nombre de Pedir logos nuevos")).toHaveCount(0);
+});
+
 test("2FA (16 nov): se activa desde Mi cuenta con el QR, muestra los códigos de respaldo y se desactiva con un código", async ({ page, request }) => {
   test.setTimeout(120_000);
   await reiniciar(request);

@@ -2968,3 +2968,9 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .qr-2fa svg { width: 100%; height: 100%; display: block; }
 .codigos-respaldo { display: grid; grid-template-columns: repeat(2, minmax(0, 120px)); gap: 6px 14px; }
 .codigos-respaldo code { font-size: var(--t-sm); letter-spacing: 0.04em; }
+
+/* 16 nov (tanda 5): IA del tablero. */
+.resumen-ia { padding: 12px 14px; border-radius: var(--r-sm); background: var(--c-primario-suave); border: 1px solid var(--c-primario-borde); display: grid; gap: 6px; }
+.propuesta-ia { display: grid; grid-template-columns: auto minmax(0, 1fr) 150px 140px 130px; gap: 6px; align-items: center; }
+.propuesta-ia .input { height: 32px; font-size: var(--t-xs); }
+@media (max-width: 760px) { .propuesta-ia { grid-template-columns: auto minmax(0, 1fr); } .propuesta-ia > :nth-child(n+3) { grid-column: 2; } }

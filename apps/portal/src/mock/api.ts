@@ -48,6 +48,7 @@ import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../s
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
 import * as DP from "../servidor/dos-pasos";
+import { itemsDesdeTexto, resumirTablero } from "../servidor/ia-tableros";
 import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -1672,6 +1673,21 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.ver(p.id, yoTablero(ctx));
 });
+// ───────────────────────────── IA en los tableros (16 nov, tanda 5)
+ruta("POST", "/tableros/:id/ia/resumen", async (ctx, p) => {
+  soloEquipo(ctx);
+  const t = await TABLEROS.ver(p.id, yoTablero(ctx));
+  return resumirTablero(almacenMock, { usuarioId: ctx.usuario.id, area: ctx.usuario.area }, t, D.HOY);
+});
+ruta("POST", "/tableros/:id/ia/items", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const t = await TABLEROS.ver(p.id, yoTablero(ctx));
+  if (!t.puedeEditar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero agrega ítems");
+  const texto = (await cuerpo<{ texto?: unknown }>(req))?.texto;
+  if (typeof texto !== "string" || texto.trim().length < 3 || texto.length > 20000) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "texto", mensaje: "Pega el texto (hasta 20 000 caracteres)" }]);
+  return itemsDesdeTexto(almacenMock, { usuarioId: ctx.usuario.id, area: ctx.usuario.area }, texto.trim(), t, D.HOY);
+});
+
 // ───────────────────────────── Marcas (16 nov, tanda 4)
 const marcaVistaMock = (m: Estado["marcas"][number]): S<"MarcaCliente"> => ({ id: m.id, clienteId: m.clienteId, clienteNombre: E.clientes.find((c) => c.id === m.clienteId)?.nombre ?? "", nombre: m.nombre, activa: m.activa });
 const nombreMarcaMock = (x: unknown) => (typeof x === "string" && x.trim().length >= 1 && x.trim().length <= 120 ? x.trim().replace(/\s+/g, " ") : null);

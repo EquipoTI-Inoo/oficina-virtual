@@ -70,6 +70,7 @@ import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUE
 import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { anotarFallido, firmarSesion, ingresoConInooWork, leerPaseInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import * as DP from "./dos-pasos";
+import { itemsDesdeTexto, resumirTablero } from "./ia-tableros";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
@@ -5681,6 +5682,22 @@ ruta("GET", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.ver(p.id, await yoTablero(ctx));
 });
+// ───────────────────────────── IA en los tableros (16 nov, tanda 5): resumen e ítems desde un texto
+
+ruta("POST", "/tableros/:id/ia/resumen", async (ctx, p) => {
+  soloEquipo(ctx);
+  const t = await TABLEROS.ver(p.id, await yoTablero(ctx));
+  return resumirTablero(almacenDeSolicitud(ctx), { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, t, HOY_LIMA());
+});
+ruta("POST", "/tableros/:id/ia/items", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const t = await TABLEROS.ver(p.id, await yoTablero(ctx));
+  if (!t.puedeEditar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero agrega ítems");
+  const texto = ((await cuerpo()) as { texto?: unknown }).texto;
+  if (typeof texto !== "string" || texto.trim().length < 3 || texto.length > 20000) validacion([{ campo: "texto", mensaje: "Pega el texto (hasta 20 000 caracteres)" }]);
+  return itemsDesdeTexto(almacenDeSolicitud(ctx), { usuarioId: ctx.u.usuarioId, area: ctx.u.area ?? null }, (texto as string).trim(), t, HOY_LIMA());
+});
+
 // ───────────────────────────── Marcas (16 nov, tanda 4): Empresa → Marca → Proyectos
 
 type FilaMarca = { id: string; cliente_id: string; cliente_nombre: string; nombre: string; activa: boolean };

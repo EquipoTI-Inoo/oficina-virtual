@@ -5129,6 +5129,57 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /tableros/{proyectoId}/ia/resumen:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: resumirTablero
+      summary: 'IA (16 nov): en qué va el tablero y qué sigue. Sin IA disponible, el resumen por reglas (conIa = false)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [texto, conIa], properties: { texto: { type: string }, conIa: { type: boolean } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/ia/items:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: itemsDesdeTexto
+      summary: 'IA (16 nov): propone ítems (con responsable, fecha y grupo) desde un texto; no crea nada. Sin IA, una línea = un ítem'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [texto], properties: { texto: { type: string, maxLength: 20000 } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [propuestas, conIa]
+                properties:
+                  conIa: { type: boolean }
+                  propuestas:
+                    type: array
+                    items:
+                      type: object
+                      required: [nombre, responsableId, fecha, grupoId, nota]
+                      properties:
+                        nombre: { type: string }
+                        responsableId: { type: [string, 'null'], description: 'Id de empleado de InooWork' }
+                        fecha: { type: [string, 'null'], format: date }
+                        grupoId: { type: [string, 'null'] }
+                        nota: { type: [string, 'null'] }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /tableros/{proyectoId}/candidatos:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }

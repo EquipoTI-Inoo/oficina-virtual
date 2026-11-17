@@ -46,6 +46,26 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(otra.personas.filter((p: any) => p.id === "EMP-003").length, 1, "vuelve a quedar activa, sin duplicarse");
     });
 
+    test("16 nov (tanda 5): IA del tablero; sin IA, el resumen y los ítems salen por reglas y no se crea nada solo", async () => {
+      await reiniciar();
+      const r = await llamar("POST", "/tableros/PROJ-OPS01/ia/resumen", DIEGO, {});
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.conIa, false, "en pruebas no hay clave de IA");
+      assert.match(r.json.texto, /^Estado: 0 de 3 ítems completados/);
+      assert.match(r.json.texto, /Bloqueado: Cierre contable de septiembre \(Rosa Paredes\)/);
+      assert.equal((await llamar("POST", "/tableros/PROJ-DIS01/ia/resumen", DIEGO, {})).status, 404, "no es miembro");
+
+      const antes = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json.items.length;
+      const p = await llamar("POST", "/tableros/PROJ-OPS01/ia/items", DIEGO, { texto: ["- Enviar contrato a Nativa @Rosa 20/11", "- Revisar facturas pendientes 2026-11-25", "x"].join("\n") });
+      assert.equal(p.status, 200, JSON.stringify(p.json));
+      assert.deepEqual(p.json.propuestas.map((x: any) => [x.nombre, x.responsableId, x.fecha]), [
+        ["Enviar contrato a Nativa", "EMP-004", "2026-11-20"],
+        ["Revisar facturas pendientes", null, "2026-11-25"],
+      ]);
+      assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json.items.length, antes, "proponer no crea nada");
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/ia/items", DIEGO, { texto: " " })).status, 422);
+    });
+
     test("16 nov (tanda 4): marcas por empresa; el servicio y el tablero se enlazan a una marca y el tablero a un servicio, con etiquetas", async () => {
       await reiniciar();
       const nueva = await llamar("POST", `/clientes/${CASA_OLIVA}/marcas`, ADMIN, { nombre: "  Oliva   Kids " });
