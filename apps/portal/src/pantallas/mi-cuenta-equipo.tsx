@@ -4,6 +4,7 @@
  * de InooWork, a qué clientes tengo acceso, la contraseña (se cambia en InooWork), notificaciones, lo que gasté en
  * Jarvis este mes y cerrar la sesión en los demás dispositivos.
  */
+import { SeccionDosPasos } from "./dos-pasos";
 import { useEffect, useState, type ReactNode } from "react";
 import { LuBell, LuBot, LuBuilding2, LuExternalLink, LuKeyRound, LuLogOut, LuPlug, LuUserRound } from "react-icons/lu";
 import { actualizarSesion, api, Enlace, fDiaHora, type ProblemaApi, useConsulta, type S } from "../base";
@@ -101,6 +102,8 @@ function MiCuenta() {
           )}
           <CerrarSesiones ultima={d.sesionesCerradasEn} alCerrar={() => void recargar()} />
         </Tarjeta>
+
+        <SeccionDosPasos />
 
         <Conexiones />
         <Notificaciones />

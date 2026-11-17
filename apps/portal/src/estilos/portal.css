@@ -2962,3 +2962,9 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .pin-comentario--activo { background: var(--c-marca-verde); color: #000; transform: translate(-50%, -50%) scale(1.15); }
 .pin-comentario--nuevo { background: var(--c-marca-verde); color: #000; pointer-events: none; }
 .comentario-archivo--activo { outline: 2px solid var(--c-primario); outline-offset: 2px; border-radius: var(--r-sm); }
+
+/* 16 nov (2FA): QR y códigos de respaldo. */
+.qr-2fa { width: 180px; height: 180px; padding: 6px; background: #fff; border-radius: var(--r-sm); border: 1px solid var(--c-borde); }
+.qr-2fa svg { width: 100%; height: 100%; display: block; }
+.codigos-respaldo { display: grid; grid-template-columns: repeat(2, minmax(0, 120px)); gap: 6px 14px; }
+.codigos-respaldo code { font-size: var(--t-sm); letter-spacing: 0.04em; }

@@ -16,6 +16,7 @@ import { usarFetchCognito } from "../../src/servidor/cognito";
 import { comoUsuario, desdePglite, usarBaseDatos } from "../../src/servidor/db";
 import { despacharPendientes, firmar } from "../../src/servidor/outbox";
 import { uid } from "../../src/mock/datos";
+import { codigoEn } from "../../src/servidor/dos-pasos";
 import { pruebasPlanificacion } from "./flujo-planificacion";
 import { pruebasServicios } from "./flujo-servicios";
 import { pruebasCuentas } from "./flujo-cuentas";
@@ -132,6 +133,7 @@ before(async () => {
   await db.exec(sql("migraciones/0057_herramientas_persona.sql"));
   await db.exec(sql("migraciones/0058_marcas.sql"));
   await db.exec(sql("migraciones/0059_comentario_anclado.sql"));
+  await db.exec(sql("migraciones/0060_dos_pasos.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('conector_catalogo', 'servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -1254,6 +1256,59 @@ describe("Ingreso propio de los clientes e importación de InooWork · Postgres"
     assert.equal((await enlace(uid(1, 3))).status, 404, "Diego es del equipo: entra con InooWork");
     assert.equal((await enlace(VALERIA_ID, `demo.${uid(1, 6)}`)).status, 404, "quien no ve la cuenta completa no pide enlaces");
     assert.equal((await enlace(VALERIA_ID, `demo.${VALERIA_ID}`)).status, 403, "el cliente no se los genera");
+  });
+
+  test("2FA (16 nov): opcional; con él activo pide el código, acepta respaldos una vez y recuerda un dispositivo de confianza", async () => {
+    await reiniciar();
+    const e = await enlace();
+    const sesion = (await llamar("POST", "/sesion/crear-clave", undefined, { token: token(e.json.ruta), clave: "Clave2026x" })).json.token;
+    const ingresar = (dispositivo?: string) => manejarSolicitudDb(new Request("http://x/api/v1/sesion/ingresar", {
+      method: "POST", headers: { "content-type": "application/json", "user-agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/130.0", ...(dispositivo ? { "x-dispositivo-inoo": dispositivo } : {}) },
+      body: JSON.stringify({ email: "valeria@casaoliva.pe", clave: "Clave2026x" }),
+    })).then(async (r) => ({ status: r.status, json: await r.json() }));
+    const ahora = () => codigoEn(secreto, Math.floor(Date.now() / 30_000));
+    assert.equal((await llamar("GET", "/me/2fa", sesion)).json.activo, false, "viene apagado");
+    assert.ok((await ingresar()).json.token, "sin 2FA, entra directo");
+
+    const ini = (await llamar("POST", "/me/2fa/iniciar", sesion)).json;
+    const secreto: string = ini.secreto;
+    assert.match(ini.otpauth, /^otpauth:\/\/totp\/Inoo%3Avaleria%40casaoliva\.pe\?secret=[A-Z2-7]+&issuer=Inoo/);
+    assert.ok((await ingresar()).json.token, "a medio configurar todavía no se pide");
+    const guardado = (await db.query<{ s: string }>("SELECT dos_pasos_secreto AS s FROM usuario WHERE id = $1", [VALERIA_ID])).rows[0].s;
+    assert.ok(guardado.startsWith("v1.") && !guardado.includes(secreto), "el secreto va cifrado");
+    assert.deepEqual((await llamar("POST", "/me/2fa/activar", sesion, { codigo: "000000" })).json.errores?.map((x: any) => x.campo), ["codigo"]);
+    const act = await llamar("POST", "/me/2fa/activar", sesion, { codigo: ahora() });
+    assert.equal(act.json.codigos.length, 10);
+    const respaldo: string = act.json.codigos[0];
+
+    const r1 = await ingresar();
+    assert.deepEqual([r1.json.token, r1.json.requiere2fa], [undefined, true], "ahora pide el código");
+    const verificar = (desafio: string, codigo: string, confiar = false) => llamar("POST", "/sesion/verificar-2fa", undefined, { desafio, codigo, confiar });
+    assert.equal((await verificar(r1.json.desafio, "123456")).status, 401);
+    assert.equal((await verificar("falso.x", ahora())).json.codigo, "DESAFIO_VENCIDO");
+    const ok = await verificar(r1.json.desafio, ahora(), true);
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.deepEqual([ok.json.tipo, typeof ok.json.token, typeof ok.json.dispositivo], ["CLIENTE", "string", "string"]);
+
+    // Con el dispositivo de confianza no vuelve a pedirlo; sin él, sí.
+    assert.ok((await ingresar(ok.json.dispositivo)).json.token, "dispositivo de confianza");
+    assert.equal((await ingresar("otro-dispositivo")).json.requiere2fa, true);
+    const estado = (await llamar("GET", "/me/2fa", sesion)).json;
+    assert.deepEqual([estado.activo, estado.respaldosRestantes, estado.dispositivos.map((d: any) => d.nombre)], [true, 10, ["Navegador"]], "sin user-agent en la verificación");
+
+    // Un código de respaldo sirve una sola vez.
+    const r2 = await ingresar();
+    assert.ok((await verificar(r2.json.desafio, respaldo)).json.token);
+    const r3 = await ingresar();
+    assert.equal((await verificar(r3.json.desafio, respaldo)).status, 401, "ya se usó");
+    assert.equal((await llamar("GET", "/me/2fa", sesion)).json.respaldosRestantes, 9);
+
+    // Quitar el dispositivo o cerrar las sesiones lo olvida; desactivar pide un código.
+    await llamar("DELETE", `/me/2fa/dispositivos/${estado.dispositivos[0].id}`, sesion);
+    assert.equal((await ingresar(ok.json.dispositivo)).json.requiere2fa, true);
+    assert.equal((await llamar("POST", "/me/2fa/desactivar", sesion, { codigo: "999999" })).status, 422);
+    assert.equal((await llamar("POST", "/me/2fa/desactivar", sesion, { codigo: ahora() })).status, 204);
+    assert.ok((await ingresar()).json.token, "apagado otra vez: entra directo");
   });
 
   test("olvidé mi contraseña responde igual exista o no el correo, y bloquea tras muchos intentos", async () => {

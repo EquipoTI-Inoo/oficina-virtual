@@ -47,6 +47,7 @@ import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tarea
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
+import * as DP from "../servidor/dos-pasos";
 import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -138,6 +139,8 @@ interface Estado {
   consumoJarvis: ConsumoJarvis[];
   /** Mi cuenta: cuándo se cerraron todas las sesiones de cada persona. */
   sesionesCerradas: Map<string, string>;
+  /** 16 nov: 2FA de cada persona (el secreto en claro: es la API simulada). */
+  dosPasos: Map<string, { secreto: string; desde: string | null; respaldo: string[] }>;
   botsJarvis: D.BotJarvisDemo[];
   /** Jarvis avanzado (9 nov). */
   skillsJarvis: { id: string; espacio: string; nombre: string; descripcion: string; instrucciones: string; archivos: ArchivoSkill[]; creadoPorId: string; actualizadoEn: string }[];
@@ -257,6 +260,7 @@ function estadoInicial(): Estado {
     enlacesClave: {},
     consumoJarvis: [],
     sesionesCerradas: new Map(),
+    dosPasos: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
     skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
@@ -3872,6 +3876,57 @@ ruta("POST", "/me/sesiones/cerrar", (ctx) => {
   return { token: `demo.${ctx.usuario.id}`, expiraEn: new Date(Date.now() + 7 * 86_400_000).toISOString() };
 });
 
+// ───────────────────────────── 2FA en Mi cuenta (16 nov), igual que el backend real (sin dispositivos: no hay ingreso con 2FA)
+const dosPasosMock = (ctx: Ctx) => {
+  if (ctx.enNombreDe || ctx.esServicio) throw new ErrorApi(409, "NO_DISPONIBLE", "El 2FA lo configura cada persona desde su cuenta");
+  return E.dosPasos.get(ctx.usuario.id);
+};
+const codigoMock = (d: { secreto: string; respaldo: string[] }, codigo: unknown) => {
+  const x = typeof codigo === "string" ? codigo.trim() : "";
+  if (DP.codigoValido(d.secreto, x)) return;
+  const h = x ? DP.hashCodigo(x) : "";
+  if (h && d.respaldo.includes(h)) { d.respaldo = d.respaldo.filter((y) => y !== h); return; }
+  throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "codigo", mensaje: "El código no es correcto" }]);
+};
+ruta("GET", "/me/2fa", (ctx) => {
+  const d = dosPasosMock(ctx);
+  return { activo: !!d?.desde, desde: d?.desde ?? null, respaldosRestantes: d?.desde ? d.respaldo.length : 0, dispositivos: [] } satisfies S<"DosPasos">;
+});
+ruta("POST", "/me/2fa/iniciar", (ctx) => {
+  if (dosPasosMock(ctx)?.desde) throw new ErrorApi(409, "YA_ACTIVO", "El 2FA ya está activo");
+  const secreto = DP.nuevoSecreto();
+  E.dosPasos.set(ctx.usuario.id, { secreto, desde: null, respaldo: [] });
+  return { secreto, otpauth: DP.enlaceOtpauth(secreto, ctx.usuario.email) };
+});
+ruta("POST", "/me/2fa/activar", async (ctx, _p, _q, req) => {
+  const d = dosPasosMock(ctx);
+  if (d?.desde) throw new ErrorApi(409, "YA_ACTIVO", "El 2FA ya está activo");
+  if (!d) throw new ErrorApi(409, "SIN_INICIAR", "Primero escanea el código QR");
+  if (!DP.codigoValido(d.secreto, (await cuerpo<{ codigo?: unknown }>(req))?.codigo)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "codigo", mensaje: "El código no es correcto: revisa la hora del celular" }]);
+  const { codigos, hashes } = DP.nuevosCodigosRespaldo();
+  Object.assign(d, { desde: new Date().toISOString(), respaldo: hashes });
+  return { codigos };
+});
+ruta("POST", "/me/2fa/respaldo", async (ctx, _p, _q, req) => {
+  const d = dosPasosMock(ctx);
+  if (!d?.desde) throw new ErrorApi(409, "NO_ACTIVO", "El 2FA no está activo");
+  codigoMock(d, (await cuerpo<{ codigo?: unknown }>(req))?.codigo);
+  const { codigos, hashes } = DP.nuevosCodigosRespaldo();
+  d.respaldo = hashes;
+  return { codigos };
+});
+ruta("POST", "/me/2fa/desactivar", async (ctx, _p, _q, req) => {
+  const d = dosPasosMock(ctx);
+  if (!d?.desde) throw new ErrorApi(409, "NO_ACTIVO", "El 2FA no está activo");
+  codigoMock(d, (await cuerpo<{ codigo?: unknown }>(req))?.codigo);
+  E.dosPasos.delete(ctx.usuario.id);
+  return null;
+});
+ruta("DELETE", "/me/2fa/dispositivos/:id", (ctx) => {
+  dosPasosMock(ctx);
+  return null;
+});
+
 ruta("POST", "/me/jarvis/llave", async (ctx) => {
   soloEquipo(ctx);
   if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Las llaves de Jarvis son de personas del equipo");
@@ -5992,6 +6047,8 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       u.claveDemo = b.clave as string;
       return Response.json({ token: `demo.${u.id}`, refreshToken: null, tipo: u.tipo, clienteId: E.miembros.find((m) => m.usuarioId === u.id)?.clienteId ?? null });
     }
+    // 16 nov: la API simulada no pide el 2FA al ingresar (no hay desafíos que verificar).
+    if (req.method === "POST" && camino === "/sesion/verificar-2fa") throw new ErrorApi(401, "DESAFIO_VENCIDO", "Pasó mucho tiempo", "Vuelve a ingresar tu contraseña.");
     if (req.method === "POST" && ["/sesion/nueva-clave", "/sesion/restablecer", "/sesion/renovar"].includes(camino)) {
       throw new ErrorApi(409, "SOLO_COGNITO", "Disponible solo con el ingreso de producción (Cognito)");
     }

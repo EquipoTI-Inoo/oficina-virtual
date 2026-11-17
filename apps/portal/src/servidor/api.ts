@@ -69,6 +69,7 @@ import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
 import { bloqueadoEnPruebas, descripcionPrueba, EMPLEADO_DE_PRUEBA, MENSAJE_PRUEBAS, permitidoACuentaPruebas } from "../dominio/pruebas";
 import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validarAccionJarvis, type DatosAccion, type TipoAccionJarvis } from "../dominio/acciones-jarvis";
 import { anotarFallido, firmarSesion, ingresoConInooWork, leerPaseInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
+import * as DP from "./dos-pasos";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
@@ -2807,8 +2808,89 @@ ruta("GET", "/me/cuenta", async (ctx) => {
 ruta("POST", "/me/sesiones/cerrar", async (ctx) => {
   if (ctx.enNombreDe || ctx.esServicio || ctx.u.jarvis) throw new ErrorApi(409, "NO_DISPONIBLE", "Desde aquí no se pueden cerrar las sesiones");
   await ctx.c.query("UPDATE usuario SET sesiones_desde = now() WHERE id = $1", [ctx.u.usuarioId]);
+  // 16 nov: cerrar las sesiones también olvida los dispositivos de confianza del 2FA.
+  await ctx.c.query("DELETE FROM dispositivo_confiable WHERE usuario_id = $1", [ctx.u.usuarioId]);
   const s = firmarSesion(ctx.u.usuarioId);
   return { token: s.token, expiraEn: s.expiraEn };
+});
+
+// ───────────────────────────── 2FA en Mi cuenta (16 nov): activar con un código, respaldos, dispositivos
+
+const soloLaPersona = (ctx: Ctx) => {
+  if (ctx.enNombreDe || ctx.esServicio || ctx.u.jarvis) throw new ErrorApi(409, "NO_DISPONIBLE", "El 2FA lo configura cada persona desde su cuenta");
+};
+type FilaDosPasos = { email: string; secreto: string | null; desde: Date | null; respaldo: string[] };
+const dosPasosDe = async (ctx: Ctx) => (await ctx.c.query<FilaDosPasos>(
+  "SELECT email::text AS email, dos_pasos_secreto AS secreto, dos_pasos_desde AS desde, dos_pasos_respaldo AS respaldo FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0];
+/** El código de la app o uno de respaldo (que se gasta). */
+async function probarCodigo(ctx: Ctx, u: FilaDosPasos, codigo: unknown) {
+  const llave = `2fa:${ctx.u.usuarioId}`;
+  revisarIntentos(llave);
+  const x = typeof codigo === "string" ? codigo.trim() : "";
+  if (u.secreto && DP.codigoValido(descifrar(u.secreto), x)) return olvidarFallidos(llave);
+  if (x && u.respaldo.includes(DP.hashCodigo(x))) {
+    await ctx.c.query("UPDATE usuario SET dos_pasos_respaldo = array_remove(dos_pasos_respaldo, $2) WHERE id = $1", [ctx.u.usuarioId, DP.hashCodigo(x)]);
+    return olvidarFallidos(llave);
+  }
+  anotarFallido(llave);
+  throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "codigo", mensaje: "El código no es correcto" }]);
+}
+ruta("GET", "/me/2fa", async (ctx) => {
+  soloLaPersona(ctx);
+  const u = await dosPasosDe(ctx);
+  const ds = (await ctx.c.query<{ id: string; nombre: string; creado_en: Date; expira_en: Date; ultimo_uso: Date | null }>(
+    "SELECT id, nombre, creado_en, expira_en, ultimo_uso FROM dispositivo_confiable WHERE usuario_id = $1 AND expira_en > now() ORDER BY coalesce(ultimo_uso, creado_en) DESC", [ctx.u.usuarioId])).rows;
+  return {
+    activo: !!u.desde, desde: iso(u.desde), respaldosRestantes: u.desde ? u.respaldo.length : 0,
+    dispositivos: ds.map((d) => ({ id: d.id, nombre: d.nombre, creadoEn: iso(d.creado_en)!, expiraEn: iso(d.expira_en)!, ultimoUso: iso(d.ultimo_uso) })),
+  } satisfies S<"DosPasos">;
+});
+ruta("POST", "/me/2fa/iniciar", async (ctx) => {
+  soloLaPersona(ctx);
+  const u = await dosPasosDe(ctx);
+  if (u.desde) throw new ErrorApi(409, "YA_ACTIVO", "El 2FA ya está activo");
+  const secreto = DP.nuevoSecreto();
+  await ctx.c.query("UPDATE usuario SET dos_pasos_secreto = $2, dos_pasos_desde = NULL WHERE id = $1", [ctx.u.usuarioId, cifrar(secreto)]);
+  return { secreto, otpauth: DP.enlaceOtpauth(secreto, u.email) };
+});
+ruta("POST", "/me/2fa/activar", async (ctx, _p, _q, cuerpo) => {
+  soloLaPersona(ctx);
+  const u = await dosPasosDe(ctx);
+  if (u.desde) throw new ErrorApi(409, "YA_ACTIVO", "El 2FA ya está activo");
+  if (!u.secreto) throw new ErrorApi(409, "SIN_INICIAR", "Primero escanea el código QR");
+  const llave = `2fa:${ctx.u.usuarioId}`;
+  revisarIntentos(llave);
+  if (!DP.codigoValido(descifrar(u.secreto), ((await cuerpo()) as { codigo?: unknown }).codigo)) {
+    anotarFallido(llave);
+    validacion([{ campo: "codigo", mensaje: "El código no es correcto: revisa la hora del celular" }]);
+  }
+  olvidarFallidos(llave);
+  const { codigos, hashes } = DP.nuevosCodigosRespaldo();
+  await ctx.c.query("UPDATE usuario SET dos_pasos_desde = now(), dos_pasos_respaldo = $2 WHERE id = $1", [ctx.u.usuarioId, hashes]);
+  return { codigos };
+});
+ruta("POST", "/me/2fa/respaldo", async (ctx, _p, _q, cuerpo) => {
+  soloLaPersona(ctx);
+  const u = await dosPasosDe(ctx);
+  if (!u.desde) throw new ErrorApi(409, "NO_ACTIVO", "El 2FA no está activo");
+  await probarCodigo(ctx, u, ((await cuerpo()) as { codigo?: unknown }).codigo);
+  const { codigos, hashes } = DP.nuevosCodigosRespaldo();
+  await ctx.c.query("UPDATE usuario SET dos_pasos_respaldo = $2 WHERE id = $1", [ctx.u.usuarioId, hashes]);
+  return { codigos };
+});
+ruta("POST", "/me/2fa/desactivar", async (ctx, _p, _q, cuerpo) => {
+  soloLaPersona(ctx);
+  const u = await dosPasosDe(ctx);
+  if (!u.desde) throw new ErrorApi(409, "NO_ACTIVO", "El 2FA no está activo");
+  await probarCodigo(ctx, u, ((await cuerpo()) as { codigo?: unknown }).codigo);
+  await ctx.c.query("UPDATE usuario SET dos_pasos_secreto = NULL, dos_pasos_desde = NULL, dos_pasos_respaldo = '{}' WHERE id = $1", [ctx.u.usuarioId]);
+  await ctx.c.query("DELETE FROM dispositivo_confiable WHERE usuario_id = $1", [ctx.u.usuarioId]);
+  return null;
+});
+ruta("DELETE", "/me/2fa/dispositivos/:id", async (ctx, p) => {
+  soloLaPersona(ctx);
+  await ctx.c.query("DELETE FROM dispositivo_confiable WHERE usuario_id = $1 AND id = $2", [ctx.u.usuarioId, esUuid(p.id) ? p.id : null]);
+  return null;
 });
 
 ruta("POST", "/me/jarvis/llave", async (ctx) => {
@@ -7655,7 +7737,7 @@ export const RUTAS_DB = RUTAS.map(([m, p]) => `${m} ${p.replace(/:(\w+)/g, "{$1}
  */
 // ───────────────────────────────────────────── sesión: ingreso con Cognito (INO-01)
 
-const RUTAS_SESION = ["/sesion/desde-inoowork", "/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar", "/sesion/crear-clave"];
+const RUTAS_SESION = ["/sesion/verificar-2fa", "/sesion/desde-inoowork", "/sesion/ingresar", "/sesion/nueva-clave", "/sesion/olvide-clave", "/sesion/restablecer", "/sesion/renovar", "/sesion/crear-clave"];
 
 /** Con los tokens de Cognito, quién es en la base: tipo y primer cliente (para la sesión del portal). */
 async function sesionDeTokens(t: Tokens): Promise<Response> {
@@ -7716,9 +7798,13 @@ async function ingresarConInooWork(req: Request): Promise<Response | null> {
     return u.id;
   });
   if (!id) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal", "Pídele al ADMIN que te agregue en «Equipo».");
+  return conDosPasos(id, req, async () => sesionEquipo(id));
+}
+
+const sesionEquipo = (id: string) => {
   const s = firmarSesion(id);
   return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
-}
+};
 
 /** Desde InooWork con la sesión iniciada (6 nov): el pase dice qué empleado es; la ficha tiene que estar activa. */
 async function ingresarConPase(req: Request): Promise<Response> {
@@ -7729,8 +7815,71 @@ async function ingresarConPase(req: Request): Promise<Response> {
   const db = await baseDatos();
   const u = await db.transaccion(async (c) => (await c.query<{ id: string }>("SELECT id FROM usuario WHERE tipo = 'EQUIPO' AND activo AND NOT es_prueba AND inoowork_empleado_id = $1 LIMIT 1", [empleado])).rows[0]);
   if (!u) throw new ErrorApi(403, "CUENTA_NO_ENLAZADA", "Tu usuario de InooWork no está enlazado al portal", "Pídele al ADMIN que te agregue en «Equipo».");
-  const s = firmarSesion(u.id);
-  return Response.json({ token: s.token, refreshToken: null, expiraEn: s.expiraEn, tipo: "EQUIPO", clienteId: null });
+  return conDosPasos(u.id, req, async () => sesionEquipo(u.id));
+}
+
+// ───────────────────────────── verificación en dos pasos (16 nov, Ernesto: 2FA). Opcional para todos.
+
+const secretoSesion = () => {
+  const s = process.env.SESION_SECRETO;
+  if (!s || s.length < 32) throw new ErrorApi(503, "SESION_NO_CONFIGURADA", "El ingreso todavía no está configurado");
+  return s;
+};
+/** «Chrome en Windows»: para reconocer cada dispositivo de confianza en Mi cuenta. */
+function nombreDispositivo(req: Request) {
+  const ua = req.headers.get("user-agent") ?? "";
+  const nav = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Navegador";
+  const so = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iPhone" : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+  return so ? `${nav} en ${so}` : nav;
+}
+/**
+ * Después de la contraseña (o del pase de InooWork): si la persona usa 2FA y este navegador no es de confianza,
+ * en vez de la sesión va un desafío; la sesión la da /sesion/verificar-2fa con el código.
+ */
+async function conDosPasos(usuarioId: string, req: Request, dar: () => Promise<Response>): Promise<Response> {
+  const db = await baseDatos();
+  const u = (await db.transaccion((c) => c.query<{ desde: Date | null }>("SELECT dos_pasos_desde AS desde FROM usuario WHERE id = $1", [usuarioId]))).rows[0];
+  if (!u?.desde) return dar();
+  const disp = req.headers.get("x-dispositivo-inoo");
+  if (disp && disp.length < 200) {
+    const ok = await db.transaccion((c) => c.query("UPDATE dispositivo_confiable SET ultimo_uso = now() WHERE usuario_id = $1 AND token_hash = $2 AND expira_en > now() RETURNING id", [usuarioId, DP.hashDispositivo(disp)]));
+    if (ok.rows.length) return dar();
+  }
+  return Response.json({ requiere2fa: true, desafio: DP.firmarDesafio(secretoSesion(), usuarioId) });
+}
+async function verificarDosPasos(req: Request): Promise<Response> {
+  const b = (await req.json().catch(() => ({}))) as { desafio?: unknown; codigo?: unknown; confiar?: unknown };
+  const id = DP.leerDesafio(secretoSesion(), b.desafio);
+  if (!id) throw new ErrorApi(401, "DESAFIO_VENCIDO", "Pasó mucho tiempo", "Vuelve a ingresar tu contraseña.");
+  const llave = `2fa:${id}`;
+  revisarIntentos(llave);
+  const codigo = typeof b.codigo === "string" ? b.codigo.trim() : "";
+  const db = await baseDatos();
+  const r = await db.transaccion(async (c) => {
+    const u = (await c.query<{ tipo: string; secreto: string | null; desde: Date | null; respaldo: string[] }>(
+      "SELECT tipo::text AS tipo, dos_pasos_secreto AS secreto, dos_pasos_desde AS desde, dos_pasos_respaldo AS respaldo FROM usuario WHERE id = $1 AND activo FOR UPDATE", [id])).rows[0];
+    if (!u?.secreto || !u.desde) throw new ErrorApi(401, "DESAFIO_VENCIDO", "Pasó mucho tiempo", "Vuelve a ingresar tu contraseña.");
+    let ok = DP.codigoValido(descifrar(u.secreto), codigo);
+    if (!ok && codigo) {
+      const h = DP.hashCodigo(codigo);
+      if (u.respaldo.includes(h)) {
+        ok = true;
+        await c.query("UPDATE usuario SET dos_pasos_respaldo = array_remove(dos_pasos_respaldo, $2) WHERE id = $1", [id, h]);
+      }
+    }
+    if (!ok) return null;
+    const sesion = u.tipo === "CLIENTE" ? await iniciarSesionCliente(c, id) : sesionEquipo(id);
+    if (b.confiar !== true) return sesion;
+    const t = DP.nuevoTokenDispositivo();
+    await c.query(`INSERT INTO dispositivo_confiable (usuario_id, token_hash, nombre, expira_en) VALUES ($1, $2, $3, now() + interval '${DP.DIAS_DISPOSITIVO} days')`, [id, DP.hashDispositivo(t), nombreDispositivo(req)]);
+    return Response.json({ ...(await sesion.json()), dispositivo: t });
+  });
+  if (!r) {
+    anotarFallido(llave);
+    throw new ErrorApi(401, "CODIGO_INVALIDO", "El código no es correcto", "Revisa la hora del celular, o usa un código de respaldo.");
+  }
+  olvidarFallidos(llave);
+  return r;
 }
 
 /** La sesión de un cliente que acaba de probar quién es. */
@@ -7777,7 +7926,7 @@ async function sesionPortal(camino: string, req: Request): Promise<Response> {
         throw new ErrorApi(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña incorrectos");
       }
       olvidarFallidos(email);
-      return db.transaccion((c) => iniciarSesionCliente(c, u.id));
+      return conDosPasos(u.id, req, () => db.transaccion((c) => iniciarSesionCliente(c, u.id)));
     }
     case "/sesion/olvide-clave": {
       if (email) {
@@ -7795,7 +7944,8 @@ async function sesionPortal(camino: string, req: Request): Promise<Response> {
       const error = errorClaveNueva(b.clave);
       if (error) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "clave", mensaje: error }]);
       const hash = await hashClave(b.clave as string);
-      return db.transaccion(async (c) => {
+      // 16 nov: con 2FA activo, crear o restablecer la contraseña no salta el código.
+      const usuarioId = await db.transaccion(async (c) => {
         const e = (await c.query<{ id: string; usuario_id: string }>(
           `SELECT e.id, e.usuario_id FROM enlace_clave e JOIN usuario u ON u.id = e.usuario_id AND u.activo AND u.tipo = 'CLIENTE'
            WHERE e.token_hash = $1 AND e.usado_en IS NULL AND e.expira_en > now() FOR UPDATE OF e`, [hashToken(t("token"))],
@@ -7804,8 +7954,9 @@ async function sesionPortal(camino: string, req: Request): Promise<Response> {
         await c.query("UPDATE usuario SET clave_hash = $2, sesiones_desde = now() WHERE id = $1", [e.usuario_id, hash]);
         // Un enlace que se usa invalida los demás de esa persona.
         await c.query("UPDATE enlace_clave SET usado_en = now() WHERE usuario_id = $1 AND usado_en IS NULL", [e.usuario_id]);
-        return iniciarSesionCliente(c, e.usuario_id);
+        return e.usuario_id;
       });
+      return conDosPasos(usuarioId, req, () => db.transaccion((c) => iniciarSesionCliente(c, usuarioId)));
     }
     default:
       throw new ErrorApi(409, "SOLO_COGNITO", "Disponible solo con Cognito");
@@ -7857,6 +8008,7 @@ async function sesion(camino: string, req: Request): Promise<Response> {
       if (r) return r;
     }
     if (camino === "/sesion/desde-inoowork") return await ingresarConPase(req);
+    if (camino === "/sesion/verificar-2fa") return await verificarDosPasos(req);
     if (process.env.AUTH_MODO === "portal") return await sesionPortal(camino, req);
     if ((process.env.AUTH_MODO ?? "demo") !== "cognito") {
       if (camino === "/sesion/ingresar") return await ingresarDemo(req);

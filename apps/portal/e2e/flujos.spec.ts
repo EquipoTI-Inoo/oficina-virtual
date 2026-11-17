@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { entrarComo, reiniciar } from "./utilidades";
+import { codigoEn } from "../src/servidor/dos-pasos";
 
 test.beforeEach(async ({ request }) => reiniciar(request));
 
@@ -734,6 +735,27 @@ test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin
   await visor.getByRole("button", { name: /^Comentar en la V1/ }).click();
   await expect(visor.getByRole("button", { name: /^Comentario 1 de Diego Castro/ })).toBeVisible({ timeout: 20_000 });
   await expect(visor.getByRole("button", { name: /Punto 1/ })).toBeVisible();
+});
+
+test("2FA (16 nov): se activa desde Mi cuenta con el QR, muestra los códigos de respaldo y se desactiva con un código", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  await reiniciar(request);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/mi-cuenta");
+  await page.getByRole("button", { name: "Activar la verificación en dos pasos" }).click({ timeout: 30_000 });
+  await expect(page.getByRole("img", { name: "Código QR para la app autenticadora" })).toBeVisible();
+  const secreto = (await page.locator("code").first().textContent())!.trim();
+  const ahora = () => codigoEn(secreto, Math.floor(Date.now() / 30_000));
+  await page.getByLabel(/Escribe el código de 6 dígitos/).fill(ahora());
+  await page.getByRole("button", { name: "Activar", exact: true }).click();
+  await expect(page.getByText("Guarda estos códigos de respaldo.")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".codigos-respaldo code")).toHaveCount(10);
+  await page.getByRole("button", { name: "Ya los guardé" }).click();
+  await expect(page.getByText(/Te quedan 10 códigos de respaldo/)).toBeVisible();
+  await page.getByRole("button", { name: "Desactivar", exact: true }).click();
+  await page.getByLabel("Código de la app o de respaldo").fill(ahora());
+  await page.getByRole("button", { name: "Desactivar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Activar la verificación en dos pasos" })).toBeVisible({ timeout: 20_000 });
 });
 
 test("proyectos (16 nov, tanda 4): pestañas Proyectos y Servicios con el filtro Empresa → Marca", async ({ page }) => {

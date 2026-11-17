@@ -73,6 +73,83 @@ tags:
   - name: Integraciones
 
 paths:
+  /sesion/verificar-2fa:
+    post:
+      tags: [Sesión]
+      operationId: verificarDosPasos
+      summary: 'Segundo paso del ingreso (16 nov): el desafío y el código de la app (o uno de respaldo). Con confiar=true devuelve además el token del dispositivo de confianza'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [desafio, codigo]
+              properties:
+                desafio: { type: string }
+                codigo: { type: string, description: '6 dígitos, o un código de respaldo xxxx-xxxx' }
+                confiar: { type: boolean, description: 'No volver a pedir el código en este navegador por 30 días' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SesionIniciada' } } } }
+        '401': { description: 'CODIGO_INVALIDO o DESAFIO_VENCIDO' }
+        '429': { description: Demasiados intentos }
+
+  /me/2fa:
+    get:
+      tags: [Sesión]
+      operationId: verDosPasos
+      summary: 'Estado del 2FA de quien pregunta y sus dispositivos de confianza (16 nov)'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DosPasos' } } } }
+  /me/2fa/iniciar:
+    post:
+      tags: [Sesión]
+      operationId: iniciarDosPasos
+      summary: 'Genera el secreto (para el QR). Queda activo recién con /me/2fa/activar'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [secreto, otpauth], properties: { secreto: { type: string }, otpauth: { type: string } } } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+  /me/2fa/activar:
+    post:
+      tags: [Sesión]
+      operationId: activarDosPasos
+      summary: 'Confirma con un código de la app y devuelve los 10 códigos de respaldo (se muestran una sola vez)'
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [codigo], properties: { codigo: { type: string } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [codigos], properties: { codigos: { type: array, items: { type: string } } } } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+  /me/2fa/respaldo:
+    post:
+      tags: [Sesión]
+      operationId: nuevosCodigosRespaldo
+      summary: 'Códigos de respaldo nuevos (los anteriores dejan de servir); pide un código'
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [codigo], properties: { codigo: { type: string } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [codigos], properties: { codigos: { type: array, items: { type: string } } } } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+  /me/2fa/desactivar:
+    post:
+      tags: [Sesión]
+      operationId: desactivarDosPasos
+      summary: 'Desactiva el 2FA (pide un código) y olvida los dispositivos de confianza'
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [codigo], properties: { codigo: { type: string } } } } } }
+      responses:
+        '204': { description: Desactivado }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+  /me/2fa/dispositivos/{dispositivoId}:
+    parameters:
+      - { name: dispositivoId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Sesión]
+      operationId: olvidarDispositivo
+      summary: 'Deja de confiar en un dispositivo'
+      responses:
+        '204': { description: Listo }
+
   /sesion/ingresar:
     post:
       tags: [Sesión]
@@ -7599,6 +7676,32 @@ components:
         tipo: { type: string, enum: [CLIENTE, EQUIPO] }
         clienteId: { type: [string, 'null'], format: uuid, description: 'Cliente con el que entra (solo usuarios CLIENTE)' }
         cuentaPruebas: { type: boolean, description: 'Es la cuenta pruebas@inoo.pe: el portal abre el menú de usuarios de prueba' }
+        dispositivo: { type: string, description: 'Solo tras /sesion/verificar-2fa con confiar=true: va en X-Dispositivo-Inoo en los próximos ingresos (30 días)' }
+    DesafioDosPasos:
+      type: object
+      description: 'La contraseña fue correcta pero la persona usa 2FA y este navegador no es de confianza (16 nov): falta el código'
+      required: [requiere2fa, desafio]
+      properties:
+        requiere2fa: { type: boolean, enum: [true] }
+        desafio: { type: string, description: 'Vale 5 minutos; va con el código a /sesion/verificar-2fa' }
+    DosPasos:
+      type: object
+      required: [activo, desde, respaldosRestantes, dispositivos]
+      properties:
+        activo: { type: boolean }
+        desde: { type: [string, 'null'], format: date-time }
+        respaldosRestantes: { type: integer }
+        dispositivos:
+          type: array
+          items:
+            type: object
+            required: [id, nombre, creadoEn, expiraEn, ultimoUso]
+            properties:
+              id: { type: string, format: uuid }
+              nombre: { type: string, examples: [Chrome en Windows] }
+              creadoEn: { type: string, format: date-time }
+              expiraEn: { type: string, format: date-time }
+              ultimoUso: { type: [string, 'null'], format: date-time }
     DesafioNuevaClave:
       type: object
       required: [desafio, sesion, pool]

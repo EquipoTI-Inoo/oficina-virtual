@@ -7,7 +7,7 @@ import {
   LuLifeBuoy,
 } from "react-icons/lu";
 import {
-  api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
+  api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarDispositivo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
   useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL, rolCliente } from "../base";
 import {
   Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_PIEZA, ESTADO_PIEZA_CLIENTE, Estructura, Etiqueta, EtiquetaEstado, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
@@ -36,6 +36,10 @@ export function PantallaIngreso() {
   const [modo, setModo] = useState<ModoIngreso>("INGRESAR");
   const [desafio, setDesafio] = useState<{ sesion: string; pool: "CLIENTES" | "EQUIPO" } | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // 16 nov (2FA): tras la contraseña, el código de la app (si la persona lo activó).
+  const [dosPasos, setDosPasos] = useState<{ desafio: string; destino?: string } | null>(null);
+  const [codigo, setCodigo] = useState("");
+  const [confiar, setConfiar] = useState(true);
 
   useEffect(() => {
     // Desde «Portal de Inoo» en InooWork (6 nov): llega un pase de un solo uso y se entra sin escribir nada.
@@ -52,8 +56,9 @@ export function PantallaIngreso() {
     if (pase) {
       window.history.replaceState(null, "", window.location.pathname);
       setEnviando(true);
-      api<S<"SesionIniciada">>("/sesion/desde-inoowork", { metodo: "POST", cuerpo: { pase } })
+      api<S<"SesionIniciada"> | S<"DesafioDosPasos">>("/sesion/desde-inoowork", { metodo: "POST", cuerpo: { pase } })
         .then((r) => {
+          if ("requiere2fa" in r) return setDosPasos({ desafio: r.desafio });
           guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: null, pool: r.pool }, false);
           ir("/equipo/mi-panel");
         })
@@ -76,13 +81,34 @@ export function PantallaIngreso() {
     setAviso(null);
     setEnviando(true);
     try {
-      const r = await api<S<"SesionIniciada"> | S<"DesafioNuevaClave">>("/sesion/ingresar", { metodo: "POST", cuerpo: { email, clave } });
-      if ("desafio" in r) {
+      const r = await api<S<"SesionIniciada"> | S<"DesafioNuevaClave"> | S<"DesafioDosPasos">>("/sesion/ingresar", { metodo: "POST", cuerpo: { email, clave } });
+      if ("requiere2fa" in r) {
+        setCodigo("");
+        setDosPasos({ desafio: r.desafio });
+      } else if ("desafio" in r) {
         setDesafio({ sesion: r.sesion, pool: r.pool });
         setModo("NUEVA_CLAVE");
       } else entrar(r);
     } catch (err) {
       setError((err as ProblemaApi).titulo);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const verificar = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!dosPasos) return;
+    setError(null);
+    setEnviando(true);
+    try {
+      const r = await api<S<"SesionIniciada">>("/sesion/verificar-2fa", { metodo: "POST", cuerpo: { desafio: dosPasos.desafio, codigo, confiar } });
+      if (confiar) guardarDispositivo(r.dispositivo);
+      entrar(r);
+    } catch (err) {
+      const p = err as ProblemaApi;
+      if (p.codigo === "DESAFIO_VENCIDO") { setDosPasos(null); setClave(""); }
+      setError(`${p.titulo}.${p.detalle ? ` ${p.detalle}` : ""}`);
     } finally {
       setEnviando(false);
     }
@@ -139,7 +165,30 @@ export function PantallaIngreso() {
         <p className="texto-xs texto-muted" style={{ textAlign: "right", textTransform: "uppercase", letterSpacing: "0.02em", marginBottom: 74, width: "min(480px, 100%)" }}>
           Portal de clientes
         </p>
-        {modo !== "INGRESAR" ? (
+        {dosPasos ? (
+          <form className="ingreso-form" onSubmit={verificar} noValidate>
+            <div>
+              <h2 style={{ fontSize: "var(--t-4xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>Verificación en dos pasos</h2>
+              <p className="texto-muted" style={{ marginTop: 12, fontSize: "var(--t-base)" }}>
+                Escribe el código de 6 dígitos de tu app autenticadora. Si no tienes el celular, usa uno de tus códigos de respaldo.
+              </p>
+            </div>
+            <div className="campo">
+              <label htmlFor="codigo-2fa">Código</label>
+              <div className="entrada">
+                <input id="codigo-2fa" inputMode="numeric" autoComplete="one-time-code" autoFocus placeholder="123 456" maxLength={12} value={codigo} onChange={(e) => setCodigo(e.target.value)} required />
+              </div>
+            </div>
+            <label className="casilla">
+              <input type="checkbox" checked={confiar} onChange={(e) => setConfiar(e.target.checked)} /> Confiar en este dispositivo por 30 días
+            </label>
+            {error && <p role="alert" className="texto-sm" style={{ color: "var(--c-alerta)" }}>{error}</p>}
+            <button className="boton boton--primario boton--bloque" disabled={enviando || !codigo.trim()} style={{ height: 40, borderRadius: 10 }}>
+              <LuArrowRight size={16} /> {enviando ? "Verificando…" : "Verificar e ingresar"}
+            </button>
+            <a className="enlace texto-sm" href="#volver" onClick={(e) => { e.preventDefault(); setDosPasos(null); setError(null); }}>Volver</a>
+          </form>
+        ) : modo !== "INGRESAR" ? (
           <FormularioClave
             modo={modo}
             email={email}

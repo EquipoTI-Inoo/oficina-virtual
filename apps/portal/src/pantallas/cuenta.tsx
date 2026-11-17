@@ -5,6 +5,7 @@
  * soporte queda a mano para quien lo busca, sin estar en primera pantalla (como en la app de un banco).
  * El WhatsApp de Ayuda es la línea pública de Inoo, hasta que cada área tenga la suya.
  */
+import { SeccionDosPasos } from "./dos-pasos";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { LuFileText, LuMail, LuMessageCircle, LuTicket } from "react-icons/lu";
 import { actualizarSesion, api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente, cuentaActiva } from "../base";
@@ -141,6 +142,7 @@ function MisDatos() {
         <p className="texto-xs texto-muted">Para cambiar tus datos, escríbele a tu equipo Inoo.</p>
       </Tarjeta>
       {sesion.usuario.tipo === "CLIENTE" && <CambiarClave />}
+      {sesion.usuario.tipo === "CLIENTE" && <SeccionDosPasos />}
       <Tarjeta titulo="Tu plan">
         <Dato etiqueta="Empresa">{c.nombre}</Dato>
         <Dato etiqueta="Plan">{c.plan?.nombre ?? "—"}</Dato>

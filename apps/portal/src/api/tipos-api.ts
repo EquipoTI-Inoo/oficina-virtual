@@ -6,6 +6,127 @@
  */
 
 export interface paths {
+    "/sesion/verificar-2fa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Segundo paso del ingreso (16 nov): el desafío y el código de la app (o uno de respaldo). Con confiar=true devuelve además el token del dispositivo de confianza */
+        post: operations["verificarDosPasos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/2fa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Estado del 2FA de quien pregunta y sus dispositivos de confianza (16 nov) */
+        get: operations["verDosPasos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/2fa/iniciar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Genera el secreto (para el QR). Queda activo recién con /me/2fa/activar */
+        post: operations["iniciarDosPasos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/2fa/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirma con un código de la app y devuelve los 10 códigos de respaldo (se muestran una sola vez) */
+        post: operations["activarDosPasos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/2fa/respaldo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Códigos de respaldo nuevos (los anteriores dejan de servir); pide un código */
+        post: operations["nuevosCodigosRespaldo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/2fa/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Desactiva el 2FA (pide un código) y olvida los dispositivos de confianza */
+        post: operations["desactivarDosPasos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/2fa/dispositivos/{dispositivoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispositivoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deja de confiar en un dispositivo */
+        delete: operations["olvidarDispositivo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sesion/ingresar": {
         parameters: {
             query?: never;
@@ -5684,6 +5805,33 @@ export interface components {
             clienteId: string | null;
             /** @description Es la cuenta pruebas@inoo.pe: el portal abre el menú de usuarios de prueba */
             cuentaPruebas?: boolean;
+            /** @description Solo tras /sesion/verificar-2fa con confiar=true: va en X-Dispositivo-Inoo en los próximos ingresos (30 días) */
+            dispositivo?: string;
+        };
+        /** @description La contraseña fue correcta pero la persona usa 2FA y este navegador no es de confianza (16 nov): falta el código */
+        DesafioDosPasos: {
+            /** @enum {boolean} */
+            requiere2fa: true;
+            /** @description Vale 5 minutos; va con el código a /sesion/verificar-2fa */
+            desafio: string;
+        };
+        DosPasos: {
+            activo: boolean;
+            /** Format: date-time */
+            desde: string | null;
+            respaldosRestantes: number;
+            dispositivos: {
+                /** Format: uuid */
+                id: string;
+                /** @example Chrome en Windows */
+                nombre: string;
+                /** Format: date-time */
+                creadoEn: string;
+                /** Format: date-time */
+                expiraEn: string;
+                /** Format: date-time */
+                ultimoUso: string | null;
+            }[];
         };
         DesafioNuevaClave: {
             /** @enum {string} */
@@ -8699,6 +8847,200 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    verificarDosPasos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    desafio: string;
+                    /** @description 6 dígitos, o un código de respaldo xxxx-xxxx */
+                    codigo: string;
+                    /** @description No volver a pedir el código en este navegador por 30 días */
+                    confiar?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"];
+                };
+            };
+            /** @description CODIGO_INVALIDO o DESAFIO_VENCIDO */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Demasiados intentos */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verDosPasos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DosPasos"];
+                };
+            };
+        };
+    };
+    iniciarDosPasos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        secreto: string;
+                        otpauth: string;
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    activarDosPasos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    codigo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        codigos: string[];
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    nuevosCodigosRespaldo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    codigo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        codigos: string[];
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    desactivarDosPasos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    codigo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Desactivado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    olvidarDispositivo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispositivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Listo */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ingresar: {
         parameters: {
             query?: never;

@@ -212,6 +212,13 @@ function ocuparBoton(): () => void {
   };
 }
 
+/** 16 nov (2FA): el token del dispositivo de confianza (30 días). Se guarda solo en este navegador. */
+export const CLAVE_DISPOSITIVO = "inoo.dispositivo";
+export function guardarDispositivo(t: string | undefined) {
+  if (!t) return;
+  try { localStorage.setItem(CLAVE_DISPOSITIVO, t); } catch { /* sin almacenamiento: lo pedirá de nuevo */ }
+}
+
 export async function api<T = unknown>(
   camino: string,
   opciones: { metodo?: string; cuerpo?: unknown; idempotente?: boolean; /** Para pausar lo que tarda (IA). */ senal?: AbortSignal } = {},
@@ -236,6 +243,10 @@ async function pedir<T>(
   if (sesion) headers.authorization = `Bearer ${sesion.token}`;
   const comoCliente = vistaClienteActiva();
   if (comoCliente) headers["x-en-nombre-de"] = comoCliente;
+  // 16 nov (2FA): el navegador de confianza se presenta al ingresar para no pedir el código.
+  if (camino.startsWith("/sesion/")) {
+    try { const d = localStorage.getItem(CLAVE_DISPOSITIVO); if (d) headers["x-dispositivo-inoo"] = d; } catch { /* sin almacenamiento */ }
+  }
   if (opciones.cuerpo !== undefined) headers["content-type"] = "application/json";
   if (opciones.idempotente) headers["idempotency-key"] = crypto.randomUUID();
   const res = await fetch(`${BASE}${camino}`, {

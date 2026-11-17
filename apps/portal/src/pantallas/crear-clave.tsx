@@ -20,7 +20,9 @@ export function PantallaCrearClave() {
     if (clave !== repetir) return setError("Las contraseñas no coinciden");
     setEnviando(true);
     try {
-      const r = await api<S<"SesionIniciada">>("/sesion/crear-clave", { metodo: "POST", cuerpo: { token: params.token, clave } });
+      const r = await api<S<"SesionIniciada"> | S<"DesafioDosPasos">>("/sesion/crear-clave", { metodo: "POST", cuerpo: { token: params.token, clave } });
+      // 16 nov (2FA): con la verificación en dos pasos activa, se entra por el ingreso con el código.
+      if ("requiere2fa" in r) return ir("/ingresar");
       guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: r.refreshToken ?? null, pool: r.pool }, true);
       ir(r.cuentaPruebas ? "/pruebas" : r.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
     } catch (x) {
