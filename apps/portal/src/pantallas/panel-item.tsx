@@ -149,7 +149,7 @@ export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Table
           <button role="tab" aria-selected={pestana === "ARCHIVOS"} className={pestana === "ARCHIVOS" ? "activo" : undefined} onClick={() => setPestana("ARCHIVOS")}>
             <LuFile size={13} /> Archivos{archivos.length ? ` (${archivos.length})` : ""}
           </button>
-          {item.deMonday && <button role="tab" aria-selected={false} onClick={() => setMonday(true)}><LuHistory size={13} /> De Monday</button>}
+          {item.deMonday && !t.soyInvitado && <button role="tab" aria-selected={false} onClick={() => setMonday(true)}><LuHistory size={13} /> De Monday</button>}
         </div>
         <div className="panel-lateral-cuerpo">
           {pestana === "CONVERSACION" ? (

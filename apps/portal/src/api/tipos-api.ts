@@ -205,6 +205,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sesion/enlace-invitado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Qué dice un enlace de invitados de un tablero antes de entrar: el nombre del tablero y el permiso (17 nov) */
+        post: operations["verEnlaceInvitado"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sesion/invitado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Un invitado de afuera crea su cuenta con el enlace de invitados de un tablero y queda dentro, con la sesión iniciada (17 nov) */
+        post: operations["registrarInvitado"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sesion/desde-inoowork": {
         parameters: {
             query?: never;
@@ -3804,7 +3838,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Crea el enlace para compartir de una audiencia; si ya había uno, lo reemplaza y el anterior deja de funcionar (16 nov). INVITADO todavía responde 409 */
+        /** Crea el enlace para compartir de una audiencia (equipo o invitados de afuera); si ya había uno, lo reemplaza y el anterior deja de funcionar (16 nov) */
         post: operations["crearEnlaceTablero"];
         delete?: never;
         options?: never;
@@ -3841,12 +3875,33 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Entra a un tablero con un enlace del equipo: queda como miembro con el permiso del enlace (si ya estaba, se queda con el mayor). 16 nov */
+        /** Entra a un tablero con un enlace: el equipo queda como miembro y un invitado de afuera como invitado, con el permiso del enlace (si ya estaba, se queda con el mayor). 16 y 17 nov */
         post: operations["unirseTablero"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/invitados/{usuarioId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Saca a un invitado de afuera del tablero (17 nov): deja de verlo al instante. El líder o un admin */
+        delete: operations["quitarInvitadoTablero"];
+        options?: never;
+        head?: never;
+        /** Cambia el permiso de un invitado de afuera (17 nov). El líder o un admin */
+        patch: operations["cambiarInvitadoTablero"];
         trace?: never;
     };
     "/tableros/{proyectoId}/grupos": {
@@ -5094,8 +5149,11 @@ export interface components {
             expiraEn: string;
             nombreArchivo?: string;
         };
-        /** @enum {string} */
-        TipoUsuario: "EQUIPO" | "CLIENTE" | "SERVICIO";
+        /**
+         * @description INVITADO (17 nov): invitado de afuera a uno o más tableros; solo ve esos tableros
+         * @enum {string}
+         */
+        TipoUsuario: "EQUIPO" | "CLIENTE" | "SERVICIO" | "INVITADO";
         /**
          * @description FINANZAS (reunión 15 oct): ve y cambia el estado de pago de los clientes, junto con ADMIN
          * @enum {string}
@@ -5880,7 +5938,7 @@ export interface components {
             /** Format: date-time */
             expiraEn?: string;
             /** @enum {string} */
-            tipo: "CLIENTE" | "EQUIPO";
+            tipo: "CLIENTE" | "EQUIPO" | "INVITADO";
             /**
              * Format: uuid
              * @description Cliente con el que entra (solo usuarios CLIENTE)
@@ -7090,10 +7148,25 @@ export interface components {
                 audiencia: "EQUIPO" | "INVITADO";
                 permiso: components["schemas"]["PermisoTablero"];
                 activo: boolean;
-                /** @description Va en /equipo/proyectos/unirse/{token}. null si el portal no tiene SESION_SECRETO */
+                /** @description Va en /equipo/proyectos/unirse/{token} (equipo) o /invitado/unirse/{token} (invitados). null si el portal no tiene SESION_SECRETO */
                 token: string | null;
                 /** Format: date-time */
                 creadoEn: string;
+            }[];
+            /** @description Quien mira es un invitado de afuera (17 nov): no ve cómo está compartido ni las automatizaciones */
+            soyInvitado: boolean;
+            /** @description Los invitados de afuera del tablero (solo los ve el equipo que edita). 17 nov */
+            invitados: {
+                /**
+                 * Format: uuid
+                 * @description Id de usuario del portal
+                 */
+                id: string;
+                nombre: string;
+                email: string;
+                permiso: components["schemas"]["PermisoTablero"];
+                /** Format: date-time */
+                desde: string;
             }[];
             /** @description null = sin asignar en InooWork */
             cliente?: string | null;
@@ -9310,6 +9383,89 @@ export interface operations {
                 };
             };
             /** @description SOLO_COGNITO: este despliegue no usa el ingreso propio */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    verEnlaceInvitado: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tablero: string;
+                        permiso: components["schemas"]["PermisoTablero"];
+                    };
+                };
+            };
+            /** @description El enlace no existe */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    registrarInvitado: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                    nombre: string;
+                    /** Format: email */
+                    email: string;
+                    clave: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cuenta creada; sesión iniciada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionIniciada"];
+                };
+            };
+            /** @description El enlace no existe */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description YA_TIENE_CUENTA: ese correo ya tiene cuenta; se ingresa con ella */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17179,6 +17335,77 @@ export interface operations {
                 content?: never;
             };
             409: components["responses"]["Conflicto"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quitarInvitadoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarInvitadoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    permiso: components["schemas"]["PermisoTablero"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
             /** @description InooWork no respondió */
             502: {
                 headers: {

@@ -21,7 +21,8 @@ export const PERIODO = "2026-10";
 export const uid = (grupo: number, n: number) =>
   `00000000-0000-4000-8${String(grupo).padStart(3, "0")}-${String(n).padStart(12, "0")}`;
 
-export type TipoUsuario = "EQUIPO" | "CLIENTE" | "SERVICIO";
+/** INVITADO (17 nov): invitado de afuera a uno o más tableros. */
+export type TipoUsuario = "EQUIPO" | "CLIENTE" | "SERVICIO" | "INVITADO";
 export type RolCliente = "ADMIN_CLIENTE" | "APROBADOR" | "LECTOR";
 
 export interface UsuarioDemo {

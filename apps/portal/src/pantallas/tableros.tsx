@@ -13,7 +13,7 @@ import { BotonIaTablero } from "./ia-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, useAviso, usePortal } from "../componentes";
+import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, useAviso, usePortal } from "../componentes";
 import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
 
@@ -65,6 +65,8 @@ export function PantallaTablero() {
     </Estructura>
   );
 }
+/** 17 nov: el mismo tablero para un invitado de afuera (en /invitado/tableros/{id}), sin lo interno del equipo. */
+export { TableroProyecto };
 
 /**
  * El cliente del proyecto, elegido de los clientes reales para que no quede escrito de varias formas (13 nov,
@@ -172,6 +174,25 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
   );
 }
 
+/**
+ * Progreso del tablero (17 nov, Ernesto: «progreso por tablero, no por columna»): cuánto del tablero está completado,
+ * de un vistazo arriba, también para los invitados de afuera. Cuenta los ítems (los subítems son parte de su ítem).
+ */
+function ProgresoTablero({ t }: { t: Tablero }) {
+  const total = t.items.length;
+  if (!total) return null;
+  const hechos = t.items.filter((i) => i.estado === "Completado").length;
+  const vencidos = t.items.filter((i) => i.vencido && i.estado !== "Completado").length;
+  const pct = Math.round((hechos / total) * 100);
+  return (
+    <div className="pila" style={{ gap: 6, maxWidth: 520, marginBottom: 14 }}>
+      <div className="fila entre texto-sm"><span className="negrita">Progreso del tablero</span><span>{pct} %</span></div>
+      <Barra pct={pct} tono={vencidos ? "ambar" : undefined} />
+      <span className="texto-xs texto-muted">{hechos} de {total} {total === 1 ? "ítem completado" : "ítems completados"}{vencidos ? ` · ${vencidos} ${vencidos === 1 ? "vencido" : "vencidos"}` : ""}</span>
+    </div>
+  );
+}
+
 /** Estado del proyecto en InooWork (6 nov). «Completado» lo pasa a Culminado; a las 2 semanas se archiva solo. */
 function EstadoDelTablero({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
   const completo = t.items.length > 0 && t.items.every((i) => i.estado === "Completado");
@@ -249,18 +270,19 @@ function TableroProyecto() {
 
   return (
     <>
-      <Enlace a="/equipo/proyectos" className="volver">← Proyectos</Enlace>
+      <Enlace a={t.soyInvitado ? "/invitado" : "/equipo/proyectos"} className="volver">← {t.soyInvitado ? "Tableros compartidos contigo" : "Proyectos"}</Enlace>
       <Cabecera
-        antetitulo={[t.cliente ?? "Sin cliente", t.area, t.lider ? `Líder: ${t.lider.nombre}` : null].filter(Boolean).join(" · ")}
+        antetitulo={[t.cliente ?? (t.soyInvitado ? null : "Sin cliente"), t.soyInvitado ? null : t.area, t.lider ? `Líder: ${t.lider.nombre}` : null].filter(Boolean).join(" · ")}
         titulo={t.nombre}
         bajada={t.descripcion ?? undefined}
         accion={
           <span className="fila" style={{ gap: 8 }}>
             {t.privado && <span className="chip texto-xs" title="Solo lo ven sus personas, ni los admins"><LuLock size={12} /> Privado</span>}
             {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">{t.miPermiso === "COMENTADOR" ? "Puedes ver y comentar" : "Solo lectura"}</span>}
-            <BotonPersonas t={t} cambiar={cambiar} />
-            {!t.archivado && <BotonIaTablero t={t} cambiar={cambiar} />}
-            {!t.archivado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
+            {t.soyInvitado && t.puedeEditar && <span className="texto-xs texto-muted">Puedes cambiar y comentar los ítems</span>}
+            {!t.soyInvitado && <BotonPersonas t={t} cambiar={cambiar} />}
+            {!t.archivado && !t.soyInvitado && <BotonIaTablero t={t} cambiar={cambiar} />}
+            {!t.archivado && !t.soyInvitado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
             {t.puedeBorrar && <button className="boton boton--chico boton--peligro" onClick={() => void borrarProyecto()}><LuTrash2 size={13} /> Borrar proyecto</button>}
           </span>
         }
@@ -271,9 +293,10 @@ function TableroProyecto() {
           {t.puedeDesarchivar && <button className="boton boton--chico boton--primario" onClick={() => void desarchivar()}>Desarchivar</button>}
         </div>
       )}
-      {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
-      {t.puedeEditar && <EstadoDelTablero t={t} cambiar={cambiar} />}
-      {t.cliente && <VinculosDelTablero t={t} cambiar={cambiar} editable={t.puedeEditar} />}
+      <ProgresoTablero t={t} />
+      {t.puedeEditar && !t.soyInvitado && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
+      {t.puedeEditar && !t.soyInvitado && <EstadoDelTablero t={t} cambiar={cambiar} />}
+      {t.cliente && !t.soyInvitado && <VinculosDelTablero t={t} cambiar={cambiar} editable={t.puedeEditar} />}
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div className="segmentado" role="tablist" aria-label="Vista del tablero">
           {vistas.map((v) => (
@@ -372,7 +395,9 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
     if (!window.confirm(`¿Borrar «${i.nombre}»${i.subitems.length ? " con sus subítems" : ""}? También se borra en InooWork.`)) return;
     void cambiar(`/items/${i.id}`, "DELETE");
   };
-  const columnas = 7 + t.columnas.length + (editable ? 1 : 0);
+  // 17 nov: un invitado de afuera con permiso de editor cambia los ítems, no la estructura (grupos, columnas, borrar).
+  const estructura = editable && !t.soyInvitado;
+  const columnas = 7 + t.columnas.length + (estructura ? 1 : 0);
   // 16 nov (Ernesto): «Última actualización» va siempre al final de la fila, como en Monday.
   const enOrden = [...t.columnas.filter((c) => c.tipo !== "last_updated"), ...t.columnas.filter((c) => c.tipo === "last_updated")];
   // 16 nov (Ernesto): la fila de totales va siempre (contadores de ítems, estados y prioridades), no solo con números.
@@ -444,7 +469,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
         const suyos = ordenar(g.items);
         const plegado = plegados.has(g.id);
         const real = g.real && agrupar === "GRUPO";
-        const todos = editable && suyos.length > 0 && suyos.every((i) => sel.has(i.id));
+        const todos = estructura && suyos.length > 0 && suyos.every((i) => sel.has(i.id));
         return (
           <section key={g.id} className="tablero-grupo" style={{ borderLeftColor: g.color }} aria-label={`Grupo ${g.nombre}`}>
             <header className="fila" style={{ gap: 8, marginBottom: 6 }}>
@@ -452,10 +477,10 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                 <LuChevronDown size={16} style={{ transform: plegado ? "rotate(-90deg)" : undefined }} />
               </button>
               <span className="tablero-grupo-nombre" style={{ color: g.color }}>
-                {real ? <Texto valor={g.nombre} editable={editable} etiqueta={`Nombre del grupo ${g.nombre}`} guardar={(nombre) => void cambiar(`/grupos/${g.id}`, "PATCH", { nombre })} /> : <span style={{ padding: "4px 6px" }}>{g.nombre}</span>}
+                {real ? <Texto valor={g.nombre} editable={estructura} etiqueta={`Nombre del grupo ${g.nombre}`} guardar={(nombre) => void cambiar(`/grupos/${g.id}`, "PATCH", { nombre })} /> : <span style={{ padding: "4px 6px" }}>{g.nombre}</span>}
               </span>
               <span className="texto-xs texto-muted">{suyos.length} {suyos.length === 1 ? "ítem" : "ítems"}</span>
-              {editable && real && (
+              {estructura && real && (
                 <>
                   <span className="fila" style={{ gap: 3 }}>
                     {COLORES_GRUPO.map((c) => (
@@ -472,7 +497,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                   <thead>
                     <tr>
                       <th style={{ width: 76 }}>
-                        {editable && <input type="checkbox" aria-label={`Elegir todos los ítems de ${g.nombre}`} checked={todos}
+                        {estructura && <input type="checkbox" aria-label={`Elegir todos los ítems de ${g.nombre}`} checked={todos}
                           onChange={(e) => setSel((s) => { const n = new Set(s); for (const i of suyos) (e.target.checked ? n.add(i.id) : n.delete(i.id)); return n; })} />}
                       </th>
                       <Th col="nombre" base={280}>Ítem</Th>
@@ -483,14 +508,14 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                       <th style={ancho("notas", 180)} className="th-redimensionable">Descripción<Asa col="notas" /></th>
                       {enOrden.map((c) => (
                         <th key={c.id} style={ancho(c.id, c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120)} className="th-redimensionable" title={info(c.tipo)?.nombre ?? c.tipo}>
-                          {editable
+                          {estructura
                             ? <button type="button" className="boton-texto" style={{ font: "inherit", color: "inherit", textTransform: "inherit", letterSpacing: "inherit" }} aria-label={`Configurar la columna ${c.nombre}`} onClick={() => setConfigurando(c)}>{c.nombre}</button>
                             : c.nombre}
                           <Asa col={c.id} />
                         </th>
                       ))}
-                      {editable && <th style={{ width: 36 }}><button className="boton-icono" aria-label="Agregar columna" title="Agregar columna" onClick={() => setBiblioteca(true)}><LuPlus size={14} /></button></th>}
-                      {editable && <th style={{ width: 36 }} />}
+                      {estructura && <th style={{ width: 36 }}><button className="boton-icono" aria-label="Agregar columna" title="Agregar columna" onClick={() => setBiblioteca(true)}><LuPlus size={14} /></button></th>}
+                      {estructura && <th style={{ width: 36 }} />}
                     </tr>
                   </thead>
                   <tbody>
@@ -508,7 +533,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                                   <LuGripVertical size={14} />
                                 </span>
                               )}
-                              {editable && <input type="checkbox" aria-label={`Elegir ${i.nombre}`} checked={sel.has(i.id)} onChange={() => setSel((s) => alternar(s, i.id))} />}
+                              {estructura && <input type="checkbox" aria-label={`Elegir ${i.nombre}`} checked={sel.has(i.id)} onChange={() => setSel((s) => alternar(s, i.id))} />}
                               <button className="boton-icono" aria-label={abierto ? `Ocultar subítems de ${i.nombre}` : `Ver subítems de ${i.nombre}`} aria-expanded={abierto} onClick={() => setAbiertos(alternar(abiertos, i.id))}>
                                 <LuChevronRight size={14} style={{ transform: abierto ? "rotate(90deg)" : undefined }} />
                               </button>
@@ -533,8 +558,8 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                           {enOrden.map((c) => (
                             <td key={c.id}><CeldaColumna t={t} col={c} item={i} cambiar={cambiar} editable={editable} /></td>
                           ))}
-                          {editable && <td />}
-                          {editable && <td><button className="boton-icono" aria-label={`Borrar ${i.nombre}`} onClick={() => borrarItem(i)}><LuTrash2 size={13} /></button></td>}
+                          {estructura && <td />}
+                          {estructura && <td><button className="boton-icono" aria-label={`Borrar ${i.nombre}`} onClick={() => borrarItem(i)}><LuTrash2 size={13} /></button></td>}
                         </tr>,
                         ...(abierto
                           ? [
@@ -546,8 +571,8 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                                   <td><Pildora valor={s.estado as EstadoItem} opciones={ESTADOS_ITEM} color={(v) => COLOR_ESTADO[v]} editable={editable} etiqueta={`Estado de ${s.nombre}`} guardar={(estado) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { estado })} /></td>
                                   <td />
                                   <td><Fecha valor={s.fecha ?? null} vencido={s.vencido} editable={editable} etiqueta={`Fecha límite de ${s.nombre}`} guardar={(fecha) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { fecha })} /></td>
-                                  <td colSpan={1 + t.columnas.length + (editable ? 1 : 0)} />
-                                  {editable && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => window.confirm(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
+                                  <td colSpan={1 + t.columnas.length + (estructura ? 1 : 0)} />
+                                  {estructura && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => window.confirm(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
                                 </tr>
                               )),
                               ...(editable ? [<FilaNueva key={`${i.id}-nuevo`} columnas={columnas} sangria etiqueta={`Nuevo subítem en ${i.nombre}`} texto="+ Agregar subítem" crear={(nombre) => cambiar(`/items/${i.id}/subitems`, "POST", { nombre })} />] : []),
@@ -571,7 +596,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                         <td>{(() => { const n = suyos.filter((i) => i.vencido).length; return n ? <span className="texto-xs" style={{ color: "var(--c-semaforo-rojo-intenso)" }}>{n} {n === 1 ? "vencido" : "vencidos"}</span> : null; })()}</td>
                         <td />
                         {enOrden.map((c) => <td key={c.id}><PieNumeros col={c} items={suyos} /></td>)}
-                        {editable && <td colSpan={2} />}
+                        {estructura && <td colSpan={2} />}
                       </tr>
                     )}
                   </tbody>
@@ -581,7 +606,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
           </section>
         );
       })}
-      {editable && agrupar === "GRUPO" && (
+      {estructura && agrupar === "GRUPO" && (
         <button className="boton boton--chico" style={{ justifySelf: "start" }} onClick={() => void nuevoGrupo()}>
           <LuPlus size={14} /> Nuevo grupo
         </button>

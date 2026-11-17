@@ -159,7 +159,6 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       await reiniciar();
       const t0 = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
       assert.equal(t0.miPermiso, "EDITOR", "un miembro sin permiso guardado edita, como antes");
-      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "INVITADO", permiso: "LECTOR" })).status, 409, "invitados: todavía no");
       assert.deepEqual((await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "EQUIPO", permiso: "DUEÑO" })).json.errores.map((e: any) => e.campo), ["permiso"]);
       const t1 = (await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "EQUIPO", permiso: "LECTOR" })).json;
       const token = t1.enlaces.find((e: any) => e.audiencia === "EQUIPO").token;
@@ -195,6 +194,72 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token })).status, 404, "el viejo ya no sirve");
       assert.equal((await llamar("POST", "/tableros-unirse", CAMILA, { token: nuevo })).json.permiso, "EDITOR");
       assert.equal((await llamar("POST", "/tableros-unirse", VALERIA, { token: nuevo })).status, 403, "un cliente no usa enlaces del equipo");
+    });
+
+    test("17 nov: invitados de afuera: crean su cuenta con el enlace y solo ven ese tablero, con su permiso", async () => {
+      await reiniciar();
+      const antesSecreto = process.env.SESION_SECRETO;
+      process.env.SESION_SECRETO ??= "s".repeat(40);
+      try {
+        const deAud = (t: any, a: string) => t.enlaces.find((e: any) => e.audiencia === a).token;
+        const token = deAud((await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "INVITADO", permiso: "COMENTADOR" })).json, "INVITADO");
+        const deEquipo = deAud((await llamar("POST", "/tableros/PROJ-OPS01/enlaces", DIEGO, { audiencia: "EQUIPO", permiso: "EDITOR" })).json, "EQUIPO");
+        assert.equal((await llamar("POST", "/sesion/enlace-invitado", undefined, { token: deEquipo })).status, 404, "el enlace del equipo no sirve a invitados");
+        assert.equal((await llamar("POST", "/sesion/enlace-invitado", undefined, { token })).json.permiso, "COMENTADOR");
+        assert.deepEqual((await llamar("POST", "/sesion/invitado", undefined, { token, nombre: " ", email: "no-es-correo", clave: "corta" })).json.errores.map((e: any) => e.campo), ["nombre", "email", "clave"]);
+        const correoDiego = (await llamar("GET", "/me", DIEGO)).json.usuario.email;
+        assert.equal((await llamar("POST", "/sesion/invitado", undefined, { token, nombre: "Otro", email: correoDiego, clave: "ClaveSegura123" })).status, 409, "un correo con cuenta ingresa");
+        assert.equal((await llamar("POST", "/sesion/invitado", undefined, { token: deEquipo, nombre: "Ana Libre", email: "ana@libre.pe", clave: "ClaveSegura123" })).status, 404);
+
+        const r = await llamar("POST", "/sesion/invitado", undefined, { token, nombre: "Ana Libre", email: "ana@libre.pe", clave: "ClaveSegura123" });
+        assert.equal(r.status, 200);
+        assert.equal(r.json.tipo, "INVITADO");
+        const ANA = r.json.token;
+        assert.equal((await llamar("GET", "/me", ANA)).json.usuario.tipo, "INVITADO");
+        assert.equal((await llamar("POST", "/sesion/invitado", undefined, { token, nombre: "Ana", email: "ANA@libre.pe", clave: "ClaveSegura123" })).status, 409, "no se registra dos veces");
+
+        // Solo su tablero, sin cómo está compartido ni la lista del equipo.
+        assert.deepEqual(await ids(ANA), ["PROJ-OPS01"]);
+        assert.deepEqual((await llamar("GET", "/tableros", ANA)).json.equipo, []);
+        assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", ANA)).status, 404);
+        const vista = (await llamar("GET", "/tableros/PROJ-OPS01", ANA)).json;
+        assert.deepEqual([vista.miPermiso, vista.soyInvitado, vista.puedeEditar], ["COMENTADOR", true, false]);
+        assert.deepEqual([vista.enlaces, vista.invitados, vista.automatizaciones, vista.permisos], [[], [], [], {}]);
+        const item = vista.items[0].id;
+        const c = await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/actualizaciones`, ANA, { texto: "Se ve muy bien" });
+        assert.ok([200, 201].includes(c.status), "el comentador comenta");
+        const personas = new Set(vista.personas.map((p: any) => p.nombre));
+        assert.ok(c.json.equipo.every((p: any) => personas.has(p.nombre)), "solo menciona a la gente del tablero");
+        assert.equal((await llamar("PATCH", `/tableros/PROJ-OPS01/items/${item}`, ANA, { nombre: "Cambio" })).status, 403, "el comentador no cambia ítems");
+        // Lo del equipo, nunca.
+        for (const [m, ruta, cuerpo] of [["GET", "/tableros/PROJ-OPS01/candidatos"], ["PATCH", "/tableros/PROJ-OPS01", { estado: "Pausado" }], ["POST", "/tableros/PROJ-OPS01/enlaces", { audiencia: "INVITADO", permiso: "EDITOR" }], ["POST", "/tableros/PROJ-OPS01/grupos", { nombre: "X" }], ["GET", "/panel/personas"], ["GET", "/panel/equipo"], ["GET", "/panel/organigrama"], ["GET", "/panel/proyectos"]] as [string, string, unknown?][]) {
+          assert.ok([403, 404].includes((await llamar(m, ruta, ANA, cuerpo)).status), `${m} ${ruta}`);
+        }
+        assert.deepEqual((await llamar("GET", "/clientes", ANA)).json.datos, [], "ningún cliente");
+        assert.equal((await llamar("POST", "/tableros-unirse", ANA, { token: deEquipo })).status, 403, "el enlace del equipo no es para invitados");
+
+        // El equipo la ve y el líder (o un admin) le cambia el permiso.
+        const comoDiego = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
+        const ana = comoDiego.invitados.find((x: any) => x.email === "ana@libre.pe");
+        assert.deepEqual([ana.nombre, ana.permiso], ["Ana Libre", "COMENTADOR"]);
+        assert.equal((await llamar("PATCH", `/tableros/PROJ-OPS01/invitados/${ana.id}`, DIEGO, { permiso: "EDITOR" })).status, 403, "un miembro no cambia permisos");
+        assert.equal((await llamar("PATCH", `/tableros/PROJ-OPS01/invitados/${ana.id}`, ADMIN, { permiso: "EDITOR" })).json.invitados[0].permiso, "EDITOR");
+        // Como editora cambia ítems, no la estructura.
+        assert.equal((await llamar("PATCH", `/tableros/PROJ-OPS01/items/${item}`, ANA, { nombre: "Nombre nuevo" })).status, 200);
+        assert.equal((await llamar("DELETE", `/tableros/PROJ-OPS01/items/${item}`, ANA)).status, 403);
+        assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/columnas", ANA, { tipo: "text", nombre: "X" })).status, 403);
+        // Volver a entrar con el enlace (de menor permiso) no la baja.
+        assert.equal((await llamar("POST", "/tableros-unirse", ANA, { token })).json.permiso, "EDITOR");
+        // Fuera: deja de verlo al instante.
+        assert.equal((await llamar("DELETE", `/tableros/PROJ-OPS01/invitados/${ana.id}`, ADMIN)).json.invitados.length, 0);
+        assert.equal((await llamar("GET", "/tableros/PROJ-OPS01", ANA)).status, 404);
+        assert.deepEqual(await ids(ANA), []);
+        // Con el enlace apagado no vuelve.
+        await llamar("PATCH", "/tableros/PROJ-OPS01/enlaces/INVITADO", DIEGO, { activo: false });
+        assert.equal((await llamar("POST", "/tableros-unirse", ANA, { token })).status, 404);
+      } finally {
+        if (antesSecreto === undefined) delete process.env.SESION_SECRETO;
+      }
     });
 
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {

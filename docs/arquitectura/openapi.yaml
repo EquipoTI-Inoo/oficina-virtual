@@ -270,6 +270,53 @@ paths:
         '409': { description: 'SOLO_COGNITO: este despliegue no usa el ingreso propio', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /sesion/enlace-invitado:
+    post:
+      tags: [Sesión]
+      operationId: verEnlaceInvitado
+      summary: 'Qué dice un enlace de invitados de un tablero antes de entrar: el nombre del tablero y el permiso (17 nov)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string } } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, required: [tablero, permiso], properties: { tablero: { type: string }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
+        '404': { description: El enlace no existe, está apagado, fue reemplazado o no es de invitados }
+
+  /sesion/invitado:
+    post:
+      tags: [Sesión]
+      operationId: registrarInvitado
+      summary: 'Un invitado de afuera crea su cuenta con el enlace de invitados de un tablero y queda dentro, con la sesión iniciada (17 nov)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, nombre, email, clave]
+              properties:
+                token: { type: string }
+                nombre: { type: string, maxLength: 120 }
+                email: { type: string, format: email }
+                clave: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: 'Cuenta creada; sesión iniciada'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SesionIniciada' }
+        '404': { description: El enlace no existe, está apagado, fue reemplazado o no es de invitados }
+        '409': { description: 'YA_TIENE_CUENTA: ese correo ya tiene cuenta; se ingresa con ella', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /sesion/desde-inoowork:
     post:
       tags: [Sesión]
@@ -5311,7 +5358,7 @@ paths:
     post:
       tags: [Tableros]
       operationId: crearEnlaceTablero
-      summary: 'Crea el enlace para compartir de una audiencia; si ya había uno, lo reemplaza y el anterior deja de funcionar (16 nov). INVITADO todavía responde 409'
+      summary: 'Crea el enlace para compartir de una audiencia (equipo o invitados de afuera); si ya había uno, lo reemplaza y el anterior deja de funcionar (16 nov)'
       x-roles: [EQUIPO]
       requestBody:
         required: true
@@ -5352,8 +5399,8 @@ paths:
     post:
       tags: [Tableros]
       operationId: unirseTablero
-      summary: 'Entra a un tablero con un enlace del equipo: queda como miembro con el permiso del enlace (si ya estaba, se queda con el mayor). 16 nov'
-      x-roles: [EQUIPO]
+      summary: 'Entra a un tablero con un enlace: el equipo queda como miembro y un invitado de afuera como invitado, con el permiso del enlace (si ya estaba, se queda con el mayor). 16 y 17 nov'
+      x-roles: [EQUIPO, INVITADO]
       requestBody:
         required: true
         content:
@@ -5367,6 +5414,37 @@ paths:
               schema: { type: object, required: [tableroId, permiso], properties: { tableroId: { type: string }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
         '404': { description: El enlace no existe, está apagado o fue reemplazado }
         '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
+
+  /tableros/{proyectoId}/invitados/{usuarioId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Tableros]
+      operationId: cambiarInvitadoTablero
+      summary: 'Cambia el permiso de un invitado de afuera (17 nov). El líder o un admin'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [permiso], properties: { permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
+    delete:
+      tags: [Tableros]
+      operationId: quitarInvitadoTablero
+      summary: 'Saca a un invitado de afuera del tablero (17 nov): deja de verlo al instante. El líder o un admin'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
         '502': { description: InooWork no respondió }
 
   /tableros/{proyectoId}/grupos:
@@ -7098,7 +7176,7 @@ components:
         nombreArchivo: { type: string }
 
     # ---------- enums (mismos valores que la base)
-    TipoUsuario: { type: string, enum: [EQUIPO, CLIENTE, SERVICIO] }
+    TipoUsuario: { type: string, enum: [EQUIPO, CLIENTE, SERVICIO, INVITADO], description: 'INVITADO (17 nov): invitado de afuera a uno o más tableros; solo ve esos tableros' }
     RolEquipo: { type: string, enum: [ACCOUNT_MANAGER, DISENO, AUDIOVISUAL, PAID_MEDIA, DESARROLLO_WEB, ADMIN, FINANZAS], description: 'FINANZAS (reunión 15 oct): ve y cambia el estado de pago de los clientes, junto con ADMIN' }
     RolCliente:
       type: string
@@ -7774,7 +7852,7 @@ components:
         refreshToken: { type: [string, 'null'], description: 'Solo Cognito' }
         pool: { $ref: '#/components/schemas/PoolCognito' }
         expiraEn: { type: string, format: date-time }
-        tipo: { type: string, enum: [CLIENTE, EQUIPO] }
+        tipo: { type: string, enum: [CLIENTE, EQUIPO, INVITADO] }
         clienteId: { type: [string, 'null'], format: uuid, description: 'Cliente con el que entra (solo usuarios CLIENTE)' }
         cuentaPruebas: { type: boolean, description: 'Es la cuenta pruebas@inoo.pe: el portal abre el menú de usuarios de prueba' }
         dispositivo: { type: string, description: 'Solo tras /sesion/verificar-2fa con confiar=true: va en X-Dispositivo-Inoo en los próximos ingresos (30 días)' }
@@ -8858,7 +8936,7 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas, soyInvitado, invitados]
       properties:
         etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
         servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }
@@ -8879,8 +8957,21 @@ components:
               audiencia: { type: string, enum: [EQUIPO, INVITADO] }
               permiso: { $ref: '#/components/schemas/PermisoTablero' }
               activo: { type: boolean }
-              token: { type: [string, 'null'], description: 'Va en /equipo/proyectos/unirse/{token}. null si el portal no tiene SESION_SECRETO' }
+              token: { type: [string, 'null'], description: 'Va en /equipo/proyectos/unirse/{token} (equipo) o /invitado/unirse/{token} (invitados). null si el portal no tiene SESION_SECRETO' }
               creadoEn: { type: string, format: date-time }
+        soyInvitado: { type: boolean, description: 'Quien mira es un invitado de afuera (17 nov): no ve cómo está compartido ni las automatizaciones' }
+        invitados:
+          type: array
+          description: 'Los invitados de afuera del tablero (solo los ve el equipo que edita). 17 nov'
+          items:
+            type: object
+            required: [id, nombre, email, permiso, desde]
+            properties:
+              id: { type: string, format: uuid, description: 'Id de usuario del portal' }
+              nombre: { type: string }
+              email: { type: string }
+              permiso: { $ref: '#/components/schemas/PermisoTablero' }
+              desde: { type: string, format: date-time }
         cliente: { type: [string, 'null'], description: 'null = sin asignar en InooWork' }
         descripcion: { type: [string, 'null'] }
         color: { type: string }

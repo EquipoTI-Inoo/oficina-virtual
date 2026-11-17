@@ -133,16 +133,34 @@ function Personas({ t, cambiar, alCerrar }: { t: Tablero; cambiar: Cambiar; alCe
 }
 
 /**
- * Compartir con enlace (16 nov), como en Google Docs: quien edita crea el enlace del equipo con un permiso, lo copia,
- * lo apaga o lo cambia por uno nuevo (el anterior deja de funcionar). El de invitados de afuera viene después.
+ * Compartir con enlace (16 nov), como en Google Docs: quien edita crea el enlace con un permiso, lo copia, lo apaga o lo
+ * cambia por uno nuevo (el anterior deja de funcionar). Hay dos (17 nov): uno para el equipo de Inoo y otro para
+ * invitados de afuera (un cliente, un freelancer), que crean su cuenta con él y solo ven este tablero.
  */
 function CompartirConEnlace({ t, cambiar }: { t: Tablero; cambiar: Cambiar }) {
+  return (
+    <div className="pila" style={{ gap: 14, borderTop: "1px solid var(--c-borde)", paddingTop: 14 }}>
+      <h3 className="texto-sm negrita fila" style={{ gap: 6 }}><LuLink size={15} /> Compartir con enlace</h3>
+      <EnlaceDe t={t} cambiar={cambiar} audiencia="EQUIPO" />
+      <EnlaceDe t={t} cambiar={cambiar} audiencia="INVITADO" />
+      <Invitados t={t} cambiar={cambiar} />
+    </div>
+  );
+}
+
+const TEXTO_AUDIENCIA = {
+  EQUIPO: { titulo: "Para el equipo de Inoo", quien: "Cualquiera del equipo que lo abra entra como", ruta: "/equipo/proyectos/unirse/", nota: "Solo para el equipo de Inoo, con sesión iniciada." },
+  INVITADO: { titulo: "Para invitados de afuera", quien: "Quien lo abra crea su cuenta y entra como", ruta: "/invitado/unirse/", nota: "Para un cliente o un freelancer: crea su cuenta con su correo y solo ve este tablero. Compártelo solo con quien corresponde." },
+} as const;
+
+function EnlaceDe({ t, cambiar, audiencia }: { t: Tablero; cambiar: Cambiar; audiencia: "EQUIPO" | "INVITADO" }) {
   const avisar = useAviso();
-  const e = t.enlaces.find((x) => x.audiencia === "EQUIPO");
-  const [permiso, setPermiso] = useState<Permiso>("EDITOR");
+  const x = TEXTO_AUDIENCIA[audiencia];
+  const e = t.enlaces.find((y) => y.audiencia === audiencia);
+  const [permiso, setPermiso] = useState<Permiso>(audiencia === "INVITADO" ? "COMENTADOR" : "EDITOR");
   const [origen, setOrigen] = useState("");
   useEffect(() => setOrigen(window.location.origin), []);
-  const url = e?.token ? `${origen}/equipo/proyectos/unirse/${e.token}` : "";
+  const url = e?.token ? `${origen}${x.ruta}${e.token}` : "";
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(url);
@@ -152,33 +170,70 @@ function CompartirConEnlace({ t, cambiar }: { t: Tablero; cambiar: Cambiar }) {
     }
   };
   return (
-    <div className="pila" style={{ gap: 8, borderTop: "1px solid var(--c-borde)", paddingTop: 14 }}>
-      <h3 className="texto-sm negrita fila" style={{ gap: 6 }}><LuLink size={15} /> Compartir con enlace</h3>
+    <div className="pila" style={{ gap: 8 }}>
+      <span className="texto-sm negrita">{x.titulo}</span>
       {!e ? (
         <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-          <span className="texto-xs texto-muted">Cualquiera del equipo que lo abra entra como</span>
-          <select className="input" style={{ height: 32, width: 150 }} aria-label="Permiso del enlace nuevo" value={permiso} onChange={(x) => setPermiso(x.target.value as Permiso)}>
+          <span className="texto-xs texto-muted">{x.quien}</span>
+          <select className="input" style={{ height: 32, width: 150 }} aria-label={`Permiso del enlace nuevo ${audiencia === "INVITADO" ? "para invitados" : "para el equipo"}`} value={permiso} onChange={(y) => setPermiso(y.target.value as Permiso)}>
             {PERMISOS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
           </select>
-          <button className="boton boton--chico boton--primario" onClick={() => void cambiar("/enlaces", "POST", { audiencia: "EQUIPO", permiso })}>Crear enlace</button>
+          <button className="boton boton--chico boton--primario" aria-label={`Crear enlace ${audiencia === "INVITADO" ? "para invitados" : "para el equipo"}`} onClick={() => void cambiar("/enlaces", "POST", { audiencia, permiso })}>Crear enlace</button>
         </div>
       ) : (
         <>
           <div className="fila" style={{ gap: 8 }}>
-            <input className="input" readOnly aria-label="Enlace para el equipo" value={e.activo ? url : "Enlace apagado"} onFocus={(x) => x.currentTarget.select()} style={{ flex: 1, minWidth: 0, fontSize: "var(--t-xs)" }} />
+            <input className="input" readOnly aria-label={audiencia === "INVITADO" ? "Enlace para invitados" : "Enlace para el equipo"} value={e.activo ? url : "Enlace apagado"} onFocus={(y) => y.currentTarget.select()} style={{ flex: 1, minWidth: 0, fontSize: "var(--t-xs)" }} />
             <button className="boton boton--chico" disabled={!e.activo || !url} onClick={() => void copiar()}><LuCopy size={13} /> Copiar</button>
           </div>
           <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
             <span className="texto-xs texto-muted">Quien entra con él queda como</span>
-            <select className="input" style={{ height: 32, width: 140 }} aria-label="Permiso del enlace" value={e.permiso} onChange={(x) => void cambiar("/enlaces/EQUIPO", "PATCH", { permiso: x.target.value })}>
+            <select className="input" style={{ height: 32, width: 140 }} aria-label={audiencia === "INVITADO" ? "Permiso del enlace para invitados" : "Permiso del enlace"} value={e.permiso} onChange={(y) => void cambiar(`/enlaces/${audiencia}`, "PATCH", { permiso: y.target.value })}>
               {PERMISOS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
             </select>
-            <button className="boton boton--chico" onClick={() => void cambiar("/enlaces/EQUIPO", "PATCH", { activo: !e.activo })}>{e.activo ? "Apagar" : "Prender"}</button>
-            <button className="boton boton--chico" onClick={() => window.confirm("¿Crear un enlace nuevo? El actual deja de funcionar.") && void cambiar("/enlaces", "POST", { audiencia: "EQUIPO", permiso: e.permiso })}>Enlace nuevo</button>
+            <button className="boton boton--chico" onClick={() => void cambiar(`/enlaces/${audiencia}`, "PATCH", { activo: !e.activo })}>{e.activo ? "Apagar" : "Prender"}</button>
+            <button className="boton boton--chico" onClick={() => window.confirm("¿Crear un enlace nuevo? El actual deja de funcionar.") && void cambiar("/enlaces", "POST", { audiencia, permiso: e.permiso })}>Enlace nuevo</button>
           </div>
         </>
       )}
-      <p className="texto-xs texto-muted">Es solo para el equipo de Inoo, con sesión iniciada. El enlace para invitados de afuera llega pronto.</p>
+      <p className="texto-xs texto-muted">{x.nota}</p>
+    </div>
+  );
+}
+
+/** 17 nov: los invitados de afuera que ya entraron: su permiso y quitarlos (el líder o un admin, como con el equipo). */
+function Invitados({ t, cambiar }: { t: Tablero; cambiar: Cambiar }) {
+  if (!t.invitados.length) return null;
+  const manda = t.puedeBorrar;
+  return (
+    <div className="pila" style={{ gap: 6 }}>
+      <span className="texto-sm negrita">Invitados de afuera ({t.invitados.length})</span>
+      <ul className="pila" style={{ gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
+        {t.invitados.map((x) => (
+          <li key={x.id} className="fila-suave fila entre" style={{ gap: 10 }}>
+            <span className="pila" style={{ gap: 0, minWidth: 0 }}>
+              <span className="texto-sm">{x.nombre}</span>
+              <span className="texto-xs texto-muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{x.email}</span>
+            </span>
+            <span className="fila" style={{ gap: 4, flex: "none" }}>
+              {manda ? (
+                <select className="input" style={{ height: 30, width: 130, fontSize: "var(--t-xs)" }} aria-label={`Permiso de ${x.nombre}`}
+                  value={x.permiso} onChange={(e) => void cambiar(`/invitados/${encodeURIComponent(x.id)}`, "PATCH", { permiso: e.target.value })}>
+                  {PERMISOS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                </select>
+              ) : (
+                <span className="texto-xs texto-muted">{PERMISOS.find(([k]) => k === x.permiso)?.[1]}</span>
+              )}
+              {manda && (
+                <button className="boton-icono" aria-label={`Quitar a ${x.nombre}`} title="Quitar del tablero"
+                  onClick={() => window.confirm(`¿Quitar a ${x.nombre}? Deja de ver el tablero al instante.`) && void cambiar(`/invitados/${encodeURIComponent(x.id)}`, "DELETE")}>
+                  <LuUserMinus size={14} />
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

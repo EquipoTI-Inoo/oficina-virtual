@@ -689,9 +689,9 @@ test("tableros (16 nov): Diego comparte el tablero con un enlace de lector y Cam
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos/tableros/PROJ-OPS01");
   await page.getByRole("button", { name: /^Personas/ }).click({ timeout: 30_000 });
-  await page.getByLabel("Permiso del enlace nuevo").selectOption("LECTOR");
-  await page.getByRole("button", { name: "Crear enlace" }).click();
-  const campo = page.getByLabel("Enlace para el equipo");
+  await page.getByLabel("Permiso del enlace nuevo para el equipo").selectOption("LECTOR");
+  await page.getByRole("button", { name: "Crear enlace para el equipo" }).click();
+  const campo = page.getByLabel("Enlace para el equipo", { exact: true });
   await expect(campo).toHaveValue(/\/equipo\/proyectos\/unirse\//, { timeout: 20_000 });
   const url = new URL(await campo.inputValue());
   const camila = await browser.newPage();
@@ -700,6 +700,34 @@ test("tableros (16 nov): Diego comparte el tablero con un enlace de lector y Cam
   await expect(camila).toHaveURL(/\/equipo\/proyectos\/tableros\/PROJ-OPS01$/, { timeout: 30_000 });
   await expect(camila.getByText("Solo lectura")).toBeVisible({ timeout: 20_000 });
   await camila.close();
+});
+
+test("tableros (17 nov): una invitada de afuera crea su cuenta con el enlace y solo ve ese tablero", async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-OPS01");
+  await page.getByRole("button", { name: /^Personas/ }).click({ timeout: 30_000 });
+  await page.getByLabel("Permiso del enlace nuevo para invitados").selectOption("COMENTADOR");
+  await page.getByRole("button", { name: "Crear enlace para invitados" }).click();
+  const campo = page.getByLabel("Enlace para invitados", { exact: true });
+  await expect(campo).toHaveValue(/\/invitado\/unirse\//, { timeout: 20_000 });
+  const url = new URL(await campo.inputValue());
+
+  const ana = await browser.newPage();
+  await ana.goto(url.pathname);
+  await expect(ana.getByRole("heading", { name: /Te invitaron a/ })).toBeVisible({ timeout: 30_000 });
+  await ana.getByLabel("Tu nombre").fill("Ana Libre");
+  await ana.getByLabel("Tu correo").fill("ana@libre.pe");
+  await ana.getByLabel("Crea una contraseña").fill("ClaveSegura123");
+  await ana.getByRole("button", { name: "Crear cuenta y entrar" }).click();
+  await expect(ana).toHaveURL(/\/invitado\/tableros\/PROJ-OPS01$/, { timeout: 30_000 });
+  await expect(ana.getByText("Puedes ver y comentar")).toBeVisible({ timeout: 20_000 });
+  await expect(ana.getByText("Progreso del tablero")).toBeVisible();
+  await expect(ana.getByRole("button", { name: /^Personas/ })).toHaveCount(0);
+  await ana.getByRole("link", { name: /Tableros compartidos contigo/ }).click();
+  await expect(ana.getByRole("heading", { name: "Tableros compartidos contigo" })).toBeVisible({ timeout: 20_000 });
+  await expect(ana.locator(".tarjeta-tablero")).toHaveCount(1);
+  await ana.close();
 });
 
 test("tableros (16 nov): arrastrar una fila la cambia de lugar; la fila de totales cuenta los ítems", async ({ page }) => {

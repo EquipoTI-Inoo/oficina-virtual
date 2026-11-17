@@ -4,7 +4,7 @@
  * enlace que le mandamos, o que le pasó su equipo Inoo, y queda con la sesión iniciada.
  */
 import { useState, type FormEvent } from "react";
-import { api, guardarSesion, type ProblemaApi, useNavegacion, type S } from "../base";
+import { api, guardarSesion, type ProblemaApi, useNavegacion, type S, inicioPara } from "../base";
 import { MIN_CLAVE } from "../dominio/claves";
 
 export function PantallaCrearClave() {
@@ -24,7 +24,7 @@ export function PantallaCrearClave() {
       // 16 nov (2FA): con la verificación en dos pasos activa, se entra por el ingreso con el código.
       if ("requiere2fa" in r) return ir("/ingresar");
       guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: r.refreshToken ?? null, pool: r.pool }, true);
-      ir(r.cuentaPruebas ? "/pruebas" : r.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
+      ir(r.cuentaPruebas ? "/pruebas" : inicioPara(r.tipo));
     } catch (x) {
       const p = x as ProblemaApi;
       setError(p.errores?.[0]?.mensaje ?? p.titulo);

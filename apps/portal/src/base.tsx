@@ -45,7 +45,7 @@ export function Enlace({ a, children, onClick, ...resto }: { a: string; children
 const CLAVE_SESION = "inoo.sesion";
 export interface SesionLocal {
   token: string;
-  tipo: "CLIENTE" | "EQUIPO" | "SERVICIO";
+  tipo: "CLIENTE" | "EQUIPO" | "SERVICIO" | "INVITADO";
   clienteId: string | null;
   /** Solo con Cognito: para renovar el token (vence a la hora) sin volver a pedir la contraseña. */
   refreshToken?: string | null;
@@ -71,6 +71,15 @@ const marcarVisita = () => {
 const borrarVisita = () => {
   document.cookie = `${COOKIE_VISITA}=; path=/; Max-Age=0`;
 };
+
+/**
+ * Adónde va cada quien al entrar. 17 nov: un invitado de afuera, a sus tableros; si entró desde un enlace de invitados
+ * (`volver`), de vuelta a ese enlace para quedar dentro del tablero.
+ */
+export function inicioPara(tipo: SesionLocal["tipo"], volver?: string | null): string {
+  if (volver && /^\/invitado\/unirse\/[\w.-]+$/.test(volver) && tipo !== "CLIENTE") return volver;
+  return tipo === "EQUIPO" ? "/equipo/mi-panel" : tipo === "INVITADO" ? "/invitado" : "/inicio";
+}
 
 export function leerSesion(): SesionLocal | null {
   if (typeof window === "undefined") return null;

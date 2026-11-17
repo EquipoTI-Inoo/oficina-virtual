@@ -18,8 +18,33 @@ const RANGO: Record<PermisoTablero, number> = { LECTOR: 1, COMENTADOR: 2, EDITOR
 export const esPermiso = (x: unknown): x is PermisoTablero => typeof x === "string" && (PERMISOS_TABLERO as readonly string[]).includes(x);
 export const mayorPermiso = (a: PermisoTablero, b: PermisoTablero) => (RANGO[a] >= RANGO[b] ? a : b);
 
+/**
+ * 17 nov: invitados de afuera (un cliente, un freelancer). No son del equipo ni tienen ficha en InooWork: entran con el
+ * enlace de invitados, crean su cuenta en el portal y quedan en `portalInvitados` del tablero, por su id de usuario.
+ * En los permisos se los nombra «invitado:<usuarioId>» para no confundirlos nunca con una ficha de InooWork.
+ */
+export interface InvitadoTablero { nombre: string; email: string; permiso: PermisoTablero; desde: string }
+const PREFIJO_INVITADO = "invitado:";
+export const idInvitado = (usuarioId: string) => `${PREFIJO_INVITADO}${usuarioId}`;
+export const esIdInvitado = (x: string | null | undefined): x is string => !!x && x.startsWith(PREFIJO_INVITADO);
+export const invitadosDe = (p: ProyectoIW): Record<string, InvitadoTablero> =>
+  p.portalInvitados && typeof p.portalInvitados === "object" && !Array.isArray(p.portalInvitados) ? (p.portalInvitados as Record<string, InvitadoTablero>) : {};
+export function fijarInvitado(p: ProyectoIW, usuarioId: string, datos: InvitadoTablero) {
+  p.portalInvitados = { ...invitadosDe(p), [usuarioId]: datos };
+}
+export function quitarInvitado(p: ProyectoIW, usuarioId: string) {
+  const xs = { ...invitadosDe(p) };
+  delete xs[usuarioId];
+  if (Object.keys(xs).length) p.portalInvitados = xs; else delete p.portalInvitados;
+}
+
 /** El permiso de alguien en el proyecto, o null si no lo ve. */
 export function permisoEn(p: ProyectoIW, empleadoId: string | null, esAdmin: boolean): PermisoTablero | null {
+  // 17 nov: un invitado ve solo los tableros donde está, con su permiso (nunca es admin ni líder).
+  if (esIdInvitado(empleadoId)) {
+    const x = invitadosDe(p)[empleadoId.slice(PREFIJO_INVITADO.length)];
+    return x && esPermiso(x.permiso) ? x.permiso : null;
+  }
   // 16 nov (Ernesto): un tablero privado (RR. HH., gerencia) lo ven solo su líder y sus miembros, ni los admins.
   if (esAdmin && !esPrivado(p)) return "EDITOR";
   if (!empleadoId) return null;

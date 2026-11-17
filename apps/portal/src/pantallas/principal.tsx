@@ -8,7 +8,7 @@ import {
 } from "react-icons/lu";
 import {
   api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarDispositivo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
-  useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL, rolCliente } from "../base";
+  useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL, rolCliente, inicioPara } from "../base";
 import {
   Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_PIEZA, ESTADO_PIEZA_CLIENTE, Estructura, Etiqueta, EtiquetaEstado, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
@@ -67,12 +67,12 @@ export function PantallaIngreso() {
       return;
     }
     const s = leerSesion();
-    if (s) ir(s.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
+    if (s) ir(inicioPara(s.tipo, busqueda.get("volver")));
   }, [ir]);
 
   const entrar = (r: S<"SesionIniciada">) => {
     guardarSesion({ token: r.token, tipo: r.tipo, clienteId: r.clienteId, refreshToken: r.refreshToken ?? null, pool: r.pool }, recordar);
-    ir(r.cuentaPruebas ? "/pruebas" : r.tipo === "EQUIPO" ? "/equipo/mi-panel" : "/inicio");
+    ir(r.cuentaPruebas ? "/pruebas" : inicioPara(r.tipo, new URLSearchParams(window.location.search).get("volver")));
   };
 
   const enviar = async (e: FormEvent) => {

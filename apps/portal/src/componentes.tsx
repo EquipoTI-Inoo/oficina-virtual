@@ -652,7 +652,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
  * Iniciales de arriba a la derecha: abren «Mi cuenta». Cliente: datos, pagos, usuarios y ayuda. Equipo (6 nov):
  * Mi cuenta, Mi panel, Calendario y Jarvis.
  */
-function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | null; espacio?: "cliente" | "equipo" }) {
+function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | null; espacio?: "cliente" | "equipo" | "invitado" }) {
   const { ir } = useNavegacion();
   const [abierto, setAbierto] = useState(false);
   const caja = useRef<HTMLDivElement>(null);
@@ -668,7 +668,7 @@ function MenuCuenta({ sesion, espacio = "cliente" }: { sesion: S<"Sesion"> | nul
     };
   }, [abierto]);
   const esAdmin = rolCliente(sesion) === "ADMIN_CLIENTE";
-  const opciones = espacio === "equipo" ? [
+  const opciones = espacio === "invitado" ? [] : espacio === "equipo" ? [
     // 16 nov (Ernesto): sin repetir lo que ya está en el lateral (Mi panel, Calendario, Jarvis).
     { a: "/equipo/mi-cuenta", texto: "Mi cuenta", icono: <LuUserCog size={16} /> },
     { a: "/equipo/boveda", texto: "Mi bóveda", icono: <LuVault size={16} /> },
@@ -732,8 +732,13 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const [leidas, setLeidas] = useState(false);
 
   useEffect(() => {
-    if (!leerSesion()) ir("/ingresar");
-    else if (espacio === "equipo" && leerSesion()?.tipo !== "EQUIPO") ir("/inicio");
+    const s = leerSesion();
+    if (!s) ir("/ingresar");
+    // 17 nov: un invitado de afuera solo tiene sus tableros; un aviso al tablero del equipo lo lleva al suyo.
+    else if (s.tipo === "INVITADO") {
+      const m = window.location.pathname.match(/^\/equipo\/proyectos\/tableros\/([^/]+)$/);
+      ir(m ? `/invitado/tableros/${m[1]}${window.location.search}` : "/invitado");
+    } else if (espacio === "equipo" && s.tipo !== "EQUIPO") ir("/inicio");
     // Volver a las pantallas del equipo cierra «Ver como cliente».
     if (espacio === "equipo" && leerSesion()?.vistaCliente) salirDeVistaCliente();
     else if (espacio === "cliente" && leerSesion()?.tipo === "EQUIPO" && !window.location.search.includes("vista=cliente")) {
@@ -832,6 +837,49 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
           </div>
         </div>
       )}
+    </ContextoPortal.Provider>
+  );
+}
+
+/**
+ * El espacio de un invitado de afuera (17 nov): sin menú lateral, solo sus tableros compartidos. Arriba, el logo, su
+ * nombre y el menú con el tema y cerrar sesión.
+ */
+export function EstructuraInvitado({ migas, children }: { migas: string; children: ReactNode }) {
+  const { ir } = useNavegacion();
+  const sesionLocal = typeof window !== "undefined" ? leerSesion() : null;
+  const me = useConsulta<S<"Sesion">>(sesionLocal ? "/me" : null);
+  useEffect(() => {
+    const s = leerSesion();
+    if (!s) ir(`/ingresar`);
+    else if (s.tipo === "EQUIPO") ir("/equipo/proyectos");
+    else if (s.tipo !== "INVITADO") ir("/inicio");
+  }, [ir]);
+  useEffect(() => {
+    if (me.error?.status === 401) ir("/ingresar");
+  }, [me.error, ir]);
+  return (
+    <ContextoPortal.Provider value={{ sesion: me.datos, porAprobar: 0, refrescar: () => undefined }}>
+      <div className="app app--invitado">
+        <div className="principal">
+          <div className="superior">
+            <div className="fila">
+              <Enlace a="/invitado" className="logo" aria-label="Ir a mis tableros" style={{ textDecoration: "none" }}>
+                <img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} />
+              </Enlace>
+              <nav className="migas" aria-label="Ruta">
+                <Enlace a="/invitado" style={{ color: "inherit", textDecoration: "none" }}>Tableros compartidos</Enlace>
+                <LuChevronRight size={14} color="var(--c-tinta)" />
+                <strong>{migas}</strong>
+              </nav>
+            </div>
+            <div className="superior-der">
+              <MenuCuenta sesion={me.datos} espacio="invitado" />
+            </div>
+          </div>
+          <main className="contenido">{children}</main>
+        </div>
+      </div>
     </ContextoPortal.Provider>
   );
 }

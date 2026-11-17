@@ -2974,3 +2974,12 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .propuesta-ia { display: grid; grid-template-columns: auto minmax(0, 1fr) 150px 140px 130px; gap: 6px; align-items: center; }
 .propuesta-ia .input { height: 32px; font-size: var(--t-xs); }
 @media (max-width: 760px) { .propuesta-ia { grid-template-columns: auto minmax(0, 1fr); } .propuesta-ia > :nth-child(n+3) { grid-column: 2; } }
+
+/* ───── Espacio del invitado de afuera (17 nov): sin menú lateral, solo sus tableros. */
+.app.app--invitado { grid-template-columns: minmax(0, 1fr); }
+.app--invitado .superior .logo { display: inline-flex; align-items: center; margin-right: 16px; }
+.invitado-registro { max-width: 460px; margin: 32px auto; padding: 28px; display: grid; gap: 14px; }
+.invitado-registro .logo-marca { justify-self: start; }
+.tarjetas-tableros { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.tarjeta-tablero { display: grid; gap: 8px; padding: 16px; text-decoration: none; color: inherit; border-left: 4px solid var(--color-tablero, var(--c-primario)); }
+.tarjeta-tablero:hover { border-color: var(--c-primario); }

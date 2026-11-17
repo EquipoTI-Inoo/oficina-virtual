@@ -44,6 +44,7 @@ import { claveRecordatorio, enVentana, ventanaRecordatorio } from "../dominio/re
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tareaComoPendiente, type Yo } from "../servidor/tableros";
+import { idInvitado } from "../dominio/compartir-tablero";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
@@ -516,6 +517,10 @@ const esNivelAdmin = (ctx: Ctx) => ctx.esEquipo && !ctx.esServicio && nivelDe(ct
 
 function soloEquipo(ctx: Ctx) {
   if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
+}
+/** 17 nov: las rutas de los tableros que también usa un invitado de afuera (ver, comentar, ítems). */
+function equipoOInvitado(ctx: Ctx) {
+  if (!ctx.esEquipo && ctx.usuario.tipo !== "INVITADO") throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
 }
 
 function estadoVisible(ctx: Ctx, estado: D.Estado): S<"EstadoPieza"> {
@@ -1626,7 +1631,9 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
 
 const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores));
 /** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
-const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx), usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre });
+const yoTablero = (ctx: Ctx): Yo => ctx.usuario.tipo === "INVITADO"
+  ? { empleadoId: idInvitado(ctx.usuario.id), esAdmin: false, usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre, email: ctx.usuario.email }
+  : { empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx), usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre };
 
 // ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
 
@@ -1634,8 +1641,8 @@ const yoTablero = (ctx: Ctx): Yo => ({ empleadoId: ctx.usuario.inooworkEmpleadoI
 const equipoInooWork = () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false && !!u.inooworkEmpleadoId);
 
 ruta("GET", "/tableros", async (ctx, _p, q) => {
-  soloEquipo(ctx);
-  return { ...(await TABLEROS.listar(yoTablero(ctx), { archivados: q.get("archivados") === "1" })), equipo: equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) };
+  equipoOInvitado(ctx);
+  return { ...(await TABLEROS.listar(yoTablero(ctx), { archivados: q.get("archivados") === "1" })), equipo: ctx.esEquipo ? equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) : [] };
 });
 /** 11 nov: el cliente de un tablero es una ficha del portal; si no existe, se crea con ese nombre. */
 function asegurarClienteMock(ctx: Ctx, nombre: unknown): unknown {
@@ -1673,7 +1680,7 @@ ruta("POST", "/tableros", async (ctx, _p, _q, req) => {
   });
 });
 ruta("GET", "/tableros/:id", async (ctx, p) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return TABLEROS.ver(p.id, yoTablero(ctx));
 });
 // ───────────────────────────── IA en los tableros (16 nov, tanda 5)
@@ -1756,7 +1763,7 @@ function avisosAutomatizacionMock<T extends { nombre: string; avisosAutomatizaci
   return vista;
 }
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return avisosAutomatizacionMock(ctx, p.id, await TABLEROS.crearItem(p.id, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req)));
 });
 ruta("POST", "/tableros/:id/automatizaciones", async (ctx, p, _q, req) => {
@@ -1788,11 +1795,11 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
   return { ...r, datos: [...r.datos, ...tareas].sort((a, b) => (a.fecha ?? "9999").localeCompare(b.fecha ?? "9999") || a.nombre.localeCompare(b.nombre, "es")) };
 });
 ruta("POST", "/tableros/:id/items/:item/mover", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return TABLEROS.moverItem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   const b = await cuerpo<Record<string, unknown>>(req);
   const t = avisosAutomatizacionMock(ctx, p.id, await TABLEROS.cambiarItem(p.id, p.item, yoTablero(ctx), b));
   if (b.responsableId) avisarAsignacion(ctx, p.id, b.responsableId, t.items.find((i) => i.id === p.item)?.nombre ?? "Un ítem", t, p.item);
@@ -1818,11 +1825,11 @@ ruta("DELETE", "/tableros/:id/items/:item", async (ctx, p) => {
   return TABLEROS.borrarItem(p.id, p.item, yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items/:item/subitems", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return TABLEROS.crearSubitem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("PATCH", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   const b = await cuerpo<Record<string, unknown>>(req);
   const t = await TABLEROS.cambiarSubitem(p.id, p.item, p.sub, yoTablero(ctx), b);
   const it = t.items.find((i) => i.id === p.item);
@@ -1857,8 +1864,17 @@ ruta("PATCH", "/tableros/:id/enlaces/:audiencia", async (ctx, p, _q, req) => {
   return TABLEROS.cambiarEnlace(p.id, p.audiencia, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("POST", "/tableros-unirse", async (ctx, _p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return TABLEROS.unirse((await cuerpo<{ token?: unknown }>(req))?.token, yoTablero(ctx));
+});
+/** 17 nov: invitados de afuera de un tablero. */
+ruta("PATCH", "/tableros/:id/invitados/:usuario", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  return TABLEROS.cambiarInvitado(p.id, p.usuario, yoTablero(ctx), (await cuerpo<{ permiso?: unknown }>(req))?.permiso);
+});
+ruta("DELETE", "/tableros/:id/invitados/:usuario", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.quitarInvitado(p.id, p.usuario, yoTablero(ctx));
 });
 ruta("DELETE", "/tableros/:id/miembros/:empleado", async (ctx, p) => {
   soloEquipo(ctx);
@@ -1903,7 +1919,7 @@ ruta("DELETE", "/tableros/:id/columnas/:col", async (ctx, p) => {
   return TABLEROS.borrarColumna(p.id, p.col, yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return TABLEROS.accion(p.id, p.item, p.col, yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, req) => {
@@ -1915,7 +1931,7 @@ ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", asyn
   return ARCHIVOS_TABLERO.quitar(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx));
 });
 ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p, q) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.bajar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), q.get("enLinea") === "1");
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versiones", async (ctx, p, _q, req) => {
@@ -1923,12 +1939,12 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versione
   return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
-  soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), repoActualizaciones(ctx));
+  equipoOInvitado(ctx);
+  return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await repoParaTablero(ctx, p.id));
 });
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
-  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), repoActualizaciones(ctx));
+  equipoOInvitado(ctx);
+  return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), await repoParaTablero(ctx, p.id));
 });
 
 const ACTUALIZACIONES = crearActualizaciones((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
@@ -1953,27 +1969,35 @@ const repoActualizaciones = (ctx: Ctx): RepoActualizaciones => ({
   equipo: async () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false).map((u) => ({ id: u.id, nombre: u.nombre, empleadoId: u.inooworkEmpleadoId ?? null })),
   avisar: async (usuarioId, titulo, cuerpo, enlace) => { E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId, titulo, cuerpo, enlace, creadoEn: new Date().toISOString() }); },
 });
+/** 17 nov: a un invitado de afuera, la lista para @mencionar es solo la gente de ese tablero, no todo el equipo. */
+async function repoParaTablero(ctx: Ctx, proyectoId: string): Promise<RepoActualizaciones> {
+  const repo = repoActualizaciones(ctx);
+  if (ctx.usuario.tipo !== "INVITADO") return repo;
+  const t = await TABLEROS.ver(proyectoId, yoTablero(ctx));
+  const ids = new Set(t.personas.map((x) => x.id));
+  return { ...repo, equipo: async () => (await repoActualizaciones(ctx).equipo()).filter((x) => !!x.empleadoId && ids.has(x.empleadoId)) };
+}
 // ───────────────────────────── Actualizaciones de los ítems (12 nov): la conversación de cada ítem, como en Monday
 
 ruta("GET", "/tableros/:id/actualizaciones", async (ctx, p) => {
-  soloEquipo(ctx);
-  return ACTUALIZACIONES.conteo(repoActualizaciones(ctx), p.id, yoTablero(ctx));
+  equipoOInvitado(ctx);
+  return ACTUALIZACIONES.conteo(await repoParaTablero(ctx, p.id), p.id, yoTablero(ctx));
 });
 ruta("GET", "/tableros/:id/items/:item/actualizaciones", async (ctx, p) => {
-  soloEquipo(ctx);
-  return ACTUALIZACIONES.listar(repoActualizaciones(ctx), p.id, p.item, yoTablero(ctx));
+  equipoOInvitado(ctx);
+  return ACTUALIZACIONES.listar(await repoParaTablero(ctx, p.id), p.id, p.item, yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items/:item/actualizaciones", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
-  return ACTUALIZACIONES.crear(repoActualizaciones(ctx), p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  equipoOInvitado(ctx);
+  return ACTUALIZACIONES.crear(await repoParaTablero(ctx, p.id), p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("PATCH", "/tableros/:id/items/:item/actualizaciones/:act", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
-  return ACTUALIZACIONES.editar(repoActualizaciones(ctx), p.id, p.item, p.act, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  equipoOInvitado(ctx);
+  return ACTUALIZACIONES.editar(await repoParaTablero(ctx, p.id), p.id, p.item, p.act, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("DELETE", "/tableros/:id/items/:item/actualizaciones/:act", async (ctx, p) => {
-  soloEquipo(ctx);
-  return ACTUALIZACIONES.borrar(repoActualizaciones(ctx), p.id, p.item, p.act, yoTablero(ctx));
+  equipoOInvitado(ctx);
+  return ACTUALIZACIONES.borrar(await repoParaTablero(ctx, p.id), p.id, p.item, p.act, yoTablero(ctx));
 });
 
 // ───────────────────────────── Importar de Monday (9 nov): una importación masiva que hace el nivel ADMIN
@@ -6061,6 +6085,28 @@ function problema(e: ErrorApi): Response {
 }
 
 /** Credenciales del entorno de pruebas (sustituye al Hosted UI de Cognito). */
+async function registrarInvitadoMock(req: Request) {
+  const b = await cuerpo<Record<string, unknown>>(req);
+  const t = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : "");
+  const email = t("email").toLowerCase();
+  const nombre = t("nombre").replace(/\s+/g, " ");
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (nombre.length < 2 || nombre.length > 120) errores.push({ campo: "nombre", mensaje: "Escribe tu nombre" });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) errores.push({ campo: "email", mensaje: "Escribe un correo válido" });
+  const errorClave = errorClaveNueva(b.clave);
+  if (errorClave) errores.push({ campo: "clave", mensaje: errorClave });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  await TABLEROS.enlaceInvitado(b.token);
+  if (E.usuarios.some((u) => u.email.toLowerCase() === email)) throw new ErrorApi(409, "YA_TIENE_CUENTA", "Ese correo ya tiene cuenta en el portal", "Ingresa con tu contraseña y vuelve a abrir el enlace.");
+  const u: D.UsuarioDemo = {
+    id: crypto.randomUUID(), nombre, email, cargo: null, iniciales: nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
+    tipo: "INVITADO", rolEquipo: null, area: null, claveDemo: b.clave as string,
+  };
+  await TABLEROS.unirse(b.token, { empleadoId: idInvitado(u.id), esAdmin: false, usuarioId: u.id, nombre, email });
+  E.usuarios.push(u);
+  return { token: `demo.${u.id}`, refreshToken: null, tipo: "INVITADO", clienteId: null };
+}
+
 async function ingresar(req: Request) {
   const b = await cuerpo<{ email?: string; clave?: string }>(req);
   const quien = (b.email ?? "").trim().toLowerCase();
@@ -6085,6 +6131,9 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
     // Ingreso (contrato /sesion/*): el entorno de pruebas usa las credenciales de prueba; Cognito solo en el backend real.
     if (req.method === "POST" && camino === "/sesion/ingresar") return Response.json(await ingresar(req));
     if (req.method === "POST" && camino === "/sesion/olvide-clave") return Response.json({ metodo: "ENLACE" });
+    // 17 nov: invitados de afuera: qué dice el enlace y crear la cuenta con él.
+    if (req.method === "POST" && camino === "/sesion/enlace-invitado") return Response.json(await TABLEROS.enlaceInvitado((await cuerpo<{ token?: unknown }>(req)).token));
+    if (req.method === "POST" && camino === "/sesion/invitado") return Response.json(await registrarInvitadoMock(req));
     if (req.method === "POST" && camino === "/sesion/desde-inoowork") {
       const b = await cuerpo<{ pase?: unknown }>(req);
       const empleado = typeof b.pase === "string" ? leerPaseInooWork(b.pase) : null;

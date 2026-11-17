@@ -44,7 +44,7 @@ export function desdePglite(db: { transaction<T>(fn: (tx: Consultor) => Promise<
 
 export interface SesionDb {
   usuarioId: string;
-  tipo: "EQUIPO" | "CLIENTE" | "SERVICIO";
+  tipo: "EQUIPO" | "CLIENTE" | "SERVICIO" | "INVITADO";
   clienteIds: string[];
   /** Entorno de pruebas (6 nov): solo ve lo de prueba. Sin el dato (servicios), la base no separa nada. */
   esPrueba?: boolean;
