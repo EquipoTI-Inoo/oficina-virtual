@@ -4884,11 +4884,12 @@ paths:
                     description: El equipo activo con ficha en InooWork (los que pueden ser miembros de un proyecto nuevo).
                     items:
                       type: object
-                      required: [id, nombre, area]
+                      required: [id, nombre, area, empleadoId]
                       properties:
                         id: { type: string, format: uuid }
                         nombre: { type: string }
                         area: { type: [string, 'null'] }
+                        empleadoId: { type: string, description: 'Su id en InooWork (17 nov: filtro por persona)' }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '502': { description: InooWork no respondió }
     post:
@@ -4959,6 +4960,9 @@ paths:
                 marcaId: { type: [string, 'null'], format: uuid, description: 'Una marca del mismo cliente (16 nov)' }
                 servicioId: { type: [string, 'null'], format: uuid, description: 'Un servicio del mismo cliente (16 nov)' }
                 etiquetas: { type: array, maxItems: 10, items: { type: string, maxLength: 30 } }
+                carpetaId: { type: [string, 'null'], format: uuid, description: 'Una carpeta de la misma empresa (17 nov); el proyecto toma la marca de la carpeta. null lo saca de su carpeta' }
+                nombre: { type: string, maxLength: 120, description: 'El nombre del proyecto (17 nov)' }
+                descripcion: { type: string, maxLength: 2000, description: 'La descripción del proyecto (17 nov); los enlaces se ven como enlaces' }
       responses:
         '200':
           description: OK
@@ -5171,6 +5175,66 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '409': { $ref: '#/components/responses/Conflicto' }
         '429': { description: Llegó al tope del mes }
+
+  /carpetas:
+    get:
+      tags: [Tableros]
+      operationId: listarCarpetas
+      summary: 'Las carpetas de Proyectos (17 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/CarpetaProyecto' } } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    post:
+      tags: [Tableros]
+      operationId: crearCarpeta
+      summary: 'Crea una carpeta en una empresa, dentro de una marca o de otra carpeta (un nivel) (17 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [empresa, nombre]
+              properties:
+                empresa: { type: string, maxLength: 120 }
+                marcaId: { type: [string, 'null'], format: uuid }
+                padreId: { type: [string, 'null'], format: uuid, description: 'Con padre, la marca es la del padre' }
+                nombre: { type: string, maxLength: 80 }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/CarpetaProyecto' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /carpetas/{carpetaId}:
+    parameters:
+      - { name: carpetaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Tableros]
+      operationId: renombrarCarpeta
+      summary: 'Cambia el nombre de una carpeta (17 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [nombre], properties: { nombre: { type: string, maxLength: 80 } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CarpetaProyecto' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Tableros]
+      operationId: borrarCarpeta
+      summary: 'Borra una carpeta (nivel Admin, 17 nov): sus subcarpetas y proyectos suben un nivel; ningún proyecto se borra'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Borrada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
 
   /marcas:
     get:
@@ -7293,6 +7357,18 @@ components:
         activo: { type: boolean }
         usadosMes: { type: integer }
         tope: { type: integer }
+    CarpetaProyecto:
+      type: object
+      description: 'Una carpeta de Proyectos (17 nov): empresa → marca → carpeta → subcarpeta (un nivel). Solo el equipo'
+      required: [id, empresa, empresaClave, marcaId, padreId, nombre, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        empresa: { type: string, description: 'El nombre de la empresa (como el cliente de los tableros)' }
+        empresaClave: { type: string, description: 'El nombre normalizado: así se junta con los tableros' }
+        marcaId: { type: [string, 'null'], format: uuid }
+        padreId: { type: [string, 'null'], format: uuid, description: 'La carpeta de arriba (solo un nivel)' }
+        nombre: { type: string, maxLength: 80 }
+        creadoEn: { type: string, format: date-time }
     MarcaCliente:
       type: object
       description: 'Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca'
@@ -8690,8 +8766,11 @@ components:
         enlace: { type: string, description: Ruta del portal }
     TableroResumen:
       type: object
-      required: [id, nombre, cliente, color, lider, miembros, items, puedeEditar, esMio, marcaId, servicioId, etiquetas]
+      required: [id, nombre, cliente, color, lider, miembros, items, puedeEditar, esMio, marcaId, servicioId, etiquetas, carpetaId, personaIds, actualizadoEn]
       properties:
+        carpetaId: { type: [string, 'null'], format: uuid, description: 'Su carpeta en Proyectos (17 nov); si se borró, la de arriba' }
+        personaIds: { type: array, items: { type: string }, description: 'Ids de InooWork del líder y los miembros (17 nov, filtro por persona)' }
+        actualizadoEn: { type: [string, 'null'], description: 'La última vez que algo del tablero cambió (17 nov, filtro por actividad)' }
         etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
         servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }
         marcaId: { type: [string, 'null'], format: uuid, description: 'Su marca (16 nov)' }
@@ -8936,7 +9015,7 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas, soyInvitado, invitados]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas, soyInvitado, invitados, carpetaId]
       properties:
         etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
         servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }
@@ -8959,6 +9038,7 @@ components:
               activo: { type: boolean }
               token: { type: [string, 'null'], description: 'Va en /equipo/proyectos/unirse/{token} (equipo) o /invitado/unirse/{token} (invitados). null si el portal no tiene SESION_SECRETO' }
               creadoEn: { type: string, format: date-time }
+        carpetaId: { type: [string, 'null'], format: uuid, description: 'Su carpeta en Proyectos (17 nov). null para los invitados de afuera' }
         soyInvitado: { type: boolean, description: 'Quien mira es un invitado de afuera (17 nov): no ve cómo está compartido ni las automatizaciones' }
         invitados:
           type: array

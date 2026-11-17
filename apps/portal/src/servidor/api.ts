@@ -59,6 +59,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, pendientesComoEventos, tareaComoPendiente, type Yo } from "./tableros";
 import { idInvitado } from "../dominio/compartir-tablero";
+import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva, type CarpetaBase } from "../dominio/carpetas";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
@@ -5696,7 +5697,12 @@ const equipoInooWork = async (ctx: Ctx) =>
 ruta("GET", "/tableros", async (ctx, _p, q) => {
   equipoOInvitado(ctx);
   const [tableros, equipo] = await Promise.all([TABLEROS.listar(await yoTablero(ctx), { archivados: q.get("archivados") === "1" }), ctx.esEquipo ? equipoInooWork(ctx) : []]);
-  return { ...tableros, equipo: equipo.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area })) };
+  // 17 nov: un proyecto en una carpeta borrada queda en la de arriba.
+  if (ctx.esEquipo && tableros.datos.some((t) => t.carpetaId)) {
+    const cs = await carpetasDb(ctx, true);
+    for (const t of tableros.datos) if (t.carpetaId) t.carpetaId = carpetaVigente(t.carpetaId, cs)?.id ?? null;
+  }
+  return { ...tableros, equipo: equipo.map((u) => ({ id: u.id, nombre: u.nombre, area: u.area, empleadoId: u.empleado })) };
 });
 /**
  * 11 nov: el cliente de un tablero es una ficha del portal. Si el nombre ya existe (aunque esté escrito distinto) se usa
@@ -5805,11 +5811,87 @@ ruta("PATCH", "/marcas/:id", async (ctx, p, _q, cuerpo) => {
   return marcaVista((await ctx.c.query<FilaMarca>(`${SELECT_MARCA} WHERE m.id = $1`, [m.id])).rows[0]);
 });
 
+// ───────────────────────────── Carpetas de Proyectos (17 nov, Ernesto): empresa → marca → carpeta → subcarpeta
+
+type FilaCarpeta = { id: string; empresa_clave: string; empresa_nombre: string; marca_id: string | null; padre_id: string | null; nombre: string; creado_en: Date; borrada_en: Date | null };
+const carpetaVista = (c: FilaCarpeta): S<"CarpetaProyecto"> => ({ id: c.id, empresa: c.empresa_nombre, empresaClave: c.empresa_clave, marcaId: c.marca_id, padreId: c.padre_id, nombre: c.nombre, creadoEn: c.creado_en.toISOString() });
+const filasCarpeta = async (ctx: Ctx, conBorradas: boolean) => (await ctx.c.query<FilaCarpeta>(
+  `SELECT id, empresa_clave, empresa_nombre, marca_id, padre_id, nombre, creado_en, borrada_en FROM carpeta_proyecto WHERE es_prueba = $1 ${conBorradas ? "" : "AND borrada_en IS NULL"} ORDER BY lower(nombre)`, [!!ctx.u.esPrueba])).rows;
+async function carpetasDb(ctx: Ctx, conBorradas: boolean): Promise<(CarpetaBase & { empresa: string })[]> {
+  return (await filasCarpeta(ctx, conBorradas)).map((c) => ({ id: c.id, empresaClave: c.empresa_clave, empresa: c.empresa_nombre, marcaId: c.marca_id, padreId: c.padre_id, nombre: c.nombre, borrada: !!c.borrada_en }));
+}
+const unaCarpeta = async (ctx: Ctx, id: string) => (esUuid(id) ? (await filasCarpeta(ctx, false)).find((c) => c.id === id) : undefined);
+
+ruta("GET", "/carpetas", async (ctx) => {
+  soloEquipo(ctx);
+  return { datos: (await filasCarpeta(ctx, false)).map(carpetaVista) };
+});
+ruta("POST", "/carpetas", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as { empresa?: unknown; marcaId?: unknown; padreId?: unknown; nombre?: unknown };
+  const padre = typeof b.padreId === "string" ? await unaCarpeta(ctx, b.padreId) : undefined;
+  const padreBase = padre ? { id: padre.id, empresaClave: padre.empresa_clave, marcaId: padre.marca_id, padreId: padre.padre_id, nombre: padre.nombre } : null;
+  const errores = validarCarpetaNueva(b, padreBase, b.padreId);
+  const empresa = typeof b.empresa === "string" ? b.empresa.trim().replace(/\s*\(interno\)\s*$/i, "") : "";
+  let marcaId: string | null = padre ? padre.marca_id : null;
+  if (!padre && b.marcaId !== undefined && b.marcaId !== null) {
+    const m = typeof b.marcaId === "string" && esUuid(b.marcaId) ? (await ctx.c.query<{ id: string; cliente: string }>("SELECT m.id, c.nombre AS cliente FROM marca m JOIN cliente c ON c.id = m.cliente_id WHERE m.id = $1", [b.marcaId])).rows[0] : undefined;
+    if (!m || claveEmpresa(m.cliente) !== claveEmpresa(empresa)) errores.push({ campo: "marcaId", mensaje: "Esa marca no es de la empresa" });
+    else marcaId = m.id;
+  }
+  validacion(errores);
+  try {
+    const id = (await ctx.c.query<{ id: string }>(
+      "INSERT INTO carpeta_proyecto (empresa_clave, empresa_nombre, marca_id, padre_id, nombre, creado_por, es_prueba) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+      [claveEmpresa(empresa), empresa, marcaId, padre?.id ?? null, nombreCarpeta(b.nombre), ctx.u.usuarioId || null, !!ctx.u.esPrueba],
+    )).rows[0].id;
+    return { __status: 201, ...carpetaVista((await unaCarpeta(ctx, id))!) };
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") throw new ErrorApi(409, "YA_EXISTE", "Ya hay una carpeta con ese nombre ahí");
+    throw e;
+  }
+});
+ruta("PATCH", "/carpetas/:id", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const c = await unaCarpeta(ctx, p.id);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa carpeta");
+  const nombre = nombreCarpeta(((await cuerpo()) as { nombre?: unknown }).nombre);
+  if (!nombre) validacion([{ campo: "nombre", mensaje: "Escribe el nombre de la carpeta (hasta 80 caracteres)" }]);
+  try {
+    await ctx.c.query("UPDATE carpeta_proyecto SET nombre = $2 WHERE id = $1", [c.id, nombre]);
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") throw new ErrorApi(409, "YA_EXISTE", "Ya hay una carpeta con ese nombre ahí");
+    throw e;
+  }
+  return carpetaVista((await unaCarpeta(ctx, c.id))!);
+});
+/** Borrar es del nivel Admin: sus subcarpetas y sus proyectos suben un nivel (los proyectos, sin tocar InooWork). */
+ruta("DELETE", "/carpetas/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  if (ctx.u.nivelAcceso !== "ADMIN") throw new ErrorApi(403, "SIN_PERMISO", "Borrar carpetas es del nivel Admin");
+  const c = await unaCarpeta(ctx, p.id);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa carpeta");
+  await ctx.c.query("UPDATE carpeta_proyecto SET borrada_en = now() WHERE id = $1", [c.id]);
+  await ctx.c.query("UPDATE carpeta_proyecto SET padre_id = $2 WHERE padre_id = $1 AND borrada_en IS NULL", [c.id, c.padre_id]);
+  return null;
+});
+
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown };
+  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown; carpetaId?: unknown; nombre?: unknown; descripcion?: unknown };
   if (b.cliente !== undefined) b.cliente = await asegurarClienteDb(ctx, b.cliente);
   const yo = await yoTablero(ctx);
+  // 17 nov: la carpeta tiene que ser de la empresa del proyecto; el proyecto toma la marca de la carpeta.
+  let carpeta: { carpetaId?: string | null; marcaId?: string | null } = {};
+  if (b.carpetaId !== undefined) {
+    if (b.carpetaId === null) carpeta = { carpetaId: null };
+    else {
+      const c = typeof b.carpetaId === "string" ? (await carpetasDb(ctx, false)).find((x) => x.id === b.carpetaId) : undefined;
+      const cliente = typeof b.cliente === "string" ? b.cliente : (await TABLEROS.ver(p.id, yo)).cliente;
+      if (!c || claveEmpresa(cliente) !== c.empresaClave) validacion([{ campo: "carpetaId", mensaje: "Esa carpeta no es de la empresa del proyecto" }]);
+      carpeta = { carpetaId: c!.id, marcaId: c!.marcaId };
+    }
+  }
   // 16 nov (tanda 4): la marca y el servicio tienen que ser del cliente del tablero (o del que se le pone ahora).
   const vinculos: { marcaId?: string | null; servicioId?: string | null } = {};
   if (b.marcaId !== undefined || b.servicioId !== undefined) {
@@ -5828,7 +5910,7 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
     }
     validacion(errores);
   }
-  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, ...vinculos });
+  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, ...vinculos, ...carpeta });
 });
 /** 13 nov: los avisos que piden las automatizaciones del tablero (asignar o avisar a alguien). */
 async function avisosAutomatizacionDb<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {

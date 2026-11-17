@@ -45,6 +45,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tareaComoPendiente, type Yo } from "../servidor/tableros";
 import { idInvitado } from "../dominio/compartir-tablero";
+import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva } from "../dominio/carpetas";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
@@ -175,6 +176,8 @@ interface Estado {
   actualizacionesTablero: (FilaActualizacion & { proyectoId: string; itemId: string })[];
   /** 16 nov (tanda 4): las marcas de cada cliente. */
   marcas: { id: string; clienteId: string; nombre: string; activa: boolean }[];
+  /** 17 nov: carpetas de Proyectos (empresa → marca → carpeta → subcarpeta). */
+  carpetas: { id: string; empresaClave: string; empresa: string; marcaId: string | null; padreId: string | null; nombre: string; creadoEn: string; borrada?: boolean }[];
   /** 16 nov: el «Resumen del avance» por cliente (activo) y los usos (para el tope del mes). */
   resumenAvance: { activos: Set<string>; usos: { clienteId: string; mes: string }[] };
   avisosEquipo: { id: string; usuarioId: string; titulo: string; cuerpo: string; enlace: string; creadoEn: string }[];
@@ -267,7 +270,7 @@ function estadoInicial(): Estado {
     sesionesCerradas: new Map(),
     dosPasos: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }], carpetas: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -1642,7 +1645,9 @@ const equipoInooWork = () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.a
 
 ruta("GET", "/tableros", async (ctx, _p, q) => {
   equipoOInvitado(ctx);
-  return { ...(await TABLEROS.listar(yoTablero(ctx), { archivados: q.get("archivados") === "1" })), equipo: ctx.esEquipo ? equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null })) : [] };
+  const r = await TABLEROS.listar(yoTablero(ctx), { archivados: q.get("archivados") === "1" });
+  for (const t of r.datos) if (t.carpetaId) t.carpetaId = carpetaVigente(t.carpetaId, E.carpetas)?.id ?? null;
+  return { ...r, equipo: ctx.esEquipo ? equipoInooWork().map((u) => ({ id: u.id, nombre: u.nombre, area: u.area ?? null, empleadoId: u.inooworkEmpleadoId! })) : [] };
 });
 /** 11 nov: el cliente de un tablero es una ficha del portal; si no existe, se crea con ese nombre. */
 function asegurarClienteMock(ctx: Ctx, nombre: unknown): unknown {
@@ -1733,9 +1738,19 @@ ruta("PATCH", "/marcas/:id", async (ctx, p, _q, req) => {
 });
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  const b = await cuerpo<{ cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown }>(req);
+  const b = await cuerpo<{ cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown; carpetaId?: unknown; nombre?: unknown; descripcion?: unknown }>(req);
   if (b.cliente !== undefined) b.cliente = asegurarClienteMock(ctx, b.cliente);
   const yo = yoTablero(ctx);
+  let carpeta: { carpetaId?: string | null; marcaId?: string | null } = {};
+  if (b.carpetaId !== undefined) {
+    if (b.carpetaId === null) carpeta = { carpetaId: null };
+    else {
+      const c = E.carpetas.find((x) => x.id === b.carpetaId && !x.borrada);
+      const cliente = typeof b.cliente === "string" ? b.cliente : (await TABLEROS.ver(p.id, yo)).cliente;
+      if (!c || claveEmpresa(cliente) !== c.empresaClave) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "carpetaId", mensaje: "Esa carpeta no es de la empresa del proyecto" }]);
+      carpeta = { carpetaId: c.id, marcaId: c.marcaId };
+    }
+  }
   const vinculos: { marcaId?: string | null; servicioId?: string | null } = {};
   if (b.marcaId !== undefined || b.servicioId !== undefined) {
     const cliente = typeof b.cliente === "string" ? b.cliente : (await TABLEROS.ver(p.id, yo)).cliente;
@@ -1753,7 +1768,53 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
     }
     if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   }
-  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, ...vinculos });
+  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, ...vinculos, ...carpeta });
+});
+
+// ───────────────────────────── Carpetas de Proyectos (17 nov)
+const carpetaVistaMock = (c: Estado["carpetas"][number]): S<"CarpetaProyecto"> => ({ id: c.id, empresa: c.empresa, empresaClave: c.empresaClave, marcaId: c.marcaId, padreId: c.padreId, nombre: c.nombre, creadoEn: c.creadoEn });
+const repetida = (c: { empresaClave: string; marcaId: string | null; padreId: string | null; nombre: string }, sin?: string) =>
+  E.carpetas.some((x) => !x.borrada && x.id !== sin && x.empresaClave === c.empresaClave && x.marcaId === c.marcaId && x.padreId === c.padreId && x.nombre.toLowerCase() === c.nombre.toLowerCase());
+ruta("GET", "/carpetas", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: E.carpetas.filter((c) => !c.borrada).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map(carpetaVistaMock) };
+});
+ruta("POST", "/carpetas", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  const b = await cuerpo<{ empresa?: unknown; marcaId?: unknown; padreId?: unknown; nombre?: unknown }>(req);
+  const padre = typeof b.padreId === "string" ? E.carpetas.find((x) => x.id === b.padreId && !x.borrada) : undefined;
+  const errores = validarCarpetaNueva(b, padre ?? null, b.padreId);
+  const empresa = typeof b.empresa === "string" ? b.empresa.trim().replace(/\s*\(interno\)\s*$/i, "") : "";
+  let marcaId: string | null = padre ? padre.marcaId : null;
+  if (!padre && b.marcaId !== undefined && b.marcaId !== null) {
+    const m = E.marcas.find((x) => x.id === b.marcaId);
+    if (!m || claveEmpresa(E.clientes.find((c) => c.id === m.clienteId)?.nombre ?? "") !== claveEmpresa(empresa)) errores.push({ campo: "marcaId", mensaje: "Esa marca no es de la empresa" });
+    else marcaId = m.id;
+  }
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const c = { id: crypto.randomUUID(), empresaClave: claveEmpresa(empresa), empresa, marcaId, padreId: padre?.id ?? null, nombre: nombreCarpeta(b.nombre)!, creadoEn: new Date().toISOString() };
+  if (repetida(c)) throw new ErrorApi(409, "YA_EXISTE", "Ya hay una carpeta con ese nombre ahí");
+  E.carpetas.push(c);
+  return { __status: 201, ...carpetaVistaMock(c) };
+});
+ruta("PATCH", "/carpetas/:id", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const c = E.carpetas.find((x) => x.id === p.id && !x.borrada);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa carpeta");
+  const nombre = nombreCarpeta((await cuerpo<{ nombre?: unknown }>(req))?.nombre);
+  if (!nombre) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "nombre", mensaje: "Escribe el nombre de la carpeta (hasta 80 caracteres)" }]);
+  if (repetida({ ...c, nombre }, c.id)) throw new ErrorApi(409, "YA_EXISTE", "Ya hay una carpeta con ese nombre ahí");
+  c.nombre = nombre;
+  return carpetaVistaMock(c);
+});
+ruta("DELETE", "/carpetas/:id", (ctx, p) => {
+  soloEquipo(ctx);
+  if (!esNivelAdmin(ctx)) throw new ErrorApi(403, "SIN_PERMISO", "Borrar carpetas es del nivel Admin");
+  const c = E.carpetas.find((x) => x.id === p.id && !x.borrada);
+  if (!c) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa carpeta");
+  c.borrada = true;
+  for (const x of E.carpetas) if (x.padreId === c.id && !x.borrada) x.padreId = c.padreId;
+  return null;
 });
 function avisosAutomatizacionMock<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
   const { avisosAutomatizacion, ...vista } = t;

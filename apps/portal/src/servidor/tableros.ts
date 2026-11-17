@@ -195,6 +195,8 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     marcaId: typeof p.portalMarcaId === "string" ? p.portalMarcaId : null,
     servicioId: typeof p.portalServicioId === "string" ? p.portalServicioId : null,
     etiquetas: etiquetasDe(p),
+    // 17 nov: su carpeta en Proyectos (la resuelve la API si se borró).
+    carpetaId: invitado ? null : carpetaDe(p),
     puedeHacerPrivado: !!yo.empleadoId && p.leaderId === yo.empleadoId && !p.archived,
     // 16 nov: compartir como en Docs. El permiso de quien mira, el de cada persona y (para editores) los enlaces.
     miPermiso: permisoEn(p, yo.empleadoId, yo.esAdmin) ?? "LECTOR",
@@ -210,6 +212,16 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     // 13 nov: las automatizaciones del tablero («cuando X, hacer Y»), con su texto para leerlas.
     automatizaciones: invitado ? [] : automatizacionesDe(p).map((a) => ({ ...a, texto: textoAutomatizacion(a, p) })),
   };
+}
+
+const carpetaDe = (p: ProyectoIW) => (typeof p.portalCarpetaId === "string" ? p.portalCarpetaId : null);
+/** La última vez que algo del tablero cambió: el ítem más reciente (creado o cambiado), o el proyecto. */
+function ultimaActividad(p: ProyectoIW): string | null {
+  let max = typeof p.createdAt === "string" ? p.createdAt : "";
+  for (const it of p.items ?? []) {
+    for (const f of [it.actualizadoEn, it.createdAt]) if (typeof f === "string" && f > max) max = f;
+  }
+  return max || null;
 }
 
 const hoyLima = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
@@ -300,6 +312,10 @@ export function crearTableros(fallar: Fallar) {
           marcaId: typeof p.portalMarcaId === "string" ? p.portalMarcaId : null,
           servicioId: typeof p.portalServicioId === "string" ? p.portalServicioId : null,
           etiquetas: etiquetasDe(p),
+          // 17 nov (carpetas y filtros de Proyectos): su carpeta, quiénes están y cuándo se movió por última vez.
+          carpetaId: esIdInvitado(yo.empleadoId) ? null : carpetaDe(p),
+          personaIds: personasDelProyecto(p).map((x) => x.id),
+          actualizadoEn: ultimaActividad(p),
         })),
     })),
     /**
@@ -427,9 +443,12 @@ export function crearTableros(fallar: Fallar) {
      * `marcaId` y `servicioId` llegan ya revisados por la ruta (que son del mismo cliente); aquí solo se guardan.
      * Cambiar el cliente suelta la marca y el servicio, que eran del anterior.
      */
-    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: string | null; servicioId?: string | null; etiquetas?: unknown }) => cambiar(id, yo, (p) => {
+    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: string | null; servicioId?: string | null; etiquetas?: unknown; carpetaId?: string | null; nombre?: unknown; descripcion?: unknown }) => cambiar(id, yo, (p) => {
       const errores: { campo: string; mensaje: string }[] = [];
-      if ([b.cliente, b.estado, b.privado, b.marcaId, b.servicioId, b.etiquetas].every((x) => x === undefined)) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: cliente, estado, privado, marca, servicio o etiquetas" });
+      if ([b.cliente, b.estado, b.privado, b.marcaId, b.servicioId, b.etiquetas, b.carpetaId, b.nombre, b.descripcion].every((x) => x === undefined)) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: nombre, descripción, cliente, estado, privado, marca, carpeta, servicio o etiquetas" });
+      // 17 nov: el nombre y la descripción se editan desde el portal (la descripción con sus enlaces).
+      if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 120)) errores.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 120 caracteres)" });
+      if (b.descripcion !== undefined && !(typeof b.descripcion === "string" && b.descripcion.length <= 2000)) errores.push({ campo: "descripcion", mensaje: "La descripción es muy larga (hasta 2000 caracteres)" });
       const etiquetas = b.etiquetas === undefined ? undefined : limpiarEtiquetas(b.etiquetas);
       if (etiquetas === null) errores.push({ campo: "etiquetas", mensaje: `Hasta ${MAX_ETIQUETAS} etiquetas de hasta 30 caracteres` });
       if (b.privado !== undefined) {
@@ -444,6 +463,11 @@ export function crearTableros(fallar: Fallar) {
       if (b.estado !== undefined) aplicarEstadoProyecto(p, b.estado as string);
       if (b.privado === true) p.portalPrivado = true;
       else if (b.privado === false) delete p.portalPrivado;
+      if (typeof b.nombre === "string") p.name = b.nombre.trim();
+      if (typeof b.descripcion === "string") p.description = b.descripcion.trim();
+      // Cambiar de cliente o de marca saca al proyecto de su carpeta (salvo que venga la nueva).
+      if ((b.cliente !== undefined || b.marcaId !== undefined) && b.carpetaId === undefined) delete p.portalCarpetaId;
+      if (b.carpetaId !== undefined) { if (b.carpetaId) p.portalCarpetaId = b.carpetaId; else delete p.portalCarpetaId; }
       if (b.cliente !== undefined && b.marcaId === undefined) { delete p.portalMarcaId; }
       if (b.cliente !== undefined && b.servicioId === undefined) { delete p.portalServicioId; }
       if (b.marcaId !== undefined) { if (b.marcaId) p.portalMarcaId = b.marcaId; else delete p.portalMarcaId; }

@@ -671,6 +671,7 @@ test("tableros de InooWork: Diego cambia el estado de un ítem y agrega uno; el 
   test.setTimeout(90_000);
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos");
+  await page.getByRole("tab", { name: "Por estado" }).click({ timeout: 30_000 });
   const tablero = page.getByRole("link", { name: /Marketing interno de Inoo/ });
   await expect(tablero).toContainText("Inoo", { timeout: 30_000 });
   await expect(page.getByText("Biblioteca de diseño")).toHaveCount(0);
@@ -838,7 +839,8 @@ test("proyectos (16 nov, tanda 4): pestañas Proyectos y Servicios con el filtro
   test.setTimeout(120_000);
   await entrarComo(page, "admin");
   await page.goto("/equipo/proyectos");
-  const arbol = page.getByRole("navigation", { name: "Filtrar por empresa y marca" });
+  await page.getByRole("tab", { name: "Por estado" }).click({ timeout: 30_000 });
+  const arbol = page.getByRole("navigation", { name: "Empresas, marcas y carpetas" });
   await expect(page.getByRole("link", { name: /Marketing interno de Inoo/ })).toBeVisible({ timeout: 30_000 });
   await arbol.getByRole("button", { name: /^Sin cliente/ }).click();
   await expect(page.getByRole("link", { name: /Marketing interno de Inoo/ })).toHaveCount(0);
@@ -849,6 +851,46 @@ test("proyectos (16 nov, tanda 4): pestañas Proyectos y Servicios con el filtro
   await expect(page.locator(".pipeline-tarjeta")).toHaveCount(0);
   await arbol.getByRole("button", { name: /^Todas las empresas/ }).click();
   await expect(page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ })).toBeVisible();
+});
+
+test("proyectos (17 nov): carpetas como en Monday; se arrastra un proyecto a una carpeta y los filtros lo encuentran", async ({ page }) => {
+  test.setTimeout(150_000);
+  await entrarComo(page, "admin");
+  await page.goto("/equipo/proyectos");
+  const carpetas = page.getByRole("list", { name: "Carpetas" });
+  await carpetas.getByRole("listitem").filter({ hasText: /^Inoo/ }).click({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Carpeta", exact: true }).click();
+  await page.getByLabel("Nombre de la carpeta").fill("Campañas 2027");
+  await page.getByRole("button", { name: "Guardar" }).click();
+  await expect(page.getByText("Esta carpeta está vacía")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("navigation", { name: "Dónde estás" }).getByRole("button", { name: "Inoo" }).click();
+  const fila = page.getByRole("row", { name: /Marketing interno de Inoo/ });
+  const destino = carpetas.getByRole("listitem").filter({ hasText: "Campañas 2027" });
+  await fila.dragTo(destino);
+  await expect(page.getByText("Proyecto movido")).toBeVisible({ timeout: 20_000 });
+  await expect(destino).toContainText("1 proyecto", { timeout: 20_000 });
+  await expect(page.getByRole("row", { name: /Marketing interno de Inoo/ })).toHaveCount(0);
+  // Con un filtro se ve plano, con su ubicación.
+  await page.getByRole("button", { name: "Con vencidos" }).click();
+  await expect(page.getByRole("row", { name: /Marketing interno de Inoo/ })).toContainText("Campañas 2027");
+  await page.getByRole("button", { name: "Limpiar filtros" }).click();
+  // La vista por estado sigue ahí.
+  await page.getByRole("tab", { name: "Por estado" }).click();
+  await expect(page.locator(".pipeline-columna").first()).toBeVisible();
+});
+
+test("tablero (17 nov): la descripción se edita y sus enlaces se abren", async ({ page }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-OPS01");
+  await page.getByRole("button", { name: "Editar" }).click({ timeout: 30_000 });
+  await page.getByLabel("Descripción", { exact: true }).fill("Grilla: https://docs.google.com/spreadsheets/d/abc/edit");
+  await page.getByRole("button", { name: "Guardar" }).click();
+  const enlace = page.getByRole("link", { name: "https://docs.google.com/spreadsheets/d/abc/edit" });
+  await expect(enlace).toBeVisible({ timeout: 20_000 });
+  await expect(enlace).toHaveAttribute("target", "_blank");
+  await page.getByRole("radio", { name: "Compacto" }).click();
+  await expect(page.locator(".tabla-tablero--compacto").first()).toBeVisible();
 });
 
 test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su tablero", async ({ page }) => {

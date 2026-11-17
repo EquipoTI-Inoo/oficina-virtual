@@ -5,7 +5,7 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX } from "react-icons/lu";
+import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
 import { BotonPersonas } from "./personas-tablero";
@@ -15,6 +15,7 @@ import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, useAviso, usePortal } from "../componentes";
 import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
+import { claveEmpresa } from "../dominio/carpetas";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
@@ -114,6 +115,13 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
   const avisar = useAviso();
   const marcas = useConsulta<{ datos: S<"MarcaCliente">[] }>("/marcas");
   const servicios = useConsulta<{ datos: S<"ProyectoPipeline">[] }>("/panel/proyectos");
+  // 17 nov: su carpeta en Proyectos (de la misma empresa); elegirla le pone también la marca de la carpeta.
+  const cq = useConsulta<{ datos: S<"CarpetaProyecto">[] }>("/carpetas");
+  const susCarpetas = (cq.datos?.datos ?? []).filter((c) => c.empresaClave === claveEmpresa(t.cliente));
+  const rutaCarpeta = (c: S<"CarpetaProyecto">) => [
+    (marcas.datos?.datos ?? []).find((m) => m.id === c.marcaId)?.nombre,
+    c.padreId ? susCarpetas.find((x) => x.id === c.padreId)?.nombre : null, c.nombre,
+  ].filter(Boolean).join(" › ");
   const [etiqueta, setEtiqueta] = useState("");
   const mismo = (nombre: string) => !!t.cliente && (claveCliente(nombre) === claveCliente(t.cliente) || (esClienteInterno(t.cliente) && /^inoo\b/i.test(nombre)));
   const suyas = (marcas.datos?.datos ?? []).filter((m) => mismo(m.clienteNombre) && (m.activa || m.id === t.marcaId));
@@ -148,6 +156,14 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
         </select>
       </label>
       <label className="fila texto-sm" style={{ gap: 8 }}>
+        <span className="negrita">Carpeta</span>
+        <select className="input" style={{ width: 220, height: 36 }} disabled={!editable || !cq.datos} value={t.carpetaId ?? ""}
+          onChange={(e) => void cambiar("", "PATCH", { carpetaId: e.target.value || null })}>
+          <option value="">Sin carpeta</option>
+          {susCarpetas.map((c) => ({ c, r: rutaCarpeta(c) })).sort((a, b) => a.r.localeCompare(b.r, "es")).map(({ c, r }) => <option key={c.id} value={c.id}>{r}</option>)}
+        </select>
+      </label>
+      <label className="fila texto-sm" style={{ gap: 8 }}>
         <span className="negrita">Servicio</span>
         <select className="input" style={{ width: 260, height: 36 }} disabled={!editable || !servicios.datos} value={t.servicioId ?? ""}
           onChange={(e) => void cambiar("", "PATCH", { servicioId: e.target.value || null })}>
@@ -171,6 +187,54 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
         {!editable && !t.etiquetas.length && <span className="texto-xs texto-muted">Sin etiquetas</span>}
       </span>
     </div>
+  );
+}
+
+/** 17 nov: un texto con sus enlaces (http/https) clicables; abren en otra pestaña. Respeta los saltos de línea. */
+export function TextoConEnlaces({ texto }: { texto: string }) {
+  const partes = texto.split(/(https?:\/\/[^\s<>"']+)/g);
+  return (
+    <span style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>
+      {partes.map((x, i) => {
+        if (i % 2 === 0) return x;
+        const m = x.match(/^(.*?)([.,;:!?)\]»]*)$/);
+        const url = m ? m[1] : x;
+        const visible = url.length > 64 ? `${url.slice(0, 61)}…` : url;
+        return <span key={i}><a href={url} target="_blank" rel="noopener noreferrer" className="enlace" title={url}>{visible}</a>{m?.[2] ?? ""}</span>;
+      })}
+    </span>
+  );
+}
+
+function EditarDatos({ t, cambiar, cerrar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean>; cerrar: () => void }) {
+  const [nombre, setNombre] = useState(t.nombre);
+  const [descripcion, setDescripcion] = useState(t.descripcion ?? "");
+  const [guardando, setGuardando] = useState(false);
+  return (
+    <form className="tarjeta pila" style={{ gap: 10, padding: 16, marginBottom: 14, maxWidth: 820 }} onSubmit={async (e) => {
+      e.preventDefault();
+      setGuardando(true);
+      const cuerpo: Record<string, unknown> = {};
+      if (nombre.trim() && nombre.trim() !== t.nombre) cuerpo.nombre = nombre.trim();
+      if (descripcion.trim() !== (t.descripcion ?? "").trim()) cuerpo.descripcion = descripcion;
+      const ok = !Object.keys(cuerpo).length || (await cambiar("", "PATCH", cuerpo));
+      setGuardando(false);
+      if (ok) cerrar();
+    }}>
+      <div className="campo">
+        <label htmlFor="tablero-nombre">Nombre del proyecto</label>
+        <div className="entrada"><input id="tablero-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={120} /></div>
+      </div>
+      <div className="campo">
+        <label htmlFor="tablero-descripcion">Descripción</label>
+        <textarea id="tablero-descripcion" className="input" rows={5} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={2000} />
+        <span className="texto-xs texto-muted">Los enlaces (https://…) se ven como enlaces. {descripcion.length}/2000</span>
+      </div>
+      <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
+        <button type="button" className="boton" onClick={cerrar}>Cancelar</button>
+        <button type="submit" className="boton boton--primario" disabled={guardando || !nombre.trim()}>{guardando ? "Guardando…" : "Guardar"}</button>
+      </div>
+    </form>
   );
 }
 
@@ -217,6 +281,8 @@ function TableroProyecto() {
   const [responsable, setResponsable] = useState("");
   const [estado, setEstado] = useState("");
   // 12 nov: el panel del ítem (conversación, archivos, Monday). «?item=» lo abre directo (los avisos de la campana).
+  // 17 nov: el nombre y la descripción se editan aquí (quien edita el tablero; no los invitados).
+  const [editandoDatos, setEditandoDatos] = useState(false);
   const [panel, setPanel] = useState<string | null>(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("item")));
   const conteo = useConsulta<{ datos: Record<string, number>; ultimas: Record<string, Ultima> }>(`/tableros/${params.id}/actualizaciones`);
   const yoId = usePortal().sesion?.usuario.id ?? null;
@@ -261,6 +327,7 @@ function TableroProyecto() {
       avisar({ titulo: "No se pudo borrar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
     }
   };
+  const puedeDatos = t.puedeEditar && !t.soyInvitado;
   const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO", "CARGA"])];
   const ultimas = conteo.datos?.ultimas ?? {};
   // 16 nov (Ernesto): hay algo nuevo si la última actualización es de otra persona y es posterior a la última vez que abriste el ítem.
@@ -274,7 +341,12 @@ function TableroProyecto() {
       <Cabecera
         antetitulo={[t.cliente ?? (t.soyInvitado ? null : "Sin cliente"), t.soyInvitado ? null : t.area, t.lider ? `Líder: ${t.lider.nombre}` : null].filter(Boolean).join(" · ")}
         titulo={t.nombre}
-        bajada={t.descripcion ?? undefined}
+        bajada={editandoDatos ? undefined : (t.descripcion || puedeDatos) ? (
+          <>
+            {t.descripcion ? <TextoConEnlaces texto={t.descripcion} /> : <span className="texto-muted">Sin descripción</span>}
+            {puedeDatos && <button type="button" className="boton-texto texto-sm" style={{ marginLeft: 8 }} onClick={() => setEditandoDatos(true)}><LuPencil size={13} /> Editar</button>}
+          </>
+        ) : undefined}
         accion={
           <span className="fila" style={{ gap: 8 }}>
             {t.privado && <span className="chip texto-xs" title="Solo lo ven sus personas, ni los admins"><LuLock size={12} /> Privado</span>}
@@ -287,6 +359,7 @@ function TableroProyecto() {
           </span>
         }
       />
+      {editandoDatos && <EditarDatos t={t} cambiar={cambiar} cerrar={() => setEditandoDatos(false)} />}
       {t.archivado && (
         <div className="aviso-archivado" role="status">
           <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${new Date(t.archivadoEn).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}` : ""}. Está en solo lectura.</span>
@@ -424,6 +497,26 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
   // 13 nov: el ancho de cada columna se cambia arrastrando el borde del encabezado (doble clic vuelve al de siempre).
   // Se recuerda por tablero en este navegador: cada persona lo deja a su gusto.
   const [anchos, setAnchos] = useAnchos(t.id);
+  // 17 nov (Ernesto): el alto de cada fila se cambia arrastrando su borde de abajo (doble clic: el de siempre), y la
+  // densidad de todo el tablero (compacto, normal, amplio). Se recuerda por tablero en este navegador.
+  const [altos, setAltos] = useAnchos(t.id, "altos");
+  const [densidad, setDensidad] = useAnchos(t.id, "densidad");
+  const nivel = (["compacto", "normal", "amplio"] as const)[densidad.n ?? 1] ?? "normal";
+  const AsaAlto = ({ item }: { item: Item }) => (
+    <span className="fila-asa-alto" role="separator" aria-orientation="horizontal" aria-label={`Cambiar el alto de la fila ${item.nombre}`} title="Arrastra para cambiar el alto (doble clic: el de siempre)"
+      onDoubleClick={() => setAltos((a) => { const n = { ...a }; delete n[item.id]; return n; })}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const fila = e.currentTarget.closest("tr") as HTMLElement;
+        const y0 = e.clientY;
+        const h0 = fila.getBoundingClientRect().height;
+        const mover = (ev: PointerEvent) => setAltos((a) => ({ ...a, [item.id]: Math.min(600, Math.max(28, Math.round(h0 + ev.clientY - y0))) }));
+        const soltar = () => { window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", soltar); document.body.classList.remove("redimensionando-alto"); };
+        document.body.classList.add("redimensionando-alto");
+        window.addEventListener("pointermove", mover);
+        window.addEventListener("pointerup", soltar);
+      }} />
+  );
   const ancho = (col: string, base: number): CSSProperties => {
     const w = anchos[col];
     return w ? { width: w, minWidth: w, maxWidth: w } : { minWidth: base };
@@ -463,6 +556,13 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
             {(Object.keys(NOMBRE_AGRUPAR) as Agrupar[]).map((a) => <option key={a} value={a}>{NOMBRE_AGRUPAR[a]}</option>)}
           </select>
         </label>
+        <div className="segmentado segmentado--chico" role="radiogroup" aria-label="Alto de las filas">
+          {(["Compacto", "Normal", "Amplio"] as const).map((x, n) => (
+            <button key={x} type="button" role="radio" aria-checked={nivel === x.toLowerCase()} className={nivel === x.toLowerCase() ? "activo" : undefined}
+              onClick={() => setDensidad(() => ({ n }))}>{x}</button>
+          ))}
+        </div>
+        {Object.keys(altos).length > 0 && <button className="boton boton--chico" onClick={() => setAltos(() => ({}))}>Igualar filas</button>}
         {orden && <button className="boton boton--chico" onClick={() => setOrden(null)}>Quitar orden</button>}
       </div>
       {secciones.map((g) => {
@@ -493,7 +593,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
             </header>
             {!plegado && (
               <div className="tabla-envoltura">
-                <table className="tabla tabla-tablero">
+                <table className={`tabla tabla-tablero tabla-tablero--${nivel}`}>
                   <thead>
                     <tr>
                       <th style={{ width: 76 }}>
@@ -523,8 +623,10 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                       const abierto = abiertos.has(i.id);
                       return [
                         <tr key={i.id} className={[sel.has(i.id) ? "fila-elegida" : "", sobre === i.id ? "fila-soltar" : "", arrastrado === i.id ? "fila-arrastrada" : ""].filter(Boolean).join(" ") || undefined}
+                          style={altos[i.id] ? { height: altos[i.id] } : undefined}
                           onDragOver={real && arrastrable ? sobreEn(i.id) : undefined} onDrop={real && arrastrable ? soltarEn(g.id, i.id) : undefined}>
                           <td>
+                            <AsaAlto item={i} />
                             <span className="fila" style={{ gap: 2 }}>
                               {real && arrastrable && (
                                 <span className="asa-fila" draggable role="button" tabIndex={-1} aria-label={`Arrastrar ${i.nombre}`} title="Arrastrar para mover"
@@ -620,8 +722,8 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
 
 // ───────────────────────────── anchos de columna (13 nov): por tablero, en este navegador
 
-function useAnchos(tableroId: string): [Record<string, number>, (f: (a: Record<string, number>) => Record<string, number>) => void] {
-  const clave = `inoo.anchos.${tableroId}`;
+function useAnchos(tableroId: string, tipo = "anchos"): [Record<string, number>, (f: (a: Record<string, number>) => Record<string, number>) => void] {
+  const clave = `inoo.${tipo}.${tableroId}`;
   const [anchos, setA] = useState<Record<string, number>>({});
   useEffect(() => {
     try { setA(JSON.parse(localStorage.getItem(clave) ?? "{}")); } catch { setA({}); }

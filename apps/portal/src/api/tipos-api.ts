@@ -3674,6 +3674,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/carpetas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Las carpetas de Proyectos (17 nov) */
+        get: operations["listarCarpetas"];
+        put?: never;
+        /** Crea una carpeta en una empresa, dentro de una marca o de otra carpeta (un nivel) (17 nov) */
+        post: operations["crearCarpeta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/carpetas/{carpetaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                carpetaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una carpeta (nivel Admin, 17 nov): sus subcarpetas y proyectos suben un nivel; ningún proyecto se borra */
+        delete: operations["borrarCarpeta"];
+        options?: never;
+        head?: never;
+        /** Cambia el nombre de una carpeta (17 nov) */
+        patch: operations["renombrarCarpeta"];
+        trace?: never;
+    };
     "/marcas": {
         parameters: {
             query?: never;
@@ -5311,6 +5349,25 @@ export interface components {
             usadosMes: number;
             tope: number;
         };
+        /** @description Una carpeta de Proyectos (17 nov): empresa → marca → carpeta → subcarpeta (un nivel). Solo el equipo */
+        CarpetaProyecto: {
+            /** Format: uuid */
+            id: string;
+            /** @description El nombre de la empresa (como el cliente de los tableros) */
+            empresa: string;
+            /** @description El nombre normalizado: así se junta con los tableros */
+            empresaClave: string;
+            /** Format: uuid */
+            marcaId: string | null;
+            /**
+             * Format: uuid
+             * @description La carpeta de arriba (solo un nivel)
+             */
+            padreId: string | null;
+            nombre: string;
+            /** Format: date-time */
+            creadoEn: string;
+        };
         /** @description Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca */
         MarcaCliente: {
             /** Format: uuid */
@@ -6879,6 +6936,15 @@ export interface components {
             enlace: string;
         };
         TableroResumen: {
+            /**
+             * Format: uuid
+             * @description Su carpeta en Proyectos (17 nov); si se borró, la de arriba
+             */
+            carpetaId: string | null;
+            /** @description Ids de InooWork del líder y los miembros (17 nov, filtro por persona) */
+            personaIds: string[];
+            /** @description La última vez que algo del tablero cambió (17 nov, filtro por actividad) */
+            actualizadoEn: string | null;
             /** @description Etiquetas libres (16 nov) */
             etiquetas: string[];
             /**
@@ -7153,6 +7219,11 @@ export interface components {
                 /** Format: date-time */
                 creadoEn: string;
             }[];
+            /**
+             * Format: uuid
+             * @description Su carpeta en Proyectos (17 nov). null para los invitados de afuera
+             */
+            carpetaId: string | null;
             /** @description Quien mira es un invitado de afuera (17 nov): no ve cómo está compartido ni las automatizaciones */
             soyInvitado: boolean;
             /** @description Los invitados de afuera del tablero (solo los ve el equipo que edita). 17 nov */
@@ -16373,6 +16444,8 @@ export interface operations {
                             id: string;
                             nombre: string;
                             area: string | null;
+                            /** @description Su id en InooWork (17 nov: filtro por persona) */
+                            empleadoId: string;
                         }[];
                     };
                 };
@@ -16515,6 +16588,15 @@ export interface operations {
                      */
                     servicioId?: string | null;
                     etiquetas?: string[];
+                    /**
+                     * Format: uuid
+                     * @description Una carpeta de la misma empresa (17 nov); el proyecto toma la marca de la carpeta. null lo saca de su carpeta
+                     */
+                    carpetaId?: string | null;
+                    /** @description El nombre del proyecto (17 nov) */
+                    nombre?: string;
+                    /** @description La descripción del proyecto (17 nov); los enlaces se ven como enlaces */
+                    descripcion?: string;
                 };
             };
         };
@@ -16899,6 +16981,119 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listarCarpetas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["CarpetaProyecto"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    crearCarpeta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    empresa: string;
+                    /** Format: uuid */
+                    marcaId?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Con padre, la marca es la del padre
+                     */
+                    padreId?: string | null;
+                    nombre: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarpetaProyecto"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarCarpeta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                carpetaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    renombrarCarpeta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                carpetaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarpetaProyecto"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
         };
     };
     listarMarcas: {

@@ -262,6 +262,52 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       }
     });
 
+    test("17 nov: carpetas en Proyectos (empresa → marca → carpeta → subcarpeta); borrar sube un nivel", async () => {
+      await reiniciar();
+      // PROJ-MKT01 es de Inoo: carpetas internas.
+      assert.equal((await llamar("GET", "/carpetas", VALERIA)).status, 403, "el cliente no ve carpetas");
+      assert.deepEqual((await llamar("POST", "/carpetas", DIEGO, { empresa: "", nombre: "" })).json.errores.map((e: any) => e.campo).sort(), ["empresa", "nombre"]);
+      const rrhh = await llamar("POST", "/carpetas", DIEGO, { empresa: "Inoo", nombre: "Campañas 2027" });
+      assert.equal(rrhh.status, 201);
+      assert.equal((await llamar("POST", "/carpetas", DIEGO, { empresa: "Inoo", nombre: "campañas 2027 " })).status, 409, "no se repite el nombre en el mismo lugar");
+      const sub = (await llamar("POST", "/carpetas", DIEGO, { empresa: "Inoo", padreId: rrhh.json.id, nombre: "Verano" })).json;
+      assert.equal(sub.padreId, rrhh.json.id);
+      assert.deepEqual((await llamar("POST", "/carpetas", DIEGO, { empresa: "Inoo", padreId: sub.id, nombre: "Más hondo" })).json.errores.map((e: any) => e.campo), ["padreId"], "solo un nivel");
+      assert.deepEqual((await llamar("POST", "/carpetas", DIEGO, { empresa: "Casa Oliva", padreId: rrhh.json.id, nombre: "X" })).json.errores.map((e: any) => e.campo), ["padreId"], "el padre es de otra empresa");
+
+      // Mover el proyecto a la subcarpeta (es de Inoo); a una carpeta de otra empresa, no.
+      const otra = (await llamar("POST", "/carpetas", DIEGO, { empresa: "Casa Oliva", nombre: "Web" })).json;
+      assert.deepEqual((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { carpetaId: otra.id })).json.errores.map((e: any) => e.campo), ["carpetaId"]);
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { carpetaId: sub.id })).json.carpetaId, sub.id);
+      const enLista = async () => (await llamar("GET", "/tableros", DIEGO)).json.datos.find((x: any) => x.id === "PROJ-MKT01");
+      const t = await enLista();
+      assert.equal(t.carpetaId, sub.id);
+      assert.ok(Array.isArray(t.personaIds) && t.personaIds.length > 0, "quiénes están, para filtrar");
+      assert.ok("actualizadoEn" in t);
+      assert.ok((await llamar("GET", "/tableros", DIEGO)).json.equipo.every((p: any) => typeof p.empleadoId === "string"));
+
+      // Renombrar y borrar (solo Admin): el proyecto sube a la carpeta de arriba.
+      assert.equal((await llamar("PATCH", `/carpetas/${sub.id}`, DIEGO, { nombre: "Verano 2027" })).json.nombre, "Verano 2027");
+      assert.equal((await llamar("DELETE", `/carpetas/${sub.id}`, DIEGO)).status, 403);
+      assert.ok([200, 204].includes((await llamar("DELETE", `/carpetas/${sub.id}`, ADMIN)).status));
+      assert.equal((await enLista()).carpetaId, rrhh.json.id, "sube a la de arriba");
+      assert.ok([200, 204].includes((await llamar("DELETE", `/carpetas/${rrhh.json.id}`, ADMIN)).status));
+      assert.equal((await enLista()).carpetaId, null, "y después a la empresa");
+      assert.ok(!(await llamar("GET", "/carpetas", DIEGO)).json.datos.some((c: any) => c.id === rrhh.json.id));
+      // Sacarlo de la carpeta.
+      const c2 = (await llamar("POST", "/carpetas", DIEGO, { empresa: "Inoo", nombre: "Otra" })).json;
+      await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { carpetaId: c2.id });
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { carpetaId: null })).json.carpetaId, null);
+    });
+
+    test("17 nov: el nombre y la descripción se editan desde el portal (quien edita)", async () => {
+      await reiniciar();
+      const t = (await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { nombre: "  Operaciones 2027 ", descripcion: "Grilla: https://docs.google.com/x" })).json;
+      assert.deepEqual([t.nombre, t.descripcion], ["Operaciones 2027", "Grilla: https://docs.google.com/x"]);
+      assert.deepEqual((await llamar("PATCH", "/tableros/PROJ-OPS01", DIEGO, { nombre: " ", descripcion: "x".repeat(2001) })).json.errores.map((e: any) => e.campo).sort(), ["descripcion", "nombre"]);
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", CAMILA, { nombre: "Otro" })).status, 404, "no es miembro");
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);
@@ -330,7 +376,7 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       await reiniciar();
       const lista = (await llamar("GET", "/tableros", DIEGO)).json;
       assert.ok(lista.equipo.some((x: any) => x.nombre === "Camila Paredes"), "el equipo con ficha para elegir miembros");
-      assert.ok(lista.equipo.every((x: any) => Object.keys(x).sort().join() === "area,id,nombre"), "solo nombre y área");
+      assert.ok(lista.equipo.every((x: any) => Object.keys(x).sort().join() === "area,empleadoId,id,nombre"), "solo nombre, área y su id de InooWork (filtro por persona)");
       const mal = await llamar("POST", "/tableros", DIEGO, { nombre: " ", cliente: "", color: "rojo", miembros: [uid(1, 99)] });
       assert.deepEqual([mal.status, mal.json.errores.map((e: any) => e.campo).sort()], [422, ["cliente", "color", "nombre"]]);
       const sinFicha = await llamar("POST", "/tableros", DIEGO, { nombre: "X", cliente: "Y", miembros: [uid(1, 99)] });

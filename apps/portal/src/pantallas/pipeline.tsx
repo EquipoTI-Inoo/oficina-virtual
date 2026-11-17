@@ -6,12 +6,12 @@
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
 import { useState, type FormEvent, type ReactNode } from "react";
-import { LuArchive, LuBuilding2, LuClipboardList, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag } from "react-icons/lu";
-import { claveCliente } from "../dominio/clientes-tablero";
+import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3 } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
 import { NuevoServicio } from "./proyecto-equipo";
+import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, hayFiltros, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
 
 type TipoNuevo = "CATALOGO" | "TABLERO";
 const INOO_INTERNO = "Inoo (interno)";
@@ -67,7 +67,7 @@ function PipelineProyectos() {
   if (texto.trim()) params.set("q", texto.trim());
   const { datos: d, error, recargar } = useConsulta<Pipeline>(`/panel/proyectos${params.toString() ? `?${params}` : ""}`);
   // Si InooWork no responde, los proyectos de clientes se siguen viendo y solo faltan los tableros.
-  const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null }[] }>("/tableros");
+  const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null; empleadoId: string }[] }>("/tableros");
   // 8 nov (reunión del 6): al crear se elige entre un proyecto predeterminado (del catálogo) o personalizado (tablero).
   const [creando, setCreando] = useState<TipoNuevo | null>(null);
   // 13 nov: los proyectos archivados (los viejos de Monday, los culminados) se ven aparte y se pueden desarchivar.
@@ -83,18 +83,77 @@ function PipelineProyectos() {
   // 16 nov (tanda 4, Ernesto): Proyectos (tableros) y Servicios (lo que el cliente compró) separados en la misma sección,
   // con el mismo filtro de Empresa → Marca a la izquierda y etiquetas libres para los tableros.
   const [pestana, setPestana] = useState<"PROYECTOS" | "SERVICIOS">("PROYECTOS");
-  const [filtro, setFiltro] = useState<{ empresa: string | null; marca: string | null }>({ empresa: null, marca: null });
+  // 17 nov (Ernesto): carpetas Empresa → Marca → Carpeta → Subcarpeta, dos vistas (carpetas o por estado) y filtros.
+  const [lugar, setLugar] = useState<Lugar>(RAIZ);
+  const [vista, setVista] = useVistaProyectos();
+  const [filtros, setFiltros] = useState<Filtros>(SIN_FILTROS);
   const [etiqueta, setEtiqueta] = useState<string | null>(null);
+  const [nombrando, setNombrando] = useState<{ tipo: "NUEVA" } | { tipo: "RENOMBRAR"; carpeta: Carpeta } | null>(null);
+  const [destino, setDestino] = useState<{ cliente: string; marcaId: string | null; carpetaId: string | null } | null>(null);
+  const avisar = useAviso();
   const marcas = useConsulta<{ datos: S<"MarcaCliente">[] }>("/marcas");
-  const pasa = (cliente: string | null, marcaId: string | null) =>
-    (!filtro.empresa || claveCliente(cliente ?? "Sin cliente") === filtro.empresa) && (!filtro.marca || (filtro.marca === "__sin" ? !marcaId : marcaId === filtro.marca));
-  const tableros = tablerosTodos.filter((t) => pasa(t.cliente, t.marcaId) && (!etiqueta || t.etiquetas.includes(etiqueta)));
-  const servicios = (d?.datos ?? []).filter((p) => pasa(p.clienteNombre, p.marcaId ?? null));
-  const etiquetas = [...new Set(tablerosTodos.filter((t) => pasa(t.cliente, t.marcaId)).flatMap((t) => t.etiquetas))].sort((a, b) => a.localeCompare(b, "es"));
-  const arbol = arbolEmpresas(pestana === "PROYECTOS" ? tablerosTodos.map((t) => ({ cliente: t.cliente, marcaId: t.marcaId })) : (d?.datos ?? []).map((p) => ({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null })), marcas.datos?.datos ?? []);
+  const cq = useConsulta<{ datos: Carpeta[] }>("/carpetas");
+  const carpetas = cq.datos?.datos ?? [];
+  const listaMarcas = marcas.datos?.datos ?? [];
+  const lugarServ: Lugar = { ...lugar, carpeta: null };
+  const tableros = tablerosTodos.filter((t) => estaEn(ubicar(t, carpetas), lugar) && pasaFiltros(t, filtros) && (!etiqueta || t.etiquetas.includes(etiqueta)));
+  const servicios = (d?.datos ?? []).filter((p) => estaEn(ubicar({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null }, []), lugarServ));
+  const etiquetas = [...new Set(tablerosTodos.filter((t) => estaEn(ubicar(t, carpetas), lugar)).flatMap((t) => t.etiquetas))].sort((a, b) => a.localeCompare(b, "es"));
+  const arbol = pestana === "PROYECTOS"
+    ? construirArbol(tablerosTodos.filter((t) => pasaFiltros(t, filtros)), listaMarcas, carpetas, true)
+    : construirArbol((d?.datos ?? []).map((p) => ({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null })), listaMarcas, carpetas, false);
+  const enCarpetas = pestana === "PROYECTOS" && vista === "CARPETAS";
+  const empresa = arbol.find((e) => e.clave === lugar.empresa);
+  const esAdmin = sesion?.usuario.nivelAcceso === "ADMIN";
+
+  /** Arrastrar un proyecto a una carpeta, marca o empresa del árbol: solo dentro de su misma empresa. */
+  const mover = async (tableroId: string, l: Lugar) => {
+    const t = tablerosTodos.find((x) => x.id === tableroId);
+    const dest = destinoDe(l);
+    if (!t || !dest) return;
+    if (ubicar(t, carpetas).empresa !== dest.empresa) {
+      avisar({ titulo: "Solo dentro de la misma empresa", texto: "Para cambiarle el cliente, hazlo dentro del proyecto." });
+      return;
+    }
+    try {
+      await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: dest.cambio });
+      avisar({ titulo: "Proyecto movido" });
+      void r.recargar();
+    } catch (x) {
+      avisar({ titulo: "No se pudo mover", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const guardarNombre = async (nombre: string): Promise<string | null> => {
+    if (!nombrando) return null;
+    try {
+      if (nombrando.tipo === "RENOMBRAR") await api(`/carpetas/${nombrando.carpeta.id}`, { metodo: "PATCH", cuerpo: { nombre } });
+      else {
+        const c = carpetas.find((x) => x.id === lugar.carpeta);
+        const marcaId = lugar.marca && lugar.marca !== "__sin" ? lugar.marca : null;
+        const nueva = await api<Carpeta>("/carpetas", { metodo: "POST", cuerpo: { empresa: empresa?.nombre ?? "", marcaId, ...(c ? { padreId: c.id } : {}), nombre } });
+        setLugar({ ...lugar, carpeta: nueva.id });
+      }
+      setNombrando(null);
+      void cq.recargar();
+      return null;
+    } catch (x) {
+      return x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : "No se pudo guardar";
+    }
+  };
+  const borrarCarpeta = async (c: Carpeta) => {
+    if (!window.confirm(`¿Borrar la carpeta «${c.nombre}»? Sus proyectos y subcarpetas suben un nivel; no se borra ningún proyecto.`)) return;
+    try {
+      await api(`/carpetas/${c.id}`, { metodo: "DELETE" });
+      setLugar({ ...lugar, carpeta: c.padreId });
+      void cq.recargar();
+      void r.recargar();
+    } catch (x) {
+      avisar({ titulo: "No se pudo borrar", texto: x instanceof ProblemaApi ? x.titulo : undefined });
+    }
+  };
   return (
     <>
-      <Cabecera titulo="Proyectos" bajada="Proyectos son los tableros de trabajo (los mismos de InooWork); Servicios, lo que cada cliente contrató. Filtra por empresa y marca a la izquierda." />
+      <Cabecera titulo="Proyectos" bajada="Proyectos son los tableros de trabajo (los mismos de InooWork); Servicios, lo que cada cliente contrató. Ordénalos en carpetas por empresa y marca, y fíltralos a la izquierda." />
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         {/* Solo si ves más proyectos de los que llevas (ADMIN, leads, por cuenta): si no, los dos dan lo mismo (6 nov). */}
         {(veMas || mios) && <div className="chips" role="group" aria-label="Qué proyectos ver">
@@ -125,7 +184,7 @@ function PipelineProyectos() {
         <NuevoServicio abierto clientes={delPortal} cabecera={<CabeceraNuevo tipo="CATALOGO" cambiar={setCreando} tablero={!!r.datos} />}
           alCerrar={() => setCreando(null)} alCrear={(s) => { void recargar(); if (s.servicioContratadoId) irA(`/equipo/proyectos/${s.servicioContratadoId}`); }} />
       )}
-      {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} cabecera={<CabeceraNuevo tipo="TABLERO" cambiar={setCreando} tablero />} alCerrar={() => setCreando(null)} />}
+      {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} destino={destino} cabecera={<CabeceraNuevo tipo="TABLERO" cambiar={setCreando} tablero />} alCerrar={() => { setCreando(null); setDestino(null); }} />}
       {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
       {!archivados && (
         <div className="segmentado" role="tablist" aria-label="Qué ver" style={{ marginBottom: 14 }}>
@@ -139,42 +198,30 @@ function PipelineProyectos() {
         <Cargando />
       ) : (
         <div className="proyectos-dos-columnas">
-        <nav className="arbol-empresas" aria-label="Filtrar por empresa y marca">
-          <button type="button" className="arbol-item" aria-current={!filtro.empresa || undefined} onClick={() => setFiltro({ empresa: null, marca: null })}>
-            <span>Todas las empresas</span><span className="arbol-n">{arbol.reduce((n, e) => n + e.total, 0)}</span>
-          </button>
-          {arbol.map((e) => {
-            const abierta = filtro.empresa === e.clave;
-            return (
-              <div key={e.clave}>
-                <button type="button" className="arbol-item" aria-current={(abierta && !filtro.marca) || undefined} aria-expanded={abierta} onClick={() => setFiltro({ empresa: abierta && !filtro.marca ? null : e.clave, marca: null })}>
-                  <span className="fila" style={{ gap: 6, minWidth: 0 }}><LuBuilding2 size={14} style={{ flex: "none" }} /><span className="recortar">{e.nombre}</span></span><span className="arbol-n">{e.total}</span>
-                </button>
-                {abierta && (e.marcas.length > 0 || e.sinMarca > 0) && (
-                  <div className="arbol-hijos">
-                    {e.marcas.map((m) => (
-                      <button key={m.id} type="button" className="arbol-item arbol-item--hijo" aria-current={filtro.marca === m.id || undefined} onClick={() => setFiltro({ empresa: e.clave, marca: filtro.marca === m.id ? null : m.id })}>
-                        <span className="recortar">{m.nombre}</span><span className="arbol-n">{m.n}</span>
-                      </button>
-                    ))}
-                    {e.marcas.length > 0 && e.sinMarca > 0 && (
-                      <button type="button" className="arbol-item arbol-item--hijo" aria-current={filtro.marca === "__sin" || undefined} onClick={() => setFiltro({ empresa: e.clave, marca: filtro.marca === "__sin" ? null : "__sin" })}>
-                        <span className="texto-muted">Sin marca</span><span className="arbol-n">{e.sinMarca}</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </nav>
+        <ArbolProyectos arbol={arbol} lugar={lugar} ir={setLugar} etiqueta="Empresas, marcas y carpetas" alSoltar={pestana === "PROYECTOS" ? (id, l) => void mover(id, l) : undefined} />
         <div style={{ minWidth: 0 }}>
+        {pestana === "PROYECTOS" && (
+          <div className="fila entre" style={{ gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+            <div className="segmentado" role="tablist" aria-label="Cómo ver los proyectos">
+              <button role="tab" aria-selected={vista === "CARPETAS"} className={vista === "CARPETAS" ? "activo" : undefined} onClick={() => setVista("CARPETAS")}><LuFolderTree size={14} /> Carpetas</button>
+              <button role="tab" aria-selected={vista === "ESTADO"} className={vista === "ESTADO" ? "activo" : undefined} onClick={() => setVista("ESTADO")}><LuColumns3 size={14} /> Por estado</button>
+            </div>
+          </div>
+        )}
+        {pestana === "PROYECTOS" && <BarraFiltros tableros={tablerosTodos} equipo={r.datos?.equipo ?? []} f={filtros} cambiar={setFiltros} />}
         {pestana === "PROYECTOS" && etiquetas.length > 0 && (
           <div className="chips" role="group" aria-label="Filtrar por etiqueta" style={{ marginBottom: 12 }}>
             <LuTag size={14} aria-hidden style={{ alignSelf: "center", color: "var(--c-muted)" }} />
             {etiquetas.map((x) => <button key={x} type="button" className="chip" aria-pressed={etiqueta === x} onClick={() => setEtiqueta(etiqueta === x ? null : x)}>{x}</button>)}
           </div>
         )}
+        {enCarpetas ? (
+          <VistaCarpetas arbol={arbol} lugar={lugar} ir={setLugar} tableros={tableros} carpetas={carpetas} marcas={listaMarcas}
+            plano={!!q || hayFiltros(filtros) || !!etiqueta || lugar.marca === "__sin"}
+            alSoltar={(id, l) => void mover(id, l)} crearCarpeta={() => setNombrando({ tipo: "NUEVA" })}
+            renombrar={(c) => setNombrando({ tipo: "RENOMBRAR", carpeta: c })} borrar={esAdmin ? (c) => void borrarCarpeta(c) : null}
+            nuevoProyecto={() => { if (empresa) { setDestino({ cliente: empresa.nombre, marcaId: lugar.marca && lugar.marca !== "__sin" ? lugar.marca : null, carpetaId: lugar.carpeta }); setCreando("TABLERO"); } }} />
+        ) : (
         <div className="pipeline" role="list" aria-label={pestana === "PROYECTOS" ? "Proyectos" : "Servicios"}>
           {d.columnas.map((c) => {
             const xs = pestana === "SERVICIOS" ? servicios.filter((p) => p.columna === c.clave) : [];
@@ -199,23 +246,30 @@ function PipelineProyectos() {
             );
           })}
         </div>
+        )}
         </div>
         </div>
+      )}
+      {nombrando && (
+        <ModalNombre titulo={nombrando.tipo === "NUEVA" ? (lugar.carpeta ? "Nueva subcarpeta" : "Nueva carpeta") : "Renombrar carpeta"} etiqueta="Nombre de la carpeta"
+          inicial={nombrando.tipo === "RENOMBRAR" ? nombrando.carpeta.nombre : ""} alGuardar={guardarNombre} alCerrar={() => setNombrando(null)} />
       )}
     </>
   );
 }
 
 /** Crea el proyecto en InooWork con su plantilla y abre el tablero (6 nov). */
-function NuevoTablero({ equipo, clientes, cabecera, alCerrar }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; cabecera: ReactNode; alCerrar: () => void }) {
+function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; cabecera: ReactNode; alCerrar: () => void; destino?: { cliente: string; marcaId: string | null; carpetaId: string | null } | null }) {
   const { ir } = useNavegacion();
   const avisar = useAviso();
   const yo = usePortal().sesion?.usuario.id;
   const [nombre, setNombre] = useState("");
-  const [cliente, setCliente] = useState("");
+  // 17 nov: «Proyecto aquí» desde una carpeta llega con su empresa (y marca o carpeta) puestas.
+  const [cliente, setCliente] = useState(destino?.cliente ?? "");
   const [otro, setOtro] = useState(false);
   // Inoo como cliente interno (27 oct): si InooWork ya lo tiene como «Inoo», se usa ese nombre.
-  const opciones = clientes.some((c) => /^inoo\b/i.test(c)) ? clientes : [INOO_INTERNO, ...clientes];
+  const base = clientes.some((c) => /^inoo\b/i.test(c)) ? clientes : [INOO_INTERNO, ...clientes];
+  const opciones = destino?.cliente && !base.includes(destino.cliente) ? [destino.cliente, ...base] : base;
   const [descripcion, setDescripcion] = useState("");
   const [color, setColor] = useState<string>(COLORES_GRUPO[0]);
   const [miembros, setMiembros] = useState<string[]>([]);
@@ -228,6 +282,9 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar }: { equipo: { id: 
     setEnviando(true);
     try {
       const t = await api<S<"TableroInooWork">>("/tableros", { metodo: "POST", cuerpo: { nombre, cliente, ...(descripcion.trim() ? { descripcion } : {}), color, miembros } });
+      if (destino && (destino.carpetaId || destino.marcaId)) {
+        await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: destino.carpetaId ? { carpetaId: destino.carpetaId } : { marcaId: destino.marcaId } }).catch(() => undefined);
+      }
       avisar({ titulo: "Proyecto creado", texto: "Ya está también en InooWork." });
       ir(`/equipo/proyectos/tableros/${t.id}`);
     } catch (x) {
@@ -298,25 +355,6 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar }: { equipo: { id: 
       </form>
     </Modal>
   );
-}
-
-/** Empresa → Marca, con cuántos hay en cada una (16 nov, tanda 4). La empresa se reconoce por el nombre (claveCliente). */
-function arbolEmpresas(xs: { cliente: string | null; marcaId: string | null }[], marcas: S<"MarcaCliente">[]) {
-  const empresas = new Map<string, { clave: string; nombre: string; total: number; sinMarca: number; porMarca: Map<string, number> }>();
-  for (const x of xs) {
-    const nombre = x.cliente ?? "Sin cliente";
-    const clave = claveCliente(nombre);
-    const e = empresas.get(clave) ?? { clave, nombre, total: 0, sinMarca: 0, porMarca: new Map<string, number>() };
-    e.total++;
-    if (x.marcaId) e.porMarca.set(x.marcaId, (e.porMarca.get(x.marcaId) ?? 0) + 1);
-    else e.sinMarca++;
-    empresas.set(clave, e);
-  }
-  return [...empresas.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((e) => ({
-    clave: e.clave, nombre: e.nombre, total: e.total, sinMarca: e.sinMarca,
-    marcas: marcas.filter((m) => claveCliente(m.clienteNombre) === e.clave && (m.activa || e.porMarca.has(m.id)))
-      .map((m) => ({ id: m.id, nombre: m.nombre, n: e.porMarca.get(m.id) ?? 0 })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-  }));
 }
 
 function TarjetaTablero({ t, marca }: { t: S<"TableroResumen">; marca?: string }) {
