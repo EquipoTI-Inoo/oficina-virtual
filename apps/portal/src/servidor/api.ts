@@ -71,6 +71,7 @@ import { MAX_PENDIENTES_JARVIS, resumenAccionJarvis, rutaDeAccionJarvis, validar
 import { anotarFallido, firmarSesion, ingresoConInooWork, leerPaseInooWork, olvidarFallidos, revisarIntentos, validarEnInooWork } from "./sesion-inoowork";
 import * as DP from "./dos-pasos";
 import { itemsDesdeTexto, resumirTablero } from "./ia-tableros";
+import { resumenParaCliente, TOPE_RESUMENES_MES, type DatosResumen } from "./resumen-cliente";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenOpcional } from "./almacen";
@@ -1742,6 +1743,54 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", async (ctx, p, q) => perfilVista(ctx, await buscarServicio(ctx, p.id), exigirPeriodo(q.get("periodo") ?? PERIODO_ACTUAL())));
+
+// ───────────────────────────── «Resumen del avance» para el cliente (16 nov, tanda 5): lo activa el equipo, tope al mes
+
+async function datosResumenDb(ctx: Ctx, s: FilaServicio): Promise<DatosResumen> {
+  const p = await perfilVista(ctx, s, PERIODO_ACTUAL());
+  const reqs = (await ctx.c.query<{ titulo: string }>("SELECT titulo FROM requerimiento WHERE servicio_contratado_id = $1 AND estado IN ('PENDIENTE', 'OBSERVADO') ORDER BY fecha_limite LIMIT 8", [s.id])).rows;
+  return {
+    titulo: p.titulo, porcentaje: p.avance.porcentaje,
+    etapas: p.etapas.map((e) => ({ nombre: e.nombre, estado: e.estado, fechaEstimada: e.fechaEstimada ?? null, atrasada: e.atrasada })),
+    siguientePaso: p.siguientePaso?.texto ?? null, porRevisar: p.porRevisar.map((x) => x.titulo).slice(0, 8), requerimientos: reqs.map((r) => r.titulo),
+  };
+}
+const usosResumenDb = async (ctx: Ctx, clienteId: string) =>
+  (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM resumen_avance_uso WHERE cliente_id = $1 AND creado_en >= date_trunc('month', now() AT TIME ZONE 'America/Lima') AT TIME ZONE 'America/Lima'", [clienteId])).rows[0].n;
+const resumenActivoDb = async (ctx: Ctx, clienteId: string) =>
+  !!(await ctx.c.query<{ a: boolean }>("SELECT resumen_avance AS a FROM cliente WHERE id = $1", [clienteId])).rows[0]?.a;
+
+ruta("GET", "/clientes/:id/resumen-avance", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  return { activo: await resumenActivoDb(ctx, p.id), usadosMes: await usosResumenDb(ctx, p.id), tope: TOPE_RESUMENES_MES };
+});
+ruta("PUT", "/clientes/:id/resumen-avance", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const activo = ((await cuerpo()) as { activo?: unknown }).activo;
+  if (typeof activo !== "boolean") validacion([{ campo: "activo", mensaje: "Debe ser true o false" }]);
+  await ctx.c.query("UPDATE cliente SET resumen_avance = $2 WHERE id = $1", [p.id, activo]);
+  return { activo, usadosMes: await usosResumenDb(ctx, p.id), tope: TOPE_RESUMENES_MES };
+});
+ruta("GET", "/servicios-contratados/:id/resumen-avance", async (ctx, p) => {
+  const s = await buscarServicio(ctx, p.id);
+  const activo = await resumenActivoDb(ctx, s.cliente_id);
+  return { disponible: activo, restantes: activo ? Math.max(0, TOPE_RESUMENES_MES - (await usosResumenDb(ctx, s.cliente_id))) : 0 };
+});
+ruta("POST", "/servicios-contratados/:id/resumen-avance", async (ctx, p) => {
+  const s = await buscarServicio(ctx, p.id);
+  if (!(await resumenActivoDb(ctx, s.cliente_id))) throw new ErrorApi(409, "NO_DISPONIBLE", "El resumen del avance no está activo para esta cuenta");
+  const usados = await usosResumenDb(ctx, s.cliente_id);
+  if (usados >= TOPE_RESUMENES_MES) throw new ErrorApi(429, "TOPE_DEL_MES", "Ya usaste los resúmenes de este mes", "El próximo mes vuelves a tenerlos. Mientras, tu equipo Inoo te puede contar cómo va.");
+  const d = await datosResumenDb(ctx, s);
+  // El gasto va a la cuenta (y el área) del responsable del servicio: es trabajo del equipo para el cliente.
+  const resp = s.responsable_id ? (await ctx.c.query<{ area: Area | null }>("SELECT area::text AS area FROM usuario WHERE id = $1", [s.responsable_id])).rows[0] : undefined;
+  const texto = await resumenParaCliente(almacenDeSolicitud(ctx), { usuarioId: s.responsable_id ?? ctx.u.usuarioId, area: resp?.area ?? null }, d);
+  await ctx.c.query("INSERT INTO resumen_avance_uso (cliente_id, servicio_contratado_id, usuario_id) VALUES ($1, $2, $3)", [s.cliente_id, s.id, ctx.u.usuarioId]);
+  return { texto, restantes: Math.max(0, TOPE_RESUMENES_MES - usados - 1) };
+});
 
 // ───────────────────────────────────────────── entregables genéricos del proyecto (reunión 15 oct)
 // RLS: el cliente solo ve los entregables que ya se le enviaron y solo las versiones enviadas.

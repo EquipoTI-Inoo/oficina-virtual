@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente } from "../base";
+import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, rolCliente } from "../base";
 import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes, ResultadosDelMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
@@ -123,6 +123,8 @@ function Proyecto() {
             </section>
           )}
 
+          <ResumenDelAvance servicioId={d.servicioContratadoId} />
+
           <RequerimientosDelServicio servicioId={d.servicioContratadoId} />
 
           {d.codigo === "SOPORTE_CONTINUO" && <TicketsDelServicio servicioId={d.servicioContratadoId} />}
@@ -173,6 +175,44 @@ function Proyecto() {
  * requerimientos (reunión 15 oct): aquí el cliente nos pide algo y lo atiende Inoo, así que se ven
  * distintos: fondo blanco con borde punteado, sin semáforo ni llamado a completar.
  */
+/**
+ * 16 nov (Ernesto): el «Resumen del avance», solo si el equipo lo activó para la cuenta y con tope al mes. Se lee como
+ * un mensaje del equipo: no dice cómo se arma.
+ */
+function ResumenDelAvance({ servicioId }: { servicioId: string }) {
+  const r = useConsulta<{ disponible: boolean; restantes: number }>(`/servicios-contratados/${servicioId}/resumen-avance`);
+  const [texto, setTexto] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  if (!r.datos?.disponible) return null;
+  const pedir = async () => {
+    setOcupado(true);
+    setError(null);
+    try {
+      const x = await api<{ texto: string; restantes: number }>(`/servicios-contratados/${servicioId}/resumen-avance`, { metodo: "POST", cuerpo: {} });
+      setTexto(x.texto);
+      r.setDatos({ disponible: true, restantes: x.restantes });
+    } catch (e) {
+      setError(e instanceof ProblemaApi ? `${e.titulo}.${e.detalle ? ` ${e.detalle}` : ""}` : "No pudimos preparar el resumen");
+    } finally {
+      setOcupado(false);
+    }
+  };
+  return (
+    <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
+      <h2 className="tarjeta-titulo">Resumen del avance</h2>
+      {texto ? <p className="texto-sm" style={{ whiteSpace: "pre-wrap" }}>{texto}</p> : <p className="texto-sm texto-muted">En pocas líneas: en qué va tu proyecto, qué sigue y qué necesitamos de ti.</p>}
+      {error && <p className="texto-sm" role="alert" style={{ color: "var(--c-alerta)" }}>{error}</p>}
+      <span className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+        <button className="boton boton--chico boton--primario" disabled={ocupado || r.datos.restantes <= 0} onClick={() => void pedir()}>
+          {ocupado ? "Preparando…" : texto ? "Actualizar resumen" : "Ver el resumen"}
+        </button>
+        <span className="texto-xs texto-muted">{r.datos.restantes > 0 ? `Te quedan ${r.datos.restantes} este mes` : "Ya usaste los de este mes"}</span>
+      </span>
+    </section>
+  );
+}
+
 function TicketsDelServicio({ servicioId }: { servicioId: string }) {
   const avisar = useAviso();
   const lista = useConsulta<{ datos: S<"Ticket">[] }>(`/clientes/${clienteActivo()}/tickets?servicioContratadoId=${servicioId}`);

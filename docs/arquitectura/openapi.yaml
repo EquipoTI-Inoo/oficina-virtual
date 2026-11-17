@@ -5082,6 +5082,49 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /clientes/{clienteId}/resumen-avance:
+    parameters:
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Clientes]
+      operationId: verResumenAvanceCliente
+      summary: '¿El cliente tiene activo el «Resumen del avance»? y cuántos usó este mes (16 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ResumenAvanceCliente' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    put:
+      tags: [Clientes]
+      operationId: activarResumenAvance
+      summary: 'Activa o apaga el «Resumen del avance» del cliente (AM o ADMIN). Apagado por defecto'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [activo], properties: { activo: { type: boolean } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ResumenAvanceCliente' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/resumen-avance:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Servicios]
+      operationId: disponibilidadResumenAvance
+      summary: '¿Puede pedir el resumen? y cuántos le quedan este mes'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [disponible, restantes], properties: { disponible: { type: boolean }, restantes: { type: integer } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Servicios]
+      operationId: pedirResumenAvance
+      summary: 'El resumen del avance del servicio, en palabras del cliente: en qué va, qué sigue y qué necesitamos de él. Solo con lo que el cliente ve'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [texto, restantes], properties: { texto: { type: string }, restantes: { type: integer } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '429': { description: Llegó al tope del mes }
+
   /marcas:
     get:
       tags: [Clientes]
@@ -7165,6 +7208,13 @@ components:
         enlace: { type: [string, 'null'], description: Ruta interna del portal }
         leida: { type: boolean }
         creadoEn: { type: string, format: date-time }
+    ResumenAvanceCliente:
+      type: object
+      required: [activo, usadosMes, tope]
+      properties:
+        activo: { type: boolean }
+        usadosMes: { type: integer }
+        tope: { type: integer }
     MarcaCliente:
       type: object
       description: 'Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca'

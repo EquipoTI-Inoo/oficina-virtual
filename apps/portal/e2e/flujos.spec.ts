@@ -756,6 +756,21 @@ test("IA del tablero (16 nov): resume y propone ítems desde un texto; se agrega
   await expect(page.getByLabel("Nombre de Pedir logos nuevos")).toHaveCount(0);
 });
 
+test("resumen del avance (16 nov): apagado por defecto; el equipo lo activa y el cliente lo ve en su servicio", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  await reiniciar(request);
+  await entrarComo(page, "cliente");
+  await page.goto("/servicios/00000000-0000-4000-8004-000000000004");
+  await expect(page.getByRole("heading", { name: /Diseño y desarrollo web/ }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Resumen del avance" })).toHaveCount(0);
+  const on = await request.put("/api/v1/clientes/00000000-0000-4000-8002-000000000001/resumen-avance", { headers: { authorization: "Bearer demo.00000000-0000-4000-8001-000000000004" }, data: { activo: true } });
+  expect(on.ok()).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Ver el resumen" }).click({ timeout: 30_000 });
+  await expect(page.getByText(/^Tu proyecto Diseño y desarrollo web/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Te quedan 19 este mes")).toBeVisible();
+});
+
 test("2FA (16 nov): se activa desde Mi cuenta con el QR, muestra los códigos de respaldo y se desactiva con un código", async ({ page, request }) => {
   test.setTimeout(120_000);
   await reiniciar(request);

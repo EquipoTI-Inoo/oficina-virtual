@@ -3600,6 +3600,46 @@ export interface paths {
         patch: operations["cambiarSubitemTablero"];
         trace?: never;
     };
+    "/clientes/{clienteId}/resumen-avance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        /** ¿El cliente tiene activo el «Resumen del avance»? y cuántos usó este mes (16 nov) */
+        get: operations["verResumenAvanceCliente"];
+        /** Activa o apaga el «Resumen del avance» del cliente (AM o ADMIN). Apagado por defecto */
+        put: operations["activarResumenAvance"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/resumen-avance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        /** ¿Puede pedir el resumen? y cuántos le quedan este mes */
+        get: operations["disponibilidadResumenAvance"];
+        put?: never;
+        /** El resumen del avance del servicio, en palabras del cliente: en qué va, qué sigue y qué necesitamos de él. Solo con lo que el cliente ve */
+        post: operations["pedirResumenAvance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/marcas": {
         parameters: {
             query?: never;
@@ -5207,6 +5247,11 @@ export interface components {
             leida: boolean;
             /** Format: date-time */
             creadoEn: string;
+        };
+        ResumenAvanceCliente: {
+            activo: boolean;
+            usadosMes: number;
+            tope: number;
         };
         /** @description Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca */
         MarcaCliente: {
@@ -16579,6 +16624,120 @@ export interface operations {
             422: components["responses"]["Validacion"];
             /** @description InooWork no respondió */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verResumenAvanceCliente: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenAvanceCliente"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    activarResumenAvance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    activo: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumenAvanceCliente"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    disponibilidadResumenAvance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        disponible: boolean;
+                        restantes: number;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    pedirResumenAvance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        texto: string;
+                        restantes: number;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+            /** @description Llegó al tope del mes */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

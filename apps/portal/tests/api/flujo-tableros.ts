@@ -66,6 +66,23 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/ia/items", DIEGO, { texto: " " })).status, 422);
     });
 
+    test("16 nov (tanda 5): el «Resumen del avance» del cliente viene apagado; lo activa el equipo y tiene tope al mes", async () => {
+      await reiniciar();
+      const servicio = uid(4, 4);
+      const ruta = `/servicios-contratados/${servicio}/resumen-avance`;
+      assert.deepEqual((await llamar("GET", ruta, VALERIA)).json, { disponible: false, restantes: 0 });
+      assert.equal((await llamar("POST", ruta, VALERIA, {})).status, 409, "apagado por defecto");
+      assert.equal((await llamar("PUT", `/clientes/${CASA_OLIVA}/resumen-avance`, VALERIA, { activo: true })).status, 403, "el cliente no se lo activa");
+      const on = await llamar("PUT", `/clientes/${CASA_OLIVA}/resumen-avance`, ADMIN, { activo: true });
+      assert.deepEqual(on.json, { activo: true, usadosMes: 0, tope: 20 });
+      const r = await llamar("POST", ruta, VALERIA, {});
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.match(r.json.texto, /^Tu proyecto Diseño y desarrollo web - Casa Oliva va en \d+ %/);
+      assert.doesNotMatch(r.json.texto, /IA|inteligencia artificial/i, "no dice que es IA");
+      assert.equal(r.json.restantes, 19);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/resumen-avance`, ADMIN)).json.usadosMes, 1);
+    });
+
     test("16 nov (tanda 4): marcas por empresa; el servicio y el tablero se enlazan a una marca y el tablero a un servicio, con etiquetas", async () => {
       await reiniciar();
       const nueva = await llamar("POST", `/clientes/${CASA_OLIVA}/marcas`, ADMIN, { nombre: "  Oliva   Kids " });

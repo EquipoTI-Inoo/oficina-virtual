@@ -49,6 +49,7 @@ import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/arch
 import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones } from "../servidor/actualizaciones-tablero";
 import * as DP from "../servidor/dos-pasos";
 import { itemsDesdeTexto, resumirTablero } from "../servidor/ia-tableros";
+import { resumenParaCliente, TOPE_RESUMENES_MES } from "../servidor/resumen-cliente";
 import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -173,6 +174,8 @@ interface Estado {
   actualizacionesTablero: (FilaActualizacion & { proyectoId: string; itemId: string })[];
   /** 16 nov (tanda 4): las marcas de cada cliente. */
   marcas: { id: string; clienteId: string; nombre: string; activa: boolean }[];
+  /** 16 nov: el «Resumen del avance» por cliente (activo) y los usos (para el tope del mes). */
+  resumenAvance: { activos: Set<string>; usos: { clienteId: string; mes: string }[] };
   avisosEquipo: { id: string; usuarioId: string; titulo: string; cuerpo: string; enlace: string; creadoEn: string }[];
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
@@ -263,7 +266,7 @@ function estadoInicial(): Estado {
     sesionesCerradas: new Map(),
     dosPasos: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -2843,6 +2846,43 @@ const reunionVista = (r: D.ReunionDemo): S<"Reunion"> => ({ id: r.id, titulo: r.
 
 // Perfil del proyecto (reunión 12 oct): métricas de su plantilla, etapas, reuniones y lo que espera revisión.
 ruta("GET", "/servicios-contratados/:id", (ctx, p, q) => perfilVista(ctx, buscarServicio(ctx, p.id), q.get("periodo") ?? D.PERIODO));
+
+// ───────────────────────────── «Resumen del avance» para el cliente (16 nov, tanda 5): lo activa el equipo, tope al mes
+const usosResumenMock = (clienteId: string) => E.resumenAvance.usos.filter((u) => u.clienteId === clienteId && u.mes === D.PERIODO).length;
+ruta("GET", "/clientes/:id/resumen-avance", (ctx, p) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id, true);
+  return { activo: E.resumenAvance.activos.has(c.id), usadosMes: usosResumenMock(c.id), tope: TOPE_RESUMENES_MES };
+});
+ruta("PUT", "/clientes/:id/resumen-avance", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const c = accesoCliente(ctx, p.id, true);
+  exigirRol(ctx, c.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const activo = (await cuerpo<{ activo?: unknown }>(req))?.activo;
+  if (typeof activo !== "boolean") throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "activo", mensaje: "Debe ser true o false" }]);
+  if (activo) E.resumenAvance.activos.add(c.id); else E.resumenAvance.activos.delete(c.id);
+  return { activo, usadosMes: usosResumenMock(c.id), tope: TOPE_RESUMENES_MES };
+});
+ruta("GET", "/servicios-contratados/:id/resumen-avance", (ctx, p) => {
+  const s = buscarServicio(ctx, p.id);
+  const activo = E.resumenAvance.activos.has(s.clienteId);
+  return { disponible: activo, restantes: activo ? Math.max(0, TOPE_RESUMENES_MES - usosResumenMock(s.clienteId)) : 0 };
+});
+ruta("POST", "/servicios-contratados/:id/resumen-avance", async (ctx, p) => {
+  const s = buscarServicio(ctx, p.id);
+  if (!E.resumenAvance.activos.has(s.clienteId)) throw new ErrorApi(409, "NO_DISPONIBLE", "El resumen del avance no está activo para esta cuenta");
+  const usados = usosResumenMock(s.clienteId);
+  if (usados >= TOPE_RESUMENES_MES) throw new ErrorApi(429, "TOPE_DEL_MES", "Ya usaste los resúmenes de este mes");
+  const v = perfilVista(ctx, s, D.PERIODO);
+  const reqs = E.requerimientos.filter((r) => r.servicioContratadoId === s.id && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO")).slice(0, 8).map((r) => r.titulo);
+  const resp = E.usuarios.find((u) => u.id === s.responsableId);
+  const texto = await resumenParaCliente(almacenMock, { usuarioId: s.responsableId ?? ctx.usuario.id, area: resp?.area ?? null }, {
+    titulo: v.titulo, porcentaje: v.avance.porcentaje, etapas: v.etapas.map((e) => ({ nombre: e.nombre, estado: e.estado, fechaEstimada: e.fechaEstimada ?? null, atrasada: e.atrasada })),
+    siguientePaso: v.siguientePaso?.texto ?? null, porRevisar: v.porRevisar.map((x) => x.titulo).slice(0, 8), requerimientos: reqs,
+  });
+  E.resumenAvance.usos.push({ clienteId: s.clienteId, mes: D.PERIODO });
+  return { texto, restantes: Math.max(0, TOPE_RESUMENES_MES - usados - 1) };
+});
 
 // ───────────────────────────────────────────── entregables genéricos del proyecto (reunión 15 oct)
 

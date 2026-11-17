@@ -636,6 +636,32 @@ function ActividadCliente({ a }: { a: S<"InactividadCliente"> }) {
   );
 }
 
+/**
+ * 16 nov (Ernesto: IA para el cliente apagada por defecto, activable de forma muy limitada): el «Resumen del avance»
+ * que el cliente pide en sus servicios. Lo prende el AM o un admin; tope de usos al mes por cliente.
+ */
+function ResumenAvanceCliente({ clienteId, gestion }: { clienteId: string; gestion: boolean }) {
+  const avisar = useAviso();
+  const r = useConsulta<S<"ResumenAvanceCliente">>(`/clientes/${clienteId}/resumen-avance`);
+  if (!r.datos) return null;
+  const cambiar = async (activo: boolean) => {
+    try { r.setDatos(await api(`/clientes/${clienteId}/resumen-avance`, { metodo: "PUT", cuerpo: { activo } })); }
+    catch (e) { avisar({ titulo: "No se pudo cambiar", texto: e instanceof ProblemaApi ? e.titulo : undefined }); }
+  };
+  return (
+    <div className="tarjeta" style={{ padding: "18px 12px", display: "grid", gap: 8 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Resumen del avance para el cliente</h3>
+      <label className="casilla texto-sm">
+        <input type="checkbox" checked={r.datos.activo} disabled={!gestion} onChange={(e) => void cambiar(e.target.checked)} /> {r.datos.activo ? "Activo" : "Apagado"}
+      </label>
+      <p className="texto-xs texto-muted">
+        El cliente ve en cada servicio un resumen de en qué va, qué sigue y qué nos debe. Se arma con IA, sin decírselo, y solo con lo que el cliente ya ve.
+        Usados este mes: {r.datos.usadosMes} de {r.datos.tope}.{gestion ? "" : " Lo cambia el responsable de la cuenta o un admin."}
+      </p>
+    </div>
+  );
+}
+
 /** 11 nov: si el cliente ya tenía su carpeta de Drive, se pega el enlace (y n8n no crea otra ni la reemplaza). */
 function CarpetaManual({ clienteId, actual, alCambiar }: { clienteId: string; actual: string | null; alCambiar: () => void }) {
   const avisar = useAviso();
@@ -780,6 +806,7 @@ function Ficha() {
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}
+          <ResumenAvanceCliente clienteId={d.id} gestion={gestion} />
           {gestion && <GestionCuenta cliente={d} alGuardar={() => void c.recargar()} />}
           {gestion && <AccesoDelCliente clienteId={id} />}
           <TablerosDelCliente nombre={d.nombre} />
