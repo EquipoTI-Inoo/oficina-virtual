@@ -104,11 +104,46 @@ function MiCuenta() {
         </Tarjeta>
 
         <SeccionDosPasos />
+        <JarvisDesdeChrome />
 
         <Conexiones />
         <Notificaciones />
       </div>
     </>
+  );
+}
+
+/**
+ * 16 nov (Ernesto: «Claude in Chrome para Jarvis»): mandar la página que estás viendo a tu Jarvis. Con la extensión
+ * (clic derecho → «Enviar a Jarvis») o con un favorito, para quien no quiera instalar nada.
+ */
+function JarvisDesdeChrome() {
+  const avisar = useAviso();
+  const [origen, setOrigen] = useState("https://portal.inoo.pe");
+  useEffect(() => setOrigen(window.location.origin), []);
+  const favorito = `javascript:(()=>{const c={t:document.title,u:location.href,s:String(getSelection()).slice(0,6000)};window.open('${origen}/equipo/jarvis?contexto='+encodeURIComponent(JSON.stringify(c)),'_blank')})()`;
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(favorito); avisar({ titulo: "Copiado", texto: "Crea un favorito nuevo y pega esto como su dirección." }); }
+    catch { avisar({ titulo: "No se pudo copiar: selecciona el texto y cópialo" }); }
+  };
+  return (
+    <Tarjeta titulo="Jarvis desde Chrome" icono={<LuBot size={18} />}>
+      <p className="texto-sm">Manda a tu Jarvis la página que estás viendo, o lo que seleccionaste, y pregúntale sobre eso.</p>
+      <ol className="texto-sm" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
+        <li><a href="/descargas/jarvis-chrome.zip" download className="enlace">Descarga la extensión</a> y descomprímela.</li>
+        <li>En Chrome abre <code>chrome://extensions</code> y prende el «Modo de desarrollador».</li>
+        <li>«Cargar descomprimida» y elige la carpeta <code>jarvis-chrome</code>.</li>
+        <li>Clic derecho en cualquier página → «Enviar a Jarvis».</li>
+      </ol>
+      <details className="texto-xs">
+        <summary style={{ cursor: "pointer" }}>Sin instalar nada: un favorito</summary>
+        <p className="texto-xs texto-muted" style={{ margin: "6px 0" }}>Crea un favorito, pega esto como su dirección y úsalo en cualquier página.</p>
+        <span className="fila" style={{ gap: 6 }}>
+          <input className="input" readOnly aria-label="Código del favorito" value={favorito} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 0, fontSize: "var(--t-xs)" }} />
+          <button type="button" className="boton boton--chico" onClick={() => void copiar()}>Copiar</button>
+        </span>
+      </details>
+    </Tarjeta>
   );
 }
 

@@ -42,7 +42,42 @@ export function AvatarBot({ bot, tam = 30 }: { bot: Pick<Bot, "nombre" | "color"
   );
 }
 
+// ───────────────────────────── Jarvis desde Chrome (16 nov, Ernesto)
+// La extensión (o el favorito) abre /equipo/jarvis?contexto={t, u, s}: título, enlace y lo seleccionado de la página.
+// Se guarda en la pestaña y el primer chat que se abre lo deja escrito en el mensaje, listo para preguntar.
+const CLAVE_CONTEXTO = "inoo.jarvis.contexto";
+function guardarContextoDeLaUrl(): boolean {
+  if (typeof window === "undefined") return false;
+  const u = new URL(window.location.href);
+  const crudo = u.searchParams.get("contexto");
+  if (!crudo) return false;
+  u.searchParams.delete("contexto");
+  window.history.replaceState(window.history.state, "", u);
+  try {
+    const c = JSON.parse(crudo) as { t?: unknown; u?: unknown; s?: unknown };
+    const titulo = typeof c.t === "string" ? c.t.slice(0, 300) : "";
+    const enlace = typeof c.u === "string" && /^https?:\/\//.test(c.u) ? c.u.slice(0, 2000) : "";
+    const sel = typeof c.s === "string" ? c.s.trim().slice(0, 6000) : "";
+    const texto = [`Sobre esta página${titulo ? `: «${titulo}»` : ""}`, enlace, sel ? `\n${sel.split("\n").map((l) => `> ${l}`).join("\n")}` : "", "\n"].filter(Boolean).join("\n");
+    sessionStorage.setItem(CLAVE_CONTEXTO, texto);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function tomarContexto(): string {
+  try {
+    const t = sessionStorage.getItem(CLAVE_CONTEXTO) ?? "";
+    sessionStorage.removeItem(CLAVE_CONTEXTO);
+    return t;
+  } catch {
+    return "";
+  }
+}
+
 function SeccionJarvis() {
+  // 16 nov: lo que mandó la extensión de Chrome (se toma una vez).
+  const [conContexto] = useState(guardarContextoDeLaUrl);
   // 8 nov: los super usuarios ven todas las áreas y Gerencia; los leads, también las áreas que lideran.
   const [espacio, setEspacio] = useState<string | null>(null);
   const r = useConsulta<S<"BotsDelArea">>(espacio ? `/jarvis/bots?area=${espacio}` : "/jarvis/bots");
@@ -92,6 +127,7 @@ function SeccionJarvis() {
   return (
     <div className="pila" style={{ gap: 12 }}>
     <h1 className="sr-only">Jarvis</h1>
+    {conContexto && <p role="status" className="texto-sm fila-suave">La página que mandaste desde Chrome quedó escrita en el mensaje: abre el chat de un bot y agrégale tu pregunta.</p>}
     {d.espacios.length > 1 && (
       <div className="pestanas" role="tablist" aria-label="Áreas de Jarvis">
         {d.espacios.map((e) => (
@@ -556,7 +592,8 @@ function ChatBot({ bot, espacio, conectado, sesion, configurar, alCompartir, alE
   // Bot recién creado (sin trabajo): en su configuración saluda y empieza a preguntar, como Grok.
   const inicio = (): MensajeChat[] => (configurar && !bot.instrucciones.trim() ? [{ rol: "bot", texto: saludoInicial(bot.nombre) }] : []);
   const [mensajes, setMensajes] = useState<MensajeChat[]>(inicio);
-  const [texto, setTexto] = useState("");
+  // 16 nov: si llegó una página desde Chrome, el mensaje empieza con ella.
+  const [texto, setTexto] = useState(() => (configurar ? "" : tomarContexto()));
   const [enviando, setEnviando] = useState(false);
   const [pasos, setPasos] = useState<Paso[]>([]);
   const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);

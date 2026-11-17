@@ -771,6 +771,20 @@ test("resumen del avance (16 nov): apagado por defecto; el equipo lo activa y el
   await expect(page.getByText("Te quedan 19 este mes")).toBeVisible();
 });
 
+test("Jarvis desde Chrome (16 nov): la página que llega por el enlace queda lista para el chat", async ({ page }) => {
+  test.setTimeout(120_000);
+  await entrarComo(page, "equipo");
+  const c = { t: "Propuesta de Nativa", u: "https://ejemplo.com/propuesta", s: "Presupuesto: 3 500 soles" };
+  await page.goto(`/equipo/jarvis?contexto=${encodeURIComponent(JSON.stringify(c))}`);
+  await expect(page.getByText(/La página que mandaste desde Chrome quedó escrita/)).toBeVisible({ timeout: 30_000 });
+  const guardado = await page.evaluate(() => sessionStorage.getItem("inoo.jarvis.contexto"));
+  expect(guardado).toContain("Sobre esta página: «Propuesta de Nativa»");
+  expect(guardado).toContain("> Presupuesto: 3 500 soles");
+  await page.goto("/equipo/mi-cuenta");
+  await expect(page.getByRole("link", { name: "Descarga la extensión" })).toHaveAttribute("href", "/descargas/jarvis-chrome.zip", { timeout: 30_000 });
+  expect((await page.request.get("/descargas/jarvis-chrome.zip")).status()).toBe(200);
+});
+
 test("2FA (16 nov): se activa desde Mi cuenta con el QR, muestra los códigos de respaldo y se desactiva con un código", async ({ page, request }) => {
   test.setTimeout(120_000);
   await reiniciar(request);

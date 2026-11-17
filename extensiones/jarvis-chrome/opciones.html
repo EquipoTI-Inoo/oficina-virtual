@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Jarvis de Inoo · Opciones</title>
+  <style>
+    body { font-family: Poppins, system-ui, sans-serif; margin: 24px; max-width: 480px; color: #111; }
+    label { display: grid; gap: 6px; font-size: 14px; }
+    input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font: inherit; }
+    button { margin-top: 12px; padding: 8px 14px; border: 0; border-radius: 8px; background: #000; color: #fff; font: inherit; cursor: pointer; }
+    p { font-size: 13px; color: #555; }
+  </style>
+</head>
+<body>
+  <h1 style="font-size: 18px">Jarvis de Inoo</h1>
+  <label>Dirección del portal
+    <input id="portal" type="url" placeholder="https://portal.inoo.pe" />
+  </label>
+  <button id="guardar">Guardar</button>
+  <p id="estado"></p>
+  <p>Clic derecho en cualquier página → «Enviar a Jarvis», o el botón de la extensión en la barra.</p>
+  <script src="opciones.js"></script>
+</body>
+</html>

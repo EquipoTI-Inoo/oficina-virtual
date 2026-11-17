@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Jarvis de Inoo",
+  "version": "1.0.0",
+  "description": "Manda la página que estás viendo (o lo que seleccionaste) a tu Jarvis en el portal de Inoo.",
+  "permissions": ["contextMenus", "activeTab", "scripting", "storage"],
+  "background": { "service_worker": "fondo.js" },
+  "action": { "default_title": "Enviar esta página a Jarvis" },
+  "options_page": "opciones.html"
+}
