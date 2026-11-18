@@ -961,6 +961,15 @@ test("proyectos (18 nov): árbol como en Monday; nueva carpeta con «⋯», arra
   await expect(arbol.getByRole("link", { name: /Marketing interno de Inoo/ })).toHaveCount(0);
   await page.getByRole("tab", { name: "Por estado" }).click();
   await expect(page.locator(".pipeline-columna").first()).toBeVisible();
+  // 18 nov: el árbol se oculta para dejar todo el ancho, y se recuerda al volver.
+  await page.getByRole("button", { name: "Ocultar carpetas" }).click();
+  await expect(arbol).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Mostrar carpetas" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("navigation", { name: "Empresas, marcas y carpetas" })).toBeHidden();
+  await page.getByRole("button", { name: "Mostrar carpetas" }).click();
+  await expect(page.getByRole("navigation", { name: "Empresas, marcas y carpetas" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Importar de Monday" })).toHaveCount(0);
 });
 
 test("tablero (17 nov): la descripción se edita y sus enlaces se abren", async ({ page }) => {

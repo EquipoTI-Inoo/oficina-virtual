@@ -506,6 +506,68 @@ El sistema articula dos componentes centrales:
 
 ### Prioridad: P0 | Fase: 2 | Estimación: 8 Story Points.
 
+## Épica 8: Proyectos como Monday, compartir y colaboración (TAB) · agregada el 18 nov 2026
+
+Historias que salieron de las reuniones con la gerencia del 2 al 13 nov. Todas están hechas y publicadas salvo
+donde se indica.
+
+### US-26 [TAB-01] Tableros como Monday
+
+Como persona del equipo, quiero trabajar los proyectos en tableros con columnas, vistas y automatizaciones como en
+Monday, para dejar Monday sin perder nada.
+
+DoD: biblioteca de 34 tipos de columna; vistas de tabla, kanban, línea de tiempo, calendario, resumen y carga;
+agrupar, ordenar y acciones en lote; automatizaciones «cuando X, hacer Y»; panel del ítem con actualizaciones y
+@menciones; fila de totales; arrastrar y soltar; columna del ítem fija; alto de filas y densidad. Los tableros
+viven en InooWork. **Hecha (11–18 nov).**
+
+### US-27 [TAB-02] Importar de Monday
+
+Como administración, quiero traer todos los tableros de Monday con su historial, para cerrar la cuenta de Monday.
+
+DoD: importación por API con lo sugerido (estados, personas, cliente), historial y archivos opcionales, sin
+repetir. **Terminada el 13 nov: 337 tableros, 15.795 ítems.** El botón se quitó el 18 nov.
+
+### US-28 [TAB-03] Compartir como en Docs e invitados de afuera
+
+Como líder de un proyecto, quiero compartir el tablero con enlace y elegir el permiso, para sumar gente del equipo
+o de afuera sin darles todo el portal.
+
+DoD: permisos lector, comentador y editor por persona; enlace del equipo y enlace de invitados (crean su cuenta y
+solo ven sus tableros); tableros privados que ni los admins ven. **Hecha (16–17 nov).**
+
+### US-29 [TAB-04] Carpetas de Proyectos
+
+Como persona del equipo, quiero ordenar los proyectos en carpetas por empresa y marca, para encontrarlos rápido.
+
+DoD: empresa → marca → carpeta → subcarpeta; árbol como Monday que se puede ocultar; arrastrar proyectos;
+filtros por persona, área, estado, servicio, inactividad, vencidos y privados; vista por estado. **Hecha (17–18 nov).**
+
+### US-30 [TAB-05] Archivos, videos y comentarios anclados
+
+Como diseñador o editor, quiero subir piezas y videos al tablero y recibir comentarios en el punto exacto, para
+corregir sin idas y vueltas.
+
+DoD: versiones por archivo, miniaturas, comentarios en un punto de la imagen o en un segundo del video, que quien
+los escribió corrige o borra; videos de hasta 5 GB en el Drive de Inoo («Videos de proyectos» › Empresa ›
+Proyecto) que se reproducen en el portal. **Hecha (16–18 nov); falta probar una subida real de video.**
+
+### US-31 [TAB-06] Google Calendar por persona
+
+Como colaborador, quiero conectar mi Google Calendar, para ver mis reuniones en el portal y llevar allá lo que
+agendo.
+
+DoD: OAuth con la cuenta que elija la persona; sus eventos de Google en su calendario; los eventos del portal se
+copian, cambian y borran en Google. **Hecha (18 nov); falta activar el cliente OAuth web.** Pendiente: Jarvis lee la
+agenda y propone eventos.
+
+### US-32 [SEC-02] Verificación en dos pasos
+
+Como persona del portal, quiero activar 2FA cuando yo quiera, sin que me lo pida siempre, para proteger mi cuenta.
+
+DoD: app autenticadora (TOTP), códigos de respaldo y dispositivos de confianza por 30 días; opcional para todos.
+**Hecha (16 nov).**
+
 # 5. Matriz de Trazabilidad: Requisitos PRD vs Backlog
 
 | Req. PRD | Módulo | Historia de Usuario Asociada | Caso de Uso | Prioridad | Fase |
@@ -541,6 +603,13 @@ El sistema articula dos componentes centrales:
 | **INO-07** | InooWork | US-25 (Proyectos sincronizados) | CU-06 | P0 | 2 |
 | **INO-08** | InooWork | US-17 (Módulo de tickets en InooWork) | CU-07 | P0 | 2 |
 | **ADM-01** | Panel Interno | US-21 (Monitoreo de costos de IA y logs) | CU-01 | P1 | 2 |
+| **TAB-01** | Proyectos | US-26 (Tableros como Monday) | — | P0 | 2 |
+| **TAB-02** | Proyectos | US-27 (Importar de Monday) | — | P0 | 2 |
+| **TAB-03** | Proyectos | US-28 (Compartir e invitados de afuera) | — | P1 | 2 |
+| **TAB-04** | Proyectos | US-29 (Carpetas de Proyectos) | — | P1 | 2 |
+| **TAB-05** | Proyectos | US-30 (Archivos, videos y comentarios anclados) | CU-06 | P1 | 2 |
+| **TAB-06** | Calendario | US-31 (Google Calendar por persona) | — | P2 | 2 |
+| **SEC-02** | Seguridad | US-32 (Verificación en dos pasos) | — | P1 | 2 |
 
 # 6. Plan de Sprints y Hoja de Ruta de Ejecución
 

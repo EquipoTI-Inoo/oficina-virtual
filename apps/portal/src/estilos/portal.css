@@ -3062,3 +3062,10 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .lateral--plegada .persona { justify-content: center; }
 @media (max-width: 960px) { .lateral-plegar { display: none; } }
 .lateral--plegada .persona { margin-top: auto; }
+
+/* ───── Árbol de Proyectos ocultable (18 nov): la vista por estado usa todo el ancho. */
+@media (min-width: 901px) {
+  .proyectos-dos-columnas--sin-arbol { grid-template-columns: minmax(0, 1fr); }
+  .proyectos-dos-columnas--sin-arbol > .arbol-columna { display: none; }
+}
+@media (max-width: 900px) { .arbol-alternar { display: none; } }

@@ -5,8 +5,8 @@
  * sus etapas y sus tareas. Monday sirve solo de referencia visual: el tablero vive aquí.
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
-import { useState, type FormEvent, type ReactNode } from "react";
-import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3 } from "react-icons/lu";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
@@ -87,6 +87,21 @@ function PipelineProyectos() {
   const [lugar, setLugar] = useState<Lugar>(RAIZ);
   const [vista, setVista] = useVistaProyectos();
   const [arbolMovil, setArbolMovil] = useState(false);
+  // 18 nov: el árbol se oculta (sobre todo para la vista por estado, que necesita el ancho); se recuerda.
+  const [arbolOculto, setArbolOculto] = useState(false);
+  useEffect(() => {
+    try { setArbolOculto(localStorage.getItem("inoo.proyectos.arbolOculto") === "1"); } catch { /* sin almacenamiento */ }
+  }, []);
+  const alternarArbol = () => setArbolOculto((x) => {
+    try { localStorage.setItem("inoo.proyectos.arbolOculto", x ? "0" : "1"); } catch { /* sin almacenamiento */ }
+    return !x;
+  });
+  const botonArbol = (
+    <button type="button" className="boton boton--chico arbol-alternar" aria-pressed={!arbolOculto} onClick={alternarArbol}
+      title={arbolOculto ? "Mostrar empresas y carpetas" : "Ocultar empresas y carpetas"}>
+      {arbolOculto ? <LuPanelLeftOpen size={14} /> : <LuPanelLeftClose size={14} />} {arbolOculto ? "Mostrar carpetas" : "Ocultar carpetas"}
+    </button>
+  );
   const [filtros, setFiltros] = useState<Filtros>(SIN_FILTROS);
   const [etiqueta, setEtiqueta] = useState<string | null>(null);
   const [nombrando, setNombrando] = useState<{ tipo: "NUEVA"; en: Lugar } | { tipo: "RENOMBRAR"; carpeta: Carpeta } | null>(null);
@@ -176,10 +191,7 @@ function PipelineProyectos() {
         <button type="button" className="chip" aria-pressed={archivados} onClick={() => setArchivados(!archivados)}>
           <LuArchive size={14} /> Archivados
         </button>
-        {sesion?.usuario.nivelAcceso === "ADMIN" && (
-          <Enlace a="/equipo/proyectos/monday" className="boton" style={{ marginLeft: "auto" }}>Importar de Monday</Enlace>
-        )}
-        <button type="button" className="boton boton--primario" style={sesion?.usuario.nivelAcceso === "ADMIN" ? undefined : { marginLeft: "auto" }} onClick={() => setCreando("CATALOGO")}>
+        <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando("CATALOGO")}>
           <LuPlus size={16} /> Nuevo proyecto
         </button>
       </div>
@@ -200,7 +212,7 @@ function PipelineProyectos() {
       ) : !d ? (
         <Cargando />
       ) : (
-        <div className="proyectos-dos-columnas">
+        <div className={`proyectos-dos-columnas${arbolOculto ? " proyectos-dos-columnas--sin-arbol" : ""}`}>
         <div className={`arbol-columna${arbolMovil ? " arbol-columna--abierta" : ""}`}>
           <button type="button" className="boton boton--chico arbol-boton-movil" aria-expanded={arbolMovil} onClick={() => setArbolMovil((x) => !x)}><LuFolderTree size={14} /> {arbolMovil ? "Ocultar el árbol" : "Ver el árbol de carpetas"}</button>
           <ArbolProyectos arbol={arbol} lugar={lugar} ir={(l) => { setLugar(l); setArbolMovil(false); }} etiqueta="Empresas, marcas y carpetas"
@@ -214,11 +226,12 @@ function PipelineProyectos() {
             } : undefined} />
         </div>
         <div style={{ minWidth: 0 }}>
+        {pestana === "SERVICIOS" && <div className="fila" style={{ marginBottom: 12 }}>{botonArbol}</div>}
         {pestana === "PROYECTOS" && <BarraFiltros tableros={tablerosTodos} equipo={r.datos?.equipo ?? []} f={filtros} cambiar={setFiltros} izquierda={
-          <div className="segmentado" role="tablist" aria-label="Cómo ver los proyectos">
+          <>{botonArbol}<div className="segmentado" role="tablist" aria-label="Cómo ver los proyectos">
             <button role="tab" aria-selected={vista === "CARPETAS"} className={vista === "CARPETAS" ? "activo" : undefined} onClick={() => setVista("CARPETAS")}><LuFolderTree size={14} /> Carpetas</button>
             <button role="tab" aria-selected={vista === "ESTADO"} className={vista === "ESTADO" ? "activo" : undefined} onClick={() => setVista("ESTADO")}><LuColumns3 size={14} /> Por estado</button>
-          </div>
+          </div></>
         } />}
         {pestana === "PROYECTOS" && etiquetas.length > 0 && (
           <div className="chips" role="group" aria-label="Filtrar por etiqueta" style={{ marginBottom: 12 }}>

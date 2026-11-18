@@ -250,7 +250,7 @@ P0 = imprescindible para salir en esa fase; P1 = importante; P2 = deseable.
 
 **Estados de una pieza** (únicos para Drive, base de datos y portal): BORRADOR → EN_REVISION_INTERNA → LISTO_REVISION (visible al cliente) → APROBADO_CLIENTE o CAMBIOS_SOLICITADOS → PUBLICADO. En Drive el prefijo solo distingue BORRADOR_ y APROBADO_. Los blogs de clientes con WordPress también se crean allí como borrador. **Excepción, los blogs:** el cliente no los ve ni los aprueba, y el equipo los pasa de EN_REVISION_INTERNA a APROBADO_CLIENTE.
 
-## Estado de implementación (9 nov 2026)
+## Estado de implementación (18 nov 2026)
 
 El portal (`apps/portal`) está **en producción desde el 6 nov 2026** en `portal.inoo.pe`. Cada fase abarca
 contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas y pruebas. Cómo se opera:
@@ -275,13 +275,13 @@ contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas 
 | 14 | Gantt y calendario del proyecto (equipo y cliente) | Hecha |
 | 15 | Soporte por consumo: sin etapas, bolsa del mes (tickets complejos y básicos, horas de Meet, WhatsApp ilimitado) | Hecha |
 | 15b | El contenido entra al proyecto: Kanban de piezas en Social Media Pro y Paid Media, blogs en el Soporte continuo web | Hecha |
-| 16a | IA para el cliente | Quitada el 30 oct: los agentes para clientes viven en Cosmiq; el portal enlaza la cuenta desde los proyectos de CRM |
+| 16a | IA para el cliente | Quitada el 30 oct: los agentes para clientes viven en Cosmiq. Desde el 16 nov el equipo puede activar por cliente, con tope mensual, el «Resumen del avance», que nunca menciona la IA |
 | 17 | Alta de cliente desde la transcripción de la reunión comercial y cierre de proyecto | Hecha (2 nov) |
 | 18 | Resumen de reunión con IA y recordatorios (tareas, requerimientos y reuniones) | Hecha (2 nov) |
 | 19 | Taller web: benchmark con capturas, flujograma, PDF, pantallas en Stitch o Claude, demo con link que vence; brief y branding editables, pasos 1 a 3 automáticos y pausa | Hecha (24 oct; ajustes de la reunión del 6 nov el 8 nov) |
 | 20 | InooWork vive: el equipo entra con su usuario, personas en los dos sentidos (alta, cambios y bajas), pase desde InooWork y tableros compartidos | Hecha (5–6 nov) |
 | — | Formularios de Monday nativos (5 briefs e ingreso de cliente) y con enlace | Hecha (26 oct) |
-| — | Calendario del colaborador (mes, semana y día) y un solo panel, «Mi panel» | Hecha (2 nov); Google Calendar todavía simulado |
+| — | Calendario del colaborador (mes, semana y día) y un solo panel, «Mi panel» | Hecha (2 nov). Google Calendar real por persona hecho el 18 nov: falta activar el cliente OAuth web |
 | — | Accesos por nivel, leads, super usuario, permisos sueltos y «ver como cliente» | Hecha (2–5 nov) |
 | — | Producción sin AWS: ingreso propio, archivos y respaldos en Drive, correos por SMTP | Hecha (5–6 nov) |
 | — | Entorno de pruebas dentro de producción (`pruebas@inoo.pe`) | Hecha (6 nov) |
@@ -289,14 +289,26 @@ contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas 
 | — | Reunión del 6 nov: nuevo proyecto predeterminado o personalizado, Mi cuenta del equipo | Hecha (8 nov) |
 | — | Empresas (Inoo y cada cliente con su gente, proyectos y accesos) y áreas que lidera cada persona editables | Hecha y publicada (9 nov) |
 | — | Jarvis avanzado: skills, conectores MCP, rutinas, automatizaciones, biblioteca en Drive y actividad | Hecha y publicada (9 nov, migración 0049) |
-| — | Taller web: materiales del cliente (logo, manual, transcripción y otros archivos) y DeepSeek llena el brief con la transcripción y el manual | Hecha (9 nov), pendiente de publicar |
-| — | Bóveda personal: cada persona guarda los accesos de sus clientes, cifrados con su propia clave; solo ella y su Jarvis (con la bóveda abierta) los leen | Hecha (9 nov, migración 0051), pendiente de publicar |
-| — | Conexiones personales: cada persona conecta su Google Drive con un botón y sus bots lo leen en sus chats | Hecha (9 nov, migración 0050), pendiente de publicar y de crear el cliente OAuth web en Google Cloud |
+| — | Taller web: materiales del cliente (logo, manual, transcripción y otros archivos) y DeepSeek llena el brief con la transcripción y el manual | Hecha y publicada (9 nov) |
+| — | Bóveda personal: cada persona guarda los accesos de sus clientes, cifrados con su propia clave; solo ella y su Jarvis (con la bóveda abierta) los leen | Hecha y publicada (migración 0051) |
+| — | Conexiones personales: cada persona conecta su Google Drive y su Google Calendar con un botón | Hecha y publicada (0050; Calendar el 18 nov). Falta crear el cliente OAuth web en Google Cloud |
+| — | Importar de Monday: tableros completos con historial y archivos | Terminada (13 nov): 337 tableros, 15.795 ítems y 24.478 entradas de historial. El botón se quitó el 18 nov |
+| — | Tableros como Monday: biblioteca de 34 columnas, vistas (tabla, kanban, línea de tiempo, calendario, resumen y carga), agrupar, ordenar y acciones en lote, automatizaciones, panel del ítem con actualizaciones y @menciones, archivos con versiones | Hecha y publicada (11–13 nov) |
+| — | Pedidos de la gerencia del 13 nov: empresas con sus tableros, columna fija, totales, arrastrar y soltar, miniaturas, comentarios anclados en fotos y videos (editables y borrables), tableros privados, marcas con ficha propia, Proyectos y Servicios separados, etiquetas, progreso del tablero, IA en Proyectos | Hecha y publicada (16–18 nov) |
+| — | Compartir tableros como en Docs (lector, comentador, editor) con enlace para el equipo e invitados de afuera con su propia cuenta | Hecha y publicada (16–17 nov, migración 0062) |
+| — | Carpetas en Proyectos (empresa → marca → carpeta → subcarpeta) con árbol como Monday, filtros y vista por estado | Hecha y publicada (17–18 nov, migración 0063) |
+| — | Videos de los tableros en el Drive de Inoo (hasta 5 GB, subida directa y reproducción en el portal) | Hecha y publicada (18 nov); falta probar una subida real |
+| — | 2FA opcional, modo oscuro, menú del avatar con el tema, barra lateral contraíble, marca de inoo.pe | Hecha y publicada (16–18 nov) |
+| — | Jarvis en 5 pestañas, Mis herramientas por persona, catálogo de Skillfera y Jarvis desde Chrome | Hecha y publicada (13–18 nov) |
 
 **Pendientes:**
-- InooWork: publicar el APK nuevo y luego pasar su API a `estricto: true`.
+- Google Drive y Calendar personales: juntar los correos de Google del equipo, pasar la app a «Externo» con usuarios
+  de prueba y crear el cliente OAuth web (`docs/operacion.md` §6).
+- Jarvis con la agenda: ver la agenda y proponer eventos que la persona aprueba.
+- Videos: probar una subida real al Drive de Inoo.
+- Textos legales (privacidad y términos): borrador en revisión; no se publican hasta tener el visto bueno.
+- InooWork: publicar el APK nuevo.
 - Conexiones personales: Figma y Canva cuando Inoo registre una app en cada uno (mismo patrón que Google Drive).
-- Google Calendar real en el calendario del colaborador: en espera, el equipo va a tener cuentas de Gmail propias para conectar cada calendario.
 - **Por decidir — grupo de WhatsApp al crear un proyecto** (pedido de Ernesto, 5 nov): un modal opcional donde la
   persona elige los contactos y el enlace del grupo queda guardado en el proyecto. Empieza sin API: alguien crea
   el grupo, pega el enlace y lo envía. La API de grupos de Meta depende de confirmar si el número de Inoo es
