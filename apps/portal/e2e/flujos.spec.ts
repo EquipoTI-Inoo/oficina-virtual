@@ -598,8 +598,10 @@ test("super usuario: concede un permiso a una persona, y un ADMIN no puede repar
   const camila = await browser.newPage();
   await entrarComo(camila, "operativo");
   await camila.goto("/equipo/costos");
-  await expect(camila.locator(".nav-item", { hasText: /^Costos de IA$/ })).toBeVisible({ timeout: 30_000 });
-  await expect(camila.locator(".nav-item", { hasText: /^Equipo$/ })).toHaveCount(0);
+  // 16 nov: «Costos de IA» y «Equipo» están en el menú del avatar (sección Agencia), no en el lateral.
+  await camila.getByRole("button", { name: "Abrir mi cuenta" }).click({ timeout: 30_000 });
+  await expect(camila.getByRole("menuitem", { name: "Costos de IA" })).toBeVisible({ timeout: 30_000 });
+  await expect(camila.getByRole("menuitem", { name: "Equipo", exact: true })).toHaveCount(0);
   await camila.close();
 
   await fila.getByRole("button", { name: "Editar a Camila Paredes" }).click();
