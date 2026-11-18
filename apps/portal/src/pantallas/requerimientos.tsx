@@ -165,6 +165,8 @@ function Requerimiento() {
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState(false);
   const [autoguardado, setAutoguardado] = useState<"GUARDANDO" | string | null>(null);
+  // 18 nov (Ernesto): las respuestas ya enviadas se corrigen, desde el equipo y desde el cliente.
+  const [corrigiendo, setCorrigiendo] = useState(false);
   const resumen = useRef<HTMLDivElement>(null);
   const esEquipo = !!sesion && sesion.usuario.tipo === "EQUIPO" && !comoCliente();
   const puedeResponder = !!r && !!sesion && !esEquipo && rolCliente(sesion) !== "LECTOR" && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO");
@@ -186,6 +188,24 @@ function Requerimiento() {
   if (error) return <ErrorCarga error={error} reintentar={error.status === 404 ? undefined : recargar} />;
   if (!r || !sesion) return <Cargando />;
   const valores = respuestas ?? r.respuestas;
+  const puedeCorregir = (r.estado === "ENVIADO" || r.estado === "APROBADO") && (esEquipo || rolCliente(sesion) !== "LECTOR");
+  const guardarCorreccion = async () => {
+    setErrores({});
+    setOcupado(true);
+    try {
+      const limpias = Object.fromEntries(Object.entries(valores).filter(([, v]) => !vacio(v)));
+      setDatos(await api<Req>(`/requerimientos/${r.id}/respuesta`, { metodo: "PUT", cuerpo: { respuestas: limpias, corregir: true } }));
+      setRespuestas(null);
+      setCorrigiendo(false);
+      avisar(esEquipo ? { titulo: "Respuestas corregidas" } : { titulo: "Cambios guardados", texto: "Tu equipo Inoo lo vuelve a revisar." });
+    } catch (e) {
+      const p = e as ProblemaApi;
+      setErrores(Object.fromEntries(p.errores.map((x) => [x.campo, x.mensaje])));
+      if (!p.errores.length) avisar({ titulo: p.titulo, texto: p.detalle });
+    } finally {
+      setOcupado(false);
+    }
+  };
   const cambiar = (clave: string, v: unknown) => setRespuestas({ ...valores, [clave]: v });
 
   const guardar = async (enviar: boolean) => {
@@ -245,7 +265,17 @@ function Requerimiento() {
             </div>
           )}
           <section className="tarjeta" style={{ padding: "22px 20px", display: "grid", gap: 18 }}>
-            <CamposFormulario campos={r.campos} valores={valores} errores={errores} soloLectura={!puedeResponder} alCambiar={cambiar} />
+            {r.editadoEn && <p className="texto-xs texto-muted" style={{ margin: 0 }}>Editado{r.editadoPor ? ` por ${r.editadoPor}` : ""} el {fDiaMes(r.editadoEn)}</p>}
+            <CamposFormulario campos={r.campos} valores={valores} errores={errores} soloLectura={!puedeResponder && !corrigiendo} alCambiar={cambiar} />
+            {puedeCorregir && (corrigiendo ? (
+              <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+                <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardarCorreccion()}>Guardar cambios</button>
+                <button className="boton" disabled={ocupado} onClick={() => { setCorrigiendo(false); setRespuestas(null); setErrores({}); }}>Cancelar</button>
+                <span className="texto-xs texto-muted">{esEquipo ? "El estado queda como está." : "Al guardar, tu equipo Inoo lo vuelve a revisar."}</span>
+              </div>
+            ) : (
+              <button className="boton" style={{ justifySelf: "start" }} onClick={() => setCorrigiendo(true)}>Editar respuestas</button>
+            ))}
             {puedeResponder && (
               <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
                 <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardar(true)}>
@@ -261,7 +291,7 @@ function Requerimiento() {
             )}
           </section>
           {esEquipo && r.estado === "ENVIADO" && <RevisionEquipo r={r} alRevisar={(x) => setDatos(x)} />}
-          {esEquipo && (r.estado === "PENDIENTE" || r.estado === "OBSERVADO") && <EnlaceSinCuenta r={r} alCambiar={(x) => setDatos(x)} />}
+          {esEquipo && <EnlaceSinCuenta r={r} alCambiar={(x) => setDatos(x)} />}
         </div>
         <aside className="pila">
           <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>

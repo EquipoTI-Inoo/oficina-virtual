@@ -1422,7 +1422,16 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
     notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: firmaCliente(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
     enlace: r.enlaceToken && r.enlaceVenceEn ? { url: urlFormularioPublico(r.enlaceToken), venceEn: r.enlaceVenceEn, vigente: r.enlaceVenceEn > D.HOY } : null,
     enviadoPorEnlace: r.respondidoPorNombre ?? null,
+    editadoEn: r.editadoEn ?? null, editadoPor: r.editadoPorNombre ?? null,
   };
+}
+/** 18 nov: corregir lo ya enviado. El cliente (o el enlace) lo vuelve a «por revisar»; el equipo no cambia el estado. */
+function corregirReqMock(r: D.RequerimientoDemo, respuestas: Record<string, unknown>, nombre: string, esEquipo: boolean) {
+  const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
+  const errores = validarRespuestas(campos, respuestas, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Completa los campos obligatorios", undefined, errores);
+  Object.assign(r, { respuestas: soloVisibles(campos, respuestas), editadoEn: new Date().toISOString(), editadoPorNombre: nombre });
+  if (!esEquipo) Object.assign(r, { estado: "ENVIADO", revisadoEn: null });
 }
 
 function buscarRequerimiento(ctx: Ctx, id: string) {
@@ -1506,10 +1515,17 @@ ruta("GET", "/requerimientos/:id", (ctx, p) => requerimientoVista(buscarRequerim
 
 ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
+  const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean; corregir?: boolean }>(req);
+  if (b.corregir === true) {
+    if (pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_SIN_ENVIAR", "Todavía no se envió", "Respóndelo y envíalo como siempre.");
+    if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Lo corrige una persona");
+    if (!ctx.esEquipo) exigirRol(ctx, r.clienteId, ["ADMIN_CLIENTE", "APROBADOR"]);
+    corregirReqMock(r, b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {}, ctx.enNombreDe ? `${ctx.usuario.nombre} (Inoo), en nombre del cliente` : ctx.usuario.nombre, ctx.esEquipo);
+    return requerimientoVista(r);
+  }
   if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Solo el cliente responde sus requerimientos");
   exigirRol(ctx, r.clienteId, ["ADMIN_CLIENTE", "APROBADOR"]);
-  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
-  const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean }>(req);
+  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Para cambiar algo, usa «Editar respuestas».");
   const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {};
   const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
   const errores = validarRespuestas(campos, respuestas, b.enviar === true);
@@ -1530,7 +1546,6 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
 ruta("POST", "/requerimientos/:id/enlace", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
   soloEquipo(ctx);
-  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este requerimiento ya se envió", "El enlace solo sirve mientras el cliente tiene algo por responder.");
   const b = await cuerpo<{ diasVigencia?: number }>(req);
   const dias = b.diasVigencia ?? ENLACE_FORMULARIO.diasDefecto;
   if (!Number.isInteger(dias) || dias < 1 || dias > ENLACE_FORMULARIO.diasMax) {
@@ -1559,12 +1574,19 @@ async function formularioPublicoMock(req: Request, token: string, resto: string)
   const vista = (): S<"FormularioPublico"> => ({
     titulo: r.titulo, descripcion: plantillaRequerimiento(r.plantillaCodigo)?.descripcion ?? null, mensaje: r.mensaje, clienteNombre: E.clientes.find((c) => c.id === r.clienteId)!.nombre,
     servicioTitulo: tituloDe(sc), campos, respuestas: r.respuestas, estado: r.estado, notaEquipo: r.notaEquipo, fechaLimite: r.fechaLimite, venceEn: r.enlaceVenceEn!,
+    editadoEn: r.editadoEn ?? null,
   });
   const cabeceras = { "x-robots-tag": "noindex, nofollow", "cache-control": "no-store" };
   if (req.method === "GET" && resto === "") return Response.json(vista(), { headers: cabeceras });
   if (req.method === "PUT" && resto === "/respuesta") {
-    if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
-    const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean; nombre?: string }>(req);
+    const b = await cuerpo<{ respuestas?: Record<string, unknown>; enviar?: boolean; nombre?: string; corregir?: boolean }>(req);
+    if (b.corregir === true && !pendienteParaCliente(r.estado)) {
+      const errores = validarNombreEnlace(b.nombre);
+      if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+      corregirReqMock(r, b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {}, b.nombre!.trim(), false);
+      return Response.json(vista(), { headers: cabeceras });
+    }
+    if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió", "Para cambiar algo, usa «Editar respuestas».");
     const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {};
     const errores = [...validarRespuestas(campos, respuestas, b.enviar === true), ...(b.enviar ? validarNombreEnlace(b.nombre) : [])];
     if (errores.length) throw new ErrorApi(422, "VALIDACION", b.enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
@@ -1579,7 +1601,6 @@ async function formularioPublicoMock(req: Request, token: string, resto: string)
     return Response.json(vista(), { headers: cabeceras });
   }
   if (req.method === "POST" && resto === "/archivos") {
-    if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió");
     const b = await cuerpo<{ nombre?: string; mime?: string; bytes?: number }>(req);
     if (!b.nombre || !b.mime || typeof b.bytes !== "number") throw new ErrorApi(422, "VALIDACION", "Faltan datos del archivo");
     if (b.bytes > 100 * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", "El archivo supera 100 MB");

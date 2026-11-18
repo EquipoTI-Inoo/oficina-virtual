@@ -2223,6 +2223,7 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
         titulo: x.titulo, descripcion: x.plantilla_descripcion, mensaje: x.mensaje, clienteNombre: x.cliente_nombre,
         servicioTitulo: tituloServicio(x.servicio_nombre, x.servicio_marca ?? x.cliente_nombre), campos: x.campos, respuestas: x.respuestas,
         estado: x.estado, notaEquipo: x.nota_equipo, fechaLimite: fechaIso(x.fecha_limite)!, venceEn: isoZ(x.enlace_vence_en!),
+        editadoEn: iso(x.editado_en ?? null),
       });
       const texto = req.method === "GET" ? "" : await req.text();
       let b: Record<string, unknown> = {};
@@ -2234,8 +2235,14 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
       if (req.method === "GET" && resto === "") return json(vista(r));
 
       if (req.method === "PUT" && resto === "/respuesta") {
-        if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
         const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? (b.respuestas as Record<string, unknown>) : {};
+        // 18 nov: desde el mismo enlace también se corrige lo ya enviado (vuelve a «por revisar»).
+        if (b.corregir === true && !pendienteParaCliente(r.estado)) {
+          validacion(validarNombreEnlace(b.nombre));
+          await corregirReqDb(ctx, r, respuestas, { usuarioId: null, nombre: (b.nombre as string).trim(), esEquipo: false });
+          return json(vista((await c.query<FilaReq>(`${SELECT_REQ} WHERE r.id = $1`, [r.id])).rows[0]));
+        }
+        if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió", "Para cambiar algo, usa «Editar respuestas».");
         const enviar = b.enviar === true;
         const errores = [...validarRespuestas(r.campos, respuestas, enviar), ...(enviar ? validarNombreEnlace(b.nombre) : [])];
         if (errores.length) throw new ErrorApi(422, "VALIDACION", enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
@@ -2254,7 +2261,6 @@ export async function formularioPublicoDb(req: Request, token: string, resto: st
       }
 
       if (req.method === "POST" && resto === "/archivos") {
-        if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este formulario ya se envió");
         const errores: { campo: string; mensaje: string }[] = [];
         if (typeof b.nombre !== "string" || !b.nombre.trim() || b.nombre.length > 255) errores.push({ campo: "nombre", mensaje: "Indica el nombre del archivo (máximo 255 caracteres)" });
         if (typeof b.mime !== "string") errores.push({ campo: "mime", mensaje: "Indica el tipo de archivo" });
@@ -5505,6 +5511,8 @@ ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p) => {
 // ───────────────────────────────────────────── requerimientos de la agencia al cliente (reunión 12 oct)
 
 interface FilaReq {
+  editado_en?: Date | null;
+  editado_por_nombre?: string | null;
   id: string;
   servicio_contratado_id: string;
   cliente_id: string;
@@ -5556,7 +5564,31 @@ function reqVista(r: FilaReq, dias: ReadonlySet<string>): S<"Requerimiento"> {
       ? { url: urlFormularioPublico(r.enlace_token), venceEn: isoZ(r.enlace_vence_en), vigente: r.enlace_vence_en.getTime() > Date.now() }
       : null,
     enviadoPorEnlace: r.respondido_por_nombre,
+    editadoEn: iso(r.editado_en ?? null), editadoPor: r.editado_por_nombre ?? null,
   };
+}
+
+/**
+ * 18 nov (Ernesto): corregir las respuestas de un formulario ya enviado (o aprobado). Si lo corrige el cliente, vuelve a
+ * «por revisar» y se avisa al responsable del servicio; si lo corrige el equipo, el estado queda como estaba.
+ */
+async function corregirReqDb(ctx: Ctx, r: FilaReq, respuestas: Record<string, unknown>, quien: { usuarioId: string | null; nombre: string; esEquipo: boolean }) {
+  const errores = validarRespuestas(r.campos, respuestas, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Completa los campos obligatorios", undefined, errores);
+  await ctx.c.query(
+    `UPDATE requerimiento SET respuestas = $2, editado_en = now(), editado_por = $3, editado_por_nombre = $4,
+       estado = CASE WHEN $5 THEN estado ELSE 'ENVIADO'::estado_requerimiento END,
+       revisado_en = CASE WHEN $5 THEN revisado_en ELSE NULL END WHERE id = $1`,
+    [r.id, JSON.stringify(soloVisibles(r.campos, respuestas)), quien.usuarioId, quien.nombre.slice(0, 200), quien.esEquipo],
+  );
+  if (!quien.esEquipo) {
+    const resp = (await ctx.c.query<{ responsable_id: string | null }>("SELECT responsable_id FROM servicio_contratado WHERE id = $1", [r.servicio_contratado_id])).rows[0]?.responsable_id;
+    if (resp) {
+      await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, $3::uuid, $4, $5, $6)", [
+        resp, quien.usuarioId, r.cliente_id, `${quien.nombre} corrigió «${r.titulo}»`.slice(0, 200), "Vuelve a estar por revisar.", `/requerimientos/${r.id}`,
+      ]);
+    }
+  }
 }
 
 async function buscarReq(ctx: Ctx, id: string, bloquear = false): Promise<FilaReq> {
@@ -5656,11 +5688,19 @@ ruta("GET", "/requerimientos/:id", async (ctx, p) => reqVista(await buscarReq(ct
 
 ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
   const r = await buscarReq(ctx, p.id, true);
+  const b = (await cuerpo()) as { respuestas?: unknown; enviar?: unknown; corregir?: unknown };
+  const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? (b.respuestas as Record<string, unknown>) : {};
+  // 18 nov: corregir lo ya enviado, desde el equipo o desde el cliente.
+  if (b.corregir === true) {
+    if (pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_SIN_ENVIAR", "Todavía no se envió", "Respóndelo y envíalo como siempre.");
+    if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Lo corrige una persona");
+    if (!ctx.esEquipo) exigirRol(ctx, r.cliente_id, ["ADMIN_CLIENTE", "APROBADOR"]);
+    await corregirReqDb(ctx, r, respuestas, { usuarioId: ctx.u.usuarioId, nombre: ctx.enNombreDe ? `${ctx.u.nombre} (Inoo), en nombre del cliente` : ctx.u.nombre, esEquipo: ctx.esEquipo });
+    return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
+  }
   if (ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Solo el cliente responde sus requerimientos");
   exigirRol(ctx, r.cliente_id, ["ADMIN_CLIENTE", "APROBADOR"]);
-  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Si necesitas cambiar algo, escríbele a tu equipo Inoo.");
-  const b = (await cuerpo()) as { respuestas?: unknown; enviar?: unknown };
-  const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? (b.respuestas as Record<string, unknown>) : {};
+  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Para cambiar algo, usa «Editar respuestas».");
   const enviar = b.enviar === true;
   const errores = validarRespuestas(r.campos, respuestas, enviar);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
@@ -5679,7 +5719,6 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
 ruta("POST", "/requerimientos/:id/enlace", async (ctx, p, _q, cuerpo) => {
   const r = await buscarReq(ctx, p.id, true);
   soloEquipo(ctx);
-  if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Este requerimiento ya se envió", "El enlace solo sirve mientras el cliente tiene algo por responder.");
   const b = (await cuerpo()) as { diasVigencia?: unknown };
   const dias = b.diasVigencia ?? ENLACE_FORMULARIO.diasDefecto;
   if (!Number.isInteger(dias) || (dias as number) < 1 || (dias as number) > ENLACE_FORMULARIO.diasMax) validacion([{ campo: "diasVigencia", mensaje: `Entre 1 y ${ENLACE_FORMULARIO.diasMax} días` }]);

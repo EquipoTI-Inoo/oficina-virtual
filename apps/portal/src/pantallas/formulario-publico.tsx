@@ -22,6 +22,8 @@ export function PantallaFormularioPublico() {
   const [nombre, setNombre] = useState("");
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState(false);
+  // 18 nov (Ernesto): lo ya enviado se corrige desde el mismo enlace.
+  const [corrigiendo, setCorrigiendo] = useState(false);
 
   const subida: Subida = {
     iniciar: (a) => api(`${ruta}/archivos`, { metodo: "POST", cuerpo: a }),
@@ -40,15 +42,18 @@ export function PantallaFormularioPublico() {
   if (!f) return <Marco><Cargando /></Marco>;
 
   const valores = respuestas ?? f.respuestas;
-  const abierto = f.estado === "PENDIENTE" || f.estado === "OBSERVADO";
+  const pendiente = f.estado === "PENDIENTE" || f.estado === "OBSERVADO";
+  const abierto = pendiente || corrigiendo;
   const guardar = async (enviar: boolean) => {
     setErrores({});
     setOcupado(true);
     try {
       const limpias = Object.fromEntries(Object.entries(valores).filter(([, v]) => !respuestaVacia(v)));
-      const nuevo = await api<Formulario>(`${ruta}/respuesta`, { metodo: "PUT", cuerpo: { respuestas: limpias, enviar, nombre: enviar ? nombre : undefined } });
+      const corregir = !pendiente;
+      const nuevo = await api<Formulario>(`${ruta}/respuesta`, { metodo: "PUT", cuerpo: { respuestas: limpias, enviar: enviar && !corregir, nombre: enviar ? nombre : undefined, ...(corregir ? { corregir: true } : {}) } });
       setDatos(nuevo);
       setRespuestas(null);
+      if (corregir) { setCorrigiendo(false); avisar({ titulo: "Cambios guardados", texto: "Tu equipo Inoo lo vuelve a revisar." }); }
       if (!enviar) avisar({ titulo: "Borrador guardado", texto: "Puedes volver con este mismo enlace y terminarlo." });
     } catch (e) {
       const p = e as ProblemaApi;
@@ -68,9 +73,12 @@ export function PantallaFormularioPublico() {
       </header>
 
       {!abierto ? (
-        <Aviso icono={<LuCircleCheck size={18} />} titulo="¡Gracias! Ya lo recibimos">
-          Tu equipo Inoo lo revisará y te escribirá si falta algo.
-        </Aviso>
+        <>
+          <Aviso icono={<LuCircleCheck size={18} />} titulo="¡Gracias! Ya lo recibimos">
+            Tu equipo Inoo lo revisará y te escribirá si falta algo.{f.editadoEn ? ` Lo corregiste el ${fDiaMes(f.editadoEn)}.` : ""}
+          </Aviso>
+          <button className="boton" style={{ justifySelf: "start" }} onClick={() => setCorrigiendo(true)}>Editar respuestas</button>
+        </>
       ) : (
         <>
           {f.estado === "OBSERVADO" && f.notaEquipo && (
@@ -94,12 +102,22 @@ export function PantallaFormularioPublico() {
               </span>
             </div>
             <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
-              <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardar(true)}>
-                Enviar a Inoo
-              </button>
-              <button className="boton" disabled={ocupado} onClick={() => void guardar(false)}>
-                Guardar borrador
-              </button>
+              {corrigiendo ? (
+                <>
+                  <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardar(true)}>Guardar cambios</button>
+                  <button className="boton" disabled={ocupado} onClick={() => { setCorrigiendo(false); setRespuestas(null); setErrores({}); }}>Cancelar</button>
+                  <span className="texto-xs texto-muted">Al guardar, tu equipo Inoo lo vuelve a revisar.</span>
+                </>
+              ) : (
+                <>
+                  <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardar(true)}>
+                    Enviar a Inoo
+                  </button>
+                  <button className="boton" disabled={ocupado} onClick={() => void guardar(false)}>
+                    Guardar borrador
+                  </button>
+                </>
+              )}
             </div>
           </section>
         </>
@@ -113,9 +131,7 @@ function Marco({ children }: { children: React.ReactNode }) {
   return (
     <main style={{ minHeight: "100vh", background: "var(--c-fondo)", padding: "32px 16px 64px" }}>
       <div style={{ maxWidth: 760, margin: "0 auto", display: "grid", gap: 20 }}>
-        <span style={{ fontSize: "var(--t-4xl)", fontWeight: 700, letterSpacing: "-0.02em" }}>
-          inoo<span style={{ color: "var(--c-primario)" }}>.</span>
-        </span>
+        <img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} />
         {children}
       </div>
     </main>

@@ -1248,7 +1248,8 @@ paths:
               properties:
                 respuestas: { type: object, additionalProperties: true }
                 enviar: { type: boolean }
-                nombre: { type: string, description: Obligatorio al enviar }
+                nombre: { type: string, description: Obligatorio al enviar y al corregir }
+                corregir: { type: boolean, description: "Corregir lo ya enviado (18 nov): vuelve a ENVIADO, por revisar" }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FormularioPublico' } } } }
         '409': { $ref: '#/components/responses/Conflicto' }
@@ -1423,6 +1424,7 @@ paths:
               properties:
                 respuestas: { type: object, additionalProperties: true, description: 'Clave del campo → valor (texto, booleano o [{archivoId, nombre}])' }
                 enviar: { type: boolean, default: false }
+                corregir: { type: boolean, description: 'Corregir lo ya enviado o aprobado (18 nov). Si lo corrige el cliente o el enlace, vuelve a ENVIADO (por revisar); el equipo también puede corregir y el estado queda igual' }
       responses:
         '200':
           description: OK
@@ -9493,6 +9495,7 @@ components:
         notaEquipo: { type: [string, 'null'] }
         fechaLimite: { type: string, format: date }
         venceEn: { type: string, format: date-time, description: Cuándo deja de funcionar el enlace }
+        editadoEn: { type: [string, 'null'], format: date-time, description: 'Última corrección después de enviado (18 nov)' }
     PlantillaRequerimiento:
       type: object
       required: [codigo, nombre, diasHabiles, servicios, campos]
@@ -9547,6 +9550,8 @@ components:
                 vigente: { type: boolean }
             - type: 'null'
         enviadoPorEnlace: { type: [string, 'null'], description: 'Nombre de quien lo envió por el enlace, sin cuenta' }
+        editadoEn: { type: [string, 'null'], format: date-time, description: 'Última corrección de las respuestas después de enviadas (18 nov)' }
+        editadoPor: { type: [string, 'null'], description: 'Quién las corrigió' }
     ServicioContratadoEntrada:
       type: object
       description: 'Crea el proyecto con las etapas de la plantilla del servicio (y variante), escaladas por el tamaño, o con etapas personalizadas. Las fechas previstas se calculan en días hábiles desde `fechaInicio`. Se le piden al cliente los requerimientos de la plantilla (reunión 15 oct: todo al inicio).'

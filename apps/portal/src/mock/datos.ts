@@ -507,6 +507,9 @@ export interface RequerimientoDemo {
   mensaje: string | null;
   respuestas: Record<string, unknown>;
   estado: "PENDIENTE" | "ENVIADO" | "OBSERVADO" | "APROBADO";
+  /** 18 nov: última corrección después de enviado y quién. */
+  editadoEn?: string | null;
+  editadoPorNombre?: string | null;
   emitidoEn: string;
   fechaLimite: string;
   diasCorridos: number;

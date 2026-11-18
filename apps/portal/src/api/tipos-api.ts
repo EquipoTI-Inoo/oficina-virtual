@@ -7724,6 +7724,11 @@ export interface components {
              * @description Cuándo deja de funcionar el enlace
              */
             venceEn: string;
+            /**
+             * Format: date-time
+             * @description Última corrección después de enviado (18 nov)
+             */
+            editadoEn?: string | null;
         };
         PlantillaRequerimiento: {
             /** @example BRIEF_WEB */
@@ -7796,6 +7801,13 @@ export interface components {
             } | null;
             /** @description Nombre de quien lo envió por el enlace, sin cuenta */
             enviadoPorEnlace?: string | null;
+            /**
+             * Format: date-time
+             * @description Última corrección de las respuestas después de enviadas (18 nov)
+             */
+            editadoEn?: string | null;
+            /** @description Quién las corrigió */
+            editadoPor?: string | null;
         };
         /** @description Crea el proyecto con las etapas de la plantilla del servicio (y variante), escaladas por el tamaño, o con etapas personalizadas. Las fechas previstas se calculan en días hábiles desde `fechaInicio`. Se le piden al cliente los requerimientos de la plantilla (reunión 15 oct: todo al inicio). */
         ServicioContratadoEntrada: {
@@ -11066,8 +11078,10 @@ export interface operations {
                         [key: string]: unknown;
                     };
                     enviar?: boolean;
-                    /** @description Obligatorio al enviar */
+                    /** @description Obligatorio al enviar y al corregir */
                     nombre?: string;
+                    /** @description Corregir lo ya enviado (18 nov): vuelve a ENVIADO, por revisar */
+                    corregir?: boolean;
                 };
             };
         };
@@ -11332,6 +11346,8 @@ export interface operations {
                     };
                     /** @default false */
                     enviar?: boolean;
+                    /** @description Corregir lo ya enviado o aprobado (18 nov). Si lo corrige el cliente o el enlace, vuelve a ENVIADO (por revisar); el equipo también puede corregir y el estado queda igual */
+                    corregir?: boolean;
                 };
             };
         };

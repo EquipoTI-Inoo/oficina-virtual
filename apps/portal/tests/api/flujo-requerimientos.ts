@@ -179,6 +179,32 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal(url.status, 422);
     });
 
+    test("18 nov (Ernesto): las respuestas enviadas se corrigen desde el cliente, el equipo y el enlace", async () => {
+      await reiniciar();
+      const ruta = `/requerimientos/${USUARIOS_CRM}/respuesta`;
+      const ok = { usuarios: "Valeria Mendoza, valeria@casaoliva.pe", administrador: "Valeria" };
+      assert.equal((await llamar("PUT", ruta, VALERIA, { respuestas: ok, corregir: true })).json.codigo, "REQUERIMIENTO_SIN_ENVIAR", "lo pendiente se responde como siempre");
+      await llamar("PUT", ruta, VALERIA, { respuestas: ok, enviar: true });
+      // El equipo lo aprueba; el cliente lo corrige y vuelve a «por revisar».
+      assert.equal((await llamar("POST", `/requerimientos/${USUARIOS_CRM}/revision`, DIEGO, { decision: "APROBADO" })).json.estado, "APROBADO");
+      assert.equal((await llamar("PUT", ruta, MARTIN_LECTOR, { respuestas: ok, corregir: true })).status, 403, "un lector no corrige");
+      assert.deepEqual((await llamar("PUT", ruta, VALERIA, { respuestas: { usuarios: "x" }, corregir: true })).json.errores.map((e: any) => e.campo), ["administrador"], "los obligatorios siguen siéndolo");
+      const cliente = (await llamar("PUT", ruta, VALERIA, { respuestas: { ...ok, administrador: "Martín" }, corregir: true })).json;
+      assert.deepEqual([cliente.estado, cliente.respuestas.administrador, cliente.editadoPor], ["ENVIADO", "Martín", "Valeria Mendoza"]);
+      assert.ok(cliente.editadoEn);
+      // El equipo corrige y el estado queda como está.
+      await llamar("POST", `/requerimientos/${USUARIOS_CRM}/revision`, DIEGO, { decision: "APROBADO" });
+      const equipo = (await llamar("PUT", ruta, DIEGO, { respuestas: { ...ok, administrador: "Martín Rojas" }, corregir: true })).json;
+      assert.deepEqual([equipo.estado, equipo.respuestas.administrador, equipo.editadoPor], ["APROBADO", "Martín Rojas", "Diego Castro"]);
+      // Por el enlace (que ahora se crea también para lo ya enviado), con nombre, y vuelve a «por revisar».
+      const token = (await llamar("POST", `/requerimientos/${USUARIOS_CRM}/enlace`, DIEGO, {})).json.enlace.url.slice(3);
+      const publico = `/publico/formularios/${token}/respuesta`;
+      assert.deepEqual((await llamar("PUT", publico, undefined, { respuestas: ok, corregir: true })).json.errores.map((e: any) => e.campo), ["nombre"]);
+      const enlace = (await llamar("PUT", publico, undefined, { respuestas: { ...ok, administrador: "Valeria M." }, corregir: true, nombre: "Rosa Quispe" })).json;
+      assert.deepEqual([enlace.estado, enlace.respuestas.administrador], ["ENVIADO", "Valeria M."]);
+      assert.equal((await llamar("GET", `/requerimientos/${USUARIOS_CRM}`, DIEGO)).json.editadoPor, "Rosa Quispe");
+    });
+
     test("atraso: la tarea diaria corre las etapas pendientes del servicio una sola vez", async () => {
       await reiniciar();
       const antes = (await llamar("GET", `/servicios-contratados/${CRM}/avance`, DIEGO)).json.etapas;
