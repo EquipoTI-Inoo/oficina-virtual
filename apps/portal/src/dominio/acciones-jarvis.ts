@@ -23,7 +23,8 @@ export const esPropuestaJarvis = (req: Request) => {
   if (req.method !== "POST") return false;
   const ruta = new URL(req.url, "http://localhost").pathname;
   // 13 nov: también usar un conector que la persona conectó (su servicio, con su cuenta; el portal no cambia).
-  return /\/jarvis\/propuestas$/.test(ruta) || /\/me\/jarvis\/conectores\/[a-z0-9-]+\/usar$/.test(ruta);
+  // 18 nov: pedir una acción en el Chrome de la persona (la extensión la aprueba o no, según su modo).
+  return /\/jarvis\/propuestas$/.test(ruta) || /\/me\/jarvis\/conectores\/[a-z0-9-]+\/usar$/.test(ruta) || /\/me\/navegador\/acciones$/.test(ruta);
 };
 
 /** Cada propuesta pendiente de una persona; más que eso, primero tiene que decidir. */

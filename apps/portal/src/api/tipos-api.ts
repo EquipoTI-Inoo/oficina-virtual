@@ -3712,6 +3712,205 @@ export interface paths {
         patch: operations["renombrarCarpeta"];
         trace?: never;
     };
+    "/me/navegador": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Jarvis usa Chrome (18 nov): mis Chrome vinculados, las reglas de sitios del equipo y lo que Jarvis siempre pregunta o nunca hace */
+        get: operations["miNavegador"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/navegador/codigo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Un código de un solo uso (10 min) para vincular la extensión de Chrome a mi cuenta (18 nov) */
+        post: operations["codigoNavegador"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/navegador/vinculos/{vinculoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vinculoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Desvincula un Chrome: su llave deja de servir y lo pendiente vence (18 nov) */
+        delete: operations["desvincularNavegador"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/navegador/reglas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Permite o bloquea un sitio para todo el equipo (super usuario, 18 nov). Si hay permitidos, Jarvis solo usa esos */
+        put: operations["reglaNavegador"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/navegador/reglas/{dominio}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dominio: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita la regla de un sitio (super usuario, 18 nov) */
+        delete: operations["quitarReglaNavegador"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/navegador/acciones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Jarvis pide algo en el Chrome de la persona (18 nov). Queda en cola y vuelve al instante; la extensión lo aprueba o no según su modo
+         * @description Lo usa el MCP de Jarvis (herramientas navegador_*). Lo prohibido (pagos, tarjetas, páginas internas, sitios bloqueados) responde 403 sin llegar a Chrome. 409 si el panel de Chrome no está abierto.
+         */
+        post: operations["pedirAccionNavegador"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/navegador/acciones/{accionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accionId: string;
+            };
+            cookie?: never;
+        };
+        /** Cómo va una acción en Chrome (18 nov) */
+        get: operations["verAccionNavegador"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/navegador/vincular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sin sesión: la extensión canjea el código por su llave (se muestra una sola vez) (18 nov) */
+        post: operations["vincularNavegador"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/navegador/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** La extensión: su modo, las reglas de sitios y lo que siempre pide o nunca hace (18 nov) */
+        get: operations["configNavegador"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** La extensión cambia su modo: MANUAL, AUTO o SIN (18 nov) */
+        patch: operations["cambiarModoNavegador"];
+        trace?: never;
+    };
+    "/navegador/pendiente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** La extensión toma la próxima acción en cola (queda EN_CURSO) (18 nov) */
+        get: operations["pendienteNavegador"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/navegador/acciones/{accionId}/resultado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** La extensión responde: la hizo, la persona la rechazó o falló (18 nov) */
+        post: operations["resultadoNavegador"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/marcas": {
         parameters: {
             query?: never;
@@ -5470,6 +5669,35 @@ export interface components {
             nombre: string;
             /** Format: date-time */
             creadoEn: string;
+        };
+        /** @description Una acción que Jarvis pidió en Chrome (18 nov) */
+        AccionNavegador: {
+            /** Format: uuid */
+            id: string;
+            tipo: components["schemas"]["TipoAccionNavegador"];
+            datos: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            estado: "PENDIENTE" | "EN_CURSO" | "HECHA" | "RECHAZADA" | "FALLIDA" | "VENCIDA";
+            /** @description Lo que devolvió la extensión */
+            resultado: unknown;
+            /** Format: date-time */
+            creadoEn: string;
+            /** Format: date-time */
+            resueltaEn: string | null;
+        };
+        /** @enum {string} */
+        TipoAccionNavegador: "VER" | "IR" | "CLIC" | "ESCRIBIR" | "TECLA" | "BAJAR" | "CAPTURA" | "ESPERAR";
+        /**
+         * @description MANUAL: aprobar cada acción (por defecto) · AUTO: sigue solo con revisión · SIN: no pregunta
+         * @enum {string}
+         */
+        ModoNavegador: "MANUAL" | "AUTO" | "SIN";
+        ReglaNavegador: {
+            dominio: string;
+            /** @enum {string} */
+            regla: "PERMITIR" | "BLOQUEAR";
         };
         /** @description Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca */
         MarcaCliente: {
@@ -17220,6 +17448,356 @@ export interface operations {
             };
             404: components["responses"]["NoEncontrado"];
             409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    miNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        vinculos: {
+                            /** Format: uuid */
+                            id: string;
+                            nombre: string;
+                            modo: components["schemas"]["ModoNavegador"];
+                            /** Format: date-time */
+                            creadoEn: string;
+                            /** Format: date-time */
+                            ultimoUso: string | null;
+                            /** @description Usó el portal en los últimos 90 s (el panel está abierto) */
+                            conectado: boolean;
+                        }[];
+                        reglas: components["schemas"]["ReglaNavegador"][];
+                        siemprePide: string[];
+                        prohibido: string[];
+                        puedeEditarReglas: boolean;
+                    };
+                };
+            };
+        };
+    };
+    codigoNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example ABCD-2345 */
+                        codigo: string;
+                        /** Format: date-time */
+                        venceEn: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    desvincularNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vinculoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Desvinculado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    reglaNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    dominio: string;
+                    /** @enum {string} */
+                    regla: "PERMITIR" | "BLOQUEAR";
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reglas: components["schemas"]["ReglaNavegador"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    quitarReglaNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dominio: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reglas: components["schemas"]["ReglaNavegador"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    pedirAccionNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tipo: components["schemas"]["TipoAccionNavegador"];
+                    /** @description IR: url · CLIC: ref · ESCRIBIR: ref, texto · TECLA: tecla · BAJAR: cuanto · ESPERAR: segundos */
+                    datos?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description En cola */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccionNavegador"];
+                };
+            };
+            /** @description PROHIBIDO_EN_NAVEGADOR: Jarvis no puede hacer eso */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description CHROME_DESCONECTADO */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    verAccionNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccionNavegador"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    vincularNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    codigo: string;
+                    nombre?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Va en X-Navegador-Inoo */
+                        llave: string;
+                        persona: string;
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    configNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    cambiarModoNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    modo: components["schemas"]["ModoNavegador"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    pendienteNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accion: components["schemas"]["AccionNavegador"] | null;
+                    };
+                };
+            };
+        };
+    };
+    resultadoNavegador: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    estado: "HECHA" | "RECHAZADA" | "FALLIDA";
+                    /** @description Lo que vio o hizo (texto, elementos, dirección) */
+                    resultado?: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Guardado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
         };
     };

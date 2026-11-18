@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jarvis de Inoo</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header class="cab">
+    <strong>Jarvis</strong>
+    <span id="persona" class="suave"></span>
+    <span id="estado" class="punto" title="Desconectado"></span>
+  </header>
+
+  <!-- Vincular este Chrome (una sola vez) -->
+  <section id="vincular" class="tarjeta" hidden>
+    <h2>Vincular este Chrome</h2>
+    <p class="suave">En el portal: <strong>Jarvis → Conectores → Jarvis en Chrome → «Generar código»</strong>. Escríbelo aquí.</p>
+    <label>Código <input id="codigo" placeholder="ABCD-2345" autocomplete="off" maxlength="9" /></label>
+    <button id="btnVincular" class="primario">Vincular</button>
+    <p id="errorVincular" class="error" role="alert"></p>
+    <details><summary>Dirección del portal</summary><input id="portal" type="url" placeholder="https://portal.inoo.pe" /></details>
+  </section>
+
+  <main id="app" hidden>
+    <!-- Permisos, como en Claude in Chrome -->
+    <section class="tarjeta">
+      <label class="fila">Permisos
+        <select id="modo" aria-label="Permisos de Jarvis">
+          <option value="MANUAL">Aprobar cada acción</option>
+          <option value="AUTO">Aprobar automáticamente (con revisión)</option>
+          <option value="SIN">Saltar todas las aprobaciones</option>
+        </select>
+      </label>
+      <p id="ayudaModo" class="suave chico"></p>
+      <div class="fila entre">
+        <span class="chico">Pestaña de Jarvis: <strong id="pestana">ninguna</strong></span>
+        <button id="btnPestana" class="chico">Usar esta pestaña</button>
+      </div>
+      <button id="btnPausa" class="chico">Detener a Jarvis</button>
+    </section>
+
+    <!-- Pedido de permiso -->
+    <section id="permiso" class="tarjeta alerta" hidden role="alertdialog" aria-labelledby="permisoTitulo">
+      <h2 id="permisoTitulo">Jarvis quiere…</h2>
+      <p id="permisoTexto"></p>
+      <p id="permisoMotivo" class="suave chico"></p>
+      <div class="fila columna">
+        <button id="permitirUna" class="primario">Permitir esta acción</button>
+        <button id="permitirSitio">Permitir siempre en este sitio</button>
+        <button id="rechazar" class="peligro">Rechazar</button>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section class="chat">
+      <label class="fila">Bot <select id="bot" aria-label="Bot de Jarvis"></select></label>
+      <div id="mensajes" class="mensajes" aria-live="polite"></div>
+      <div id="paso" class="suave chico"></div>
+      <form id="formulario" class="enviar">
+        <textarea id="texto" rows="3" placeholder="Pídele algo a Jarvis…" aria-label="Mensaje para Jarvis"></textarea>
+        <div class="fila entre">
+          <button type="button" id="btnPagina" class="chico">Sumar esta página</button>
+          <button type="submit" class="primario">Enviar</button>
+        </div>
+      </form>
+    </section>
+
+    <details class="tarjeta">
+      <summary>Lo que Jarvis nunca hace o siempre pregunta</summary>
+      <p class="chico negrita">Siempre te pregunta antes de:</p>
+      <ul id="siemprePide" class="chico"></ul>
+      <p class="chico negrita">Nunca, aunque le des permiso:</p>
+      <ul id="prohibido" class="chico"></ul>
+      <p class="chico negrita">Sitios que dejaste siempre permitidos:</p>
+      <ul id="sitios" class="chico"></ul>
+    </details>
+    <details class="tarjeta">
+      <summary>Actividad</summary>
+      <ol id="actividad" class="chico"></ol>
+    </details>
+    <button id="btnDesvincular" class="chico enlace">Desvincular este Chrome</button>
+  </main>
+  <script src="panel.js" type="module"></script>
+</body>
+</html>

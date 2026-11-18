@@ -46,6 +46,7 @@ import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tareaComoPendiente, type Yo } from "../servidor/tableros";
 import { idInvitado } from "../dominio/compartir-tablero";
 import { firmarVideo, leerVideo } from "../servidor/firma-video";
+import { MODOS_NAVEGADOR, PROHIBIDO, SIEMPRE_PIDE_PERMISO, validarAccionNavegador, type Regla } from "../dominio/jarvis-navegador";
 import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva } from "../dominio/carpetas";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
@@ -306,6 +307,7 @@ const E = new Proxy({} as Estado, {
 });
 
 export function reiniciarMock() {
+  Object.assign(NAV, { codigos: {}, vinculos: [], acciones: [], reglas: [] });
   G.__inooMockEstado = estadoInicial();
   reiniciarTablerosSimulados();
 }
@@ -343,7 +345,17 @@ interface Ctx {
    * trata como el cliente (ADMIN_CLIENTE) y lo que haga queda firmado con su nombre «en nombre del cliente».
    */
   enNombreDe?: string;
+  /** 18 nov: la extensión de Chrome vinculada (X-Navegador-Inoo): solo Jarvis y las rutas del navegador. */
+  navegador?: string;
 }
+
+/** 18 nov: Jarvis usa Chrome, en la demo: códigos, Chrome vinculados, acciones en cola y reglas de sitios. */
+const NAV: {
+  codigos: Record<string, { usuarioId: string; vence: number }>;
+  vinculos: { id: string; usuarioId: string; llave: string; nombre: string; modo: string; creadoEn: string; ultimoUso: number | null; revocado: boolean }[];
+  acciones: { id: string; usuarioId: string; sesionId: string | null; tipo: string; datos: Record<string, unknown>; estado: string; resultado: unknown; creadoEn: string; resueltaEn: string | null }[];
+  reglas: Regla[];
+} = { codigos: {}, vinculos: [], acciones: [], reglas: [] };
 
 /** Variables de entorno sin romper la vista previa estática (que corre en el navegador). */
 const env = (k: string): string | undefined => (typeof process !== "undefined" ? process.env?.[k] : undefined);
@@ -364,6 +376,14 @@ function autenticar(req: Request): Ctx {
   }
   const auth = req.headers.get("authorization") ?? "";
   const token = auth.replace(/^Bearer\s+/i, "");
+  const llaveNav = req.headers.get("x-navegador-inoo");
+  if (llaveNav) {
+    const v = NAV.vinculos.find((x) => x.llave === llaveNav && !x.revocado);
+    const usuario = v ? E.usuarios.find((u) => u.id === v.usuarioId && u.activo !== false) : undefined;
+    if (!v || !usuario) throw new ErrorApi(401, "NAVEGADOR_DESVINCULADO", "Este Chrome ya no está vinculado", "Vuelve a vincularlo con un código nuevo desde Jarvis → Conectores.");
+    v.ultimoUso = Date.now();
+    return { usuario, esEquipo: true, navegador: v.id };
+  }
   const conversacion = req.headers.get("x-jarvis-conversacion");
   if (conversacion !== null) {
     // Jarvis (2 nov): el Hermes del área lee el portal como la persona dueña de la conversación. Solo lectura.
@@ -5145,6 +5165,122 @@ function vueltaConexionMock(req: Request, ruta: string): Response {
   return ir(true);
 }
 
+// ───────────────────────────── Jarvis usa Chrome (18 nov). En la demo, todo en memoria.
+const accionNavMock = (a: (typeof NAV.acciones)[number]) => ({ id: a.id, tipo: a.tipo, datos: a.datos, estado: a.estado, resultado: a.resultado ?? null, creadoEn: a.creadoEn, resueltaEn: a.resueltaEn });
+const vencerNav = (usuarioId: string) => {
+  for (const a of NAV.acciones) if (a.usuarioId === usuarioId && ["PENDIENTE", "EN_CURSO"].includes(a.estado) && Date.now() - new Date(a.creadoEn).getTime() > 180_000) Object.assign(a, { estado: "VENCIDA", resueltaEn: new Date().toISOString() });
+};
+function personaNav(ctx: Ctx) {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.jarvis || ctx.navegador || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "Esto lo hace cada persona desde su sesión del portal");
+}
+function extensionNav(ctx: Ctx) {
+  if (!ctx.navegador) throw new ErrorApi(403, "SIN_PERMISO", "Solo la extensión de Chrome vinculada");
+}
+async function vincularNavegadorMock(req: Request) {
+  const b = await cuerpo<{ codigo?: unknown; nombre?: unknown }>(req);
+  const codigo = typeof b.codigo === "string" ? b.codigo.trim().toUpperCase().replace(/\s+/g, "") : "";
+  if (!/^[A-Z0-9]{4}-?[A-Z0-9]{4}$/.test(codigo)) throw new ErrorApi(422, "VALIDACION", "Revisa el código", undefined, [{ campo: "codigo", mensaje: "Son 8 letras y números, como ABCD-2345" }]);
+  const normal = codigo.includes("-") ? codigo : `${codigo.slice(0, 4)}-${codigo.slice(4)}`;
+  const c = NAV.codigos[normal];
+  delete NAV.codigos[normal];
+  if (!c || c.vence < Date.now()) throw new ErrorApi(422, "VALIDACION", "Ese código no sirve", undefined, [{ campo: "codigo", mensaje: "Venció o ya se usó: genera uno nuevo en Jarvis → Conectores" }]);
+  const llave = `nv_${crypto.randomUUID().replace(/-/g, "")}`;
+  NAV.vinculos.push({ id: crypto.randomUUID(), usuarioId: c.usuarioId, llave, nombre: typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim().slice(0, 80) : "Chrome", modo: "MANUAL", creadoEn: new Date().toISOString(), ultimoUso: null, revocado: false });
+  return { llave, persona: E.usuarios.find((u) => u.id === c.usuarioId)?.nombre ?? "" };
+}
+ruta("POST", "/me/navegador/codigo", (ctx) => {
+  personaNav(ctx);
+  const letras = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const codigo = Array.from({ length: 8 }, () => letras[Math.floor(Math.random() * letras.length)]).join("").replace(/^(.{4})/, "$1-");
+  for (const [k, v] of Object.entries(NAV.codigos)) if (v.usuarioId === ctx.usuario.id) delete NAV.codigos[k];
+  const vence = Date.now() + 10 * 60_000;
+  NAV.codigos[codigo] = { usuarioId: ctx.usuario.id, vence };
+  return { codigo, venceEn: new Date(vence).toISOString() };
+});
+ruta("GET", "/me/navegador", (ctx) => {
+  soloEquipo(ctx);
+  return {
+    vinculos: NAV.vinculos.filter((v) => v.usuarioId === ctx.usuario.id && !v.revocado).map((v) => ({ id: v.id, nombre: v.nombre, modo: v.modo, creadoEn: v.creadoEn, ultimoUso: v.ultimoUso ? new Date(v.ultimoUso).toISOString() : null, conectado: !!v.ultimoUso && Date.now() - v.ultimoUso < 90_000 })),
+    reglas: NAV.reglas, siemprePide: SIEMPRE_PIDE_PERMISO, prohibido: PROHIBIDO, puedeEditarReglas: !!ctx.usuario.esSuperUsuario,
+  };
+});
+ruta("DELETE", "/me/navegador/vinculos/:id", (ctx, p) => {
+  personaNav(ctx);
+  const v = NAV.vinculos.find((x) => x.id === p.id && x.usuarioId === ctx.usuario.id && !x.revocado);
+  if (!v) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese Chrome");
+  v.revocado = true;
+  for (const a of NAV.acciones) if (a.usuarioId === ctx.usuario.id && ["PENDIENTE", "EN_CURSO"].includes(a.estado)) Object.assign(a, { estado: "VENCIDA", resueltaEn: new Date().toISOString() });
+  return null;
+});
+ruta("PUT", "/me/navegador/reglas", async (ctx, _p, _q, req) => {
+  personaNav(ctx);
+  if (!ctx.usuario.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Las reglas de sitios las pone un super usuario");
+  const b = await cuerpo<{ dominio?: unknown; regla?: unknown }>(req);
+  const dominio = typeof b.dominio === "string" ? b.dominio.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "") : "";
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!/^[a-z0-9.-]{3,253}$/.test(dominio) || !dominio.includes(".")) errores.push({ campo: "dominio", mensaje: "Escribe un dominio, como ejemplo.com" });
+  if (b.regla !== "PERMITIR" && b.regla !== "BLOQUEAR") errores.push({ campo: "regla", mensaje: "Usa PERMITIR o BLOQUEAR" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  NAV.reglas = [...NAV.reglas.filter((r) => r.dominio !== dominio), { dominio, regla: b.regla as Regla["regla"] }].sort((a, c) => a.dominio.localeCompare(c.dominio));
+  return { reglas: NAV.reglas };
+});
+ruta("DELETE", "/me/navegador/reglas/:dominio", (ctx, p) => {
+  personaNav(ctx);
+  if (!ctx.usuario.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Las reglas de sitios las pone un super usuario");
+  NAV.reglas = NAV.reglas.filter((r) => r.dominio !== p.dominio.toLowerCase());
+  return { reglas: NAV.reglas };
+});
+ruta("POST", "/me/navegador/acciones", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.navegador) throw new ErrorApi(403, "SIN_PERMISO", "Lo pide Jarvis en un chat de la persona");
+  const b = await cuerpo<{ tipo?: unknown; datos?: unknown }>(req);
+  const v = validarAccionNavegador(b.tipo, b.datos, NAV.reglas);
+  if (v.error) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "datos", mensaje: v.error }]);
+  if (v.prohibida) throw new ErrorApi(403, "PROHIBIDO_EN_NAVEGADOR", "Jarvis no puede hacer eso en Chrome", v.prohibida);
+  if (!NAV.vinculos.some((x) => x.usuarioId === ctx.usuario.id && !x.revocado && x.ultimoUso && Date.now() - x.ultimoUso < 90_000)) {
+    throw new ErrorApi(409, "CHROME_DESCONECTADO", "Chrome no está conectado", "La persona tiene que abrir el panel de Jarvis en Chrome (y vincularlo una vez desde Jarvis → Conectores).");
+  }
+  vencerNav(ctx.usuario.id);
+  const a = { id: crypto.randomUUID(), usuarioId: ctx.usuario.id, sesionId: ctx.jarvis?.sesionId ?? null, tipo: b.tipo as string, datos: (b.datos && typeof b.datos === "object" ? b.datos : {}) as Record<string, unknown>, estado: "PENDIENTE", resultado: null, creadoEn: new Date().toISOString(), resueltaEn: null };
+  NAV.acciones.push(a);
+  return { __status: 202, ...accionNavMock(a) };
+});
+ruta("GET", "/me/navegador/acciones/:id", (ctx, p) => {
+  soloEquipo(ctx);
+  const a = NAV.acciones.find((x) => x.id === p.id && x.usuarioId === ctx.usuario.id);
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa acción");
+  return accionNavMock(a);
+});
+ruta("GET", "/navegador/config", (ctx) => {
+  extensionNav(ctx);
+  const v = NAV.vinculos.find((x) => x.id === ctx.navegador)!;
+  return { persona: ctx.usuario.nombre, nombre: v.nombre, modo: v.modo, reglas: NAV.reglas, siemprePide: SIEMPRE_PIDE_PERMISO, prohibido: PROHIBIDO };
+});
+ruta("PATCH", "/navegador/config", async (ctx, _p, _q, req) => {
+  extensionNav(ctx);
+  const b = await cuerpo<{ modo?: unknown }>(req);
+  if (!MODOS_NAVEGADOR.includes(b.modo as (typeof MODOS_NAVEGADOR)[number])) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "modo", mensaje: "Usa MANUAL, AUTO o SIN" }]);
+  NAV.vinculos.find((x) => x.id === ctx.navegador)!.modo = b.modo as string;
+  return { modo: b.modo };
+});
+ruta("GET", "/navegador/pendiente", (ctx) => {
+  extensionNav(ctx);
+  vencerNav(ctx.usuario.id);
+  const a = NAV.acciones.find((x) => x.usuarioId === ctx.usuario.id && x.estado === "PENDIENTE");
+  if (a) a.estado = "EN_CURSO";
+  return { accion: a ? accionNavMock(a) : null };
+});
+ruta("POST", "/navegador/acciones/:id/resultado", async (ctx, p, _q, req) => {
+  extensionNav(ctx);
+  const b = await cuerpo<{ estado?: unknown; resultado?: unknown }>(req);
+  if (!["HECHA", "RECHAZADA", "FALLIDA"].includes(b.estado as string)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "estado", mensaje: "Usa HECHA, RECHAZADA o FALLIDA" }]);
+  const a = NAV.acciones.find((x) => x.id === p.id && x.usuarioId === ctx.usuario.id && x.estado === "EN_CURSO");
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa acción ya no está en curso");
+  Object.assign(a, { estado: b.estado, resultado: b.resultado ?? null, resueltaEn: new Date().toISOString() });
+  return null;
+});
+
 // ───────────────────────────── bóveda personal (9 nov). En la demo no hay Jarvis que la lea.
 
 const bovedasAbiertasMock = new Map<string, number>();
@@ -6360,7 +6496,11 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
       // Simula el PUT directo a S3 con URL prefirmada: no lleva el token del portal.
       return new Response(null, { status: 200 });
     }
+    if (req.method === "POST" && camino === "/navegador/vincular") return Response.json(await vincularNavegadorMock(req));
     const ctx = autenticar(req);
+    if (ctx.navegador && !(camino.startsWith("/navegador/") || camino.startsWith("/jarvis/") || camino.startsWith("/me/jarvis/") || camino === "/me")) {
+      throw new ErrorApi(403, "SIN_PERMISO", "La extensión de Chrome solo usa Jarvis");
+    }
     if (ctx.usuario.tipo === "CLIENTE") registrarActividad(E.miembros.filter((m) => m.usuarioId === ctx.usuario.id).map((m) => m.clienteId));
     const clave = req.headers.get("idempotency-key");
     if (clave && req.method === "POST") {

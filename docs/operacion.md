@@ -135,6 +135,22 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
   puede abrir una bóveda: si alguien olvida su clave, la borra desde «Olvidé mi clave». Reiniciar el portal cierra
   las bóvedas abiertas (Jarvis deja de poder leerlas hasta que la persona la vuelva a abrir). Para que Jarvis la
   use, el Hermes necesita el MCP 0.4.0 (`integrations/hermes/mcp-portal.mjs`).
+- **Jarvis en Chrome (0066, 18 nov):** la extensión 2.0.0 (`extensiones/jarvis-chrome`, se descarga desde
+  `/descargas/jarvis-chrome.zip`) vive en el panel lateral de Chrome. La persona la vincula con un código de un
+  solo uso que genera en Jarvis → Conectores → Jarvis en Chrome. La extensión recibe una llave `nv_…` que el portal
+  guarda solo como hash (`navegador_vinculo`) y que sirve solo para `/navegador/*`, `/jarvis/*`, `/me/jarvis/*` y
+  `/me`.
+  - **Cómo corre una acción:** el bot pide la acción con las herramientas `navegador_*` del MCP. El portal la deja
+    pendiente (`navegador_accion`) y el panel la toma cada 1,5 s y la hace en la pestaña prestada. El MCP espera la
+    respuesta hasta 45 s. Una acción vence a los 3 minutos.
+  - **Requisitos:** solo funciona con el panel abierto; el portal lo da por conectado si habló hace menos de 90 s.
+  - **Permisos** (como Claude in Chrome): se eligen en el panel, por defecto «Aprobar cada acción».
+  - **Lo prohibido** se rechaza en el portal y en la extensión: comprar, crear cuentas, tarjetas o documentos de
+    identidad, y páginas internas.
+  - **Sitios del equipo:** los bloqueados o «solo estos» los pone un super usuario (`navegador_regla`).
+  - **Para activarlo:** respaldo y migración 0066. Después se copia `integrations/hermes/mcp-portal.mjs` (0.6.0) a
+    `/home/hermes/inoo/` y se reinicia Hermes. Quien tenga la extensión vieja reemplaza la carpeta y toca
+    «Actualizar» en `chrome://extensions`.
 - **Rutinas y automatizaciones:** las corre `inoo-jarvis.timer`. Cada ejecución la paga quien la creó, su
   respuesta queda como un chat del bot (`job-<id>`) y se avisa en la campana. Si el Hermes del área no está
   conectado o el área llegó a su tope, la ejecución queda «Falló» con el motivo.

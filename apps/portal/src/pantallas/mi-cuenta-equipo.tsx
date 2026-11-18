@@ -114,35 +114,129 @@ function MiCuenta() {
 }
 
 /**
- * 16 nov (Ernesto: «Claude in Chrome para Jarvis»): mandar la página que estás viendo a tu Jarvis. Con la extensión
- * (clic derecho → «Enviar a Jarvis») o con un favorito, para quien no quiera instalar nada.
+ * Jarvis en Chrome. 16 nov: mandar la página a Jarvis. 18 nov (Ernesto: «que actually pueda controlar mi
+ * navegador»): la extensión vive en el panel lateral y Jarvis usa la pestaña que le prestas, con los permisos que
+ * elijas ahí (como Claude in Chrome). Aquí se instala, se vincula con un código y se desvincula; un super usuario
+ * pone los sitios que el equipo no puede usar con Jarvis (o los únicos que sí).
  */
+type ChromeVinculado = { id: string; nombre: string; modo: "MANUAL" | "AUTO" | "SIN"; creadoEn: string; ultimoUso: string | null; conectado: boolean };
+type MiNavegador = { vinculos: ChromeVinculado[]; reglas: { dominio: string; regla: "PERMITIR" | "BLOQUEAR" }[]; siemprePide: string[]; prohibido: string[]; puedeEditarReglas: boolean };
+const NOMBRE_MODO = { MANUAL: "Aprueba cada acción", AUTO: "Aprueba automáticamente", SIN: "Sin aprobaciones" } as const;
+
 export function JarvisDesdeChrome() {
   const avisar = useAviso();
-  const [origen, setOrigen] = useState("https://portal.inoo.pe");
-  useEffect(() => setOrigen(window.location.origin), []);
-  const favorito = `javascript:(()=>{const c={t:document.title,u:location.href,s:String(getSelection()).slice(0,6000)};window.open('${origen}/equipo/jarvis?contexto='+encodeURIComponent(JSON.stringify(c)),'_blank')})()`;
-  const copiar = async () => {
-    try { await navigator.clipboard.writeText(favorito); avisar({ titulo: "Copiado", texto: "Crea un favorito nuevo y pega esto como su dirección." }); }
-    catch { avisar({ titulo: "No se pudo copiar: selecciona el texto y cópialo" }); }
+  const r = useConsulta<MiNavegador>("/me/navegador");
+  const [codigo, setCodigo] = useState<{ codigo: string; venceEn: string } | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const [dominio, setDominio] = useState("");
+  const [regla, setRegla] = useState<"BLOQUEAR" | "PERMITIR">("BLOQUEAR");
+  const { recargar } = r;
+  useEffect(() => {
+    // Mientras se vincula, mirar cada pocos segundos para mostrarlo apenas aparezca.
+    if (!codigo) return;
+    const t = setInterval(() => void recargar(), 4000);
+    return () => clearInterval(t);
+  }, [codigo, recargar]);
+
+  const hacer = async (clave: string, f: () => Promise<unknown>, error: string) => {
+    setOcupado(clave);
+    try {
+      await f();
+      await recargar();
+    } catch (x) {
+      avisar({ titulo: error, texto: (x as ProblemaApi).detalle ?? (x as ProblemaApi).titulo });
+    } finally {
+      setOcupado(null);
+    }
   };
+  const generar = () => hacer("codigo", async () => setCodigo(await api<{ codigo: string; venceEn: string }>("/me/navegador/codigo", { metodo: "POST", cuerpo: {} })), "No se pudo generar el código");
+  const desvincular = (v: ChromeVinculado) => hacer(v.id, () => api(`/me/navegador/vinculos/${v.id}`, { metodo: "DELETE" }), "No se pudo desvincular");
+  const ponerRegla = () => hacer("regla", async () => {
+    await api("/me/navegador/reglas", { metodo: "PUT", cuerpo: { dominio, regla } });
+    setDominio("");
+  }, "No se guardó la regla");
+  const quitarRegla = (d: string) => hacer(`regla-${d}`, () => api(`/me/navegador/reglas/${encodeURIComponent(d)}`, { metodo: "DELETE" }), "No se quitó la regla");
+
+  const d = r.datos;
+  const vinculados = d?.vinculos ?? [];
   return (
-    <Tarjeta titulo="Jarvis desde Chrome" icono={<LuBot size={18} />}>
-      <p className="texto-sm">Manda a tu Jarvis la página que estás viendo, o lo que seleccionaste, y pregúntale sobre eso.</p>
+    <Tarjeta titulo="Jarvis en Chrome" icono={<LuBot size={18} />}>
+      <p className="texto-sm">
+        Jarvis trabaja en tu Chrome: mira la pestaña que le prestas, abre páginas, hace clic y llena campos, siempre con los permisos que tú eliges en el panel de la extensión. Solo funciona mientras tienes ese panel abierto.
+      </p>
       <ol className="texto-sm" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
         <li><a href="/descargas/jarvis-chrome.zip" download className="enlace">Descarga la extensión</a> y descomprímela.</li>
-        <li>En Chrome abre <code>chrome://extensions</code> y prende el «Modo de desarrollador».</li>
-        <li>«Cargar descomprimida» y elige la carpeta <code>jarvis-chrome</code>.</li>
-        <li>Clic derecho en cualquier página → «Enviar a Jarvis».</li>
+        <li>En Chrome abre <code>chrome://extensions</code>, prende el «Modo de desarrollador» y usa «Cargar descomprimida» con la carpeta <code>jarvis-chrome</code>. Si ya la tenías, reemplaza la carpeta y toca «Actualizar».</li>
+        <li>Toca el ícono de Jarvis en la barra: se abre el panel lateral.</li>
+        <li>Genera un código aquí y escríbelo en el panel.</li>
       </ol>
-      <details className="texto-xs">
-        <summary style={{ cursor: "pointer" }}>Sin instalar nada: un favorito</summary>
-        <p className="texto-xs texto-muted" style={{ margin: "6px 0" }}>Crea un favorito, pega esto como su dirección y úsalo en cualquier página.</p>
-        <span className="fila" style={{ gap: 6 }}>
-          <input className="input" readOnly aria-label="Código del favorito" value={favorito} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 0, fontSize: "var(--t-xs)" }} />
-          <button type="button" className="boton boton--chico" onClick={() => void copiar()}>Copiar</button>
-        </span>
-      </details>
+
+      <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+        <button type="button" className="boton boton--primario boton--chico" onClick={() => void generar()} disabled={ocupado === "codigo"}>
+          {codigo ? "Generar otro código" : "Generar código"}
+        </button>
+        {codigo && (
+          <span className="texto-sm" aria-live="polite">
+            <strong style={{ fontSize: "var(--t-lg)", letterSpacing: 2, fontFamily: "ui-monospace, monospace" }}>{codigo.codigo}</strong>
+            <span className="texto-xs texto-muted"> · sirve una vez, hasta las {new Date(codigo.venceEn).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}</span>
+          </span>
+        )}
+      </div>
+
+      {r.error ? <ErrorCarga error={r.error} reintentar={() => void recargar()} /> : !d ? <p className="texto-xs texto-muted">Cargando…</p> : (
+        <>
+          <div className="pila" style={{ gap: 6 }}>
+            <h3 className="texto-sm" style={{ margin: 0, fontWeight: 600 }}>Tus Chrome vinculados</h3>
+            {!vinculados.length && <p className="texto-xs texto-muted" style={{ margin: 0 }}>Todavía ninguno.</p>}
+            {vinculados.map((v) => (
+              <div key={v.id} className="fila" style={{ gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
+                <span className="texto-sm">
+                  {v.nombre} <Etiqueta tono={v.conectado ? "verde" : "gris"}>{v.conectado ? "Panel abierto" : "Panel cerrado"}</Etiqueta>
+                  <span className="texto-xs texto-muted"> · {NOMBRE_MODO[v.modo]}{v.ultimoUso ? ` · última vez ${fDiaHora(v.ultimoUso)}` : ""}</span>
+                </span>
+                <button type="button" className="boton boton--chico" onClick={() => void desvincular(v)} disabled={ocupado === v.id}>Desvincular</button>
+              </div>
+            ))}
+            {codigo && vinculados.some((v) => v.conectado) && <p className="texto-xs" style={{ margin: 0 }}>Listo: tu Chrome ya está conectado.</p>}
+          </div>
+
+          <details className="texto-sm">
+            <summary style={{ cursor: "pointer" }}>Qué pregunta siempre y qué nunca hace</summary>
+            <p className="texto-xs" style={{ margin: "8px 0 2px", fontWeight: 600 }}>Siempre te pregunta antes de:</p>
+            <ul className="texto-xs" style={{ margin: 0, paddingLeft: 18 }}>{d.siemprePide.map((x) => <li key={x}>{x}</li>)}</ul>
+            <p className="texto-xs" style={{ margin: "8px 0 2px", fontWeight: 600 }}>Nunca, aunque le des permiso:</p>
+            <ul className="texto-xs" style={{ margin: 0, paddingLeft: 18 }}>{d.prohibido.map((x) => <li key={x}>{x}</li>)}</ul>
+          </details>
+
+          {(d.puedeEditarReglas || d.reglas.length > 0) && (
+            <div className="pila" style={{ gap: 6 }}>
+              <h3 className="texto-sm" style={{ margin: 0, fontWeight: 600 }}>Sitios del equipo</h3>
+              <p className="texto-xs texto-muted" style={{ margin: 0 }}>
+                Bloqueado: Jarvis no lo usa nunca. Si hay sitios «solo estos», Jarvis no usa ningún otro.
+              </p>
+              {d.reglas.map((x) => (
+                <div key={x.dominio} className="fila" style={{ gap: 8 }}>
+                  <span className="texto-sm">{x.dominio}</span>
+                  <Etiqueta tono={x.regla === "BLOQUEAR" ? "rojo" : "verde"}>{x.regla === "BLOQUEAR" ? "Bloqueado" : "Solo estos"}</Etiqueta>
+                  {d.puedeEditarReglas && (
+                    <button type="button" className="boton boton--chico" onClick={() => void quitarRegla(x.dominio)} disabled={ocupado === `regla-${x.dominio}`}>Quitar</button>
+                  )}
+                </div>
+              ))}
+              {d.puedeEditarReglas && (
+                <form className="fila" style={{ gap: 6, flexWrap: "wrap" }} onSubmit={(e) => { e.preventDefault(); if (dominio.trim()) void ponerRegla(); }}>
+                  <input className="input" value={dominio} onChange={(e) => setDominio(e.target.value)} placeholder="ejemplo.com" aria-label="Sitio" style={{ flex: 1, minWidth: 140 }} />
+                  <select className="input" value={regla} onChange={(e) => setRegla(e.target.value as "BLOQUEAR" | "PERMITIR")} aria-label="Regla" style={{ width: "auto" }}>
+                    <option value="BLOQUEAR">Bloquear</option>
+                    <option value="PERMITIR">Solo estos</option>
+                  </select>
+                  <button type="submit" className="boton boton--chico" disabled={ocupado === "regla" || !dominio.trim()}>Agregar</button>
+                </form>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </Tarjeta>
   );
 }

@@ -5238,6 +5238,172 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /me/navegador:
+    get:
+      tags: [Jarvis]
+      operationId: miNavegador
+      summary: 'Jarvis usa Chrome (18 nov): mis Chrome vinculados, las reglas de sitios del equipo y lo que Jarvis siempre pregunta o nunca hace'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [vinculos, reglas, siemprePide, prohibido, puedeEditarReglas]
+                properties:
+                  vinculos: { type: array, items: { type: object, required: [id, nombre, modo, creadoEn, ultimoUso, conectado], properties: { id: { type: string, format: uuid }, nombre: { type: string }, modo: { $ref: '#/components/schemas/ModoNavegador' }, creadoEn: { type: string, format: date-time }, ultimoUso: { type: [string, 'null'], format: date-time }, conectado: { type: boolean, description: 'Usó el portal en los últimos 90 s (el panel está abierto)' } } } }
+                  reglas: { type: array, items: { $ref: '#/components/schemas/ReglaNavegador' } }
+                  siemprePide: { type: array, items: { type: string } }
+                  prohibido: { type: array, items: { type: string } }
+                  puedeEditarReglas: { type: boolean }
+
+  /me/navegador/codigo:
+    post:
+      tags: [Jarvis]
+      operationId: codigoNavegador
+      summary: 'Un código de un solo uso (10 min) para vincular la extensión de Chrome a mi cuenta (18 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [codigo, venceEn], properties: { codigo: { type: string, examples: [ABCD-2345] }, venceEn: { type: string, format: date-time } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /me/navegador/vinculos/{vinculoId}:
+    parameters:
+      - { name: vinculoId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Jarvis]
+      operationId: desvincularNavegador
+      summary: 'Desvincula un Chrome: su llave deja de servir y lo pendiente vence (18 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Desvinculado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /me/navegador/reglas:
+    put:
+      tags: [Jarvis]
+      operationId: reglaNavegador
+      summary: 'Permite o bloquea un sitio para todo el equipo (super usuario, 18 nov). Si hay permitidos, Jarvis solo usa esos'
+      x-roles: [SUPER_USUARIO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [dominio, regla], properties: { dominio: { type: string }, regla: { type: string, enum: [PERMITIR, BLOQUEAR] } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [reglas], properties: { reglas: { type: array, items: { $ref: '#/components/schemas/ReglaNavegador' } } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/navegador/reglas/{dominio}:
+    parameters:
+      - { name: dominio, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Jarvis]
+      operationId: quitarReglaNavegador
+      summary: 'Quita la regla de un sitio (super usuario, 18 nov)'
+      x-roles: [SUPER_USUARIO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [reglas], properties: { reglas: { type: array, items: { $ref: '#/components/schemas/ReglaNavegador' } } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /me/navegador/acciones:
+    post:
+      tags: [Jarvis]
+      operationId: pedirAccionNavegador
+      summary: 'Jarvis pide algo en el Chrome de la persona (18 nov). Queda en cola y vuelve al instante; la extensión lo aprueba o no según su modo'
+      description: 'Lo usa el MCP de Jarvis (herramientas navegador_*). Lo prohibido (pagos, tarjetas, páginas internas, sitios bloqueados) responde 403 sin llegar a Chrome. 409 si el panel de Chrome no está abierto.'
+      x-roles: [EQUIPO, JARVIS]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [tipo], properties: { tipo: { $ref: '#/components/schemas/TipoAccionNavegador' }, datos: { type: object, additionalProperties: true, description: 'IR: url · CLIC: ref · ESCRIBIR: ref, texto · TECLA: tecla · BAJAR: cuanto · ESPERAR: segundos' } } }
+      responses:
+        '202': { description: En cola, content: { application/json: { schema: { $ref: '#/components/schemas/AccionNavegador' } } } }
+        '403': { description: 'PROHIBIDO_EN_NAVEGADOR: Jarvis no puede hacer eso', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '409': { description: 'CHROME_DESCONECTADO', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/navegador/acciones/{accionId}:
+    parameters:
+      - { name: accionId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Jarvis]
+      operationId: verAccionNavegador
+      summary: 'Cómo va una acción en Chrome (18 nov)'
+      x-roles: [EQUIPO, JARVIS]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AccionNavegador' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /navegador/vincular:
+    post:
+      tags: [Jarvis]
+      operationId: vincularNavegador
+      summary: 'Sin sesión: la extensión canjea el código por su llave (se muestra una sola vez) (18 nov)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [codigo], properties: { codigo: { type: string }, nombre: { type: string, maxLength: 80 } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [llave, persona], properties: { llave: { type: string, description: 'Va en X-Navegador-Inoo' }, persona: { type: string } } } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /navegador/config:
+    get:
+      tags: [Jarvis]
+      operationId: configNavegador
+      summary: 'La extensión: su modo, las reglas de sitios y lo que siempre pide o nunca hace (18 nov)'
+      x-roles: [NAVEGADOR]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    patch:
+      tags: [Jarvis]
+      operationId: cambiarModoNavegador
+      summary: 'La extensión cambia su modo: MANUAL, AUTO o SIN (18 nov)'
+      x-roles: [NAVEGADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [modo], properties: { modo: { $ref: '#/components/schemas/ModoNavegador' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /navegador/pendiente:
+    get:
+      tags: [Jarvis]
+      operationId: pendienteNavegador
+      summary: 'La extensión toma la próxima acción en cola (queda EN_CURSO) (18 nov)'
+      x-roles: [NAVEGADOR]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [accion], properties: { accion: { oneOf: [ { $ref: '#/components/schemas/AccionNavegador' }, { type: 'null' } ] } } } } } }
+
+  /navegador/acciones/{accionId}/resultado:
+    parameters:
+      - { name: accionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Jarvis]
+      operationId: resultadoNavegador
+      summary: 'La extensión responde: la hizo, la persona la rechazó o falló (18 nov)'
+      x-roles: [NAVEGADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [estado], properties: { estado: { type: string, enum: [HECHA, RECHAZADA, FALLIDA] }, resultado: { description: 'Lo que vio o hizo (texto, elementos, dirección)' } } }
+      responses:
+        '204': { description: Guardado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /marcas:
     get:
       tags: [Clientes]
@@ -7478,6 +7644,21 @@ components:
         padreId: { type: [string, 'null'], format: uuid, description: 'La carpeta de arriba (solo un nivel)' }
         nombre: { type: string, maxLength: 80 }
         creadoEn: { type: string, format: date-time }
+    AccionNavegador:
+      type: object
+      description: 'Una acción que Jarvis pidió en Chrome (18 nov)'
+      required: [id, tipo, datos, estado, resultado, creadoEn, resueltaEn]
+      properties:
+        id: { type: string, format: uuid }
+        tipo: { $ref: '#/components/schemas/TipoAccionNavegador' }
+        datos: { type: object, additionalProperties: true }
+        estado: { type: string, enum: [PENDIENTE, EN_CURSO, HECHA, RECHAZADA, FALLIDA, VENCIDA] }
+        resultado: { description: 'Lo que devolvió la extensión' }
+        creadoEn: { type: string, format: date-time }
+        resueltaEn: { type: [string, 'null'], format: date-time }
+    TipoAccionNavegador: { type: string, enum: [VER, IR, CLIC, ESCRIBIR, TECLA, BAJAR, CAPTURA, ESPERAR] }
+    ModoNavegador: { type: string, enum: [MANUAL, AUTO, SIN], description: 'MANUAL: aprobar cada acción (por defecto) · AUTO: sigue solo con revisión · SIN: no pregunta' }
+    ReglaNavegador: { type: object, required: [dominio, regla], properties: { dominio: { type: string }, regla: { type: string, enum: [PERMITIR, BLOQUEAR] } } }
     MarcaCliente:
       type: object
       description: 'Una marca de una empresa cliente (16 nov, tanda 4): ordena los proyectos en Empresa → Marca'

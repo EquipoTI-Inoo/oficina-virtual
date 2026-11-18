@@ -40,6 +40,8 @@ export interface Usuario extends SesionDb {
   esCuentaPruebas?: boolean;
   /** Pide Jarvis desde esta conversación (6 nov): lee como su dueño y solo puede proponer acciones. */
   jarvis?: { sesionId: string; area: Area };
+  /** 18 nov: entra la extensión de Chrome vinculada (X-Navegador-Inoo): solo Jarvis y las rutas del navegador. */
+  navegador?: string;
 }
 
 
@@ -108,12 +110,23 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
   const llave = req.headers.get("x-api-key");
   if (llave) return autenticarLlave(llave, c);
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  if (!token) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
+  // 18 nov: la extensión de Chrome entra con la llave que recibió al vincularse (guardada como hash; se revoca).
+  const llaveNavegador = req.headers.get("x-navegador-inoo");
+  let navegador: string | undefined;
+  if (!token && !llaveNavegador) throw new ErrorApi(401, "NO_AUTENTICADO", "Inicia sesión para continuar");
 
   let filtro: { columna: "id" | "cognito_sub"; valor: string };
   let jarvis: Usuario["jarvis"];
   const conversacion = req.headers.get("x-jarvis-conversacion");
-  if (conversacion !== null) {
+  if (llaveNavegador) {
+    const v = (await c.query<{ id: string; usuario_id: string }>(
+      "SELECT id, usuario_id FROM navegador_vinculo WHERE token_hash = $1 AND revocado_en IS NULL", [createHash("sha256").update(llaveNavegador).digest("hex")],
+    )).rows[0];
+    if (!v) throw new ErrorApi(401, "NAVEGADOR_DESVINCULADO", "Este Chrome ya no está vinculado", "Vuelve a vincularlo con un código nuevo desde Jarvis → Conectores.");
+    await c.query("UPDATE navegador_vinculo SET ultimo_uso = now() WHERE id = $1", [v.id]);
+    filtro = { columna: "id", valor: v.usuario_id };
+    navegador = v.id;
+  } else if (conversacion !== null) {
     // Jarvis (2 nov): el Hermes del área lee el portal como la persona dueña de la conversación. Solo lectura.
     const area = areaDeClaveHermes(token);
     if (!area) throw new ErrorApi(401, "NO_AUTENTICADO", "Clave de Jarvis inválida");
@@ -177,5 +190,6 @@ export async function autenticar(req: Request, c: Consultor): Promise<Usuario> {
     esPrueba: u.es_prueba,
     ...(u.es_cuenta_pruebas ? { esCuentaPruebas: true } : {}),
     ...(jarvis ? { jarvis } : {}),
+    ...(navegador ? { navegador } : {}),
   };
 }

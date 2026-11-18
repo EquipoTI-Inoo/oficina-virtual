@@ -60,6 +60,7 @@ import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, pendientesComoEventos, tareaComoPendiente, type Yo } from "./tableros";
 import { idInvitado } from "../dominio/compartir-tablero";
 import { firmarVideo, leerVideo } from "./firma-video";
+import { MODOS_NAVEGADOR, PROHIBIDO, SIEMPRE_PIDE_PERMISO, validarAccionNavegador, type Regla } from "../dominio/jarvis-navegador";
 import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva, type CarpetaBase } from "../dominio/carpetas";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
@@ -4123,6 +4124,151 @@ export async function vueltaConexionDb(req: Request, ruta: string): Promise<Resp
     return ir(false, "No pudimos conectar la cuenta");
   }
 }
+
+// ───────────────────────────── Jarvis usa Chrome (18 nov, Ernesto)
+
+const hashTexto = (t: string) => createHash("sha256").update(t).digest("hex");
+const ALFABETO_CODIGO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const reglasNavegadorDb = async (c: Consultor) => (await c.query<Regla>("SELECT dominio, regla FROM navegador_regla ORDER BY dominio")).rows;
+const soloPersonaNavegador = (ctx: Ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.u.jarvis || ctx.u.navegador || ctx.enNombreDe) throw new ErrorApi(403, "SIN_PERMISO", "Esto lo hace cada persona desde su sesión del portal");
+};
+const soloExtension = (ctx: Ctx) => {
+  if (!ctx.u.navegador) throw new ErrorApi(403, "SIN_PERMISO", "Solo la extensión de Chrome vinculada");
+};
+type FilaAccionNav = { id: string; tipo: string; datos: Record<string, unknown>; estado: string; resultado: unknown; creado_en: Date; resuelta_en: Date | null };
+const accionNavVista = (a: FilaAccionNav) => ({ id: a.id, tipo: a.tipo, datos: a.datos, estado: a.estado, resultado: a.resultado ?? null, creadoEn: a.creado_en.toISOString(), resueltaEn: iso(a.resuelta_en) });
+
+/** El código de un solo uso (10 min) que la persona escribe en la extensión para vincular su Chrome. */
+ruta("POST", "/me/navegador/codigo", async (ctx) => {
+  soloPersonaNavegador(ctx);
+  const b = randomBytes(8);
+  const codigo = Array.from(b, (x) => ALFABETO_CODIGO[x % ALFABETO_CODIGO.length]).join("").replace(/^(.{4})/, "$1-");
+  const vence = new Date(Date.now() + 10 * 60_000);
+  await ctx.c.query("DELETE FROM navegador_codigo WHERE usuario_id = $1 OR vence_en < now()", [ctx.u.usuarioId]);
+  await ctx.c.query("INSERT INTO navegador_codigo (codigo_hash, usuario_id, vence_en) VALUES ($1, $2, $3)", [hashTexto(codigo), ctx.u.usuarioId, vence]);
+  return { codigo, venceEn: vence.toISOString() };
+});
+/** Sin sesión: la extensión canjea el código por su llave (se muestra una sola vez y se guarda como hash). */
+async function vincularNavegador(req: Request): Promise<Response> {
+  try {
+    const b = (await req.json().catch(() => ({}))) as { codigo?: unknown; nombre?: unknown };
+    const codigo = typeof b.codigo === "string" ? b.codigo.trim().toUpperCase().replace(/\s+/g, "") : "";
+    const nombre = typeof b.nombre === "string" && b.nombre.trim() ? b.nombre.trim().slice(0, 80) : "Chrome";
+    if (!/^[A-Z0-9]{4}-?[A-Z0-9]{4}$/.test(codigo)) throw new ErrorApi(422, "VALIDACION", "Revisa el código", undefined, [{ campo: "codigo", mensaje: "Son 8 letras y números, como ABCD-2345" }]);
+    revisarIntentos(`navegador:${codigo}`);
+    const normal = codigo.includes("-") ? codigo : `${codigo.slice(0, 4)}-${codigo.slice(4)}`;
+    const llave = `nv_${randomBytes(24).toString("base64url")}`;
+    const r = await comoSistema(async (c) => {
+      const x = (await c.query<{ usuario_id: string }>("DELETE FROM navegador_codigo WHERE codigo_hash = $1 AND vence_en > now() RETURNING usuario_id", [hashTexto(normal)])).rows[0];
+      if (!x) return null;
+      await c.query("INSERT INTO navegador_vinculo (usuario_id, token_hash, nombre) VALUES ($1, $2, $3)", [x.usuario_id, hashTexto(llave), nombre]);
+      return (await c.query<{ nombre: string }>("SELECT nombre FROM usuario WHERE id = $1", [x.usuario_id])).rows[0];
+    });
+    if (!r) { anotarFallido(`navegador:${codigo}`); throw new ErrorApi(422, "VALIDACION", "Ese código no sirve", undefined, [{ campo: "codigo", mensaje: "Venció o ya se usó: genera uno nuevo en Jarvis → Conectores" }]); }
+    return Response.json({ llave, persona: r.nombre });
+  } catch (e) {
+    if (e instanceof ErrorApi) return problema(e);
+    console.error(e);
+    return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+  }
+}
+/** Mis Chrome vinculados, las reglas del equipo y lo que Jarvis nunca hace o siempre pregunta. */
+ruta("GET", "/me/navegador", async (ctx) => {
+  soloEquipo(ctx);
+  const vs = (await ctx.c.query<{ id: string; nombre: string; modo: string; creado_en: Date; ultimo_uso: Date | null }>(
+    "SELECT id, nombre, modo, creado_en, ultimo_uso FROM navegador_vinculo WHERE usuario_id = $1 AND revocado_en IS NULL ORDER BY creado_en", [ctx.u.usuarioId])).rows;
+  return {
+    vinculos: vs.map((v) => ({ id: v.id, nombre: v.nombre, modo: v.modo, creadoEn: v.creado_en.toISOString(), ultimoUso: iso(v.ultimo_uso), conectado: !!v.ultimo_uso && Date.now() - v.ultimo_uso.getTime() < 90_000 })),
+    reglas: await reglasNavegadorDb(ctx.c), siemprePide: SIEMPRE_PIDE_PERMISO, prohibido: PROHIBIDO, puedeEditarReglas: !!ctx.u.esSuperUsuario,
+  };
+});
+ruta("DELETE", "/me/navegador/vinculos/:id", async (ctx, p) => {
+  soloPersonaNavegador(ctx);
+  const r = esUuid(p.id) ? (await ctx.c.query("UPDATE navegador_vinculo SET revocado_en = now() WHERE id = $1 AND usuario_id = $2 AND revocado_en IS NULL RETURNING id", [p.id, ctx.u.usuarioId])).rows : [];
+  if (!r.length) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese Chrome");
+  await ctx.c.query("UPDATE navegador_accion SET estado = 'VENCIDA', resuelta_en = now() WHERE usuario_id = $1 AND estado IN ('PENDIENTE', 'EN_CURSO')", [ctx.u.usuarioId]);
+  return null;
+});
+/** Sitios permitidos o bloqueados para todo el equipo: los pone un super usuario. */
+ruta("PUT", "/me/navegador/reglas", async (ctx, _p, _q, cuerpo) => {
+  soloPersonaNavegador(ctx);
+  if (!ctx.u.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Las reglas de sitios las pone un super usuario");
+  const b = (await cuerpo()) as { dominio?: unknown; regla?: unknown };
+  const dominio = typeof b.dominio === "string" ? b.dominio.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "") : "";
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!/^[a-z0-9.-]{3,253}$/.test(dominio) || !dominio.includes(".")) errores.push({ campo: "dominio", mensaje: "Escribe un dominio, como ejemplo.com" });
+  if (b.regla !== "PERMITIR" && b.regla !== "BLOQUEAR") errores.push({ campo: "regla", mensaje: "Usa PERMITIR o BLOQUEAR" });
+  validacion(errores);
+  await ctx.c.query("INSERT INTO navegador_regla (dominio, regla, creado_por) VALUES ($1, $2, $3) ON CONFLICT (dominio) DO UPDATE SET regla = EXCLUDED.regla, creado_por = EXCLUDED.creado_por, creado_en = now()", [dominio, b.regla, ctx.u.usuarioId]);
+  return { reglas: await reglasNavegadorDb(ctx.c) };
+});
+ruta("DELETE", "/me/navegador/reglas/:dominio", async (ctx, p) => {
+  soloPersonaNavegador(ctx);
+  if (!ctx.u.esSuperUsuario) throw new ErrorApi(403, "SIN_PERMISO", "Las reglas de sitios las pone un super usuario");
+  await ctx.c.query("DELETE FROM navegador_regla WHERE dominio = $1", [p.dominio.toLowerCase()]);
+  return { reglas: await reglasNavegadorDb(ctx.c) };
+});
+
+/**
+ * Jarvis pide algo en el Chrome de la persona: la acción queda en cola y vuelve al instante (202). La extensión la
+ * toma, la aprueba o no según su modo y responde; el MCP consulta GET /me/navegador/acciones/{id} hasta tener el
+ * resultado (así no queda una conexión de la base esperando).
+ */
+ruta("POST", "/me/navegador/acciones", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.u.navegador) throw new ErrorApi(403, "SIN_PERMISO", "Lo pide Jarvis en un chat de la persona");
+  const b = (await cuerpo()) as { tipo?: unknown; datos?: unknown };
+  const reglas = await reglasNavegadorDb(ctx.c);
+  const v = validarAccionNavegador(b.tipo, b.datos, reglas);
+  if (v.error) validacion([{ campo: "datos", mensaje: v.error }]);
+  if (v.prohibida) throw new ErrorApi(403, "PROHIBIDO_EN_NAVEGADOR", "Jarvis no puede hacer eso en Chrome", v.prohibida);
+  const conectado = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM navegador_vinculo WHERE usuario_id = $1 AND revocado_en IS NULL AND ultimo_uso > now() - interval '90 seconds'", [ctx.u.usuarioId])).rows[0].n;
+  if (!conectado) throw new ErrorApi(409, "CHROME_DESCONECTADO", "Chrome no está conectado", "La persona tiene que abrir el panel de Jarvis en Chrome (y vincularlo una vez desde Jarvis → Conectores).");
+  const datos = (b.datos && typeof b.datos === "object" ? b.datos : {}) as Record<string, unknown>;
+  await ctx.c.query("UPDATE navegador_accion SET estado = 'VENCIDA', resuelta_en = now() WHERE usuario_id = $1 AND estado IN ('PENDIENTE', 'EN_CURSO') AND creado_en < now() - interval '3 minutes'", [ctx.u.usuarioId]);
+  const a = (await ctx.c.query<FilaAccionNav>("INSERT INTO navegador_accion (usuario_id, sesion_id, tipo, datos) VALUES ($1, $2, $3, $4) RETURNING *", [ctx.u.usuarioId, ctx.u.jarvis?.sesionId ?? null, b.tipo, JSON.stringify(datos)])).rows[0];
+  return { __status: 202, ...accionNavVista(a) };
+});
+ruta("GET", "/me/navegador/acciones/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  const a = esUuid(p.id) ? (await ctx.c.query<FilaAccionNav>("SELECT * FROM navegador_accion WHERE id = $1 AND usuario_id = $2", [p.id, ctx.u.usuarioId])).rows[0] : undefined;
+  if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa acción");
+  return accionNavVista(a);
+});
+
+// La extensión: su configuración, la próxima acción y el resultado.
+ruta("GET", "/navegador/config", async (ctx) => {
+  soloExtension(ctx);
+  const v = (await ctx.c.query<{ modo: string; nombre: string }>("SELECT modo, nombre FROM navegador_vinculo WHERE id = $1", [ctx.u.navegador])).rows[0];
+  return { persona: ctx.u.nombre, nombre: v?.nombre ?? "Chrome", modo: v?.modo ?? "MANUAL", reglas: await reglasNavegadorDb(ctx.c), siemprePide: SIEMPRE_PIDE_PERMISO, prohibido: PROHIBIDO };
+});
+ruta("PATCH", "/navegador/config", async (ctx, _p, _q, cuerpo) => {
+  soloExtension(ctx);
+  const b = (await cuerpo()) as { modo?: unknown };
+  if (!MODOS_NAVEGADOR.includes(b.modo as (typeof MODOS_NAVEGADOR)[number])) validacion([{ campo: "modo", mensaje: "Usa MANUAL, AUTO o SIN" }]);
+  await ctx.c.query("UPDATE navegador_vinculo SET modo = $2 WHERE id = $1", [ctx.u.navegador, b.modo]);
+  return { modo: b.modo };
+});
+ruta("GET", "/navegador/pendiente", async (ctx) => {
+  soloExtension(ctx);
+  await ctx.c.query("UPDATE navegador_accion SET estado = 'VENCIDA', resuelta_en = now() WHERE usuario_id = $1 AND estado IN ('PENDIENTE', 'EN_CURSO') AND creado_en < now() - interval '3 minutes'", [ctx.u.usuarioId]);
+  const a = (await ctx.c.query<FilaAccionNav>(
+    "UPDATE navegador_accion SET estado = 'EN_CURSO', tomada_en = now() WHERE id = (SELECT id FROM navegador_accion WHERE usuario_id = $1 AND estado = 'PENDIENTE' ORDER BY creado_en LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *",
+    [ctx.u.usuarioId])).rows[0];
+  return { accion: a ? accionNavVista(a) : null };
+});
+ruta("POST", "/navegador/acciones/:id/resultado", async (ctx, p, _q, cuerpo) => {
+  soloExtension(ctx);
+  const b = (await cuerpo()) as { estado?: unknown; resultado?: unknown };
+  if (!["HECHA", "RECHAZADA", "FALLIDA"].includes(b.estado as string)) validacion([{ campo: "estado", mensaje: "Usa HECHA, RECHAZADA o FALLIDA" }]);
+  const texto = JSON.stringify(b.resultado ?? null);
+  if (texto.length > 60_000) validacion([{ campo: "resultado", mensaje: "El resultado es muy grande" }]);
+  const r = esUuid(p.id) ? (await ctx.c.query("UPDATE navegador_accion SET estado = $3, resultado = $4, resuelta_en = now() WHERE id = $1 AND usuario_id = $2 AND estado = 'EN_CURSO' RETURNING id", [p.id, ctx.u.usuarioId, b.estado, texto])).rows : [];
+  if (!r.length) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa acción ya no está en curso");
+  return null;
+});
 
 // ───────────────────────────── bóveda personal (9 nov): solo la dueña y su Jarvis
 
@@ -8533,6 +8679,7 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     }
   }
   if (req.method === "POST" && RUTAS_SESION.includes(camino)) return sesion(camino, req);
+  if (req.method === "POST" && camino === "/navegador/vincular") return vincularNavegador(req);
   const encontrada = RUTAS.map(([m, patron, fn]) => ({ m, fn, params: m === req.method ? coincide(patron, camino) : null })).find((r) => r.params);
   if (!encontrada) {
     return problema(new ErrorApi(501, "RUTA_NO_IMPLEMENTADA", `El backend todavía no implementa ${req.method} ${camino}`, "Usa API_MODO=mock para el resto del contrato mientras se completa el backend."));
@@ -8551,6 +8698,10 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     const db = await baseDatos();
     return await db.transaccion(async (c) => {
       const u = await autenticar(req, c);
+      // 18 nov: la llave de la extensión de Chrome sirve solo para Jarvis y las rutas del navegador.
+      if (u.navegador && !(camino.startsWith("/navegador/") || camino.startsWith("/jarvis/") || camino.startsWith("/me/jarvis/") || camino === "/me")) {
+        throw new ErrorApi(403, "SIN_PERMISO", "La extensión de Chrome solo usa Jarvis");
+      }
       // Entorno de pruebas (6 nov): lo que tocaría algo real no se puede, y la cuenta de pruebas solo elige usuario.
       if (u.esCuentaPruebas && !permitidoACuentaPruebas(req.method, camino)) throw new ErrorApi(403, "CUENTA_DE_PRUEBAS", "Elige primero con qué usuario de prueba entrar");
       if (u.esPrueba && bloqueadoEnPruebas(req.method, camino)) throw new ErrorApi(403, "NO_EN_PRUEBAS", MENSAJE_PRUEBAS.titulo, MENSAJE_PRUEBAS.detalle);
