@@ -300,7 +300,7 @@ contrato OpenAPI, migración de Postgres, API simulada, backend real, pantallas 
 | — | Videos de los tableros en el Drive de Inoo (hasta 5 GB, subida directa y reproducción en el portal) | Hecha y publicada (18 nov); falta probar una subida real |
 | — | 2FA opcional, modo oscuro, menú del avatar con el tema, barra lateral contraíble, marca de inoo.pe | Hecha y publicada (16–18 nov) |
 | — | Jarvis en 5 pestañas, Mis herramientas por persona, catálogo de Skillfera y Jarvis desde Chrome | Hecha y publicada (13–18 nov) |
-| — | Reunión con Ernesto del 18 nov: ayuda menos a la mano para clientes, respuestas de formularios editables (equipo, cliente y enlace), proyectos culminados sin vencidos en «Mi trabajo», y Jarvis en Chrome que usa el navegador con permisos como Claude in Chrome | Hecha, sin publicar (18 nov, migraciones 0065 y 0066); Chrome falta probarlo con Hermes real |
+| — | Reunión con Ernesto del 18 nov: ayuda menos a la mano para clientes, respuestas de formularios editables (equipo, cliente y enlace), proyectos culminados sin vencidos en «Mi trabajo», y Jarvis en Chrome que usa el navegador con permisos como Claude in Chrome | Hecha y publicada (18 nov, migraciones 0065 y 0066); Chrome falta probarlo con un Chrome real |
 
 **Pendientes:**
 - Google Drive y Calendar personales: juntar los correos de Google del equipo, pasar la app a «Externo» con usuarios
