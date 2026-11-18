@@ -141,14 +141,15 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
   guarda solo como hash (`navegador_vinculo`) y que sirve solo para `/navegador/*`, `/jarvis/*`, `/me/jarvis/*` y
   `/me`.
   - **Cómo corre una acción:** el bot pide la acción con las herramientas `navegador_*` del MCP. El portal la deja
-    pendiente (`navegador_accion`) y el panel la toma cada 1,5 s y la hace en la pestaña prestada. El MCP espera la
+    pendiente (`navegador_accion`) y el panel la toma cada 1,5 s y la hace en la pestaña que la persona está viendo
+    (o en la que fijó en el panel). Jarvis puede cambiar de pestaña y abrir una nueva; sirve desde cualquier chat. El MCP espera la
     respuesta hasta 45 s. Una acción vence a los 3 minutos.
   - **Requisitos:** solo funciona con el panel abierto; el portal lo da por conectado si habló hace menos de 90 s.
   - **Permisos** (como Claude in Chrome): se eligen en el panel, por defecto «Aprobar cada acción».
   - **Lo prohibido** se rechaza en el portal y en la extensión: comprar, crear cuentas, tarjetas o documentos de
     identidad, y páginas internas.
   - **Sitios del equipo:** los bloqueados o «solo estos» los pone un super usuario (`navegador_regla`).
-  - **Para activarlo:** respaldo y migración 0066. Después se copia `integrations/hermes/mcp-portal.mjs` (0.6.0) a
+  - **Para activarlo:** respaldo y migración 0066. Después se copia `integrations/hermes/mcp-portal.mjs` (0.6.1) a
     `/home/hermes/inoo/` y se reinicia Hermes. Quien tenga la extensión vieja reemplaza la carpeta y toca
     «Actualizar» en `chrome://extensions`.
 - **Rutinas y automatizaciones:** las corre `inoo-jarvis.timer`. Cada ejecución la paga quien la creó, su

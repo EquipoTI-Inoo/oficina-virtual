@@ -404,12 +404,13 @@ const ESTADO_OPERATIVO: Record<string, [string, "azul" | "ambar" | "verde"]> = {
 };
 const usd = (n: number) => `US$ ${Math.round(n)}`;
 
-type OrdenClientes = "NOMBRE" | "ATRASADAS" | "POR_APROBAR" | "PROYECTOS";
+type OrdenClientes = "NOMBRE" | "ATRASADAS" | "POR_APROBAR" | "PROYECTOS" | "SERVICIOS";
 const ORDEN_CLIENTES: Record<OrdenClientes, [string, (a: S<"FilaPanelCliente">, b: S<"FilaPanelCliente">) => number]> = {
   NOMBRE: ["Nombre (A–Z)", (a, b) => a.cliente.nombre.localeCompare(b.cliente.nombre, "es")],
   ATRASADAS: ["Más atrasadas", (a, b) => b.atrasadas - a.atrasadas],
   POR_APROBAR: ["Más por aprobar", (a, b) => b.porAprobar - a.porAprobar],
   PROYECTOS: ["Más proyectos activos", (a, b) => (b.proyectosActivos ?? 0) - (a.proyectosActivos ?? 0)],
+  SERVICIOS: ["Más servicios activos", (a, b) => (b.serviciosActivos ?? 0) - (a.serviciosActivos ?? 0)],
 };
 
 /** 13 nov (auditoría): con búsqueda, orden y filtro por estado; la fila entera abre la ficha. */
@@ -449,8 +450,8 @@ function TablaClientes({ filas: todasLasFilas, todas }: { filas: S<"FilaPanelCli
         <table className="tabla tabla--tarjetas" style={{ fontSize: "var(--t-xs)" }}>
           <thead>
             <tr>
-              {["Cliente", "Estado", "Proyectos activos", "Atrasadas", "Por aprobar", "Acción"].map((h, i) => (
-                <th key={h} style={{ textTransform: "none", fontSize: "var(--t-xs)", padding: "10px 14px", background: "var(--c-fondo)", borderBottom: 0, borderRadius: i === 0 ? "10px 0 0 10px" : i === 5 ? "0 10px 10px 0" : 0 }}>
+              {["Cliente", "Estado", "Proyectos activos", "Servicios activos", "Atrasadas", "Por aprobar", "Acción"].map((h, i) => (
+                <th key={h} style={{ textTransform: "none", fontSize: "var(--t-xs)", padding: "10px 14px", background: "var(--c-fondo)", borderBottom: 0, borderRadius: i === 0 ? "10px 0 0 10px" : i === 6 ? "0 10px 10px 0" : 0 }}>
                   {h}
                 </th>
               ))}
@@ -474,6 +475,7 @@ function TablaClientes({ filas: todasLasFilas, todas }: { filas: S<"FilaPanelCli
                   </td>
                   {/* 2 nov: la IA del cliente ya no existe; en su lugar, cuántos proyectos tiene en curso. */}
                   <td style={{ fontSize: "var(--t-md)", fontWeight: 600 }}>{f.proyectosActivos ?? 0}</td>
+                  <td style={{ fontSize: "var(--t-md)", fontWeight: 600 }}>{f.serviciosActivos ?? 0}</td>
                   <td style={{ fontSize: "var(--t-md)", color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
                   <td style={{ fontSize: "var(--t-md)", color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
                   <td>

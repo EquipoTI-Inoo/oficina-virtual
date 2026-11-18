@@ -33,6 +33,7 @@ export function pruebasNavegador(nombre: string, manejar: Manejador, reiniciar: 
       assert.equal((await llamar("POST", "/me/navegador/acciones", DIEGO, { tipo: "IR", datos: { url: "file:///etc/passwd" } })).json.codigo, "PROHIBIDO_EN_NAVEGADOR");
       assert.equal((await llamar("POST", "/me/navegador/acciones", DIEGO, { tipo: "ESCRIBIR", datos: { ref: "3", texto: "4111 1111 1111 1111" } })).json.codigo, "PROHIBIDO_EN_NAVEGADOR", "datos de tarjeta");
       assert.equal((await llamar("POST", "/me/navegador/acciones", DIEGO, { tipo: "VOLAR" })).status, 422);
+      assert.equal((await llamar("POST", "/me/navegador/acciones", DIEGO, { tipo: "IR", datos: { pestana: "dos" } })).status, 422, "la pestaña va por su número");
 
       const pedida = await llamar("POST", "/me/navegador/acciones", DIEGO, { tipo: "IR", datos: { url: "https://ejemplo.com/precios" } });
       assert.deepEqual([pedida.status, pedida.json.estado], [202, "PENDIENTE"]);

@@ -1,12 +1,13 @@
 // Panel lateral de Jarvis (18 nov 2026). Vincula este Chrome con un código del portal, chatea con los bots y hace en
-// la pestaña prestada lo que Jarvis pide (ver, ir, clic, escribir, teclas, bajar), con los permisos que la persona
-// elige, como en Claude in Chrome:
+// el Chrome lo que Jarvis pide (ver, ir, clic, escribir, teclas, bajar, cambiar o abrir pestañas), con los permisos
+// que la persona elige, como en Claude in Chrome. Jarvis usa la pestaña que la persona está viendo, sin que tenga que
+// prestársela; si quiere, fija una para que Jarvis trabaje ahí mientras ella sigue en otra.
 //   · MANUAL (el de siempre): pregunta antes de cada acción, salvo en los sitios que dejó «siempre permitidos».
 //   · AUTO: pregunta la primera vez en cada sitio y después actúa.
 //   · SIN: no pregunta.
 // En cualquier modo: lo de «siempre pregunta» (descargas, datos sensibles, autorizaciones, borrar) pide permiso, y lo
 // prohibido (comprar, crear cuentas, tarjetas o documentos, páginas internas) se rechaza sin preguntar. Mirar la
-// página (VER, BAJAR, ESPERAR) no pregunta: la pestaña ya se la prestó la persona.
+// página (VER, BAJAR, ESPERAR) y cambiar de pestaña no preguntan: el panel abierto ya es el permiso para mirar.
 // Las acciones solo corren con este panel abierto: el portal sabe que hay Chrome si el panel le habló hace < 90 s.
 
 const $ = (id) => document.getElementById(id);
@@ -183,21 +184,26 @@ async function fijarPestana(tab) {
   if (estado.pestana && estado.pestana !== tab?.id) await bannerEn(estado.pestana, false);
   estado.pestana = tab?.id ?? null;
   await chrome.storage.session.set({ pestana: estado.pestana });
-  $("pestana").textContent = tab ? (tab.title || tab.url || "sin título").slice(0, 40) : "ninguna";
+  $("pestana").textContent = tab ? `fija: ${(tab.title || tab.url || "sin título").slice(0, 36)}` : "la que estés viendo";
+  $("btnPestana").textContent = tab ? "Soltar" : "Fijar esta pestaña";
 }
 
 $("btnPestana").addEventListener("click", async () => {
+  if (estado.pestana) {
+    await fijarPestana(null);
+    return anotar("Jarvis vuelve a usar la pestaña que estés viendo");
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !dominioDe(tab.url || "")) return anotar("Esa pestaña no se puede prestar (páginas internas de Chrome).");
+  if (!tab || !dominioDe(tab.url || "")) return anotar("Esa pestaña no se puede fijar (páginas internas de Chrome).");
   await fijarPestana(tab);
-  anotar(`Pestaña prestada: ${tab.title}`);
+  anotar(`Jarvis trabaja en: ${tab.title}`);
 });
 
 chrome.tabs.onRemoved.addListener((id) => {
   if (id === estado.pestana) void fijarPestana(null);
 });
 chrome.tabs.onUpdated.addListener((id, cambio, tab) => {
-  if (id === estado.pestana && cambio.title) $("pestana").textContent = (tab.title || "").slice(0, 40);
+  if (id === estado.pestana && cambio.title) $("pestana").textContent = `fija: ${(tab.title || "").slice(0, 36)}`;
 });
 
 async function pausar(si) {
@@ -206,7 +212,7 @@ async function pausar(si) {
   $("btnPausa").textContent = si ? "Reanudar a Jarvis" : "Detener a Jarvis";
   $("btnPausa").classList.toggle("activo", si);
   mostrar(true);
-  if (si && estado.pestana) await bannerEn(estado.pestana, false);
+  if (si && pestanaConAviso) await bannerEn(pestanaConAviso, false);
   if (si) cerrarPermiso("no");
   anotar(si ? "Detuviste a Jarvis" : "Jarvis puede seguir");
 }
@@ -341,6 +347,13 @@ const enPestana = async (tabId, func, args = []) => {
   const [r] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
   return r?.result;
 };
+/** El aviso va solo en la pestaña donde Jarvis está trabajando ahora. */
+let pestanaConAviso = null;
+async function marcar(tabId) {
+  if (pestanaConAviso && pestanaConAviso !== tabId) await bannerEn(pestanaConAviso, false);
+  pestanaConAviso = tabId;
+  await bannerEn(tabId, true);
+}
 async function bannerEn(tabId, si) {
   try {
     await enPestana(tabId, enPaginaAviso, [si]);
@@ -417,23 +430,48 @@ function revisar(a, el, url) {
 
 // ───────────── hacer una acción
 
+/** La ventana normal en la que la persona está (no la del panel si es otra cosa). */
+async function ventanaActual() {
+  return chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null);
+}
+/** La pestaña fijada, o la que la persona está viendo. Si no hay ninguna y Jarvis va a ir a algún lado, abre una. */
 async function pestanaParaAccion(a) {
   if (estado.pestana) {
     const t = await chrome.tabs.get(estado.pestana).catch(() => null);
     if (t) return t;
+    await fijarPestana(null);
   }
-  if (a.tipo === "IR") {
-    const t = await chrome.tabs.create({ url: "about:blank", active: true });
-    await fijarPestana(t);
-    return t;
-  }
+  const v = await ventanaActual();
+  const [t] = v ? await chrome.tabs.query({ active: true, windowId: v.id }) : [];
+  if (t) return t;
+  if (a.tipo === "IR") return chrome.tabs.create({ url: "about:blank", active: true });
   return null;
+}
+async function pestanasDe(windowId) {
+  const ts = await chrome.tabs.query({ windowId });
+  return ts.slice(0, 40).map((t) => ({ pestana: t.id, titulo: (t.title || "").slice(0, 80), url: (t.url || "").slice(0, 160), activa: t.active }));
 }
 
 async function hacer(a) {
-  const tab = await pestanaParaAccion(a);
-  if (!tab) return { estado: "FALLIDA", resultado: { error: "La persona todavía no le prestó una pestaña a Jarvis. Pídele que toque «Usar esta pestaña» en el panel, o usa navegador_ir para abrir una." } };
-  const urlActual = tab.url && tab.url !== "about:blank" ? tab.url : null;
+  // Cambiar a otra pestaña (no pregunta: solo mira). Si había una fijada, queda fijada la nueva.
+  if (a.tipo === "IR" && a.datos?.pestana !== undefined) {
+    const t = await chrome.tabs.get(a.datos.pestana).catch(() => null);
+    if (!t) return { estado: "FALLIDA", resultado: { error: "Esa pestaña ya no existe. Mira la lista otra vez con navegador_ver." } };
+    await chrome.tabs.update(t.id, { active: true });
+    await chrome.windows.update(t.windowId, { focused: true }).catch(() => {});
+    if (estado.pestana) await fijarPestana(t);
+    await marcar(t.id);
+    anotar(`Cambió a la pestaña ${t.title}`);
+    return { estado: "HECHA", resultado: { pestana: t.id, url: t.url, titulo: t.title } };
+  }
+  let tab = await pestanaParaAccion(a);
+  if (!tab) return { estado: "FALLIDA", resultado: { error: "No hay ninguna ventana de Chrome abierta. Usa navegador_ir para abrir una página." } };
+  if (a.tipo === "IR" && a.datos?.nueva) {
+    tab = await chrome.tabs.create({ url: "about:blank", active: true, windowId: tab.windowId });
+    if (estado.pestana) await fijarPestana(tab);
+  }
+  // Solo páginas http(s): desde una interna (pestaña nueva, ajustes) Jarvis puede ir a otro lado, pero no tocarla.
+  const urlActual = tab.url && dominioDe(tab.url) ? tab.url : null;
   const el = a.datos?.ref && urlActual ? await enPestana(tab.id, enPaginaDescribir, [a.datos.ref]).catch(() => null) : null;
   if ((a.tipo === "CLIC" || a.tipo === "ESCRIBIR") && !el) return { estado: "FALLIDA", resultado: { error: "Ese elemento ya no está. Mira la página otra vez (navegador_ver)." } };
 
@@ -462,12 +500,12 @@ async function hacer(a) {
     }
   }
 
-  await bannerEn(tab.id, true);
+  await marcar(tab.id);
   try {
     if (a.tipo === "IR") {
       await chrome.tabs.update(tab.id, { url: a.datos.url });
       const t = await cargaLista(tab.id);
-      await bannerEn(tab.id, true);
+      await marcar(tab.id);
       anotar(`Fue a ${a.datos.url}`);
       return { estado: "HECHA", resultado: { url: t?.url, titulo: t?.title } };
     }
@@ -476,9 +514,13 @@ async function hacer(a) {
       const t = await cargaLista(tab.id, 5000);
       return { estado: "HECHA", resultado: { url: t?.url, titulo: t?.title, cargada: t?.status === "complete" } };
     }
-    if (!urlActual) return { estado: "FALLIDA", resultado: { error: "La pestaña está vacía. Usa navegador_ir primero." } };
+    const pestanas = await pestanasDe(tab.windowId);
+    if (!urlActual) {
+      if (a.tipo === "VER" || a.tipo === "CAPTURA") return { estado: "HECHA", resultado: { pestana: tab.id, url: tab.url, titulo: tab.title, pestanas, aviso: "Esta pestaña es una página interna de Chrome o está vacía: usa navegador_ir o navegador_pestana." } };
+      return { estado: "FALLIDA", resultado: { error: "La pestaña está vacía o es una página interna de Chrome. Usa navegador_ir primero." } };
+    }
     if (a.tipo === "VER" || a.tipo === "CAPTURA") {
-      const v = await enPestana(tab.id, enPaginaVer);
+      const v = { pestana: tab.id, pestanas, ...(await enPestana(tab.id, enPaginaVer)) };
       while (JSON.stringify(v).length > 55000 && v.texto.length > 1000) v.texto = v.texto.slice(0, Math.floor(v.texto.length * 0.7));
       anotar(`Miró ${v.titulo || v.url}`);
       return { estado: "HECHA", resultado: v };

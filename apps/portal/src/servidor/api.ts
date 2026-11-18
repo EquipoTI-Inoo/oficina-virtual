@@ -7350,7 +7350,7 @@ const redondear = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
 interface FilaPanelDb {
   id: string; nombre: string; slug: string; estado: S<"EstadoCliente">; contacto: string | null; am: string | null; am_id: string | null;
-  limite: string; umbral: number; gasto: string; atrasadas: number; proyectos_activos: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
+  limite: string; umbral: number; gasto: string; atrasadas: number; servicios_activos: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
 }
 
 /** Una fila por cliente (sin los dados de baja): atrasos, aprobaciones, tickets y gasto de IA del mes. */
@@ -7361,7 +7361,7 @@ async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelClien
             coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.cliente_id = c.id
                       AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1), 0) AS gasto,
             (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado <> 'PUBLICADO' AND p.fecha_programada < now()) AS atrasadas,
-            (SELECT count(*)::int FROM servicio_contratado sc WHERE sc.cliente_id = c.id AND sc.estado <> 'FINALIZADO') AS proyectos_activos,
+            (SELECT count(*)::int FROM servicio_contratado sc WHERE sc.cliente_id = c.id AND sc.estado <> 'FINALIZADO') AS servicios_activos,
             (SELECT count(*)::int FROM pieza p WHERE p.cliente_id = c.id AND p.estado = 'LISTO_REVISION' AND p.tipo <> 'BLOG') AS por_aprobar,
             (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')) AS tickets_abiertos,
             (SELECT count(*)::int FROM ticket t WHERE t.cliente_id = c.id AND t.estado NOT IN ('RESUELTO', 'CERRADO')
@@ -7372,6 +7372,8 @@ async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelClien
      WHERE c.estado <> 'BAJA' ORDER BY c.nombre`,
     [periodo],
   );
+  // 18 nov: los proyectos son los tableros (InooWork); los servicios contratados van en su propia columna.
+  const tableros = await tablerosPorEmpresaDb(ctx, []);
   return rows.map((c) => {
     const gasto = redondear(Number(c.gasto));
     const limite = Number(c.limite);
@@ -7380,7 +7382,8 @@ async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelClien
       cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: c.estado, logoUrl: null },
       contactoPrincipalNombre: c.contacto,
       accountManagerNombre: c.am,
-      proyectosActivos: c.proyectos_activos,
+      proyectosActivos: tableros(c.nombre).filter((t) => t.estado !== "Completado" && t.estado !== "Cancelado").length,
+      serviciosActivos: c.servicios_activos,
       amId: c.am_id,
       estadoOperativo: c.atrasadas > 0 ? "ATENCION" : c.por_aprobar === 0 ? "AL_DIA" : "EN_CURSO",
       atrasadas: c.atrasadas,

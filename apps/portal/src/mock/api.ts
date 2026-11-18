@@ -9,6 +9,7 @@
  *   comentario obligatorio al pedir cambios, Idempotency-Key, cupo de ideas, derechos de uso.
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
+import { PROYECTOS_DEMO } from "./inoowork-demo";
 import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
 import { slugDe as slugSkill, textoMisHerramientas, validarSkillPropia, validarTokenConector, type ArchivoTexto, type AuthConector } from "../dominio/herramientas-persona";
 import { contextoDeEvento, EVENTOS_JARVIS, TOPE_DIARIO_AUTOMATIZACION, mensajeDeEjecucion, proximaEjecucion, textoHerramientas, textoHorario, validarAutomatizacion, validarBiblioteca, validarConector, validarRutina, validarSkill, type ArchivoSkill, type EstadoConector, type Frecuencia, type Horario } from "../dominio/jarvis-avanzado";
@@ -2510,7 +2511,8 @@ function filaPanel(c: D.ClienteDemo): S<"FilaPanelCliente"> {
     cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: "ACTIVO", logoUrl: null },
     contactoPrincipalNombre: c.contactoNombre,
     accountManagerNombre: "Diego Castro",
-    proyectosActivos: E.servicios.filter((x) => x.clienteId === c.id && x.estado !== "FINALIZADO").length,
+    proyectosActivos: PROYECTOS_DEMO.filter((p) => !p.archived && !p.deleted && p.clientName?.trim().toLowerCase() === c.nombre.toLowerCase() && p.status !== "Completado" && p.status !== "Cancelado").length,
+    serviciosActivos: E.servicios.filter((x) => x.clienteId === c.id && x.estado !== "FINALIZADO").length,
     estadoOperativo,
     atrasadas,
     porAprobar,

@@ -78,7 +78,12 @@ export function validarAccionNavegador(tipo: unknown, datos: unknown, reglas: Re
   const texto = (k: string, max: number) => typeof d[k] === "string" && (d[k] as string).length >= 1 && (d[k] as string).length <= max;
   switch (tipo as TipoAccionNavegador) {
     case "IR": {
-      if (!texto("url", 2000)) return { error: "Falta «url»" };
+      // 18 nov: sin prestar pestañas. «pestana» cambia a otra pestaña abierta (el id viene en VER); «nueva» abre una.
+      if (d.pestana !== undefined && d.url === undefined) {
+        return Number.isInteger(d.pestana) && (d.pestana as number) > 0 ? { error: null } : { error: "«pestana» es el número de una pestaña de navegador_ver" };
+      }
+      if (d.nueva !== undefined && typeof d.nueva !== "boolean") return { error: "«nueva» es sí o no" };
+      if (!texto("url", 2000)) return { error: "Falta «url» (o «pestana» para cambiar de pestaña)" };
       const u = d.url as string;
       if (/^(file|chrome|chrome-extension|about|javascript|data|view-source):/i.test(u)) return { error: null, prohibida: "Tocar archivos del sistema o páginas internas del navegador" };
       const dom = dominioDe(u);

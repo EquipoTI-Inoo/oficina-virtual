@@ -162,7 +162,7 @@ export function JarvisDesdeChrome() {
   return (
     <Tarjeta titulo="Jarvis en Chrome" icono={<LuBot size={18} />}>
       <p className="texto-sm">
-        Jarvis trabaja en tu Chrome: mira la pestaña que le prestas, abre páginas, hace clic y llena campos, siempre con los permisos que tú eliges en el panel de la extensión. Solo funciona mientras tienes ese panel abierto.
+        Jarvis trabaja en tu Chrome: mira la pestaña que estás viendo, cambia de pestaña, abre páginas, hace clic y llena campos, siempre con los permisos que tú eliges en el panel de la extensión. Desde cualquier chat (aquí o en el panel) le dices «toma el control de mi navegador». Solo funciona mientras tienes ese panel abierto.
       </p>
       <ol className="texto-sm" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
         <li><a href="/descargas/jarvis-chrome.zip" download className="enlace">Descarga la extensión</a> y descomprímela.</li>

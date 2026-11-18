@@ -9122,8 +9122,10 @@ export interface components {
             cliente: components["schemas"]["ClienteResumen"];
             contactoPrincipalNombre?: string | null;
             accountManagerNombre?: string | null;
-            /** @description Proyectos activos o en pausa de la cuenta */
+            /** @description Proyectos (tableros) de la cuenta que no están culminados ni cancelados */
             proyectosActivos?: number;
+            /** @description Servicios contratados que no están finalizados */
+            serviciosActivos?: number;
             estadoOperativo: components["schemas"]["EstadoOperativo"];
             /** @description Piezas con fechaProgramada vencida y no PUBLICADO */
             atrasadas: number;

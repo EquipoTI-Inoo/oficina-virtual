@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Jarvis de Inoo",
-  "version": "2.0.0",
-  "description": "Tu Jarvis del portal de Inoo en el panel lateral de Chrome: chatea con tus bots y deja que usen la pestaña que le prestas, con tu aprobación.",
+  "version": "2.1.0",
+  "description": "Tu Jarvis del portal de Inoo en el panel lateral de Chrome: chatea con tus bots y deja que usen tu Chrome, con tu aprobación.",
   "permissions": ["contextMenus", "activeTab", "scripting", "storage", "sidePanel", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "fondo.js" },

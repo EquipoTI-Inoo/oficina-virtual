@@ -95,7 +95,7 @@ Variables y backend real: [`docs/configuracion.md`](docs/configuracion.md).
 - Skills, conectores MCP y cuentas propias (Drive, Calendar)
 - Tareas automáticas: por horario y cuando pasa algo
 - Biblioteca en Drive
-- En Chrome: usa la pestaña que le prestas (ver, abrir, clic, escribir), con tu aprobación
+- En Chrome: «toma el control de mi navegador» desde cualquier chat (ver, abrir, cambiar de pestaña, clic, escribir), con tu aprobación
 - Nadie maneja llaves: el gasto se cobra a cada persona, con topes por área
 
 </td>

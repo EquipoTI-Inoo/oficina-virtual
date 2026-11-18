@@ -10687,7 +10687,8 @@ components:
         cliente: { $ref: '#/components/schemas/ClienteResumen' }
         contactoPrincipalNombre: { type: [string, 'null'] }
         accountManagerNombre: { type: [string, 'null'] }
-        proyectosActivos: { type: integer, description: 'Proyectos activos o en pausa de la cuenta' }
+        proyectosActivos: { type: integer, description: 'Proyectos (tableros) de la cuenta que no están culminados ni cancelados' }
+        serviciosActivos: { type: integer, description: 'Servicios contratados que no están finalizados' }
         estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
         atrasadas: { type: integer, description: Piezas con fechaProgramada vencida y no PUBLICADO }
         porAprobar: { type: integer }
