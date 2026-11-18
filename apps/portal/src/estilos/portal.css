@@ -3011,3 +3011,37 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .tabla-tablero--compacto td { padding-top: 2px; padding-bottom: 2px; }
 .tabla-tablero--amplio td { padding-top: 14px; padding-bottom: 14px; }
 .segmentado--chico button { padding: 4px 10px; font-size: var(--t-xs); }
+
+/* ───── Árbol de Proyectos como en Monday (18 nov): ramas plegables, proyectos dentro y menú «⋯» por fila. */
+.proyectos-dos-columnas { grid-template-columns: 260px minmax(0, 1fr); }
+.arbol-columna { position: sticky; top: 96px; display: grid; gap: 8px; }
+.arbol-columna .arbol-empresas { position: static; max-height: calc(100vh - 120px); gap: 1px; align-content: start; }
+.arbol-boton-movil { display: none; justify-self: start; }
+.arbol-busca { margin-bottom: 6px; }
+.arbol-busca input { font-size: var(--t-sm); }
+.arbol-fila { position: relative; display: flex; align-items: center; gap: 2px; min-height: 32px; padding-right: 4px; border-radius: var(--r-sm); color: var(--c-texto); font-size: var(--t-sm); text-decoration: none; }
+.arbol-fila:hover { background: var(--c-neutro-suave); }
+.arbol-fila--actual { background: var(--c-primario-suave); }
+.arbol-fila--actual .arbol-nombre { color: var(--c-primario); font-weight: 600; }
+.arbol-flecha { flex: none; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--c-muted); }
+.arbol-flecha svg { transition: transform 0.15s ease; }
+.arbol-nombre { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 6px 4px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.arbol-icono { flex: none; display: inline-flex; color: var(--c-muted); }
+.arbol-fila--actual .arbol-icono { color: var(--c-primario); }
+.arbol-proyecto { gap: 8px; padding-top: 5px; padding-bottom: 5px; font-size: var(--t-xs); cursor: pointer; }
+.arbol-proyecto[draggable="true"] { cursor: grab; }
+.arbol-menu { position: relative; flex: none; }
+.arbol-mas { width: 24px; height: 24px; padding: 0; opacity: 0; color: var(--c-muted); }
+.arbol-fila:hover .arbol-mas, .arbol-mas:focus-visible, .arbol-mas[aria-expanded="true"] { opacity: 1; }
+.arbol-menu-caja { position: fixed; z-index: 60; display: grid; min-width: 200px; padding: 4px; background: var(--c-blanco); border: 1px solid var(--c-borde); border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); }
+.arbol-menu-caja button { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--c-texto); font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer; }
+.arbol-menu-caja button:hover { background: var(--c-neutro-suave); }
+.arbol-menu-caja button.peligro { color: var(--c-alerta); }
+@media (hover: none) { .arbol-mas { opacity: 1; } }
+@media (max-width: 900px) {
+  .proyectos-dos-columnas { grid-template-columns: 1fr; }
+  .arbol-columna { position: static; }
+  .arbol-boton-movil { display: inline-flex; }
+  .arbol-columna .arbol-empresas { display: none; max-height: 60vh; border: 1px solid var(--c-borde); border-radius: var(--r-md); padding: 6px; }
+  .arbol-columna--abierta .arbol-empresas { display: grid; }
+}

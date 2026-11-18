@@ -5,8 +5,8 @@
  * vista «Carpetas» muestra el contenido como un explorador. Además, los filtros de Proyectos (persona, área, estado,
  * vencidos, privados, servicio y actividad), que sirven en las dos vistas.
  */
-import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { LuBuilding2, LuChevronRight, LuFolder, LuFolderPlus, LuLock, LuPencil, LuPlus, LuTag, LuTrash2, LuX } from "react-icons/lu";
+import { Fragment, useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
+import { LuBuilding2, LuChevronRight, LuEllipsis, LuFolder, LuFolderPlus, LuLayers, LuLock, LuPencil, LuPlus, LuSearch, LuSlidersHorizontal, LuTag, LuTrash2, LuX } from "react-icons/lu";
 import { Enlace, type S } from "../base";
 import { claveEmpresa } from "../dominio/carpetas";
 import { Barra, Modal } from "../componentes";
@@ -81,102 +81,208 @@ const recibir = (alSoltar: ((tableroId: string, l: Lugar) => void) | undefined, 
   onDrop: (e: DragEvent) => { const id = e.dataTransfer.getData(TIPO_ARRASTRE); set(null); if (id) { e.preventDefault(); alSoltar(id, l); } },
 } : {};
 
-/** El árbol de la izquierda: navegar y soltar proyectos. */
-export function ArbolProyectos({ arbol, lugar, ir, alSoltar, etiqueta }: { arbol: NodoEmpresa[]; lugar: Lugar; ir: (l: Lugar) => void; alSoltar?: (tableroId: string, l: Lugar) => void; etiqueta: string }) {
-  const [sobre, setSobre] = useState<string | null>(null);
-  const item = (clave: string, l: Lugar, actual: boolean, contenido: ReactNode, n: number, clase = "", expandida?: boolean) => (
-    <button key={clave} type="button" className={`arbol-item ${clase}${sobre === clave ? " arbol-item--soltar" : ""}`} aria-current={actual || undefined} aria-expanded={expandida}
-      onClick={() => ir(l)} {...recibir(alSoltar, l, setSobre, clave)}>
-      {contenido}<span className="arbol-n">{n}</span>
-    </button>
-  );
-  const carpetas = (e: NodoEmpresa, marca: string | null, xs: NodoCarpeta[], nivel: number): ReactNode => xs.map((c) => {
-    const abierta = lugar.carpeta === c.carpeta.id || c.hijos.some((h) => h.carpeta.id === lugar.carpeta);
-    return (
-      <div key={c.carpeta.id}>
-        {item(c.carpeta.id, { empresa: e.clave, marca, carpeta: c.carpeta.id }, lugar.carpeta === c.carpeta.id,
-          <span className="fila" style={{ gap: 6, minWidth: 0 }}><LuFolder size={13} style={{ flex: "none" }} /><span className="recortar">{c.carpeta.nombre}</span></span>, c.n, `arbol-item--hijo arbol-nivel-${nivel}`, c.hijos.length ? abierta : undefined)}
-        {abierta && carpetas(e, marca, c.hijos, nivel + 1)}
-      </div>
-    );
+/** Acciones del menú «⋯» de cada fila del árbol. */
+export interface AccionesArbol {
+  nuevaCarpeta: (l: Lugar) => void;
+  nuevoProyecto: (l: Lugar) => void;
+  renombrar: (c: Carpeta) => void;
+  /** null: no es Admin. */
+  borrar: ((c: Carpeta) => void) | null;
+}
+
+/** Qué ramas quedaron abiertas, en este navegador. */
+function useAbiertos(): [Set<string>, (clave: string, abrir?: boolean) => void] {
+  const [xs, setXs] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try { setXs(new Set(JSON.parse(localStorage.getItem("inoo.proyectos.abiertos") ?? "[]") as string[])); } catch { /* sin almacenamiento */ }
+  }, []);
+  const cambiar = (clave: string, abrir?: boolean) => setXs((s) => {
+    const n = new Set(s);
+    if (abrir ?? !n.has(clave)) n.add(clave); else n.delete(clave);
+    try { localStorage.setItem("inoo.proyectos.abiertos", JSON.stringify([...n])); } catch { /* sin almacenamiento */ }
+    return n;
   });
+  return [xs, cambiar];
+}
+
+/**
+ * El árbol de la izquierda, como en Monday (18 nov): empresas, marcas, carpetas y proyectos, cada rama con su flecha
+ * (varias abiertas a la vez, recordadas). Clic en el nombre: se elige ese lugar. Un menú «⋯» por fila para crear,
+ * renombrar o borrar, y se arrastran proyectos de una carpeta a otra. Con `tableros`, los proyectos van dentro.
+ */
+export function ArbolProyectos({ arbol, lugar, ir, alSoltar, etiqueta, tableros, carpetas = [], acciones }: {
+  arbol: NodoEmpresa[]; lugar: Lugar; ir: (l: Lugar) => void; alSoltar?: (tableroId: string, l: Lugar) => void; etiqueta: string;
+  tableros?: Tablero[]; carpetas?: Carpeta[]; acciones?: AccionesArbol;
+}) {
+  const [sobre, setSobre] = useState<string | null>(null);
+  const [abiertos, alternar] = useAbiertos();
+  const [menu, setMenuRaw] = useState<string | null>(null);
+  // El menú flota sobre la página (el árbol tiene su propio scroll y lo cortaría).
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const setMenu = (x: string | null) => { setMenuRaw(x); if (!x) setPos(null); };
+  const [busca, setBusca] = useState("");
+  const q = busca.trim().toLowerCase();
+  // Al elegir un lugar (también una carpeta recién creada), se abren las ramas que llevan hasta él.
+  useEffect(() => {
+    if (lugar.empresa) alternar(`e:${lugar.empresa}`, true);
+    if (lugar.marca && lugar.marca !== "__sin") alternar(`m:${lugar.marca}`, true);
+    const padre = carpetas.find((c) => c.id === lugar.carpeta)?.padreId;
+    if (padre) alternar(`c:${padre}`, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lugar.empresa, lugar.marca, lugar.carpeta]);
+  useEffect(() => {
+    if (!menu) return;
+    const cerrar = (e: globalThis.MouseEvent) => { if (!(e.target as HTMLElement).closest(".arbol-menu")) setMenu(null); };
+    document.addEventListener("mousedown", cerrar);
+    return () => document.removeEventListener("mousedown", cerrar);
+  }, [menu]);
+
+  // Los proyectos de cada lugar exacto (empresa sin marca, marca sin carpeta, carpeta).
+  const porLugar = useMemo(() => {
+    const m = new Map<string, Tablero[]>();
+    for (const t of tableros ?? []) {
+      if (q && !t.nombre.toLowerCase().includes(q)) continue;
+      const u = ubicar(t, carpetas);
+      const clave = u.carpeta ? `c:${u.carpeta.id}` : u.marca ? `m:${u.marca}` : `e:${u.empresa}`;
+      m.set(clave, [...(m.get(clave) ?? []), t]);
+    }
+    for (const xs of m.values()) xs.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    return m;
+  }, [tableros, carpetas, q]);
+  const conProyectos = !!tableros;
+  // Con búsqueda: solo las ramas con coincidencias, todas abiertas.
+  const tieneC = (c: NodoCarpeta): boolean => !q || c.carpeta.nombre.toLowerCase().includes(q) || !!porLugar.get(`c:${c.carpeta.id}`)?.length || c.hijos.some(tieneC);
+  const tieneM = (e: NodoEmpresa, m: NodoMarca) => !q || m.nombre.toLowerCase().includes(q) || !!porLugar.get(`m:${m.id}`)?.length || m.carpetas.some(tieneC);
+  const tieneE = (e: NodoEmpresa) => !q || e.nombre.toLowerCase().includes(q) || !!porLugar.get(`e:${e.clave}`)?.length || e.carpetas.some(tieneC) || e.marcas.some((m) => tieneM(e, m));
+  const abierta = (clave: string) => !!q || abiertos.has(clave);
+
+  const menuDe = ({ clave, l, c }: { clave: string; l: Lugar; c?: Carpeta }) => !acciones ? null : (
+    <span className="arbol-menu">
+      <button type="button" className="boton-icono arbol-mas" aria-label="Más acciones" aria-haspopup="menu" aria-expanded={menu === clave} onClick={(ev) => { if (menu === clave) return setMenu(null); const r = ev.currentTarget.getBoundingClientRect(); setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(window.innerWidth - 216, r.right - 208)) }); setMenu(clave); }}><LuEllipsis size={15} /></button>
+      {menu === clave && (
+        <span className="arbol-menu-caja" role="menu" style={pos ? { top: pos.top, left: pos.left } : undefined}>
+          {!(c && c.padreId) && <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.nuevaCarpeta(l); }}><LuFolderPlus size={14} /> {c ? "Nueva subcarpeta" : "Nueva carpeta"}</button>}
+          <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.nuevoProyecto(l); }}><LuPlus size={14} /> Nuevo proyecto aquí</button>
+          {c && <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.renombrar(c); }}><LuPencil size={14} /> Renombrar</button>}
+          {c && acciones.borrar && <button type="button" role="menuitem" className="peligro" onClick={() => { setMenu(null); acciones.borrar!(c); }}><LuTrash2 size={14} /> Borrar carpeta</button>}
+        </span>
+      )}
+    </span>
+  );
+  const fila = ({ clave, l, actual, icono, nombre, n, nivel, expandible, c, conMenu = true }: { clave: string; l: Lugar; actual: boolean; icono: ReactNode; nombre: string; n: number; nivel: number; expandible: boolean; c?: Carpeta; conMenu?: boolean }) => (
+    <div className={`arbol-fila${actual ? " arbol-fila--actual" : ""}${sobre === clave ? " arbol-item--soltar" : ""}`} style={{ paddingLeft: 4 + nivel * 14 }} {...recibir(alSoltar, l, setSobre, clave)}>
+      {expandible ? (
+        <button type="button" className="boton-icono arbol-flecha" aria-label={abierta(clave) ? `Cerrar ${nombre}` : `Abrir ${nombre}`} aria-expanded={abierta(clave)} onClick={() => alternar(clave)}>
+          <LuChevronRight size={14} style={{ transform: abierta(clave) ? "rotate(90deg)" : undefined }} />
+        </button>
+      ) : <span className="arbol-flecha" aria-hidden />}
+      <button type="button" className="arbol-nombre" aria-current={actual || undefined} onClick={() => { ir(l); if (expandible) alternar(clave, true); }}>
+        <span className="arbol-icono" aria-hidden>{icono}</span><span className="recortar">{nombre}</span>
+      </button>
+      <span className="arbol-n">{n}</span>
+      {conMenu && l.empresa && menuDe({ clave, l, c })}
+    </div>
+  );
+  const proyectos = ({ clave, nivel }: { clave: string; nivel: number }) => (
+    <Fragment key={`p-${clave}`}>
+      {(porLugar.get(clave) ?? []).map((t) => (
+        <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="arbol-fila arbol-proyecto" style={{ paddingLeft: 4 + nivel * 14 + 20 }}
+          draggable={t.puedeEditar} onDragStart={(e) => { e.dataTransfer.setData(TIPO_ARRASTRE, t.id); e.dataTransfer.effectAllowed = "move"; }}>
+          <span className="punto-color" style={{ background: t.color }} aria-hidden />
+          <span className="recortar">{t.privado && <LuLock size={11} aria-label="Privado" style={{ marginRight: 3 }} />}{t.nombre}</span>
+        </Enlace>
+      ))}
+    </Fragment>
+  );
+  const carpetasDe = ({ e, marca, xs, nivel }: { e: NodoEmpresa; marca: string | null; xs: NodoCarpeta[]; nivel: number }): ReactNode => (
+    <Fragment key={`cs-${marca ?? e.clave}-${nivel}`}>
+      {xs.filter(tieneC).map((c) => {
+        const clave = `c:${c.carpeta.id}`;
+        const expandible = c.hijos.length > 0 || (conProyectos && !!porLugar.get(clave)?.length);
+        return (
+          <div key={c.carpeta.id} role="group">
+            {fila({ clave, l: { empresa: e.clave, marca, carpeta: c.carpeta.id }, actual: lugar.carpeta === c.carpeta.id, icono: <LuFolder size={14} />, nombre: c.carpeta.nombre, n: c.n, nivel, expandible, c: c.carpeta })}
+            {abierta(clave) && <>{carpetasDe({ e, marca, xs: c.hijos, nivel: nivel + 1 })}{conProyectos && proyectos({ clave, nivel: nivel + 1 })}</>}
+          </div>
+        );
+      })}
+    </Fragment>
+  );
+
   return (
     <nav className="arbol-empresas" aria-label={etiqueta}>
-      {item("__todas", RAIZ, !lugar.empresa, <span>Todas las empresas</span>, arbol.reduce((n, e) => n + e.total, 0))}
-      {arbol.map((e) => {
-        const abierta = lugar.empresa === e.clave;
+      {conProyectos && (
+        <div className="entrada arbol-busca">
+          <input aria-label="Buscar en las carpetas" placeholder="Buscar carpeta o proyecto" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <span className="icono-campo" aria-hidden><LuSearch size={14} /></span>
+        </div>
+      )}
+      {fila({ clave: "__todas", l: RAIZ, actual: !lugar.empresa, icono: <LuLayers size={14} />, nombre: "Todas las empresas", n: arbol.reduce((n, e) => n + e.total, 0), nivel: 0, expandible: false, conMenu: false })}
+      {arbol.filter(tieneE).map((e) => {
+        const clave = `e:${e.clave}`;
         return (
-          <div key={e.clave}>
-            {item(e.clave, { empresa: e.clave, marca: null, carpeta: null }, abierta && !lugar.marca && !lugar.carpeta,
-              <span className="fila" style={{ gap: 6, minWidth: 0 }}><LuBuilding2 size={14} style={{ flex: "none" }} /><span className="recortar">{e.nombre}</span></span>, e.total, "", abierta)}
-            {abierta && (
-              <div className="arbol-hijos">
-                {carpetas(e, null, e.carpetas, 1)}
-                {e.marcas.map((m) => {
-                  const enMarca = lugar.marca === m.id;
+          <div key={e.clave} role="group">
+            {fila({ clave, l: { empresa: e.clave, marca: null, carpeta: null }, actual: lugar.empresa === e.clave && !lugar.marca && !lugar.carpeta, icono: <LuBuilding2 size={14} />, nombre: e.nombre, n: e.total, nivel: 0, expandible: true })}
+            {abierta(clave) && (
+              <>
+                {carpetasDe({ e, marca: null, xs: e.carpetas, nivel: 1 })}
+                {e.marcas.filter((m) => tieneM(e, m)).map((m) => {
+                  const cm = `m:${m.id}`;
                   return (
-                    <div key={m.id}>
-                      {item(m.id, { empresa: e.clave, marca: m.id, carpeta: null }, enMarca && !lugar.carpeta,
-                        <span className="recortar">{m.nombre}</span>, m.n, "arbol-item--hijo", m.carpetas.length ? enMarca : undefined)}
-                      {enMarca && carpetas(e, m.id, m.carpetas, 2)}
+                    <div key={m.id} role="group">
+                      {fila({ clave: cm, l: { empresa: e.clave, marca: m.id, carpeta: null }, actual: lugar.marca === m.id && !lugar.carpeta, icono: <LuTag size={14} />, nombre: m.nombre, n: m.n, nivel: 1,
+                        expandible: m.carpetas.length > 0 || (conProyectos && !!porLugar.get(cm)?.length) })}
+                      {abierta(cm) && <>{carpetasDe({ e, marca: m.id, xs: m.carpetas, nivel: 2 })}{conProyectos && proyectos({ clave: cm, nivel: 2 })}</>}
                     </div>
                   );
                 })}
-                {e.marcas.length > 0 && e.sinMarca > 0 && !alSoltar &&
-                  item(`${e.clave}__sin`, { empresa: e.clave, marca: "__sin", carpeta: null }, lugar.marca === "__sin", <span className="texto-muted">Sin marca</span>, e.sinMarca, "arbol-item--hijo")}
-              </div>
+                {conProyectos ? proyectos({ clave, nivel: 1 }) : e.marcas.length > 0 && e.sinMarca > 0 && (
+                  fila({ clave: `${e.clave}__sin`, l: { empresa: e.clave, marca: "__sin", carpeta: null }, actual: lugar.marca === "__sin", icono: <LuTag size={14} />, nombre: "Sin marca", n: e.sinMarca, nivel: 1, expandible: false, conMenu: false })
+                )}
+              </>
             )}
           </div>
         );
       })}
+      {q && !arbol.some(tieneE) && <p className="texto-xs texto-muted" style={{ padding: "6px 10px" }}>Nada coincide con «{busca.trim()}».</p>}
     </nav>
   );
 }
 
-// ───────────────────────────── la vista «Carpetas» (un explorador)
+// ───────────────────────────── a la derecha: la lista del lugar elegido (18 nov)
 
-type Orden = "nombre" | "estado" | "lider" | "avance" | "vencidos" | "actividad";
+type Orden = "nombre" | "ubicacion" | "estado" | "lider" | "avance" | "vencidos" | "actividad";
 const pct = (t: Tablero) => (t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0);
 const fechaCorta = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
 
-export function VistaCarpetas({ arbol, lugar, ir, tableros, carpetas, marcas, plano, alSoltar, crearCarpeta, renombrar, borrar, nuevoProyecto }: {
+/**
+ * Todos los proyectos del lugar elegido (también los de sus carpetas), con su ruta arriba y una columna «Carpeta»
+ * cuando hay proyectos más adentro. Se ordena por cualquier columna y se arrastra al árbol para mover.
+ */
+export function VistaCarpetas({ arbol, lugar, ir, tableros, carpetas, marcas }: {
   arbol: NodoEmpresa[]; lugar: Lugar; ir: (l: Lugar) => void; tableros: Tablero[]; carpetas: Carpeta[]; marcas: Marca[];
-  /** Con búsqueda o filtros: todos los que coinciden dentro del lugar, con su ubicación. */
-  plano: boolean;
-  alSoltar: (tableroId: string, l: Lugar) => void; crearCarpeta: () => void; renombrar: (c: Carpeta) => void; borrar: ((c: Carpeta) => void) | null; nuevoProyecto: () => void;
 }) {
   const [orden, setOrden] = useState<{ col: Orden; dir: 1 | -1 }>({ col: "nombre", dir: 1 });
-  const [sobre, setSobre] = useState<string | null>(null);
   const e = arbol.find((x) => x.clave === lugar.empresa);
   const m = e?.marcas.find((x) => x.id === lugar.marca);
   const c = carpetas.find((x) => x.id === lugar.carpeta);
   const padre = c?.padreId ? carpetas.find((x) => x.id === c.padreId) : undefined;
-  const nodoC = (xs: NodoCarpeta[], id: string): NodoCarpeta | undefined => { for (const x of xs) { if (x.carpeta.id === id) return x; const h = nodoC(x.hijos, id); if (h) return h; } return undefined; };
-
-  // Las «carpetas» de este nivel: empresas, marcas y carpetas.
-  const subcarpetas: { clave: string; nombre: string; n: number; l: Lugar; icono: ReactNode }[] = plano ? [] : !e
-    ? arbol.map((x) => ({ clave: x.clave, nombre: x.nombre, n: x.total, l: { empresa: x.clave, marca: null, carpeta: null }, icono: <LuBuilding2 size={16} /> }))
-    : c
-      ? (nodoC([...e.carpetas, ...e.marcas.flatMap((y) => y.carpetas)], c.id)?.hijos ?? []).map((h) => ({ clave: h.carpeta.id, nombre: h.carpeta.nombre, n: h.n, l: { ...lugar, carpeta: h.carpeta.id }, icono: <LuFolder size={16} /> }))
-      : m
-        ? m.carpetas.map((h) => ({ clave: h.carpeta.id, nombre: h.carpeta.nombre, n: h.n, l: { ...lugar, carpeta: h.carpeta.id }, icono: <LuFolder size={16} /> }))
-        : [
-          ...e.carpetas.map((h) => ({ clave: h.carpeta.id, nombre: h.carpeta.nombre, n: h.n, l: { empresa: e.clave, marca: null, carpeta: h.carpeta.id }, icono: <LuFolder size={16} /> })),
-          ...e.marcas.map((y) => ({ clave: y.id, nombre: y.nombre, n: y.n, l: { empresa: e.clave, marca: y.id, carpeta: null }, icono: <LuTag size={16} /> })),
-        ];
-
-  // Los proyectos de este nivel: los que están justo aquí (o, en plano, todos los de adentro).
-  const aqui = tableros.filter((t) => {
+  // La ruta de cada proyecto desde el lugar elegido hacia adentro.
+  const ruta = (t: Tablero) => {
     const u = ubicar(t, carpetas);
-    if (!estaEn(u, lugar)) return false;
-    if (plano) return true;
-    if (!e) return false;
-    if (c) return u.carpeta?.id === c.id;
-    if (m) return u.marca === m.id && !u.carpeta;
-    return !u.marca && !u.carpeta;
-  });
-  const valor = (t: Tablero, col: Orden): string | number => col === "nombre" ? t.nombre.toLowerCase() : col === "estado" ? t.estado ?? "" : col === "lider" ? t.lider?.nombre ?? "" : col === "avance" ? pct(t) : col === "vencidos" ? t.items.vencidos : t.actualizadoEn ?? "";
-  const ordenados = [...aqui].sort((a, b) => { const x = valor(a, orden.col), y = valor(b, orden.col); return (x < y ? -1 : x > y ? 1 : 0) * orden.dir; });
+    const sup = u.carpeta?.padreId ? carpetas.find((x) => x.id === u.carpeta!.padreId)?.nombre : null;
+    const partes = [
+      !e ? (u.empresaNombre === "Inoo (interno)" ? "Inoo" : u.empresaNombre) : null,
+      !m && u.marca ? marcas.find((x) => x.id === u.marca)?.nombre : null,
+      sup && sup !== c?.nombre ? sup : null,
+      u.carpeta && u.carpeta.id !== c?.id ? u.carpeta.nombre : null,
+    ];
+    return partes.filter(Boolean).join(" › ");
+  };
+  const xs = tableros.filter((t) => estaEn(ubicar(t, carpetas), lugar));
+  const conRuta = xs.some((t) => ruta(t));
+  const valor = (t: Tablero, col: Orden): string | number => col === "nombre" ? t.nombre.toLowerCase() : col === "ubicacion" ? ruta(t).toLowerCase() : col === "estado" ? t.estado ?? "" : col === "lider" ? t.lider?.nombre ?? "" : col === "avance" ? pct(t) : col === "vencidos" ? t.items.vencidos : t.actualizadoEn ?? "";
+  const ordenados = [...xs].sort((a, b) => { const x = valor(a, orden.col), y = valor(b, orden.col); return (x < y ? -1 : x > y ? 1 : 0) * orden.dir; });
   const cab = (col: Orden, texto: string) => (
     <th aria-sort={orden.col === col ? (orden.dir === 1 ? "ascending" : "descending") : undefined}>
       <button type="button" className="boton-texto" style={{ font: "inherit", color: "inherit" }} onClick={() => setOrden((o) => ({ col, dir: o.col === col ? (o.dir === 1 ? -1 : 1) : 1 }))}>
@@ -184,89 +290,58 @@ export function VistaCarpetas({ arbol, lugar, ir, tableros, carpetas, marcas, pl
       </button>
     </th>
   );
-  const ubicacion = (t: Tablero) => {
-    const u = ubicar(t, carpetas);
-    const marca = marcas.find((x) => x.id === u.marca)?.nombre;
-    const sup = u.carpeta?.padreId ? carpetas.find((x) => x.id === u.carpeta!.padreId)?.nombre : null;
-    return [u.empresaNombre, marca, sup, u.carpeta?.nombre].filter(Boolean).join(" › ");
-  };
-  // Se puede crear carpeta en la empresa, en una marca o dentro de una carpeta de primer nivel.
-  const puedeCrear = !!e && !(c && c.padreId);
-
   return (
     <div className="pila" style={{ gap: 12 }}>
-      <div className="fila entre" style={{ gap: 10, flexWrap: "wrap" }}>
-        <nav className="migas-carpeta" aria-label="Dónde estás">
-          <button type="button" className="boton-texto" onClick={() => ir(RAIZ)}>Todas las empresas</button>
-          {e && <><LuChevronRight size={13} /><button type="button" className="boton-texto" onClick={() => ir({ empresa: e.clave, marca: null, carpeta: null })}>{e.nombre}</button></>}
-          {m && <><LuChevronRight size={13} /><button type="button" className="boton-texto" onClick={() => ir({ empresa: e!.clave, marca: m.id, carpeta: null })}>{m.nombre}</button></>}
-          {padre && <><LuChevronRight size={13} /><button type="button" className="boton-texto" onClick={() => ir({ ...lugar, carpeta: padre.id })}>{padre.nombre}</button></>}
-          {c && <><LuChevronRight size={13} /><strong>{c.nombre}</strong></>}
-        </nav>
-        <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
-          {c && <button type="button" className="boton boton--chico" onClick={() => renombrar(c)}><LuPencil size={13} /> Renombrar</button>}
-          {c && borrar && <button type="button" className="boton boton--chico boton--peligro" onClick={() => borrar(c)}><LuTrash2 size={13} /> Borrar carpeta</button>}
-          {puedeCrear && <button type="button" className="boton boton--chico" onClick={crearCarpeta}><LuFolderPlus size={14} /> {c ? "Subcarpeta" : "Carpeta"}</button>}
-          {e && <button type="button" className="boton boton--chico boton--primario" onClick={nuevoProyecto}><LuPlus size={14} /> Proyecto aquí</button>}
-        </span>
-      </div>
-
-      {subcarpetas.length > 0 && (
-        <div className="carpetas-grilla" role="list" aria-label="Carpetas">
-          {subcarpetas.map((x) => (
-            <button key={x.clave} type="button" role="listitem" className={`tarjeta carpeta-tarjeta${sobre === x.clave ? " carpeta-tarjeta--soltar" : ""}`} onClick={() => ir(x.l)}
-              {...(x.l.empresa && e ? recibir(alSoltar, x.l, setSobre, x.clave) : {})}>
-              <span className="carpeta-icono" aria-hidden>{x.icono}</span>
-              <span className="recortar negrita texto-sm">{x.nombre}</span>
-              <span className="texto-xs texto-muted">{x.n} {x.n === 1 ? "proyecto" : "proyectos"}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {e || plano ? (
-        ordenados.length ? (
-          <div className="tabla-envoltura">
-            <table className="tabla tabla-carpeta">
-              <thead>
-                <tr>
-                  {cab("nombre", "Proyecto")}
-                  {plano && <th>Ubicación</th>}
-                  {cab("estado", "Estado")}
-                  {cab("lider", "Líder")}
-                  {cab("avance", "Avance")}
-                  {cab("vencidos", "Vencidos")}
-                  {cab("actividad", "Última actividad")}
+      <nav className="migas-carpeta" aria-label="Dónde estás">
+        <button type="button" className="boton-texto" onClick={() => ir(RAIZ)}>Todas las empresas</button>
+        {e && <><LuChevronRight size={13} /><button type="button" className="boton-texto" onClick={() => ir({ empresa: e.clave, marca: null, carpeta: null })}>{e.nombre}</button></>}
+        {m && <><LuChevronRight size={13} /><button type="button" className="boton-texto" onClick={() => ir({ empresa: e!.clave, marca: m.id, carpeta: null })}>{m.nombre}</button></>}
+        {padre && <><LuChevronRight size={13} /><button type="button" className="boton-texto" onClick={() => ir({ ...lugar, carpeta: padre.id })}>{padre.nombre}</button></>}
+        {c && <><LuChevronRight size={13} /><strong>{c.nombre}</strong></>}
+        <span className="texto-xs texto-muted" style={{ marginLeft: 6 }}>· {xs.length} {xs.length === 1 ? "proyecto" : "proyectos"}</span>
+      </nav>
+      {ordenados.length ? (
+        <div className="tabla-envoltura">
+          <table className="tabla tabla-carpeta">
+            <thead>
+              <tr>
+                {cab("nombre", "Proyecto")}
+                {conRuta && cab("ubicacion", e ? "Carpeta" : "Ubicación")}
+                {cab("estado", "Estado")}
+                {cab("lider", "Líder")}
+                {cab("avance", "Avance")}
+                {cab("vencidos", "Vencidos")}
+                {cab("actividad", "Última actividad")}
+              </tr>
+            </thead>
+            <tbody>
+              {ordenados.map((t) => (
+                <tr key={t.id} draggable={t.puedeEditar} title={t.puedeEditar ? "Arrastra a una carpeta del árbol para moverlo" : undefined}
+                  onDragStart={(ev) => { ev.dataTransfer.setData(TIPO_ARRASTRE, t.id); ev.dataTransfer.effectAllowed = "move"; }}>
+                  <td>
+                    <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="fila negrita" style={{ gap: 6, color: "inherit" }}>
+                      <span className="punto-color" style={{ background: t.color }} aria-hidden />
+                      {t.privado && <LuLock size={12} aria-label="Privado" />}{t.nombre}
+                    </Enlace>
+                  </td>
+                  {conRuta && <td className="texto-xs texto-muted">{ruta(t) || "—"}</td>}
+                  <td className="texto-sm">{t.estado ?? "—"}</td>
+                  <td className="texto-sm">{t.lider?.nombre ?? "—"}</td>
+                  <td style={{ minWidth: 140 }}><span className="fila" style={{ gap: 8 }}><span style={{ flex: 1 }}><Barra pct={pct(t)} tono={t.items.vencidos ? "ambar" : undefined} /></span><span className="texto-xs">{pct(t)} %</span></span></td>
+                  <td className="texto-sm" style={t.items.vencidos ? { color: "var(--c-alerta)" } : undefined}>{t.items.vencidos || "—"}</td>
+                  <td className="texto-sm">{fechaCorta(t.actualizadoEn)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {ordenados.map((t) => (
-                  <tr key={t.id} draggable={t.puedeEditar} title={t.puedeEditar ? "Arrastra a una carpeta del árbol para moverlo" : undefined}
-                    onDragStart={(ev) => { ev.dataTransfer.setData(TIPO_ARRASTRE, t.id); ev.dataTransfer.effectAllowed = "move"; }}>
-                    <td>
-                      <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="fila negrita" style={{ gap: 6, color: "inherit" }}>
-                        <span className="punto-color" style={{ background: t.color }} aria-hidden />
-                        {t.privado && <LuLock size={12} aria-label="Privado" />}{t.nombre}
-                      </Enlace>
-                    </td>
-                    {plano && <td className="texto-xs texto-muted">{ubicacion(t)}</td>}
-                    <td className="texto-sm">{t.estado ?? "—"}</td>
-                    <td className="texto-sm">{t.lider?.nombre ?? "—"}</td>
-                    <td style={{ minWidth: 140 }}><span className="fila" style={{ gap: 8 }}><span style={{ flex: 1 }}><Barra pct={pct(t)} tono={t.items.vencidos ? "ambar" : undefined} /></span><span className="texto-xs">{pct(t)} %</span></span></td>
-                    <td className="texto-sm" style={t.items.vencidos ? { color: "var(--c-alerta)" } : undefined}>{t.items.vencidos || "—"}</td>
-                    <td className="texto-sm">{fechaCorta(t.actualizadoEn)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : !subcarpetas.length ? (
-          <p className="texto-sm texto-muted">{plano ? "Ningún proyecto coincide con la búsqueda o los filtros." : "Esta carpeta está vacía. Arrastra proyectos aquí desde otra carpeta o crea uno nuevo."}</p>
-        ) : null
-      ) : null}
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="texto-sm texto-muted">{e ? "No hay proyectos aquí. Arrastra uno desde el árbol o usa «⋯ → Nuevo proyecto aquí»." : "Ningún proyecto coincide con la búsqueda o los filtros."}</p>
+      )}
     </div>
   );
 }
+
 
 // ───────────────────────────── crear y renombrar
 
@@ -315,7 +390,9 @@ export function pasaFiltros(t: Tablero, f: Filtros, ahora = Date.now()) {
   return true;
 }
 
-export function BarraFiltros({ tableros, equipo, f, cambiar }: { tableros: Tablero[]; equipo: { empleadoId: string; nombre: string }[]; f: Filtros; cambiar: (f: Filtros) => void }) {
+/** 18 nov: los filtros van plegados detrás de «Filtros (n)»; los activos se ven siempre como fichas. `izquierda`: lo que va en la misma fila. */
+export function BarraFiltros({ tableros, equipo, f, cambiar, izquierda }: { tableros: Tablero[]; equipo: { empleadoId: string; nombre: string }[]; f: Filtros; cambiar: (f: Filtros) => void; izquierda?: ReactNode }) {
+  const [abierto, setAbierto] = useState(false);
   const areas = [...new Set(tableros.map((t) => t.area).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, "es"));
   const estados = [...new Set(tableros.map((t) => t.estado ?? "Sin estado"))].sort((a, b) => a.localeCompare(b, "es"));
   const personas = useMemo(() => {
@@ -340,7 +417,13 @@ export function BarraFiltros({ tableros, equipo, f, cambiar }: { tableros: Table
   );
   return (
     <div className="pila" style={{ gap: 8, marginBottom: 12 }}>
-      <div className="fila" style={{ gap: 8, flexWrap: "wrap" }} role="group" aria-label="Filtros de proyectos">
+      <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+        {izquierda}
+        <button type="button" className="boton boton--chico" aria-expanded={abierto} aria-controls="filtros-proyectos" onClick={() => setAbierto((x) => !x)}>
+          <LuSlidersHorizontal size={14} /> Filtros{activos.length ? ` (${activos.length})` : ""}
+        </button>
+      </div>
+      {abierto && <div id="filtros-proyectos" className="fila" style={{ gap: 8, flexWrap: "wrap" }} role="group" aria-label="Filtros de proyectos">
         {sel("Filtrar por persona", f.persona ?? "", [["", "Cualquier persona"], ...personas.map((p) => [p.id, p.nombre] as [string, string])], (v) => cambiar({ ...f, persona: v || null }), 180)}
         {sel("Filtrar por área", f.area ?? "", [["", "Cualquier área"], ...areas.map((a) => [a, a] as [string, string])], (v) => cambiar({ ...f, area: v || null }))}
         {sel("Filtrar por estado", f.estado ?? "", [["", "Cualquier estado"], ...estados.map((a) => [a, a] as [string, string])], (v) => cambiar({ ...f, estado: v || null }))}
@@ -348,7 +431,7 @@ export function BarraFiltros({ tableros, equipo, f, cambiar }: { tableros: Table
         {sel("Filtrar por actividad", String(f.inactivos ?? ""), [["", "Cualquier actividad"], ["7", "Sin movimiento 7 días"], ["14", "Sin movimiento 14 días"], ["30", "Sin movimiento 30 días"]], (v) => cambiar({ ...f, inactivos: v ? Number(v) : null }), 200)}
         <button type="button" className="chip" aria-pressed={f.vencidos} onClick={() => cambiar({ ...f, vencidos: !f.vencidos })}>Con vencidos</button>
         <button type="button" className="chip" aria-pressed={f.privados} onClick={() => cambiar({ ...f, privados: !f.privados })}><LuLock size={12} /> Privados</button>
-      </div>
+      </div>}
       {activos.length > 0 && (
         <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
           {activos.map((a) => (

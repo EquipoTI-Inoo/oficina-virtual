@@ -13,20 +13,76 @@ import { LuBookOpen, LuDownload, LuPause, LuPlay, LuPlus, LuTrash2, LuPencil, Lu
 import { api, Enlace, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
 import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
 import { MAX_ARCHIVOS_SKILL, MAX_TEXTO_ARCHIVO } from "../dominio/jarvis-avanzado";
-import { MisHerramientas } from "./mis-herramientas";
+import { MisConectores, MisSkills } from "./mis-herramientas";
+import { Conexiones, JarvisDesdeChrome } from "./mi-cuenta-equipo";
 
 type Bot = S<"BotJarvis">;
-export type VistaJarvis = "CHATS" | "MIS_HERRAMIENTAS" | "SKILLS" | "RUTINAS" | "AUTOMATIZACIONES" | "BIBLIOTECA" | "CONECTORES" | "ACTIVIDAD";
+/**
+ * 18 nov: de 8 pestañas a 5. Las skills (tuyas y del área) van juntas; los conectores también, con tus cuentas
+ * (Google Drive) y Jarvis desde Chrome; rutinas, automatizaciones y actividad son «Tareas automáticas».
+ */
+export type VistaJarvis = "CHATS" | "SKILLS" | "CONECTORES" | "TAREAS" | "BIBLIOTECA";
 export const VISTAS_JARVIS: { clave: VistaJarvis; nombre: string }[] = [
   { clave: "CHATS", nombre: "Chats" },
-  { clave: "MIS_HERRAMIENTAS", nombre: "Mis herramientas" },
-  { clave: "SKILLS", nombre: "Skills del área" },
-  { clave: "RUTINAS", nombre: "Rutinas" },
-  { clave: "AUTOMATIZACIONES", nombre: "Automatizaciones" },
+  { clave: "SKILLS", nombre: "Skills" },
+  { clave: "CONECTORES", nombre: "Conectores" },
+  { clave: "TAREAS", nombre: "Tareas automáticas" },
   { clave: "BIBLIOTECA", nombre: "Biblioteca" },
-  { clave: "CONECTORES", nombre: "Conectores del área" },
-  { clave: "ACTIVIDAD", nombre: "Actividad" },
 ];
+
+/** Un selector chico dentro de una pestaña (Tuyas / Del área…). */
+function SubPestanas<K extends string>({ etiqueta, opciones, valor, cambiar }: { etiqueta: string; opciones: [K, string][]; valor: K; cambiar: (k: K) => void }) {
+  return (
+    <div className="segmentado segmentado--chico" role="tablist" aria-label={etiqueta} style={{ marginBottom: 14 }}>
+      {opciones.map(([k, t]) => <button key={k} type="button" role="tab" aria-selected={valor === k} className={valor === k ? "activo" : undefined} onClick={() => cambiar(k)}>{t}</button>)}
+    </div>
+  );
+}
+
+function PestanaSkills({ espacio }: { espacio: string | null }) {
+  const [sub, setSub] = useState<"MIAS" | "AREA">("MIAS");
+  return (
+    <section aria-label="Skills">
+      <SubPestanas etiqueta="Qué skills ver" opciones={[["MIAS", "Mis skills"], ["AREA", "Del área"]]} valor={sub} cambiar={setSub} />
+      {sub === "MIAS" ? (
+        <>
+          <Cabeza titulo="Mis skills" bajada="Activa las que te sirven: solo cambian tus chats. Nada viene activado de base." />
+          <MisSkills />
+        </>
+      ) : <Skills espacio={espacio} />}
+    </section>
+  );
+}
+
+function PestanaConectores({ espacio }: { espacio: string | null }) {
+  const [sub, setSub] = useState<"MIOS" | "AREA" | "CHROME">("MIOS");
+  return (
+    <section aria-label="Conectores">
+      <SubPestanas etiqueta="Qué conectores ver" opciones={[["MIOS", "Mis cuentas y conectores"], ["AREA", "Del área"], ["CHROME", "Jarvis en Chrome"]]} valor={sub} cambiar={setSub} />
+      {sub === "MIOS" && (
+        <div className="pila" style={{ gap: 18 }}>
+          <Cabeza titulo="Mis cuentas y conectores" bajada="Lo que conectas tú (Google Drive y los servicios del catálogo). Tus bots los usan solo en tus chats y con lo que tú puedes ver." />
+          <Conexiones />
+          <MisConectores />
+        </div>
+      )}
+      {sub === "AREA" && <Conectores espacio={espacio} />}
+      {sub === "CHROME" && <JarvisDesdeChrome />}
+    </section>
+  );
+}
+
+function PestanaTareas({ espacio, bots, alAbrirChat }: { espacio: string | null; bots: Bot[]; alAbrirChat: (botId: string, sesion: string) => void }) {
+  const [sub, setSub] = useState<"HORARIO" | "EVENTO" | "HISTORIAL">("HORARIO");
+  return (
+    <section aria-label="Tareas automáticas">
+      <SubPestanas etiqueta="Qué tareas ver" opciones={[["HORARIO", "Por horario"], ["EVENTO", "Cuando pasa algo"], ["HISTORIAL", "Lo que hicieron"]]} valor={sub} cambiar={setSub} />
+      {sub === "HORARIO" && <Rutinas espacio={espacio} bots={bots} alAbrirChat={alAbrirChat} />}
+      {sub === "EVENTO" && <Automatizaciones espacio={espacio} bots={bots} alAbrirChat={alAbrirChat} />}
+      {sub === "HISTORIAL" && <Actividad espacio={espacio} alAbrirChat={alAbrirChat} />}
+    </section>
+  );
+}
 
 const conArea = (camino: string, espacio: string | null, extra = "") => `${camino}?${espacio ? `area=${espacio}` : ""}${extra}`;
 const errores = (e: unknown) => (e instanceof ProblemaApi && e.errores.length ? Object.fromEntries(e.errores.map((x) => [x.campo, x.mensaje])) : null);
@@ -76,13 +132,10 @@ function UltimaEjecucion({ e, alAbrirChat }: { e: S<"EjecucionJarvis"> | null; a
 
 export function PanelJarvisAvanzado({ vista, espacio, bots, alAbrirChat }: { vista: VistaJarvis; espacio: string | null; bots: Bot[]; alAbrirChat: (botId: string, sesion: string) => void }) {
   const propios = bots.filter((b) => !b.prestadoDe);
-  if (vista === "MIS_HERRAMIENTAS") return <MisHerramientas />;
-  if (vista === "SKILLS") return <Skills espacio={espacio} />;
-  if (vista === "RUTINAS") return <Rutinas espacio={espacio} bots={propios} alAbrirChat={alAbrirChat} />;
-  if (vista === "AUTOMATIZACIONES") return <Automatizaciones espacio={espacio} bots={propios} alAbrirChat={alAbrirChat} />;
+  if (vista === "SKILLS") return <PestanaSkills espacio={espacio} />;
+  if (vista === "CONECTORES") return <PestanaConectores espacio={espacio} />;
+  if (vista === "TAREAS") return <PestanaTareas espacio={espacio} bots={propios} alAbrirChat={alAbrirChat} />;
   if (vista === "BIBLIOTECA") return <Biblioteca espacio={espacio} alAbrirChat={alAbrirChat} />;
-  if (vista === "CONECTORES") return <Conectores espacio={espacio} />;
-  if (vista === "ACTIVIDAD") return <Actividad espacio={espacio} alAbrirChat={alAbrirChat} />;
   return null;
 }
 
@@ -100,7 +153,7 @@ function Skills({ espacio }: { espacio: string | null }) {
   };
   return (
     <section aria-label="Skills">
-      <Cabeza titulo="Skills" bajada="Instrucciones y archivos que se reutilizan. Se activan en cada bot desde «Skills y conectores» de su menú."
+      <Cabeza titulo="Skills del área" bajada="Las de todo el área: instrucciones y archivos que se reutilizan. Se activan en cada bot desde «Skills y conectores» de su menú."
         accion={<button className="boton boton--primario" onClick={() => setEditor("nueva")}><LuPlus size={16} /> Nueva skill</button>} />
       {!r.datos.datos.length && <Vacio>Esta área todavía no tiene skills. Una skill es, por ejemplo, «Tono de Inoo» con la guía de estilo adjunta.</Vacio>}
       <div style={rejilla}>
@@ -266,7 +319,7 @@ function Rutinas({ espacio, bots, alAbrirChat }: { espacio: string | null; bots:
   };
   return (
     <section aria-label="Rutinas">
-      <Cabeza titulo="Rutinas" bajada="Pedidos que un bot hace solo. La respuesta queda como un chat del bot y te avisamos en la campana. Cada vez la paga quien creó la rutina."
+      <Cabeza titulo="Por horario" bajada="Rutinas: pedidos que un bot hace solo, a la hora que elijas. La respuesta queda como un chat del bot y te avisamos en la campana. Cada vez la paga quien creó la rutina."
         accion={<button className="boton boton--primario" disabled={!bots.length} onClick={() => setEditor("nueva")}><LuPlus size={16} /> Nueva rutina</button>} />
       {!r.datos.datos.length && <Vacio>Sin rutinas. Por ejemplo: «De lunes a viernes a las 8:30, dime qué vence hoy en mis proyectos».</Vacio>}
       <div style={rejilla}>
@@ -383,7 +436,7 @@ function Automatizaciones({ espacio, bots, alAbrirChat }: { espacio: string | nu
   };
   return (
     <section aria-label="Automatizaciones">
-      <Cabeza titulo="Automatizaciones" bajada="Cuando pasa algo en el portal, un bot hace un pedido. Solo recibe los ids de lo que pasó y lee el resto con los permisos de quien la creó, que es quien la paga."
+      <Cabeza titulo="Cuando pasa algo" bajada="Automatizaciones: cuando pasa algo en el portal, un bot hace un pedido. Solo recibe los ids de lo que pasó y lee el resto con los permisos de quien la creó, que es quien la paga."
         accion={<button className="boton boton--primario" disabled={!bots.length} onClick={() => setEditor("nueva")}><LuPlus size={16} /> Nueva automatización</button>} />
       {!r.datos.datos.length && <Vacio>Sin automatizaciones. Por ejemplo: «Cuando se crea un cliente, prepara su correo de bienvenida».</Vacio>}
       <div style={rejilla}>
@@ -582,12 +635,8 @@ function Conectores({ espacio }: { espacio: string | null }) {
   };
   return (
     <section aria-label="Conectores">
-      <Cabeza titulo="Conectores" bajada="Servidores MCP (Drive, GitHub, Canva, Figma…) que pueden usar los bots. Las llaves no pasan por el portal: TI las configura en el Hermes del área y lo marca como conectado."
+      <Cabeza titulo="Conectores del área" bajada="Servidores MCP (Drive, GitHub, Canva, Figma…) que pueden usar los bots. Las llaves no pasan por el portal: TI las configura en el Hermes del área y lo marca como conectado."
         accion={r.datos.puedeCrear ? <button className="boton boton--primario" onClick={() => setEditor("nuevo")}><LuPlus size={16} /> Nuevo conector</button> : undefined} />
-      <div className="tarjeta fila" style={{ padding: "14px 16px", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <LuPlug size={16} />
-        <span className="texto-sm" style={{ flex: 1 }}>Tus cuentas personales (por ejemplo, tu Google Drive) las conectas tú, con un botón, en <Enlace a="/equipo/mi-cuenta" className="enlace">Mi cuenta → Conexiones</Enlace>. Tus bots las usan solo en tus chats.</span>
-      </div>
       {!r.datos.datos.length && <Vacio>{r.datos.puedeCrear ? "Todavía no hay conectores de área." : "Tu área todavía no tiene conectores compartidos. Los agrega un super usuario."}</Vacio>}
       <div style={rejilla}>
         {r.datos.datos.map((c) => (
@@ -682,7 +731,7 @@ function Actividad({ espacio, alAbrirChat }: { espacio: string | null; alAbrirCh
   const d = r.datos;
   return (
     <section aria-label="Actividad" className="pila" style={{ gap: 18 }}>
-      <Cabeza titulo="Actividad" bajada="Qué hicieron solos los bots del área y cuánto se usa cada skill." />
+      <Cabeza titulo="Lo que hicieron" bajada="Qué hicieron solos los bots del área (rutinas y automatizaciones) y cuánto se usa cada skill." />
       <div className="tarjeta" style={{ padding: 18 }}>
         <h3 className="tarjeta-titulo fila" style={{ gap: 6, marginBottom: 10 }}><LuActivity size={16} /> Rutinas y automatizaciones</h3>
         {!d.ejecuciones.length ? <p className="texto-sm texto-muted">Todavía no corrió nada.</p> : (

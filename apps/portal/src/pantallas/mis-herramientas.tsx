@@ -41,14 +41,14 @@ export function MisHerramientas() {
           <button key={k} role="tab" aria-selected={pestana === k} className={`boton boton--chico${pestana === k ? " boton--primario" : ""}`} onClick={() => setPestana(k)}>{t}</button>
         ))}
       </div>
-      {pestana === "SKILLS" ? <Skills /> : <Conectores />}
+      {pestana === "SKILLS" ? <MisSkills /> : <MisConectores />}
     </section>
   );
 }
 
 // ───────────────────────────── skills
 
-function Skills() {
+export function MisSkills() {
   const [q, setQ] = useState("");
   const [categoria, setCategoria] = useState("");
   const [soloActivas, setSoloActivas] = useState(false);
@@ -200,7 +200,7 @@ function EscribirSkill({ alCerrar, alGuardar }: { alCerrar: () => void; alGuarda
 
 // ───────────────────────────── conectores
 
-function Conectores() {
+export function MisConectores() {
   const r = useConsulta<{ datos: Conector[] }>("/me/jarvis/conectores");
   const [conectando, setConectando] = useState<Conector | null>(null);
   const [probando, setProbando] = useState<string | null>(null);

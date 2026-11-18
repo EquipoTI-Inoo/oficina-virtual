@@ -117,7 +117,7 @@ function MiCuenta() {
  * 16 nov (Ernesto: «Claude in Chrome para Jarvis»): mandar la página que estás viendo a tu Jarvis. Con la extensión
  * (clic derecho → «Enviar a Jarvis») o con un favorito, para quien no quiera instalar nada.
  */
-function JarvisDesdeChrome() {
+export function JarvisDesdeChrome() {
   const avisar = useAviso();
   const [origen, setOrigen] = useState("https://portal.inoo.pe");
   useEffect(() => setOrigen(window.location.origin), []);
@@ -201,7 +201,7 @@ function Notificaciones() {
  * Conexiones (9 nov): cada persona conecta su propia cuenta para que sus bots la usen en sus chats. «Conectar» lleva
  * al servicio (Google), donde la persona autoriza, y vuelve aquí con ?conexion=ok. Nadie copia llaves.
  */
-function Conexiones() {
+export function Conexiones() {
   const { datos, recargar } = useConsulta<{ datos: S<"ConexionPersonal">[] }>("/me/conexiones");
   const avisar = useAviso();
   const [ocupado, setOcupado] = useState<string | null>(null);

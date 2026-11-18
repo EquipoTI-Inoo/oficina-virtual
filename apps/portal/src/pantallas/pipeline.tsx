@@ -11,7 +11,7 @@ import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "..
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
 import { NuevoServicio } from "./proyecto-equipo";
-import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, hayFiltros, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
+import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
 
 type TipoNuevo = "CATALOGO" | "TABLERO";
 const INOO_INTERNO = "Inoo (interno)";
@@ -86,9 +86,10 @@ function PipelineProyectos() {
   // 17 nov (Ernesto): carpetas Empresa → Marca → Carpeta → Subcarpeta, dos vistas (carpetas o por estado) y filtros.
   const [lugar, setLugar] = useState<Lugar>(RAIZ);
   const [vista, setVista] = useVistaProyectos();
+  const [arbolMovil, setArbolMovil] = useState(false);
   const [filtros, setFiltros] = useState<Filtros>(SIN_FILTROS);
   const [etiqueta, setEtiqueta] = useState<string | null>(null);
-  const [nombrando, setNombrando] = useState<{ tipo: "NUEVA" } | { tipo: "RENOMBRAR"; carpeta: Carpeta } | null>(null);
+  const [nombrando, setNombrando] = useState<{ tipo: "NUEVA"; en: Lugar } | { tipo: "RENOMBRAR"; carpeta: Carpeta } | null>(null);
   const [destino, setDestino] = useState<{ cliente: string; marcaId: string | null; carpetaId: string | null } | null>(null);
   const avisar = useAviso();
   const marcas = useConsulta<{ datos: S<"MarcaCliente">[] }>("/marcas");
@@ -128,10 +129,12 @@ function PipelineProyectos() {
     try {
       if (nombrando.tipo === "RENOMBRAR") await api(`/carpetas/${nombrando.carpeta.id}`, { metodo: "PATCH", cuerpo: { nombre } });
       else {
-        const c = carpetas.find((x) => x.id === lugar.carpeta);
-        const marcaId = lugar.marca && lugar.marca !== "__sin" ? lugar.marca : null;
-        const nueva = await api<Carpeta>("/carpetas", { metodo: "POST", cuerpo: { empresa: empresa?.nombre ?? "", marcaId, ...(c ? { padreId: c.id } : {}), nombre } });
-        setLugar({ ...lugar, carpeta: nueva.id });
+        const en = nombrando.en;
+        const c = carpetas.find((x) => x.id === en.carpeta);
+        const marcaId = en.marca && en.marca !== "__sin" ? en.marca : null;
+        const nombreEmpresa = arbol.find((e) => e.clave === en.empresa)?.nombre ?? "";
+        const nueva = await api<Carpeta>("/carpetas", { metodo: "POST", cuerpo: { empresa: nombreEmpresa, marcaId, ...(c ? { padreId: c.id } : {}), nombre } });
+        setLugar({ ...en, carpeta: nueva.id });
       }
       setNombrando(null);
       void cq.recargar();
@@ -198,17 +201,25 @@ function PipelineProyectos() {
         <Cargando />
       ) : (
         <div className="proyectos-dos-columnas">
-        <ArbolProyectos arbol={arbol} lugar={lugar} ir={setLugar} etiqueta="Empresas, marcas y carpetas" alSoltar={pestana === "PROYECTOS" ? (id, l) => void mover(id, l) : undefined} />
+        <div className={`arbol-columna${arbolMovil ? " arbol-columna--abierta" : ""}`}>
+          <button type="button" className="boton boton--chico arbol-boton-movil" aria-expanded={arbolMovil} onClick={() => setArbolMovil((x) => !x)}><LuFolderTree size={14} /> {arbolMovil ? "Ocultar el árbol" : "Ver el árbol de carpetas"}</button>
+          <ArbolProyectos arbol={arbol} lugar={lugar} ir={(l) => { setLugar(l); setArbolMovil(false); }} etiqueta="Empresas, marcas y carpetas"
+            alSoltar={pestana === "PROYECTOS" ? (id, l) => void mover(id, l) : undefined}
+            tableros={pestana === "PROYECTOS" ? tablerosTodos.filter((t) => pasaFiltros(t, filtros) && (!etiqueta || t.etiquetas.includes(etiqueta))) : undefined} carpetas={carpetas}
+            acciones={pestana === "PROYECTOS" ? {
+              nuevaCarpeta: (l) => setNombrando({ tipo: "NUEVA", en: l }),
+              nuevoProyecto: (l) => { const e = arbol.find((x) => x.clave === l.empresa); if (e) { setDestino({ cliente: e.nombre, marcaId: l.marca && l.marca !== "__sin" ? l.marca : null, carpetaId: l.carpeta }); setCreando("TABLERO"); } },
+              renombrar: (c) => setNombrando({ tipo: "RENOMBRAR", carpeta: c }),
+              borrar: esAdmin ? (c) => void borrarCarpeta(c) : null,
+            } : undefined} />
+        </div>
         <div style={{ minWidth: 0 }}>
-        {pestana === "PROYECTOS" && (
-          <div className="fila entre" style={{ gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-            <div className="segmentado" role="tablist" aria-label="Cómo ver los proyectos">
-              <button role="tab" aria-selected={vista === "CARPETAS"} className={vista === "CARPETAS" ? "activo" : undefined} onClick={() => setVista("CARPETAS")}><LuFolderTree size={14} /> Carpetas</button>
-              <button role="tab" aria-selected={vista === "ESTADO"} className={vista === "ESTADO" ? "activo" : undefined} onClick={() => setVista("ESTADO")}><LuColumns3 size={14} /> Por estado</button>
-            </div>
+        {pestana === "PROYECTOS" && <BarraFiltros tableros={tablerosTodos} equipo={r.datos?.equipo ?? []} f={filtros} cambiar={setFiltros} izquierda={
+          <div className="segmentado" role="tablist" aria-label="Cómo ver los proyectos">
+            <button role="tab" aria-selected={vista === "CARPETAS"} className={vista === "CARPETAS" ? "activo" : undefined} onClick={() => setVista("CARPETAS")}><LuFolderTree size={14} /> Carpetas</button>
+            <button role="tab" aria-selected={vista === "ESTADO"} className={vista === "ESTADO" ? "activo" : undefined} onClick={() => setVista("ESTADO")}><LuColumns3 size={14} /> Por estado</button>
           </div>
-        )}
-        {pestana === "PROYECTOS" && <BarraFiltros tableros={tablerosTodos} equipo={r.datos?.equipo ?? []} f={filtros} cambiar={setFiltros} />}
+        } />}
         {pestana === "PROYECTOS" && etiquetas.length > 0 && (
           <div className="chips" role="group" aria-label="Filtrar por etiqueta" style={{ marginBottom: 12 }}>
             <LuTag size={14} aria-hidden style={{ alignSelf: "center", color: "var(--c-muted)" }} />
@@ -216,11 +227,7 @@ function PipelineProyectos() {
           </div>
         )}
         {enCarpetas ? (
-          <VistaCarpetas arbol={arbol} lugar={lugar} ir={setLugar} tableros={tableros} carpetas={carpetas} marcas={listaMarcas}
-            plano={!!q || hayFiltros(filtros) || !!etiqueta || lugar.marca === "__sin"}
-            alSoltar={(id, l) => void mover(id, l)} crearCarpeta={() => setNombrando({ tipo: "NUEVA" })}
-            renombrar={(c) => setNombrando({ tipo: "RENOMBRAR", carpeta: c })} borrar={esAdmin ? (c) => void borrarCarpeta(c) : null}
-            nuevoProyecto={() => { if (empresa) { setDestino({ cliente: empresa.nombre, marcaId: lugar.marca && lugar.marca !== "__sin" ? lugar.marca : null, carpetaId: lugar.carpeta }); setCreando("TABLERO"); } }} />
+          <VistaCarpetas arbol={arbol} lugar={lugar} ir={setLugar} tableros={tableros} carpetas={carpetas} marcas={listaMarcas} />
         ) : (
         <div className="pipeline" role="list" aria-label={pestana === "PROYECTOS" ? "Proyectos" : "Servicios"}>
           {d.columnas.map((c) => {
@@ -251,7 +258,7 @@ function PipelineProyectos() {
         </div>
       )}
       {nombrando && (
-        <ModalNombre titulo={nombrando.tipo === "NUEVA" ? (lugar.carpeta ? "Nueva subcarpeta" : "Nueva carpeta") : "Renombrar carpeta"} etiqueta="Nombre de la carpeta"
+        <ModalNombre titulo={nombrando.tipo === "NUEVA" ? (nombrando.en.carpeta ? "Nueva subcarpeta" : "Nueva carpeta") : "Renombrar carpeta"} etiqueta="Nombre de la carpeta"
           inicial={nombrando.tipo === "RENOMBRAR" ? nombrando.carpeta.nombre : ""} alGuardar={guardarNombre} alCerrar={() => setNombrando(null)} />
       )}
     </>
