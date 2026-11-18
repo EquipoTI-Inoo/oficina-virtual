@@ -52,13 +52,14 @@ import { fotoDeEmpleado, inooworkConectado, leerEmpleados, sincronizarPersona } 
 import { descifrarConLlaveCruda, validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
 import { slugDe as slugSkill, textoMisHerramientas, validarSkillPropia, validarTokenConector, type ArchivoTexto, type AuthConector } from "../dominio/herramientas-persona";
 import { ErrorMcp, listarHerramientasMcp, usarHerramientaMcp, type DestinoMcp, type HerramientaMcp } from "./mcp-cliente";
-import { accesoDe, buscarEnDrive, canjearCodigo, cifrar, descifrar, leerDeDrive, nuevoInicio, PROVEEDORES, proveedorPorRuta, revocar, SinPermisoConexion } from "./conexiones";
+import { accesoDe, buscarEnDrive, canjearCodigo, cifrar, descifrar, leerDeDrive, nuevoInicio, PROVEEDORES, proveedorPorRuta, revocar, SinPermisoConexion, eventosDeGoogle, crearEnGoogle, cambiarEnGoogle, borrarEnGoogle } from "./conexiones";
 import { validarTranscripcion } from "../dominio/transcripciones";
 import { claveRecordatorio, ventanaRecordatorio } from "../dominio/recordatorios";
 import { listoParaCerrar, validarCierre, type PendientesCierre } from "../dominio/cierre";
 import { proponerAlta, proponerResumen } from "./transcripciones";
 import { crearTableros, pendientesComoEventos, tareaComoPendiente, type Yo } from "./tableros";
 import { idInvitado } from "../dominio/compartir-tablero";
+import { firmarVideo, leerVideo } from "./firma-video";
 import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva, type CarpetaBase } from "../dominio/carpetas";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
@@ -76,7 +77,7 @@ import { itemsDesdeTexto, resumirTablero } from "./ia-tableros";
 import { resumenParaCliente, TOPE_RESUMENES_MES, type DatosResumen } from "./resumen-cliente";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
-import { almacen, almacenOpcional } from "./almacen";
+import { almacen, almacenDriveDelEntorno, almacenOpcional } from "./almacen";
 import { atenderArchivoDrive, type ClienteDrive } from "./almacen-drive";
 import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
@@ -4091,9 +4092,10 @@ ruta("GET", "/me/conexiones/google-drive/archivos/:id", async (ctx, p) => {
 export async function vueltaConexionDb(req: Request, ruta: string): Promise<Response> {
   const url = new URL(req.url);
   const base = (process.env.PORTAL_URL?.trim() || url.origin).replace(/\/+$/, "");
-  const ir = (ok: boolean, motivo?: string) =>
-    Response.redirect(`${base}/equipo/mi-cuenta?conexion=${ok ? "ok" : "error"}&proveedor=${encodeURIComponent(ruta)}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ""}`, 302);
   const prov = proveedorPorRuta(ruta);
+  // 18 nov: cada conexión vuelve a donde se pidió (Calendar, al calendario).
+  const ir = (ok: boolean, motivo?: string) =>
+    Response.redirect(`${base}${prov?.vuelveA ?? "/equipo/mi-cuenta"}?conexion=${ok ? "ok" : "error"}&proveedor=${encodeURIComponent(ruta)}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ""}`, 302);
   const estado = url.searchParams.get("state");
   if (!prov || !estado) return ir(false, "El enlace no es válido");
   try {
@@ -4548,11 +4550,51 @@ const eventoPropioVistaDb = (ctx: Ctx, e: FilaEventoAgenda): EventoAgenda => ({
   invitados: e.personas.filter((p) => p.id !== ctx.u.usuarioId),
 });
 
+/**
+ * 18 nov: Google Calendar es una conexión personal más (OAuth, la cuenta que la persona quiera). Sin el cliente OAuth
+ * configurado queda la conexión de prueba de antes.
+ */
 async function conexionGoogleDb(ctx: Ctx): Promise<S<"ConexionGoogle">> {
+  const prov = proveedorPorRuta("google-calendar")!;
+  if (prov.cliente()) {
+    const f = (await ctx.c.query<{ cuenta: string | null; creado_en: Date }>("SELECT cuenta, creado_en FROM conexion_persona WHERE usuario_id = $1 AND proveedor = 'GOOGLE_CALENDAR'", [ctx.u.usuarioId])).rows[0];
+    return { conectado: !!f, correo: f?.cuenta ?? null, conectadoEn: iso(f?.creado_en ?? null) ?? null, simulada: false, real: true };
+  }
   const c = (await ctx.c.query<{ correo: string; conectado_en: Date; simulada: boolean }>(
     "SELECT correo::text AS correo, conectado_en, simulada FROM conexion_google_calendar WHERE usuario_id = $1", [ctx.u.usuarioId],
   )).rows[0];
-  return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: iso(c?.conectado_en) ?? null, simulada: c?.simulada ?? true };
+  return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: iso(c?.conectado_en) ?? null, simulada: c?.simulada ?? true, real: false };
+}
+/** El access token de Calendar de la persona, o null si no lo conectó (o el permiso venció: no rompe el calendario). */
+async function accesoCalendarDb(ctx: Ctx): Promise<string | null> {
+  const prov = proveedorPorRuta("google-calendar")!;
+  if (!prov.cliente() || ctx.u.esPrueba) return null;
+  const f = (await ctx.c.query<{ token_cifrado: string }>("SELECT token_cifrado FROM conexion_persona WHERE usuario_id = $1 AND proveedor = 'GOOGLE_CALENDAR'", [ctx.u.usuarioId])).rows[0];
+  if (!f) return null;
+  try {
+    const a = await accesoDe(prov, descifrar(f.token_cifrado));
+    await ctx.c.query("UPDATE conexion_persona SET ultimo_uso = now() WHERE usuario_id = $1 AND proveedor = 'GOOGLE_CALENDAR'", [ctx.u.usuarioId]);
+    return a;
+  } catch (x) {
+    console.warn(JSON.stringify({ calendar: "sin_acceso", error: (x as Error).message.slice(0, 200) }));
+    return null;
+  }
+}
+/** Lleva un evento del portal a Google Calendar (crear, cambiar o borrar). Si Google falla, el portal sigue igual. */
+async function sincronizarConGoogleDb(ctx: Ctx, eventoId: string, accion: "GUARDAR" | "BORRAR", googleId: string | null) {
+  const acceso = await accesoCalendarDb(ctx);
+  if (!acceso) return;
+  try {
+    if (accion === "BORRAR") { if (googleId) await borrarEnGoogle(acceso, googleId); return; }
+    const e = (await ctx.c.query<{ tipo: string; titulo: string; notas: string | null; fecha: string; hora_inicio: string | null; hora_fin: string | null }>(
+      "SELECT tipo, titulo, notas, to_char(fecha, 'YYYY-MM-DD') AS fecha, to_char(hora_inicio, 'HH24:MI') AS hora_inicio, to_char(hora_fin, 'HH24:MI') AS hora_fin FROM evento_agenda WHERE id = $1", [eventoId])).rows[0];
+    if (!e || e.tipo !== "EVENTO") return;
+    const datos = { id: eventoId, titulo: e.titulo, notas: e.notas, fecha: e.fecha, horaInicio: e.hora_inicio, horaFin: e.hora_fin };
+    if (googleId) await cambiarEnGoogle(acceso, googleId, datos);
+    else await ctx.c.query("UPDATE evento_agenda SET google_id = $2 WHERE id = $1", [eventoId, await crearEnGoogle(acceso, datos)]);
+  } catch (x) {
+    console.warn(JSON.stringify({ calendar: "no_sincronizado", error: (x as Error).message.slice(0, 200) }));
+  }
 }
 
 ruta("GET", "/me/agenda", async (ctx, _p, q) => {
@@ -4632,6 +4674,20 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
       /* InooWork no respondió: el calendario sale sin los ítems de tableros */
     }
   }
+  // 18 nov: las reuniones de su Google Calendar (solo en su propio calendario, no al mirar el de otra persona).
+  if (!otro) {
+    const acceso = await accesoCalendarDb(ctx);
+    if (acceso) {
+      try {
+        for (const g of await eventosDeGoogle(acceso, desde!, hasta!)) {
+          if (g.delPortal) continue;
+          eventos.push({ ...baseAgenda({ id: `google-${g.id}`, tipo: "EVENTO", titulo: g.titulo, fecha: g.fecha }), horaInicio: g.horaInicio, horaFin: g.horaFin, notas: g.notas, origen: "GOOGLE" });
+        }
+      } catch (x) {
+        console.warn(JSON.stringify({ calendar: "no_leido", error: (x as Error).message.slice(0, 200) }));
+      }
+    }
+  }
   return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: await conexionGoogleDb(ctx) } satisfies S<"Agenda">;
 });
 
@@ -4674,6 +4730,7 @@ ruta("POST", "/me/agenda/eventos", async (ctx, _p, _q, cuerpo) => {
     [tipo, (b.titulo as string).trim(), notasDe(b.notas), b.fecha, horas.horaInicio, horas.horaFin, b.hecho === true, ctx.u.usuarioId],
   );
   await guardarInvitadosDb(ctx, rows[0].id, invitados);
+  await sincronizarConGoogleDb(ctx, rows[0].id, "GUARDAR", null);
   return { __status: 201, ...eventoPropioVistaDb(ctx, await miEventoDb(ctx, rows[0].id)) };
 });
 
@@ -4690,12 +4747,14 @@ ruta("PATCH", "/me/agenda/eventos/:id", async (ctx, p, _q, cuerpo) => {
     [e.id, typeof b.titulo === "string" ? b.titulo.trim() : e.titulo, b.notas !== undefined ? notasDe(b.notas) : e.notas, typeof b.fecha === "string" ? b.fecha : e.fecha, inicio, fin, typeof b.hecho === "boolean" ? b.hecho : e.hecho],
   );
   if (invitados) await guardarInvitadosDb(ctx, e.id, invitados);
+  await sincronizarConGoogleDb(ctx, e.id, "GUARDAR", (await ctx.c.query<{ g: string | null }>("SELECT google_id AS g FROM evento_agenda WHERE id = $1", [e.id])).rows[0]?.g ?? null);
   return eventoPropioVistaDb(ctx, await miEventoDb(ctx, e.id));
 });
 
 ruta("DELETE", "/me/agenda/eventos/:id", async (ctx, p) => {
   const e = await exigirMiEventoDb(ctx, p.id);
-  await ctx.c.query("DELETE FROM evento_agenda WHERE id = $1", [e.id]);
+  const googleId = (await ctx.c.query<{ g: string | null }>("DELETE FROM evento_agenda WHERE id = $1 RETURNING google_id AS g", [e.id])).rows[0]?.g ?? null;
+  if (googleId) await sincronizarConGoogleDb(ctx, e.id, "BORRAR", googleId);
   return null;
 });
 
@@ -6073,14 +6132,28 @@ function repoArchivosTablero(ctx: Ctx): RepoArchivosTablero {
         "INSERT INTO archivo_tablero (id, archivo_id, version, proyecto_iw_id, item_iw_id, columna_id, nombre, mime, bytes, contenido, clave, subido_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         [a.id, a.archivoId, a.version, a.proyectoId, a.itemId, a.columnaId, a.nombre, a.mime, a.bytes, clave ? null : Buffer.from(contenido), clave, ctx.u.usuarioId]);
     },
+    guardarDrive: async (a, driveId) => {
+      await ctx.c.query(
+        "INSERT INTO archivo_tablero (id, archivo_id, version, proyecto_iw_id, item_iw_id, columna_id, nombre, mime, bytes, contenido, clave, subido_por) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, $11)",
+        [a.id, a.archivoId, a.version, a.proyectoId, a.itemId, a.columnaId, a.nombre, a.mime, a.bytes, `drive:${driveId}`, ctx.u.usuarioId]);
+    },
+    driveDe: async (proyectoId, id) => {
+      const f = esUuid(id) ? (await ctx.c.query<{ nombre: string; mime: string; clave: string }>(
+        "SELECT nombre, mime, clave FROM archivo_tablero WHERE id = $1 AND proyecto_iw_id = $2 AND clave LIKE 'drive:%'", [id, proyectoId])).rows[0] : undefined;
+      return f ? { nombre: f.nombre, mime: f.mime, driveId: f.clave.slice(6) } : null;
+    },
     leer: async (proyectoId, id) => {
       const f = (await ctx.c.query<{ nombre: string; mime: string; contenido: Uint8Array | null; clave: string | null }>(
         "SELECT nombre, mime, contenido, clave FROM archivo_tablero WHERE id = $1 AND proyecto_iw_id = $2", [id, proyectoId])).rows[0];
-      if (!f) return null;
+      if (!f || f.clave?.startsWith("drive:")) return null;
       const contenido = f.clave ? (bucket ? await bucket.leer(f.clave) : null) : f.contenido;
       return contenido ? { nombre: f.nombre, mime: f.mime, contenido: new Uint8Array(contenido) } : null;
     },
     borrar: async (proyectoId, archivoId) => {
+      // 18 nov: los videos de Drive van a la papelera de Drive (se pueden recuperar allá 30 días).
+      const enDrive = (await ctx.c.query<{ clave: string }>("DELETE FROM archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2 AND clave LIKE 'drive:%' RETURNING clave", [archivoId, proyectoId])).rows;
+      const drive = enDrive.length ? almacenDriveDelEntorno() : null;
+      for (const f of enDrive) if (drive) await drive.videos.aPapelera(f.clave.slice(6));
       await ctx.c.query("DELETE FROM archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
       await ctx.c.query("DELETE FROM comentario_archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
     },
@@ -6111,6 +6184,55 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) =>
   equipoOInvitado(ctx);
   return TABLEROS.accion(p.id, p.item, p.col, await yoTablero(ctx));
 });
+// ───────────────────────────── Videos de los tableros en Drive (18 nov, Ernesto)
+
+const MAX_BYTES_VIDEO = 5 * 1024 * 1024 * 1024;
+type SubidaVideo = { p: string; i: string; c: string; a: string | null; n: string; m: string; k: string };
+/** Prepara la subida directa del navegador a Drive: «Videos de proyectos» › Empresa › Proyecto. */
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as { nombre?: unknown; mime?: unknown; bytes?: unknown; archivoId?: unknown };
+  const errores: { campo: string; mensaje: string }[] = [];
+  const nombre = typeof b.nombre === "string" ? b.nombre.trim().slice(0, 200) : "";
+  if (!nombre) errores.push({ campo: "nombre", mensaje: "Falta el nombre del video" });
+  if (typeof b.mime !== "string" || !/^video\/[\w.+-]+$/.test(b.mime)) errores.push({ campo: "mime", mensaje: "Solo videos" });
+  if (typeof b.bytes !== "number" || !(b.bytes > 0) || b.bytes > MAX_BYTES_VIDEO) errores.push({ campo: "bytes", mensaje: "Hasta 5 GB por video" });
+  validacion(errores);
+  const t = await TABLEROS.ver(p.id, await yoTablero(ctx));
+  if (!t.puedeEditar || t.soyInvitado) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero sube videos");
+  if (!t.columnas.some((c) => c.id === p.col && c.tipo === "file") || !t.items.some((i) => i.id === p.item)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa celda");
+  const drive = almacenDriveDelEntorno();
+  if (!drive) throw new ErrorApi(503, "DRIVE_NO_CONFIGURADO", "Google Drive no está conectado en este portal", "Falta que TI conecte la cuenta de Drive de Inoo.");
+  const carpeta = await drive.videos.carpeta({ clave: claveEmpresa(t.cliente), nombre: t.cliente ?? "Sin cliente" }, { id: t.id, nombre: t.nombre });
+  const marca = randomBytes(16).toString("hex");
+  const origen = new URL(process.env.PORTAL_URL?.trim() || "http://localhost:3000").origin;
+  const url = await drive.videos.iniciarSubida({ carpeta, nombre, mime: b.mime as string, bytes: b.bytes as number, origen, marca });
+  const ref = firmarVideo({ p: t.id, i: p.item, c: p.col, a: typeof b.archivoId === "string" ? b.archivoId : null, n: nombre, m: b.mime as string, k: marca } satisfies SubidaVideo, 7 * 86_400);
+  if (!ref) throw new ErrorApi(503, "SIN_SECRETO", "El portal no tiene configurada la firma (SESION_SECRETO)");
+  return { url, ref };
+});
+/** Cuando el navegador terminó de subir: el video entra a la celda (o como versión nueva). */
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos/listo", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = leerVideo<SubidaVideo>(((await cuerpo()) as { ref?: unknown }).ref);
+  if (!s || s.p !== p.id || s.i !== p.item || s.c !== p.col) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "ref", mensaje: "Esa subida no es de esta celda o ya venció" }]);
+  const drive = almacenDriveDelEntorno();
+  if (!drive) throw new ErrorApi(503, "DRIVE_NO_CONFIGURADO", "Google Drive no está conectado en este portal");
+  const f = await drive.videos.buscar(s.k);
+  if (!f) throw new ErrorApi(409, "SUBIDA_INCOMPLETA", "El video todavía no terminó de subir");
+  return ARCHIVOS_TABLERO.registrarDrive(repoArchivosTablero(ctx), p.id, p.item, p.col, await yoTablero(ctx), { nombre: s.n, mime: s.m, bytes: f.bytes, driveId: f.id, archivoId: s.a });
+});
+/** El enlace con que el reproductor mira un video de Drive por tramos (vale 4 horas). */
+ruta("GET", "/tableros/:id/archivos/:archivo/enlace", async (ctx, p) => {
+  equipoOInvitado(ctx);
+  await TABLEROS.ver(p.id, await yoTablero(ctx));
+  const v = await repoArchivosTablero(ctx).driveDe(p.id, p.archivo);
+  if (!v) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese archivo no es un video de Drive");
+  const token = firmarVideo({ d: v.driveId, m: v.mime }, 4 * 3600);
+  if (!token) throw new ErrorApi(503, "SIN_SECRETO", "El portal no tiene configurada la firma (SESION_SECRETO)");
+  return { url: `/api/v1/videos-tablero/${token}`, expiraEn: new Date(Date.now() + 4 * 3_600_000).toISOString() };
+});
+
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.subir(repoArchivosTablero(ctx), p.id, p.item, p.col, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
@@ -8305,6 +8427,24 @@ export async function manejarSolicitudDb(req: Request, base = "/api/v1"): Promis
     try {
       return await archivoPublicoDb(publico[1], req);
     } catch (e) {
+      console.error(e);
+      return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
+    }
+  }
+  // 18 nov: videos de los tableros: el enlace firmado es el permiso; se pasa a Drive el tramo que pide el reproductor.
+  const video = camino.match(/^\/videos-tablero\/([\w.-]+)$/);
+  if (video && (req.method === "GET" || req.method === "HEAD")) {
+    try {
+      const v = leerVideo<{ d: string; m: string }>(video[1]);
+      if (!v) throw new ErrorApi(403, "URL_VENCIDA", "Este enlace ya venció", "Vuelve a abrir el video desde el tablero.");
+      const drive = almacenDriveDelEntorno();
+      if (!drive) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese video");
+      const r = await drive.videos.abrir(v.d, req.headers.get("range"));
+      const h = new Headers({ "content-type": /^video\//.test(v.m) ? v.m : "application/octet-stream", "accept-ranges": "bytes", "cache-control": "private, max-age=3600", "x-content-type-options": "nosniff", "content-disposition": "inline" });
+      for (const k of ["content-length", "content-range"]) { const x = r.headers.get(k); if (x) h.set(k, x); }
+      return new Response(req.method === "HEAD" ? null : r.body, { status: r.status, headers: h });
+    } catch (e) {
+      if (e instanceof ErrorApi) return problema(e);
       console.error(e);
       return problema(new ErrorApi(500, "ERROR_INTERNO", "Algo salió mal"));
     }

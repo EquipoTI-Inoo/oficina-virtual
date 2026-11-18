@@ -39,7 +39,8 @@ export function pruebasAgenda(nombre: string, manejar: Manejador, reiniciar: () 
       assert.deepEqual(titulos(ev, "PENDIENTE"), ["Enviar propuesta a Nativa Café", "Llamar a Valeria por el mapa de procesos"]);
       const plan = ev.find((e: any) => e.tipo === "EVENTO");
       assert.deepEqual([plan.titulo, plan.editable, plan.invitados.map((p: any) => p.nombre)], ["Planificación interna de noviembre", true, ["Camila Paredes"]]);
-      assert.deepEqual(r.json.google, { conectado: false, correo: null, conectadoEn: null, simulada: true });
+      assert.deepEqual({ ...r.json.google, real: undefined }, { conectado: false, correo: null, conectadoEn: null, simulada: true, real: undefined });
+      assert.equal(typeof r.json.google.real, "boolean", "18 nov: dice si la conexión es real (OAuth) o de prueba");
 
       const camila = (await llamar("GET", OCTUBRE, CAMILA)).json.eventos;
       assert.deepEqual(titulos(camila, "PENDIENTE"), [], "no ve los pendientes de Diego");

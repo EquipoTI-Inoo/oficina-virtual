@@ -45,6 +45,7 @@ import { listoParaCerrar, validarCierre, type PendientesCierre } from "../domini
 import { proponerAlta, proponerResumen } from "../servidor/transcripciones";
 import { crearTableros, pendientesComoEventos, reiniciarTablerosSimulados, tareaComoPendiente, type Yo } from "../servidor/tableros";
 import { idInvitado } from "../dominio/compartir-tablero";
+import { firmarVideo, leerVideo } from "../servidor/firma-video";
 import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva } from "../dominio/carpetas";
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "../servidor/monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "../servidor/archivos-tablero";
@@ -170,7 +171,9 @@ interface Estado {
   importacionesMonday: { tableroId: string; nombre: string; proyectoId: string; en: string }[];
   historialMonday: (FilaHistorial & { proyectoId: string })[];
   /** Columna «Archivos» de los tableros (11 nov). */
-  archivosTablero: { id: string; archivoId: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array }[];
+  archivosTablero: { id: string; archivoId: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array; driveId?: string }[];
+  /** 18 nov: el «Drive» de la demo para los videos de los tableros (por su marca de subida). */
+  videosDrive: Record<string, { nombre: string; mime: string; contenido: Uint8Array | null }>;
   comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string; ancla: { x: number; y: number; t: number | null } | null }[];
   /** Actualizaciones de los ítems de los tableros (12 nov) y los avisos de la campana que generan. */
   actualizacionesTablero: (FilaActualizacion & { proyectoId: string; itemId: string })[];
@@ -270,7 +273,7 @@ function estadoInicial(): Estado {
     sesionesCerradas: new Map(),
     dosPasos: new Map(),
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
-    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }], carpetas: [],
+    skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], videosDrive: {}, comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }], carpetas: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
@@ -1957,7 +1960,12 @@ ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
 const ARCHIVOS_TABLERO = crearArchivosTablero((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
 const repoArchivosTablero: RepoArchivosTablero = {
   guardar: async (a, contenido) => { E.archivosTablero.push({ id: a.id, archivoId: a.archivoId, proyectoId: a.proyectoId, nombre: a.nombre, mime: a.mime, contenido }); },
-  leer: async (proyectoId, id) => E.archivosTablero.find((x) => x.id === id && x.proyectoId === proyectoId) ?? null,
+  leer: async (proyectoId, id) => E.archivosTablero.find((x) => x.id === id && x.proyectoId === proyectoId && !x.driveId) ?? null,
+  guardarDrive: async (a, driveId) => { E.archivosTablero.push({ id: a.id, archivoId: a.archivoId, proyectoId: a.proyectoId, nombre: a.nombre, mime: a.mime, contenido: new Uint8Array(), driveId }); },
+  driveDe: async (proyectoId, id) => {
+    const f = E.archivosTablero.find((x) => x.id === id && x.proyectoId === proyectoId && x.driveId);
+    return f ? { nombre: f.nombre, mime: f.mime, driveId: f.driveId! } : null;
+  },
   borrar: async (proyectoId, archivoId) => {
     E.archivosTablero = E.archivosTablero.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
     E.comentariosArchivo = E.comentariosArchivo.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
@@ -1983,6 +1991,64 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) =>
   equipoOInvitado(ctx);
   return TABLEROS.accion(p.id, p.item, p.col, yoTablero(ctx));
 });
+// ───────────────────────────── Videos de los tableros (18 nov). En la demo, el «Drive» es la memoria del proceso.
+type SubidaVideoMock = { p: string; i: string; c: string; a: string | null; n: string; m: string; k: string };
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const b = await cuerpo<{ nombre?: unknown; mime?: unknown; bytes?: unknown; archivoId?: unknown }>(req);
+  const errores: { campo: string; mensaje: string }[] = [];
+  const nombre = typeof b.nombre === "string" ? b.nombre.trim().slice(0, 200) : "";
+  if (!nombre) errores.push({ campo: "nombre", mensaje: "Falta el nombre del video" });
+  if (typeof b.mime !== "string" || !/^video\/[\w.+-]+$/.test(b.mime)) errores.push({ campo: "mime", mensaje: "Solo videos" });
+  if (typeof b.bytes !== "number" || !(b.bytes > 0) || b.bytes > 5 * 1024 ** 3) errores.push({ campo: "bytes", mensaje: "Hasta 5 GB por video" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const t = await TABLEROS.ver(p.id, yoTablero(ctx));
+  if (!t.puedeEditar || t.soyInvitado) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero sube videos");
+  if (!t.columnas.some((c) => c.id === p.col && c.tipo === "file") || !t.items.some((i) => i.id === p.item)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa celda");
+  const marca = crypto.randomUUID().replace(/-/g, "");
+  E.videosDrive[marca] = { nombre, mime: b.mime as string, contenido: null };
+  const ref = firmarVideo({ p: t.id, i: p.item, c: p.col, a: typeof b.archivoId === "string" ? b.archivoId : null, n: nombre, m: b.mime as string, k: marca } satisfies SubidaVideoMock, 7 * 86_400)!;
+  return { url: `/api/v1/__pruebas/subida-video/${marca}`, ref };
+});
+ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos/listo", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = leerVideo<SubidaVideoMock>((await cuerpo<{ ref?: unknown }>(req))?.ref);
+  if (!s || s.p !== p.id || s.i !== p.item || s.c !== p.col) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "ref", mensaje: "Esa subida no es de esta celda o ya venció" }]);
+  const v = E.videosDrive[s.k];
+  if (!v?.contenido) throw new ErrorApi(409, "SUBIDA_INCOMPLETA", "El video todavía no terminó de subir");
+  return ARCHIVOS_TABLERO.registrarDrive(repoArchivosTablero, p.id, p.item, p.col, yoTablero(ctx), { nombre: s.n, mime: s.m, bytes: v.contenido.byteLength, driveId: s.k, archivoId: s.a });
+});
+ruta("GET", "/tableros/:id/archivos/:archivo/enlace", async (ctx, p) => {
+  equipoOInvitado(ctx);
+  await TABLEROS.ver(p.id, yoTablero(ctx));
+  const v = await repoArchivosTablero.driveDe(p.id, p.archivo);
+  if (!v) throw new ErrorApi(404, "NO_ENCONTRADO", "Ese archivo no es un video de Drive");
+  return { url: `/api/v1/videos-tablero/${firmarVideo({ d: v.driveId, m: v.mime }, 4 * 3600)}`, expiraEn: new Date(Date.now() + 4 * 3_600_000).toISOString() };
+});
+/** La subida «directa a Drive» y el reproductor por tramos, en la demo. */
+async function videoMock(req: Request, camino: string): Promise<Response | null> {
+  const subida = camino.match(/^\/__pruebas\/subida-video\/(\w+)$/);
+  if (subida && req.method === "PUT") {
+    const v = E.videosDrive[subida[1]];
+    if (!v) return new Response(null, { status: 404 });
+    v.contenido = new Uint8Array(await req.arrayBuffer());
+    return Response.json({ id: subida[1] });
+  }
+  const ver = camino.match(/^\/videos-tablero\/([\w.-]+)$/);
+  if (ver && (req.method === "GET" || req.method === "HEAD")) {
+    const t = leerVideo<{ d: string; m: string }>(ver[1]);
+    const v = t ? E.videosDrive[t.d] : undefined;
+    if (!t || !v?.contenido) throw new ErrorApi(403, "URL_VENCIDA", "Este enlace ya venció");
+    const total = v.contenido.byteLength;
+    const r = (req.headers.get("range") ?? "").match(/^bytes=(\d+)-(\d*)$/);
+    const ini = r ? Number(r[1]) : 0;
+    const fin = r && r[2] ? Math.min(Number(r[2]), total - 1) : total - 1;
+    const tramo = v.contenido.slice(ini, fin + 1);
+    return new Response(req.method === "HEAD" ? null : tramo, { status: r ? 206 : 200, headers: { "content-type": t.m, "accept-ranges": "bytes", "content-length": String(tramo.byteLength), ...(r ? { "content-range": `bytes ${ini}-${fin}/${total}` } : {}) } });
+  }
+  return null;
+}
+
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.subir(repoArchivosTablero, p.id, p.item, p.col, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
@@ -4965,7 +5031,12 @@ ruta("POST", "/integraciones/jarvis/ejecutar", (ctx) => {
 
 // ───────────────────────────── conexiones personales de Jarvis (9 nov). En la demo, Drive es de ejemplo.
 
-const PROVEEDORES_MOCK = [{ ruta: "google-drive", nombre: "Google Drive", descripcion: "Tus bots buscan y leen tus archivos de Drive (solo lectura) cuando se lo pides en tus chats." }];
+const PROVEEDORES_MOCK = [
+  { ruta: "google-drive", nombre: "Google Drive", descripcion: "Tus bots buscan y leen tus archivos de Drive (solo lectura) cuando se lo pides en tus chats." },
+  // 18 nov: Calendar, la cuenta de Google que la persona quiera.
+  { ruta: "google-calendar", nombre: "Google Calendar", descripcion: "Tus reuniones de Google aparecen en tu calendario del portal, y lo que agendas en el portal se copia a tu Google Calendar." },
+];
+const VUELVE_A: Record<string, string> = { "google-calendar": "/equipo/calendario" };
 const ARCHIVOS_DRIVE_DEMO = [
   { id: "demo-propuesta-casa-oliva", nombre: "Propuesta Casa Oliva 2027", tipo: "application/vnd.google-apps.document", modificado: "2026-11-05T15:00:00Z", enlace: "https://docs.google.com/document/d/demo", texto: "Propuesta de campaña de verano para Casa Oliva: tres ideas de contenido y un calendario de seis semanas." },
   { id: "demo-presupuestos-q4", nombre: "Presupuestos Q4", tipo: "application/vnd.google-apps.spreadsheet", modificado: "2026-11-02T18:30:00Z", enlace: "https://docs.google.com/spreadsheets/d/demo", texto: "Cliente,Servicio,Monto\nCasa Oliva,Social Media Pro,1200\nNativa Café,Paid Media,800" },
@@ -5025,7 +5096,7 @@ ruta("GET", "/me/conexiones/google-drive/archivos/:id", (ctx, p) => {
 function vueltaConexionMock(req: Request, ruta: string): Response {
   const url = new URL(req.url);
   const ir = (ok: boolean, motivo?: string) =>
-    Response.redirect(new URL(`/equipo/mi-cuenta?conexion=${ok ? "ok" : "error"}&proveedor=${encodeURIComponent(ruta)}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ""}`, url).toString(), 302);
+    Response.redirect(new URL(`${VUELVE_A[ruta] ?? "/equipo/mi-cuenta"}?conexion=${ok ? "ok" : "error"}&proveedor=${encodeURIComponent(ruta)}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ""}`, url).toString(), 302);
   const estado = url.searchParams.get("state") ?? "";
   const e = E.estadosConexion[estado];
   delete E.estadosConexion[estado];
@@ -5310,9 +5381,12 @@ function eventoPropioVista(ctx: Ctx, e: D.EventoAgendaDemo): EventoAgenda {
   };
 }
 
+/** 18 nov: Calendar real es una conexión personal (en la demo, una de ejemplo). */
 function conexionGoogle(usuarioId: string): S<"ConexionGoogle"> {
+  const r = E.conexiones[llaveConexion(usuarioId, "google-calendar")];
+  if (r) return { conectado: true, correo: r.cuenta, conectadoEn: r.creadoEn, simulada: false, real: true };
   const c = E.googleCalendar[usuarioId];
-  return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: c?.conectadoEn ?? null, simulada: true };
+  return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: c?.conectadoEn ?? null, simulada: true, real: true };
 }
 
 ruta("GET", "/me/agenda", async (ctx, _p, q) => {
@@ -5359,6 +5433,10 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   }
   for (const e of E.eventosAgenda) {
     if ((e.creadoPorId === yo || e.invitadosIds.includes(yo)) && enRango(e.fecha) && !(otro && e.tipo === "PENDIENTE")) eventos.push(eventoPropioVista(ctx, e));
+  }
+  // 18 nov: con Calendar conectado (de ejemplo en la demo), una reunión de Google.
+  if (!otro && E.conexiones[llaveConexion(ctx.usuario.id, "google-calendar")] && enRango(desde!)) {
+    eventos.push({ ...base({ id: "google-demo-1", tipo: "EVENTO", titulo: "Reunión de Google (ejemplo)", fecha: desde! }), horaInicio: "10:00", horaFin: "10:30", origen: "GOOGLE" });
   }
   return { desde: desde!, hasta: hasta!, eventos: ordenarAgenda(eventos), google: conexionGoogle(ctx.usuario.id) } satisfies S<"Agenda">;
 });
@@ -6231,6 +6309,8 @@ export async function manejarSolicitud(req: Request, base = "/api/v1", latenciaM
     // Conexiones personales (9 nov): la vuelta del servicio, sin sesión. En la demo no hay Google: se conecta sola.
     const vuelta = camino.match(/^\/conexiones\/([a-z-]{3,30})\/vuelta$/);
     if (vuelta && req.method === "GET") return vueltaConexionMock(req, vuelta[1]);
+    const conVideo = await videoMock(req, camino);
+    if (conVideo) return conVideo;
     // Pasarela de IA del equipo: entra con la llave de Jarvis, no con la sesión del portal.
     if (camino.startsWith("/ia-equipo/")) return await pasarelaIa(req, camino.slice("/ia-equipo".length), almacenMock);
     const publico = req.method === "GET" ? camino.match(/^\/publico\/([0-9a-f]{64})$/) : null;

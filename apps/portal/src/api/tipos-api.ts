@@ -4274,6 +4274,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepara la subida de un video directo del navegador al Drive de Inoo (18 nov): «Videos de proyectos» › Empresa › Proyecto. Hasta 5 GB */
+        post: operations["iniciarSubidaVideo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/videos/listo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** El video terminó de subir a Drive: entra a la celda o como versión nueva (18 nov) */
+        post: operations["terminarSubidaVideo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tableros/{proyectoId}/archivos/{archivoId}/enlace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        /** El enlace firmado (4 horas) para mirar un video de Drive por tramos en el reproductor (18 nov) */
+        get: operations["enlaceVideoTablero"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/videos-tablero/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** El video, por tramos (Range), con el enlace firmado: lo pide el reproductor, sin sesión (18 nov) */
+        get: operations["verVideoTablero"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/archivos/{archivoId}": {
         parameters: {
             query?: {
@@ -6748,6 +6829,8 @@ export interface components {
             invitadosIds?: string[];
         };
         ConexionGoogle: {
+            /** @description Se conecta de verdad con OAuth (18 nov): POST /me/conexiones/google-calendar. false = solo la conexión de prueba */
+            real: boolean;
             conectado: boolean;
             correo: string | null;
             /** Format: date-time */
@@ -6799,7 +6882,7 @@ export interface components {
             conversacion: string;
             /** @enum {string} */
             tipo: "CREAR_TAREA" | "COMENTAR_PROYECTO" | "CREAR_PENDIENTE";
-            /** @description Lo que se va a hacer */
+            /** @description Lo que se va a hacer, en una frase */
             resumen: string;
             /** @enum {string} */
             estado: "PENDIENTE" | "APROBADA" | "RECHAZADA" | "FALLIDA";
@@ -9492,7 +9575,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description El enlace no existe */
+            /** @description El enlace no existe, está apagado, fue reemplazado o no es de invitados */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9529,7 +9612,7 @@ export interface operations {
                     "application/json": components["schemas"]["SesionIniciada"];
                 };
             };
-            /** @description El enlace no existe */
+            /** @description El enlace no existe, está apagado, fue reemplazado o no es de invitados */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17522,7 +17605,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description El enlace no existe */
+            /** @description El enlace no existe, está apagado o fue reemplazado */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18369,6 +18452,158 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    iniciarSubidaVideo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    /** @description video/… */
+                    mime: string;
+                    bytes: number;
+                    /** @description Para subirlo como versión nueva de ese archivo */
+                    archivoId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description La URL de subida (el navegador hace PUT del video ahí) y la referencia para avisar que terminó */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url: string;
+                        ref: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+            /** @description Drive no está conectado */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    terminarSubidaVideo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                itemId: string;
+                columnaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ref: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            /** @description SUBIDA_INCOMPLETA: el video todavía no está en Drive */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    enlaceVideoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url: string;
+                        /** Format: date-time */
+                        expiraEn: string;
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    verVideoTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description El video */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "video/mp4": string;
+                };
+            };
+            /** @description Un tramo del video */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description El enlace venció */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     bajarArchivoColumna: {

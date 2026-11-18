@@ -9,9 +9,10 @@ export const MAX_BYTES_ARCHIVO_TABLERO = 50 * 1024 * 1024;
 export const MAX_ARCHIVOS_COLUMNA = 30;
 export const MAX_VERSIONES = 100;
 
-export interface VersionArchivo { id: string; version: number; nombre: string; mime: string; bytes: number; en: string; por: string | null }
+/** enDrive (18 nov): un video guardado en el Drive de la organización, que se reproduce por tramos. */
+export interface VersionArchivo { id: string; version: number; nombre: string; mime: string; bytes: number; en: string; por: string | null; enDrive?: boolean }
 /** Lo que guarda el ítem: el archivo con los datos de su última versión y la lista de versiones. */
-export interface ArchivoColumna { id: string; nombre: string; mime: string; bytes: number; version: number; versiones: VersionArchivo[] }
+export interface ArchivoColumna { id: string; nombre: string; mime: string; bytes: number; version: number; versiones: VersionArchivo[]; enDrive?: boolean }
 /** 16 nov: para las @menciones en comentarios de archivos (lo mismo que usan las actualizaciones). */
 export interface AvisosArchivo {
   equipo(): Promise<{ id: string; nombre: string }[]>;
@@ -24,6 +25,10 @@ export interface RepoArchivosTablero {
   guardar(a: { id: string; archivoId: string; version: number; nombre: string; mime: string; bytes: number; proyectoId: string; itemId: string; columnaId: string }, contenido: Uint8Array): Promise<void>;
   leer(proyectoId: string, id: string): Promise<{ nombre: string; mime: string; contenido: Uint8Array } | null>;
   borrar(proyectoId: string, archivoId: string): Promise<void>;
+  /** 18 nov: una versión que vive en Drive (videos): se guarda solo su id de Drive. */
+  guardarDrive(a: { id: string; archivoId: string; version: number; nombre: string; mime: string; bytes: number; proyectoId: string; itemId: string; columnaId: string }, driveId: string): Promise<void>;
+  /** El id de Drive de una versión, o null si sus bytes están en el portal. */
+  driveDe(proyectoId: string, versionId: string): Promise<{ nombre: string; mime: string; driveId: string } | null>;
   comentarios(proyectoId: string, archivoId: string): Promise<ComentarioArchivo[]>;
   comentar(c: { proyectoId: string; archivoId: string; version: number; autor: string; texto: string; ancla: AnclaComentario | null }): Promise<void>;
 }
@@ -104,6 +109,35 @@ export function crearArchivosTablero(fallar: Fallar, tableros: Tableros) {
         return { texto: texto(xs), dato: xs };
       });
       await repo.guardar({ id, archivoId, version: numero, nombre: f.nombre, mime: f.mime, bytes: f.bytes.byteLength, proyectoId, itemId, columnaId }, f.bytes);
+      return t;
+    },
+    /**
+     * 18 nov: un video ya subido a Drive entra a la celda como un archivo más (o como su versión nueva). Los bytes no
+     * pasan por el portal; queda su id de Drive.
+     */
+    registrarDrive: async (repo: RepoArchivosTablero, proyectoId: string, itemId: string, columnaId: string, yo: Yo, f: { nombre: string; mime: string; bytes: number; driveId: string; archivoId?: string | null }) => {
+      const nombre = nombreSeguro(f.nombre) || "video";
+      const id = crypto.randomUUID();
+      let archivoId = f.archivoId ?? id;
+      let numero = 1;
+      const t = await tableros.cambiarDatoColumna(proyectoId, itemId, columnaId, yo, (dato) => {
+        const xs = normalizarArchivos(dato);
+        const v: VersionArchivo = { id, version: 1, nombre, mime: f.mime, bytes: f.bytes, en: new Date().toISOString(), por: yo.nombre ?? null, enDrive: true };
+        if (f.archivoId) {
+          const a = xs.find((x) => x.id === f.archivoId);
+          if (!a) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese archivo");
+          if (a.versiones.length >= MAX_VERSIONES) throw fallar(409, "DEMASIADAS_VERSIONES", `Hasta ${MAX_VERSIONES} versiones por archivo`);
+          numero = Math.max(...a.versiones.map((x) => x.version)) + 1;
+          v.version = numero;
+          Object.assign(a, { nombre, mime: f.mime, bytes: f.bytes, version: numero, versiones: [...a.versiones, v], enDrive: true });
+          return { texto: texto(xs), dato: xs };
+        }
+        if (xs.length >= MAX_ARCHIVOS_COLUMNA) throw fallar(409, "DEMASIADOS_ARCHIVOS", `Hasta ${MAX_ARCHIVOS_COLUMNA} archivos por celda`);
+        archivoId = id;
+        const nuevos = [...xs, { id, nombre, mime: f.mime, bytes: f.bytes, version: 1, versiones: [v], enDrive: true }];
+        return { texto: texto(nuevos), dato: nuevos };
+      });
+      await repo.guardarDrive({ id, archivoId, version: numero, nombre, mime: f.mime, bytes: f.bytes, proyectoId, itemId, columnaId }, f.driveId);
       return t;
     },
     quitar: async (repo: RepoArchivosTablero, proyectoId: string, itemId: string, columnaId: string, archivoId: string, yo: Yo) => {

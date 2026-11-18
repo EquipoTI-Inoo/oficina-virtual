@@ -90,6 +90,15 @@ function Calendario() {
   const [editando, setEditando] = useState<Evento | Nuevo | null>(null);
   const [google, setGoogle] = useState(false);
   useEffect(() => setVista(leerVista()), []);
+  // 18 nov: al volver de Google (Conectar), se avisa cómo quedó.
+  const avisarVuelta = useAviso();
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const r = q.get("conexion");
+    if (!r || q.get("proveedor") !== "google-calendar") return;
+    avisarVuelta(r === "ok" ? { titulo: "Google Calendar conectado", texto: "Tus reuniones de Google ya se ven aquí." } : { titulo: "No se conectó Google Calendar", texto: q.get("motivo") ?? undefined });
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [avisarVuelta]);
   const cambiarVista = (v: Vista) => {
     setVista(v);
     try {
@@ -150,7 +159,7 @@ function Calendario() {
               );
             })}
           </div>
-          {!quien && (!g?.simulada || !!process.env.NEXT_PUBLIC_FECHA_FIJA) && <div className="tarjeta calendario-google">
+          {!quien && (g?.real || !g?.simulada || !!process.env.NEXT_PUBLIC_FECHA_FIJA) && <div className="tarjeta calendario-google">
             <p className="negrita texto-sm fila" style={{ gap: 8 }}>
               <LogoGoogle /> Google Calendar
             </p>
@@ -557,6 +566,19 @@ function ConexionGoogle({ g, alCerrar, alCambiar }: { g: S<"ConexionGoogle"> | u
   const avisar = useAviso();
   const cambiar = async (conectar: boolean) => {
     try {
+      // 18 nov: la conexión real va por OAuth con la cuenta que la persona elija (como Drive).
+      if (g?.real) {
+        if (conectar) {
+          const r = await api<{ url: string }>("/me/conexiones/google-calendar", { metodo: "POST", cuerpo: {} });
+          window.location.assign(r.url);
+          return;
+        }
+        await api("/me/conexiones/google-calendar", { metodo: "DELETE" });
+        avisar({ titulo: "Google Calendar desconectado" });
+        alCambiar();
+        alCerrar();
+        return;
+      }
       await api("/me/agenda/google", { metodo: conectar ? "PUT" : "DELETE" });
       avisar({ titulo: conectar ? "Google Calendar conectado" : "Google Calendar desconectado", texto: conectar ? "Conexión de prueba: la sincronización real se activa cuando TI configure Google." : undefined });
       alCambiar();
@@ -574,11 +596,12 @@ function ConexionGoogle({ g, alCerrar, alCambiar }: { g: S<"ConexionGoogle"> | u
         ) : (
           <ul className="texto-sm pila" style={{ gap: 6, paddingLeft: 18 }}>
             <li>Tus reuniones y eventos de Google aparecen aquí, junto a lo del portal.</li>
-            <li>Tus pendientes, eventos y reuniones del portal se copian a tu Google Calendar.</li>
+            <li>Los eventos que agendas en el portal se copian a tu Google Calendar (y se cambian o borran allá también).</li>
+            <li>Conecta la cuenta de Google que quieras, también un Gmail personal.</li>
             <li>Solo tu calendario: nadie más ve tus eventos de Google.</li>
           </ul>
         )}
-        {(g?.simulada ?? true) && <p className="texto-xs texto-muted">Por ahora la conexión es de prueba: queda guardada, pero la sincronización con Google se activa cuando TI configure la cuenta de Inoo.</p>}
+        {!g?.real && (g?.simulada ?? true) && <p className="texto-xs texto-muted">Por ahora la conexión es de prueba: queda guardada, pero la sincronización con Google se activa cuando TI configure la cuenta de Inoo.</p>}
         <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
           <button className="boton" onClick={alCerrar}>Cerrar</button>
           {g?.conectado ? (

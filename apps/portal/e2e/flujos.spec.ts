@@ -742,6 +742,23 @@ test("tableros (16 nov): arrastrar una fila la cambia de lugar; la fila de total
   await expect.poll(async () => (await y("Actualizar el portafolio web")) < (await y("Calendario de LinkedIn de octubre")), { timeout: 20_000 }).toBe(true);
 });
 
+test("tableros (18 nov): un video va directo a Drive con su progreso y se mira en el visor por tramos", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  await reiniciar(request);
+  const h = { authorization: "Bearer demo.00000000-0000-4000-8001-000000000003" };
+  await request.post("/api/v1/tableros/PROJ-MKT01/columnas", { headers: h, data: { nombre: "Videos", tipo: "file" } });
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-MKT01");
+  const subir = page.getByLabel(/^Subir archivo a Videos de /).first();
+  await expect(subir).toBeAttached({ timeout: 30_000 });
+  await subir.locator("input[type=file]").setInputFiles({ name: "corte-final.mp4", mimeType: "video/mp4", buffer: Buffer.alloc(2048, 1) });
+  const chip = page.getByRole("button", { name: "corte-final.mp4", exact: true });
+  await expect(chip).toBeVisible({ timeout: 30_000 });
+  await chip.click();
+  const visor = page.getByRole("dialog");
+  await expect(visor.locator("video")).toHaveAttribute("src", /\/api\/v1\/videos-tablero\//, { timeout: 20_000 });
+});
+
 test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin numerado", async ({ page, request }) => {
   test.setTimeout(150_000);
   await reiniciar(request);

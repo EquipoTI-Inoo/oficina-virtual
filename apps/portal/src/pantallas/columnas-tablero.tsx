@@ -56,6 +56,7 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
   const avisar = useAviso();
   const [abierto, setAbierto] = useState(false);
   const [visor, setVisor] = useState<string | null>(null);
+  const [subiendoVideo, setSubiendoVideo] = useState<number | null>(null);
   const c = cfg(col);
   const v = item.valores[col.id];
   const texto = v === undefined ? "" : String(v);
@@ -219,7 +220,18 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
     case "file": {
       const xs = Array.isArray(dato) ? (dato as ArchivoCelda[]) : [];
       const subir = async (f: File) => {
-        if (f.size > 50 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 50 MB" });
+        if (esVideo(f)) {
+          setSubiendoVideo(0);
+          try {
+            await subirVideoADrive(t.id, item.id, col.id, f, null, setSubiendoVideo, cambiar);
+          } catch (x) {
+            avisar({ titulo: "No se pudo subir el video", texto: x instanceof ProblemaApi ? x.detalle ?? x.titulo : (x as Error).message });
+          } finally {
+            setSubiendoVideo(null);
+          }
+          return;
+        }
+        if (f.size > 50 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 50 MB", texto: "Los videos pueden pesar hasta 5 GB: se guardan en el Drive de Inoo." });
         await cambiar(`/items/${item.id}/columnas/${col.id}/archivos`, "POST", { nombre: f.name, mime: f.type || "application/octet-stream", base64: await enBase64(f) });
       };
       return (
@@ -234,8 +246,9 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
             </span>
           ))}
           {/* 17 nov: subir y quitar archivos es del equipo; un invitado los ve y los comenta. */}
-          {editable && !t.soyInvitado && (
-            <label className="boton-icono" style={{ cursor: "pointer" }} aria-label={`Subir archivo a ${etiqueta}`} title="Subir archivo">
+          {subiendoVideo !== null && <span className="texto-xs" role="status" style={{ color: "var(--c-primario)" }}>Subiendo video a Drive… {subiendoVideo} %</span>}
+          {editable && !t.soyInvitado && subiendoVideo === null && (
+            <label className="boton-icono" style={{ cursor: "pointer" }} aria-label={`Subir archivo a ${etiqueta}`} title="Subir archivo (los videos van al Drive de Inoo)">
               <LuPlus size={13} />
               <input type="file" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void subir(f); }} />
             </label>
@@ -254,7 +267,30 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
 
 // ───────────────────────────── miniaturas (16 nov, Ernesto: «miniaturas en vez del nombre y vista previa al pasar el mouse»)
 
-type ArchivoCelda = { id: string; nombre: string; bytes: number; mime?: string; version?: number; versiones?: { id: string; version: number; bytes: number; mime: string }[] };
+type ArchivoCelda = { id: string; nombre: string; bytes: number; mime?: string; version?: number; enDrive?: boolean; versiones?: { id: string; version: number; bytes: number; mime: string; enDrive?: boolean }[] };
+
+/**
+ * 18 nov (Ernesto): los videos van directo del navegador al Drive de Inoo («Videos de proyectos» › Empresa ›
+ * Proyecto), sin pasar por el portal ni el tope de 50 MB. Primero el portal prepara la subida; al terminar, el
+ * video entra a la celda (o como versión nueva).
+ */
+const MAX_VIDEO = 5 * 1024 * 1024 * 1024;
+export const esVideo = (f: File) => /^video\//.test(f.type);
+async function subirVideoADrive(tableroId: string, itemId: string, colId: string, f: File, archivoId: string | null, progreso: (pct: number) => void, cambiar: Cambiar): Promise<boolean> {
+  if (f.size > MAX_VIDEO) throw new Error("El video pesa más de 5 GB");
+  const base = `/items/${itemId}/columnas/${colId}/videos`;
+  const s = await api<{ url: string; ref: string }>(`/tableros/${tableroId}${base}`, { metodo: "POST", cuerpo: { nombre: f.name, mime: f.type, bytes: f.size, ...(archivoId ? { archivoId } : {}) } });
+  await new Promise<void>((ok, mal) => {
+    const x = new XMLHttpRequest();
+    x.open("PUT", s.url);
+    x.setRequestHeader("Content-Type", f.type);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) progreso(Math.round((e.loaded / e.total) * 100)); };
+    x.onload = () => (x.status >= 200 && x.status < 300 ? ok() : mal(new Error(`Drive respondió ${x.status}`)));
+    x.onerror = () => mal(new Error("Se cortó la conexión mientras subía el video"));
+    x.send(f);
+  });
+  return cambiar(`${base}/listo`, "POST", { ref: s.ref });
+}
 const ES_IMAGEN = /^image\/(png|jpe?g|gif|webp)$/;
 const MAX_MINIATURA = 5 * 1024 * 1024;
 /** Una descarga por versión mientras dure la página (las miniaturas se repiten al volver a dibujar la tabla). */
@@ -486,6 +522,13 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
     let creada: string | null = null;
     setCargando(true);
     setUrl(null);
+    if ((v as { enDrive?: boolean }).enDrive) {
+      api<{ url: string }>(`/tableros/${t.id}/archivos/${v.id}/enlace`)
+        .then((x) => vivo && setUrl(x.url))
+        .catch(() => vivo && setUrl(null))
+        .finally(() => vivo && setCargando(false));
+      return () => { vivo = false; };
+    }
     api<Blob | string>(`/tableros/${t.id}/archivos/${v.id}?enLinea=1`)
       .then((b) => { if (!vivo) return; creada = URL.createObjectURL(b instanceof Blob ? b : new Blob([b], { type: tipo })); setUrl(creada); })
       .catch(() => vivo && setUrl(null))
@@ -510,6 +553,17 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
     }
   };
   const nuevaVersion = async (f: File) => {
+    if (esVideo(f)) {
+      setSubiendo(true);
+      try {
+        if (await subirVideoADrive(t.id, item.id, col.id, f, archivoId, () => undefined, cambiar)) { setVerId(null); await r.recargar(); }
+      } catch (x) {
+        avisar({ titulo: "No se pudo subir el video", texto: x instanceof ProblemaApi ? x.detalle ?? x.titulo : (x as Error).message });
+      } finally {
+        setSubiendo(false);
+      }
+      return;
+    }
     if (f.size > 50 * 1024 * 1024) return avisar({ titulo: "El archivo pesa más de 50 MB" });
     setSubiendo(true);
     try {

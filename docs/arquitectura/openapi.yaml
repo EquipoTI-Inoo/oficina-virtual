@@ -287,7 +287,7 @@ paths:
           content:
             application/json:
               schema: { type: object, required: [tablero, permiso], properties: { tablero: { type: string }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
-        '404': { description: El enlace no existe, está apagado, fue reemplazado o no es de invitados }
+        '404': { description: 'El enlace no existe, está apagado, fue reemplazado o no es de invitados' }
 
   /sesion/invitado:
     post:
@@ -313,7 +313,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SesionIniciada' }
-        '404': { description: El enlace no existe, está apagado, fue reemplazado o no es de invitados }
+        '404': { description: 'El enlace no existe, está apagado, fue reemplazado o no es de invitados' }
         '409': { description: 'YA_TIENE_CUENTA: ese correo ya tiene cuenta; se ingresa con ella', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
         '422': { $ref: '#/components/responses/Validacion' }
 
@@ -5476,7 +5476,7 @@ paths:
           content:
             application/json:
               schema: { type: object, required: [tableroId, permiso], properties: { tableroId: { type: string }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
-        '404': { description: El enlace no existe, está apagado o fue reemplazado }
+        '404': { description: 'El enlace no existe, está apagado o fue reemplazado' }
         '409': { $ref: '#/components/responses/Conflicto' }
         '502': { description: InooWork no respondió }
 
@@ -5966,6 +5966,83 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
+
+  /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/videos:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: iniciarSubidaVideo
+      summary: 'Prepara la subida de un video directo del navegador al Drive de Inoo (18 nov): «Videos de proyectos» › Empresa › Proyecto. Hasta 5 GB'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, mime, bytes]
+              properties:
+                nombre: { type: string, maxLength: 200 }
+                mime: { type: string, description: 'video/…' }
+                bytes: { type: integer }
+                archivoId: { type: string, description: 'Para subirlo como versión nueva de ese archivo' }
+      responses:
+        '200':
+          description: 'La URL de subida (el navegador hace PUT del video ahí) y la referencia para avisar que terminó'
+          content: { application/json: { schema: { type: object, required: [url, ref], properties: { url: { type: string }, ref: { type: string } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '503': { description: Drive no está conectado }
+
+  /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/videos/listo:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: itemId, in: path, required: true, schema: { type: string } }
+      - { name: columnaId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: terminarSubidaVideo
+      summary: 'El video terminó de subir a Drive: entra a la celda o como versión nueva (18 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ref], properties: { ref: { type: string } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '409': { description: 'SUBIDA_INCOMPLETA: el video todavía no está en Drive', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problema' } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /tableros/{proyectoId}/archivos/{archivoId}/enlace:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: enlaceVideoTablero
+      summary: 'El enlace firmado (4 horas) para mirar un video de Drive por tramos en el reproductor (18 nov)'
+      x-roles: [EQUIPO, INVITADO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [url, expiraEn], properties: { url: { type: string }, expiraEn: { type: string, format: date-time } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /videos-tablero/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Tableros]
+      operationId: verVideoTablero
+      summary: 'El video, por tramos (Range), con el enlace firmado: lo pide el reproductor, sin sesión (18 nov)'
+      security: []
+      responses:
+        '200': { description: El video, content: { video/mp4: { schema: { type: string, format: binary } } } }
+        '206': { description: Un tramo del video }
+        '403': { description: El enlace venció }
 
   /tableros/{proyectoId}/archivos/{archivoId}:
     parameters:
@@ -8608,8 +8685,9 @@ components:
         invitadosIds: { type: array, maxItems: 30, items: { type: string, format: uuid }, description: 'Personas del equipo' }
     ConexionGoogle:
       type: object
-      required: [conectado, correo, conectadoEn, simulada]
+      required: [conectado, correo, conectadoEn, simulada, real]
       properties:
+        real: { type: boolean, description: 'Se conecta de verdad con OAuth (18 nov): POST /me/conexiones/google-calendar. false = solo la conexión de prueba' }
         conectado: { type: boolean }
         correo: { type: [string, 'null'] }
         conectadoEn: { type: [string, 'null'], format: date-time }
@@ -8648,7 +8726,7 @@ components:
         id: { type: string, format: uuid }
         conversacion: { type: string }
         tipo: { type: string, enum: [CREAR_TAREA, COMENTAR_PROYECTO, CREAR_PENDIENTE] }
-        resumen: { type: string, description: Lo que se va a hacer, en una frase }
+        resumen: { type: string, description: 'Lo que se va a hacer, en una frase' }
         estado: { type: string, enum: [PENDIENTE, APROBADA, RECHAZADA, FALLIDA] }
         error: { type: [string, 'null'], description: Por qué falló al hacerla }
         enlace: { type: [string, 'null'], description: Dónde quedó (ruta del portal) }

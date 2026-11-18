@@ -308,6 +308,47 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("PATCH", "/tableros/PROJ-OPS01", CAMILA, { nombre: "Otro" })).status, 404, "no es miembro");
     });
 
+    test("18 nov: videos al Drive de Inoo: el navegador sube directo, entra a la celda y se mira por tramos", async () => {
+      await reiniciar();
+      const t0 = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
+      let col = t0.columnas.find((c: any) => c.tipo === "file")?.id;
+      if (!col) col = (await llamar("POST", "/tableros/PROJ-OPS01/columnas", DIEGO, { tipo: "file", nombre: "Videos" })).json.columnas.find((c: any) => c.tipo === "file").id;
+      const item = t0.items[0].id;
+      const base = `/tableros/PROJ-OPS01/items/${item}/columnas/${col}/videos`;
+      assert.deepEqual((await llamar("POST", base, DIEGO, { nombre: "x.pdf", mime: "application/pdf", bytes: 10 })).json.errores.map((e: any) => e.campo), ["mime"]);
+      assert.equal((await llamar("POST", base, CAMILA, { nombre: "corte.mp4", mime: "video/mp4", bytes: 6 })).status, 404, "no es miembro");
+      const ini = await llamar("POST", base, DIEGO, { nombre: "corte.mp4", mime: "video/mp4", bytes: 6 });
+      if (ini.status === 503) {
+        assert.equal(ini.json.codigo, "DRIVE_NO_CONFIGURADO", "sin Drive conectado lo dice claro");
+        return;
+      }
+      assert.equal(ini.status, 200);
+      assert.equal((await llamar("POST", `${base}/listo`, DIEGO, { ref: ini.json.ref })).json.codigo, "SUBIDA_INCOMPLETA", "todavía no subió");
+      assert.equal((await llamar("POST", `${base}/listo`, DIEGO, { ref: "falso.x" })).status, 422);
+      // El navegador hace PUT directo a la URL de subida.
+      const subida = await manejar(new Request(`http://local${ini.json.url}`, { method: "PUT", headers: { "content-type": "video/mp4" }, body: new Uint8Array([0, 1, 2, 3, 4, 5]) }));
+      assert.equal(subida.status, 200);
+      const t1 = (await llamar("POST", `${base}/listo`, DIEGO, { ref: ini.json.ref })).json;
+      const archivo = (t1.items.find((i: any) => i.id === item).datos[col] as any[]).find((x) => x.nombre === "corte.mp4");
+      assert.equal(archivo.enDrive, true);
+      assert.equal(archivo.bytes, 6);
+      const version = archivo.versiones[0].id;
+      // Se mira con un enlace firmado y por tramos (Range).
+      const enlace = (await llamar("GET", `/tableros/PROJ-OPS01/archivos/${version}/enlace`, DIEGO)).json;
+      assert.match(enlace.url, /\/api\/v1\/videos-tablero\//);
+      const tramo = await manejar(new Request(`http://local${enlace.url}`, { headers: { range: "bytes=2-3" } }));
+      assert.equal(tramo.status, 206);
+      assert.deepEqual([...new Uint8Array(await tramo.arrayBuffer())], [2, 3]);
+      assert.equal((await manejar(new Request(`http://local${enlace.url.slice(0, -3)}abc`))).status, 403, "firma alterada");
+      assert.equal((await llamar("GET", `/tableros/PROJ-OPS01/archivos/${version}/enlace`, CAMILA)).status, 404, "quien no ve el tablero, no");
+      // Versión nueva del mismo video.
+      const v2 = await llamar("POST", base, DIEGO, { nombre: "corte-v2.mp4", mime: "video/mp4", bytes: 3, archivoId: archivo.id });
+      await manejar(new Request(`http://local${v2.json.url}`, { method: "PUT", body: new Uint8Array([9, 9, 9]) }));
+      const t2 = (await llamar("POST", `${base}/listo`, DIEGO, { ref: v2.json.ref })).json;
+      const a2 = (t2.items.find((i: any) => i.id === item).datos[col] as any[]).find((x) => x.id === archivo.id);
+      assert.deepEqual([a2.version, a2.nombre, a2.versiones.length], [2, "corte-v2.mp4", 2]);
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);

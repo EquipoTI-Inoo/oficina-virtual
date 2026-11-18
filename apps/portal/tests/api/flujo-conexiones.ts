@@ -28,6 +28,13 @@ function googleFalso() {
       return Response.json({ access_token: "acceso-2", expires_in: 3600 });
     }
     if (url.includes("oauth2.googleapis.com/revoke")) return new Response(null, { status: 200 });
+    // 18 nov: Google Calendar.
+    if (url.includes("/calendar/v3/calendars/primary/events?")) return Response.json({ items: [
+      { id: "g-1", status: "confirmed", summary: "Reunión con el cliente", start: { dateTime: "2026-10-20T15:00:00Z" }, end: { dateTime: "2026-10-20T16:00:00Z" } },
+      { id: "g-2", status: "confirmed", summary: "Copia de un evento del portal", start: { date: "2026-10-21" }, end: { date: "2026-10-22" }, extendedProperties: { private: { inooEvento: "x" } } },
+    ] });
+    if (url.endsWith("/calendar/v3/calendars/primary/events") && init?.method === "POST") return Response.json({ id: "g-nuevo" });
+    if (url.includes("/calendar/v3/calendars/primary/events/g-nuevo")) return new Response(init?.method === "DELETE" ? null : "{}", { status: init?.method === "DELETE" ? 204 : 200 });
     if (url.includes("/drive/v3/files?")) return Response.json({ files: [archivo] });
     if (url.includes(`/drive/v3/files/${ARCHIVO}/export`)) return new Response("Propuesta de campaña de verano para Casa Oliva.");
     if (url.includes(`/drive/v3/files/${ARCHIVO}?`)) return Response.json(archivo);
@@ -49,7 +56,7 @@ export function pruebasConexiones(nombre: string, manejar: Manejador, reiniciar:
       try {
         assert.equal((await llamar("GET", "/me/conexiones", VALERIA)).status, 403, "un cliente no");
         const lista = (await llamar("GET", "/me/conexiones", DIEGO)).json.datos;
-        assert.deepEqual(lista.map((c: any) => [c.proveedor, c.disponible, c.conectada]), [["google-drive", true, false]]);
+        assert.deepEqual(lista.map((c: any) => [c.proveedor, c.disponible, c.conectada]), [["google-drive", true, false], ["google-calendar", true, false]]);
         assert.equal((await llamar("GET", "/me/conexiones/google-drive/buscar?q=oliva", DIEGO)).json.codigo, "SIN_CONEXION");
         assert.equal((await llamar("POST", "/me/conexiones/dropbox", DIEGO, {})).status, 404);
 
@@ -62,6 +69,28 @@ export function pruebasConexiones(nombre: string, manejar: Manejador, reiniciar:
         assert.match(vuelta.headers.get("location") ?? "", /\/equipo\/mi-cuenta\?conexion=ok/);
         const repetida = await llamar("GET", `/conexiones/google-drive/vuelta?code=codigo-de-google&state=${estado}`);
         assert.match(repetida.headers.get("location") ?? "", /conexion=error/, "el state es de un solo uso");
+
+        // 18 nov: Google Calendar: se conecta igual y vuelve al calendario; sus reuniones aparecen en la agenda.
+        const cal = await llamar("POST", "/me/conexiones/google-calendar", DIEGO, {});
+        const estadoCal = new URL(cal.json.url, "https://portal.prueba").searchParams.get("state")!;
+        if (llamadas.length) assert.match(decodeURIComponent(cal.json.url), /calendar\.events/, "pide permiso de eventos");
+        const vueltaCal = await llamar("GET", `/conexiones/google-calendar/vuelta?code=codigo-de-google&state=${estadoCal}`);
+        assert.match(vueltaCal.headers.get("location") ?? "", /\/equipo\/calendario\?conexion=ok/);
+        const agenda = (await llamar("GET", "/me/agenda?desde=2026-10-19&hasta=2026-10-25", DIEGO)).json;
+        assert.equal(agenda.google.conectado, true);
+        assert.equal(agenda.google.real, true);
+        const deGoogle = agenda.eventos.filter((e: any) => e.origen === "GOOGLE");
+        assert.ok(deGoogle.length >= 1, "trae sus reuniones de Google");
+        if (llamadas.length) {
+          assert.deepEqual(deGoogle.map((e: any) => [e.titulo, e.fecha, e.horaInicio, e.horaFin]), [["Reunión con el cliente", "2026-10-20", "10:00", "11:00"]], "en hora de Lima, sin las copias del portal");
+          const nuevo = await llamar("POST", "/me/agenda/eventos", DIEGO, { tipo: "EVENTO", titulo: "Revisión de piezas", fecha: "2026-10-22", horaInicio: "09:00", horaFin: "10:00" });
+          assert.equal(nuevo.status, 201);
+          assert.ok(llamadas.some((u) => u.endsWith("/calendar/v3/calendars/primary/events")), "el evento se copia a su Google");
+          assert.equal((await llamar("DELETE", `/me/agenda/eventos/${nuevo.json.eventoId}`, DIEGO)).status, 204);
+          assert.ok(llamadas.some((u) => u.includes("/events/g-nuevo")), "y se borra allá");
+        }
+        assert.equal((await llamar("GET", "/me/agenda?desde=2026-10-19&hasta=2026-10-25", CAMILA)).json.google.conectado, false, "Camila no tiene el de Diego");
+        assert.equal((await llamar("DELETE", "/me/conexiones/google-calendar", DIEGO)).status, 204);
 
         const conectada = (await llamar("GET", "/me/conexiones", DIEGO)).json.datos[0];
         assert.equal(conectada.conectada, true);

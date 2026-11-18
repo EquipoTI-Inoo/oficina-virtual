@@ -20,7 +20,9 @@ export function usarFetchConexiones(f: typeof fetch | null) {
 }
 
 export interface Proveedor {
-  clave: "GOOGLE_DRIVE";
+  clave: "GOOGLE_DRIVE" | "GOOGLE_CALENDAR";
+  /** Adónde vuelve la persona después de conectar. */
+  vuelveA: string;
   ruta: string;
   nombre: string;
   descripcion: string;
@@ -30,13 +32,24 @@ export interface Proveedor {
   alcances: string[];
   cliente: () => { id: string; secreto: string } | null;
 }
+function clienteGoogle() {
+  return env("GOOGLE_OAUTH_CLIENT_ID") && env("GOOGLE_OAUTH_CLIENT_SECRET") ? { id: env("GOOGLE_OAUTH_CLIENT_ID")!, secreto: env("GOOGLE_OAUTH_CLIENT_SECRET")! } : null;
+}
 export const PROVEEDORES: Proveedor[] = [
   {
     clave: "GOOGLE_DRIVE", ruta: "google-drive", nombre: "Google Drive",
     descripcion: "Tus bots buscan y leen tus archivos de Drive (solo lectura) cuando se lo pides en tus chats.",
     autorizar: "https://accounts.google.com/o/oauth2/v2/auth", token: "https://oauth2.googleapis.com/token", revocar: "https://oauth2.googleapis.com/revoke",
     alcances: ["openid", "email", "https://www.googleapis.com/auth/drive.readonly"],
-    cliente: () => (env("GOOGLE_OAUTH_CLIENT_ID") && env("GOOGLE_OAUTH_CLIENT_SECRET") ? { id: env("GOOGLE_OAUTH_CLIENT_ID")!, secreto: env("GOOGLE_OAUTH_CLIENT_SECRET")! } : null),
+    cliente: clienteGoogle, vuelveA: "/equipo/mi-cuenta",
+  },
+  {
+    // 18 nov: cada persona conecta la cuenta de Google que quiera (también un Gmail personal).
+    clave: "GOOGLE_CALENDAR", ruta: "google-calendar", nombre: "Google Calendar",
+    descripcion: "Tus reuniones de Google aparecen en tu calendario del portal, y lo que agendas en el portal se copia a tu Google Calendar.",
+    autorizar: "https://accounts.google.com/o/oauth2/v2/auth", token: "https://oauth2.googleapis.com/token", revocar: "https://oauth2.googleapis.com/revoke",
+    alcances: ["openid", "email", "https://www.googleapis.com/auth/calendar.events"],
+    cliente: clienteGoogle, vuelveA: "/equipo/calendario",
   },
 ];
 export const proveedorPorRuta = (ruta: string) => PROVEEDORES.find((p) => p.ruta === ruta) ?? null;
@@ -184,4 +197,58 @@ export async function leerDeDrive(acceso: string, id: string) {
     texto: texto === null ? null : texto.slice(0, MAX_TEXTO), truncado: (texto?.length ?? 0) > MAX_TEXTO,
     aviso: legible ? null : "Este tipo de archivo no se puede leer como texto (por ejemplo PDF, imagen o video). Abre el enlace.",
   };
+}
+
+// ── Google Calendar (18 nov): leer la agenda de la persona y llevar los eventos del portal a su calendario.
+
+export interface EventoGoogle { id: string; titulo: string; fecha: string; horaInicio: string | null; horaFin: string | null; notas: string | null; delPortal: boolean }
+const CAL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+
+async function calendario(acceso: string, url: string, init: RequestInit = {}) {
+  const r = await enviar(url, { ...init, headers: { authorization: `Bearer ${acceso}`, "content-type": "application/json", ...(init.headers ?? {}) }, signal: AbortSignal.timeout(20_000) });
+  if (r.status === 401 || r.status === 403) throw new SinPermisoConexion("Calendar no dejó entrar");
+  return r;
+}
+const enLima = (iso: string) => {
+  const d = new Date(new Date(iso).getTime() - 5 * 3_600_000).toISOString();
+  return { fecha: d.slice(0, 10), hora: d.slice(11, 16) };
+};
+
+/** Los eventos de su calendario principal entre dos días (Lima). Los que vienen del portal se marcan para no repetirlos. */
+export async function eventosDeGoogle(acceso: string, desde: string, hasta: string): Promise<EventoGoogle[]> {
+  const q = new URLSearchParams({ timeMin: `${desde}T00:00:00-05:00`, timeMax: `${hasta}T23:59:59-05:00`, singleEvents: "true", orderBy: "startTime", maxResults: "250" });
+  const r = await calendario(acceso, `${CAL}?${q}`);
+  if (!r.ok) throw new Error(`Calendar respondió ${r.status}`);
+  const j = (await r.json()) as { items?: { id: string; status?: string; summary?: string; description?: string; start?: { date?: string; dateTime?: string }; end?: { date?: string; dateTime?: string }; extendedProperties?: { private?: Record<string, string> } }[] };
+  return (j.items ?? []).filter((e) => e.status !== "cancelled" && (e.start?.date || e.start?.dateTime)).map((e) => {
+    const todoElDia = !!e.start?.date;
+    const ini = todoElDia ? { fecha: e.start!.date!, hora: null } : enLima(e.start!.dateTime!);
+    const fin = !todoElDia && e.end?.dateTime ? enLima(e.end.dateTime).hora : null;
+    return { id: e.id, titulo: (e.summary ?? "(Sin título)").slice(0, 200), fecha: ini.fecha, horaInicio: ini.hora, horaFin: fin, notas: e.description ? e.description.slice(0, 1000) : null, delPortal: !!e.extendedProperties?.private?.inooEvento };
+  });
+}
+
+/** El cuerpo de un evento del portal para Google (con hora en Lima, o de todo el día). */
+function cuerpoGoogle(e: { id: string; titulo: string; notas: string | null; fecha: string; horaInicio: string | null; horaFin: string | null }) {
+  const siguiente = new Date(`${e.fecha}T12:00:00Z`);
+  siguiente.setUTCDate(siguiente.getUTCDate() + 1);
+  return {
+    summary: e.titulo, description: e.notas ?? undefined,
+    start: e.horaInicio ? { dateTime: `${e.fecha}T${e.horaInicio}:00-05:00`, timeZone: "America/Lima" } : { date: e.fecha },
+    end: e.horaInicio ? { dateTime: `${e.fecha}T${e.horaFin ?? e.horaInicio}:00-05:00`, timeZone: "America/Lima" } : { date: siguiente.toISOString().slice(0, 10) },
+    extendedProperties: { private: { inooEvento: e.id } },
+  };
+}
+export async function crearEnGoogle(acceso: string, e: Parameters<typeof cuerpoGoogle>[0]): Promise<string> {
+  const r = await calendario(acceso, CAL, { method: "POST", body: JSON.stringify(cuerpoGoogle(e)) });
+  if (!r.ok) throw new Error(`Calendar respondió ${r.status}`);
+  return ((await r.json()) as { id: string }).id;
+}
+export async function cambiarEnGoogle(acceso: string, googleId: string, e: Parameters<typeof cuerpoGoogle>[0]) {
+  const r = await calendario(acceso, `${CAL}/${encodeURIComponent(googleId)}`, { method: "PUT", body: JSON.stringify(cuerpoGoogle(e)) });
+  if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(`Calendar respondió ${r.status}`);
+}
+export async function borrarEnGoogle(acceso: string, googleId: string) {
+  const r = await calendario(acceso, `${CAL}/${encodeURIComponent(googleId)}`, { method: "DELETE" });
+  if (!r.ok && r.status !== 404 && r.status !== 410) throw new Error(`Calendar respondió ${r.status}`);
 }
