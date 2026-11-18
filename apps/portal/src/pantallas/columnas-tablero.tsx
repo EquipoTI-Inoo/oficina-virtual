@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, LuPhone, LuPlay, LuPlus, LuSearch, LuStar, LuThumbsUp, LuTrash2, LuX,
   LuCircleDot, LuType, LuUsers, LuCalendar, LuHash, LuList, LuSquareCheck, LuAlignLeft, LuTag, LuCalendarRange, LuCalendarDays, LuClock, LuTimer,
   LuGlobe, LuLink, LuFlag, LuPalette, LuPaperclip, LuFileText, LuMousePointerClick, LuGitBranch, LuNetwork, LuCopy, LuSigma, LuChartBar, LuHistory,
-  LuRefreshCw, LuFingerprint, LuListOrdered, LuFileVideo, LuFileAudio, LuFileImage } from "react-icons/lu";
+  LuRefreshCw, LuFingerprint, LuListOrdered, LuFileVideo, LuFileAudio, LuFileImage, LuPencil } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
 import { Modal, useAviso } from "../componentes";
@@ -493,6 +493,25 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
   const [marcando, setMarcando] = useState(false);
   const [ancla, setAncla] = useState<{ x: number; y: number; t: number | null } | null>(null);
   const [resaltado, setResaltado] = useState<string | null>(null);
+  // 18 nov: corregir o borrar un comentario propio (borrar también un admin).
+  const [editando, setEditando] = useState<{ id: string; texto: string } | null>(null);
+  const guardarEdicion = async () => {
+    if (!editando?.texto.trim()) return;
+    try {
+      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios/${editando.id}`, { metodo: "PATCH", cuerpo: { texto: editando.texto.trim() } }));
+      setEditando(null);
+    } catch (x) {
+      avisar({ titulo: "No se pudo corregir", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const borrarComentario = async (id: string) => {
+    if (!window.confirm("¿Borrar este comentario? No se puede deshacer.")) return;
+    try {
+      r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios/${id}`, { metodo: "DELETE" }));
+    } catch (x) {
+      avisar({ titulo: "No se pudo borrar", texto: x instanceof ProblemaApi ? x.titulo : undefined });
+    }
+  };
   const [tiempo, setTiempo] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fijarPunto = (e: { clientX: number; clientY: number; currentTarget: HTMLElement }) => {
@@ -654,10 +673,24 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
                   {r.datos!.datos.map((x) => (
                     <div key={x.id} className={`comentario-archivo${resaltado === x.id ? " comentario-archivo--activo" : ""}`}>
                       <span className="fila entre texto-xs" style={{ gap: 6 }}>
-                        <span><span className="negrita">{x.autor}</span> <span className="texto-muted">· {fechaCorta(x.en)}</span></span>
-                        <button type="button" className="etiqueta-version" onClick={() => setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null)} title="Ver esa versión">V{x.version}</button>
+                        <span><span className="negrita">{x.autor}</span> <span className="texto-muted">· {fechaCorta(x.en)}{x.editadoEn ? " · editado" : ""}</span></span>
+                        <span className="fila" style={{ gap: 2 }}>
+                          {x.esMio && editando?.id !== x.id && <button type="button" className="boton-icono" aria-label={`Editar el comentario de ${x.autor}`} title="Editar" onClick={() => setEditando({ id: x.id, texto: x.texto })}><LuPencil size={12} /></button>}
+                          {x.puedeBorrar && <button type="button" className="boton-icono" aria-label={`Borrar el comentario de ${x.autor}`} title="Borrar" onClick={() => void borrarComentario(x.id)}><LuTrash2 size={12} /></button>}
+                          <button type="button" className="etiqueta-version" onClick={() => setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null)} title="Ver esa versión">V{x.version}</button>
+                        </span>
                       </span>
-                      <p className="texto-sm" style={{ whiteSpace: "pre-wrap", marginTop: 2 }}>{x.texto}</p>
+                      {editando?.id === x.id ? (
+                        <div className="pila" style={{ gap: 6, marginTop: 4 }}>
+                          <textarea className="input" rows={3} aria-label="Corregir el comentario" value={editando.texto} maxLength={5000} autoFocus
+                            onChange={(e) => setEditando({ id: x.id, texto: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Escape") setEditando(null); if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void guardarEdicion(); }} />
+                          <span className="fila" style={{ gap: 6, justifyContent: "flex-end" }}>
+                            <button type="button" className="boton boton--chico" onClick={() => setEditando(null)}>Cancelar</button>
+                            <button type="button" className="boton boton--chico boton--primario" disabled={!editando.texto.trim()} onClick={() => void guardarEdicion()}>Guardar</button>
+                          </span>
+                        </div>
+                      ) : <p className="texto-sm" style={{ whiteSpace: "pre-wrap", marginTop: 2 }}>{x.texto}</p>}
                       {x.ancla && (
                         <button type="button" className="enlace texto-xs fila" style={{ gap: 4, background: "none", border: 0, padding: 0, cursor: "pointer" }}
                           onClick={() => { if (x.version !== v.version) setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null); irA(x); }}>

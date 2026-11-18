@@ -3045,3 +3045,21 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
   .arbol-columna .arbol-empresas { display: none; max-height: 60vh; border: 1px solid var(--c-borde); border-radius: var(--r-md); padding: 6px; }
   .arbol-columna--abierta .arbol-empresas { display: grid; }
 }
+
+/* ───── Barra lateral plegable (18 nov, Ernesto): solo íconos; el nombre queda para lectores de pantalla y en el title. */
+.lateral-interior { position: relative; }
+.lateral-plegar { position: absolute; top: 14px; right: 10px; z-index: 2; width: 32px; height: 32px; color: var(--c-muted); }
+@media (min-width: 961px) { .app.app--lateral-plegada { grid-template-columns: 76px minmax(0, 1fr); } }
+.lateral--plegada .lateral-interior { padding-left: 10px; padding-right: 10px; align-items: center; }
+.lateral--plegada .lateral-plegar { position: static; align-self: center; margin-bottom: 6px; }
+.lateral--plegada .logo-bloque .logo-marca { width: 44px; height: auto; }
+.lateral--plegada .logo-sub, .lateral--plegada .nav-grupo, .lateral--plegada .ayuda, .lateral--plegada .persona > span, .lateral--plegada .persona > button { display: none; }
+.lateral--plegada .logo-bloque::after { margin-top: 10px; }
+.lateral--plegada .lateral-interior > :is(div, a):not(.logo-bloque):not(.persona):not(.nav):not(.ayuda) { display: none; }
+.lateral--plegada .nav { width: 100%; }
+.lateral--plegada .nav-item { position: relative; justify-content: center; padding-left: 0; padding-right: 0; }
+.lateral--plegada .nav-texto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.lateral--plegada .nav-contador { position: absolute; top: 2px; right: 6px; min-width: 16px; height: 16px; font-size: 10px; }
+.lateral--plegada .persona { justify-content: center; }
+@media (max-width: 960px) { .lateral-plegar { display: none; } }
+.lateral--plegada .persona { margin-top: auto; }

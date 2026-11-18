@@ -4274,6 +4274,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros/{proyectoId}/archivos/{archivoId}/comentarios/{comentarioId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+                comentarioId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra un comentario de una foto o un video (18 nov): quien lo escribió o un admin */
+        delete: operations["borrarComentarioArchivo"];
+        options?: never;
+        head?: never;
+        /** Corrige un comentario de una foto o un video (18 nov): solo quien lo escribió; queda marcado como editado */
+        patch: operations["editarComentarioArchivo"];
+        trace?: never;
+    };
     "/tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/videos": {
         parameters: {
             query?: never;
@@ -7151,6 +7173,12 @@ export interface components {
                 }[];
             };
             datos: {
+                /** @description Cuándo lo corrigió quien lo escribió (18 nov) */
+                editadoEn: string | null;
+                /** @description Lo escribió quien mira: lo puede corregir */
+                esMio: boolean;
+                /** @description Lo escribió quien mira, o es admin */
+                puedeBorrar: boolean;
                 /** @description Punto en la imagen o el cuadro (16 nov) */
                 ancla: null | {
                     x: number;
@@ -18436,6 +18464,65 @@ export interface operations {
                         y: number;
                         t?: number | null;
                     };
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentariosArchivo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarComentarioArchivo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+                comentarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentariosArchivo"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    editarComentarioArchivo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                archivoId: string;
+                comentarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    texto: string;
                 };
             };
         };

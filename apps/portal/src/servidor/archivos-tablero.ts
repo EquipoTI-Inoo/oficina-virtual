@@ -20,7 +20,8 @@ export interface AvisosArchivo {
 }
 /** 16 nov (tanda 5): el punto del comentario en la imagen o el cuadro (0 a 1) y, en videos, el segundo. */
 export interface AnclaComentario { x: number; y: number; t: number | null }
-export interface ComentarioArchivo { id: string; version: number; autor: string; texto: string; en: string; ancla: AnclaComentario | null }
+/** 18 nov: autorId (para saber de quién es) y editadoEn (se muestra «editado»). */
+export interface ComentarioArchivo { id: string; version: number; autor: string; texto: string; en: string; ancla: AnclaComentario | null; autorId?: string | null; editadoEn?: string | null }
 export interface RepoArchivosTablero {
   guardar(a: { id: string; archivoId: string; version: number; nombre: string; mime: string; bytes: number; proyectoId: string; itemId: string; columnaId: string }, contenido: Uint8Array): Promise<void>;
   leer(proyectoId: string, id: string): Promise<{ nombre: string; mime: string; contenido: Uint8Array } | null>;
@@ -31,6 +32,9 @@ export interface RepoArchivosTablero {
   driveDe(proyectoId: string, versionId: string): Promise<{ nombre: string; mime: string; driveId: string } | null>;
   comentarios(proyectoId: string, archivoId: string): Promise<ComentarioArchivo[]>;
   comentar(c: { proyectoId: string; archivoId: string; version: number; autor: string; texto: string; ancla: AnclaComentario | null }): Promise<void>;
+  /** 18 nov: corregir y borrar un comentario (la regla de quién puede la pone el dominio). */
+  editarComentario(proyectoId: string, archivoId: string, id: string, texto: string): Promise<void>;
+  borrarComentario(proyectoId: string, archivoId: string, id: string): Promise<void>;
 }
 type Fallar = (status: number, codigo: string, titulo: string, errores?: { campo: string; mensaje: string }[]) => Error;
 type Tableros = ReturnType<typeof crearTableros>;
@@ -169,7 +173,29 @@ export function crearArchivosTablero(fallar: Fallar, tableros: Tableros) {
     comentarios: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, avisos?: AvisosArchivo) => {
       const a = await archivoDelTablero(proyectoId, archivoId, yo);
       const equipo = avisos ? await avisos.equipo() : [];
-      return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
+      return { archivo: a, datos: vistaComentarios(await repo.comentarios(proyectoId, archivoId), yo), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
+    },
+    /** 18 nov: quien lo escribió lo corrige. */
+    editarComentario: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, id: string, yo: Yo, b: { texto?: unknown }, avisos?: AvisosArchivo) => {
+      const a = await archivoDelTablero(proyectoId, archivoId, yo);
+      const c = (await repo.comentarios(proyectoId, archivoId)).find((x) => x.id === id);
+      if (!c) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese comentario");
+      if (!yo.usuarioId || c.autorId !== yo.usuarioId) throw fallar(403, "SIN_PERMISO", "Solo quien lo escribió lo puede corregir");
+      const t = typeof b.texto === "string" ? b.texto.trim() : "";
+      if (!t || t.length > 5000) throw fallar(422, "VALIDACION", "Revisa el comentario", [{ campo: "texto", mensaje: "Escribe el comentario (hasta 5000 caracteres)" }]);
+      await repo.editarComentario(proyectoId, archivoId, id, t);
+      const equipo = avisos ? await avisos.equipo() : [];
+      return { archivo: a, datos: vistaComentarios(await repo.comentarios(proyectoId, archivoId), yo), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
+    },
+    /** 18 nov: lo borra quien lo escribió o un admin. */
+    borrarComentario: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, id: string, yo: Yo, avisos?: AvisosArchivo) => {
+      const a = await archivoDelTablero(proyectoId, archivoId, yo);
+      const c = (await repo.comentarios(proyectoId, archivoId)).find((x) => x.id === id);
+      if (!c) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese comentario");
+      if (!(yo.esAdmin || (!!yo.usuarioId && c.autorId === yo.usuarioId))) throw fallar(403, "SIN_PERMISO", "Solo quien lo escribió (o un admin) lo puede borrar");
+      await repo.borrarComentario(proyectoId, archivoId, id);
+      const equipo = avisos ? await avisos.equipo() : [];
+      return { archivo: a, datos: vistaComentarios(await repo.comentarios(proyectoId, archivoId), yo), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
     },
     comentar: async (repo: RepoArchivosTablero, proyectoId: string, archivoId: string, yo: Yo, b: { texto?: unknown; version?: unknown; mencionIds?: unknown; ancla?: unknown }, avisos?: AvisosArchivo) => {
       const tablero = await tableros.ver(proyectoId, yo);
@@ -205,7 +231,15 @@ export function crearArchivosTablero(fallar: Fallar, tableros: Tableros) {
           await avisos.avisar(m, `${yo.nombre ?? "Alguien del equipo"} te mencionó en un archivo de ${tablero.nombre}`, `${a.nombre}: «${t.length > 120 ? `${t.slice(0, 119)}…` : t}»`, enlace);
         }
       }
-      return { archivo: a, datos: await repo.comentarios(proyectoId, archivoId), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
+      return { archivo: a, datos: vistaComentarios(await repo.comentarios(proyectoId, archivoId), yo), equipo: equipo.map((p) => ({ id: p.id, nombre: p.nombre })) };
     },
   };
+}
+
+/** Lo que ve cada quien: si el comentario es suyo (lo corrige) y si lo puede borrar (suyo, o es admin). */
+function vistaComentarios(xs: ComentarioArchivo[], yo: Yo) {
+  return xs.map(({ autorId, ...x }) => {
+    const mio = !!yo.usuarioId && autorId === yo.usuarioId;
+    return { ...x, editadoEn: x.editadoEn ?? null, esMio: mio, puedeBorrar: mio || yo.esAdmin };
+  });
 }

@@ -3,7 +3,8 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor } from "react-icons/lu";
+  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor, LuPanelLeftClose, LuPanelLeftOpen
+} from "react-icons/lu";
 import { pideAccion } from "./dominio/por-revisar";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
 
@@ -565,7 +566,20 @@ function ListaNotificaciones({ alCerrar }: { alCerrar: () => void }) {
   );
 }
 
-function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void }) {
+/** 18 nov (Ernesto): la barra lateral se contrae a solo íconos; se recuerda en el navegador. */
+const CLAVE_LATERAL = "inoo.lateral.plegada";
+function useLateralPlegada(): [boolean, () => void] {
+  const [plegada, setPlegada] = useState(false);
+  useEffect(() => {
+    try { setPlegada(localStorage.getItem(CLAVE_LATERAL) === "1"); } catch { /* sin almacenamiento */ }
+  }, []);
+  return [plegada, () => setPlegada((x) => {
+    try { localStorage.setItem(CLAVE_LATERAL, x ? "0" : "1"); } catch { /* sin almacenamiento */ }
+    return !x;
+  })];
+}
+
+function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar, plegada = false, alPlegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void; plegada?: boolean; alPlegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN; por proyecto, «Clientes» son sus marcas.
   const nav = navPara(espacio, sesion).filter((n) => !("enMenu" in n));
@@ -575,8 +589,13 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
     ir("/ingresar");
   };
   return (
-    <aside className="lateral" aria-label="Menú principal">
+    <aside className={`lateral${plegada ? " lateral--plegada" : ""}`} aria-label="Menú principal">
       <div className="lateral-interior">
+      {alPlegar && (
+        <button type="button" className="boton-icono lateral-plegar" aria-label={plegada ? "Expandir el menú" : "Contraer el menú"} title={plegada ? "Expandir el menú" : "Contraer el menú"} aria-expanded={!plegada} onClick={alPlegar}>
+          {plegada ? <LuPanelLeftOpen size={18} /> : <LuPanelLeftClose size={18} />}
+        </button>
+      )}
       <Enlace a={espacio === "cliente" ? "/inicio" : "/equipo/mi-panel"} className="logo-bloque" aria-label="Ir al inicio" onClick={alNavegar} style={{ display: "block", color: "inherit", textDecoration: "none" }}>
         <span className="logo"><img src="/marca/inoo-negro.svg" alt="INOO" className="logo-marca" width={102} height={30} /></span>
         <span className="logo-sub">{espacio === "cliente" ? "Portal de clientes" : "Espacio de equipo"}</span>
@@ -592,9 +611,9 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar }: { es
           return (
             <Fragment key={n.a}>
               {grupo && grupo !== anterior && <span className="nav-grupo">{grupo}</span>}
-              <Enlace a={n.a} className="nav-item" aria-current={activo ? "page" : undefined}>
+              <Enlace a={n.a} className="nav-item" aria-current={activo ? "page" : undefined} title={plegada ? n.texto : undefined}>
                 {n.icono}
-                <span>{n.texto}</span>
+                <span className="nav-texto">{n.texto}</span>
                 {"contador" in n && typeof n.contador === "string" && (contadores[n.contador] ?? 0) > 0 && <span className="nav-contador">{contadores[n.contador]}</span>}
               </Enlace>
             </Fragment>
@@ -725,6 +744,7 @@ export const usePortal = () => useContext(ContextoPortal);
 export function Estructura({ espacio, migas, children, flotante }: { espacio: "cliente" | "equipo"; migas: string; children: ReactNode; flotante?: boolean }) {
   const { ir } = useNavegacion();
   const [menu, setMenu] = useState(false);
+  const [plegada, alternarPlegada] = useLateralPlegada();
   const sesionLocal = typeof window !== "undefined" ? leerSesion() : null;
   const me = useConsulta<S<"Sesion">>(sesionLocal ? "/me" : null);
   const inicio = useConsulta<S<"InicioCliente">>(sesionLocal && espacio === "cliente" ? `/clientes/${clienteActivo()}/inicio` : null);
@@ -781,8 +801,8 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
 
   return (
     <ContextoPortal.Provider value={{ sesion: me.datos, porAprobar, refrescar: () => void inicio.recargar() }}>
-      <div className={`app${flotante ? " app--flotante" : ""}`}>
-        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} cosmiq={inicio.datos?.cuenta?.enlaceCosmiq} />
+      <div className={`app${flotante ? " app--flotante" : ""}${plegada ? " app--lateral-plegada" : ""}`}>
+        <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} cosmiq={inicio.datos?.cuenta?.enlaceCosmiq} plegada={plegada} alPlegar={alternarPlegada} />
         <div className="principal">
           <div className="superior">
             <div className="fila">

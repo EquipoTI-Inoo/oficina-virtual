@@ -5967,6 +5967,36 @@ paths:
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /tableros/{proyectoId}/archivos/{archivoId}/comentarios/{comentarioId}:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: archivoId, in: path, required: true, schema: { type: string } }
+      - { name: comentarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Tableros]
+      operationId: editarComentarioArchivo
+      summary: 'Corrige un comentario de una foto o un video (18 nov): solo quien lo escribió; queda marcado como editado'
+      x-roles: [EQUIPO, INVITADO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [texto], properties: { texto: { type: string, maxLength: 5000 } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentariosArchivo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Tableros]
+      operationId: borrarComentarioArchivo
+      summary: 'Borra un comentario de una foto o un video (18 nov): quien lo escribió o un admin'
+      x-roles: [EQUIPO, INVITADO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ComentariosArchivo' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /tableros/{proyectoId}/items/{itemId}/columnas/{columnaId}/videos:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
@@ -8962,8 +8992,11 @@ components:
           type: array
           items:
             type: object
-            required: [id, version, autor, texto, en, ancla]
+            required: [id, version, autor, texto, en, ancla, editadoEn, esMio, puedeBorrar]
             properties:
+              editadoEn: { type: [string, 'null'], description: 'Cuándo lo corrigió quien lo escribió (18 nov)' }
+              esMio: { type: boolean, description: 'Lo escribió quien mira: lo puede corregir' }
+              puedeBorrar: { type: boolean, description: 'Lo escribió quien mira, o es admin' }
               ancla: { oneOf: [ { type: 'null' }, { type: object, required: [x, y, t], properties: { x: { type: number, minimum: 0, maximum: 1 }, y: { type: number, minimum: 0, maximum: 1 }, t: { type: [number, 'null'], description: 'Segundo del video' } } } ], description: 'Punto en la imagen o el cuadro (16 nov)' }
               id: { type: string }
               version: { type: integer }

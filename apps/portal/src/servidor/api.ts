@@ -6157,9 +6157,15 @@ function repoArchivosTablero(ctx: Ctx): RepoArchivosTablero {
       await ctx.c.query("DELETE FROM archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
       await ctx.c.query("DELETE FROM comentario_archivo_tablero WHERE archivo_id = $1 AND proyecto_iw_id = $2", [archivoId, proyectoId]);
     },
-    comentarios: async (proyectoId, archivoId) => (await ctx.c.query<{ id: string; version: number; autor: string; texto: string; creado_en: Date; ancla_x: number | null; ancla_y: number | null; ancla_t: number | null }>(
-      "SELECT id, version, autor, texto, creado_en, ancla_x, ancla_y, ancla_t FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 AND archivo_id = $2 ORDER BY creado_en, id", [proyectoId, archivoId])).rows
-      .map((r) => ({ id: r.id, version: r.version, autor: r.autor, texto: r.texto, en: new Date(r.creado_en).toISOString(), ancla: r.ancla_x === null || r.ancla_y === null ? null : { x: r.ancla_x, y: r.ancla_y, t: r.ancla_t } })),
+    comentarios: async (proyectoId, archivoId) => (await ctx.c.query<{ id: string; version: number; autor: string; texto: string; creado_en: Date; ancla_x: number | null; ancla_y: number | null; ancla_t: number | null; usuario_id: string | null; editado_en: Date | null }>(
+      "SELECT id, version, autor, texto, creado_en, ancla_x, ancla_y, ancla_t, usuario_id, editado_en FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 AND archivo_id = $2 ORDER BY creado_en, id", [proyectoId, archivoId])).rows
+      .map((r) => ({ id: r.id, version: r.version, autor: r.autor, texto: r.texto, en: new Date(r.creado_en).toISOString(), ancla: r.ancla_x === null || r.ancla_y === null ? null : { x: r.ancla_x, y: r.ancla_y, t: r.ancla_t }, autorId: r.usuario_id, editadoEn: r.editado_en ? new Date(r.editado_en).toISOString() : null })),
+    editarComentario: async (proyectoId, archivoId, id, texto) => {
+      await ctx.c.query("UPDATE comentario_archivo_tablero SET texto = $4, editado_en = now() WHERE proyecto_iw_id = $1 AND archivo_id = $2 AND id = $3", [proyectoId, archivoId, id, texto]);
+    },
+    borrarComentario: async (proyectoId, archivoId, id) => {
+      await ctx.c.query("DELETE FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 AND archivo_id = $2 AND id = $3", [proyectoId, archivoId, id]);
+    },
     comentar: async (c) => {
       await ctx.c.query("INSERT INTO comentario_archivo_tablero (proyecto_iw_id, archivo_id, version, usuario_id, autor, texto, ancla_x, ancla_y, ancla_t) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         [c.proyectoId, c.archivoId, c.version, ctx.u.usuarioId, c.autor.slice(0, 200), c.texto, c.ancla?.x ?? null, c.ancla?.y ?? null, c.ancla?.t ?? null]);
@@ -6252,6 +6258,16 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versione
 ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
   equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), await repoParaTablero(ctx, p.id));
+});
+ruta("PATCH", "/tableros/:id/archivos/:archivo/comentarios/:comentario", async (ctx, p, _q, cuerpo) => {
+  equipoOInvitado(ctx);
+  if (!esUuid(p.comentario)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese comentario");
+  return ARCHIVOS_TABLERO.editarComentario(repoArchivosTablero(ctx), p.id, p.archivo, p.comentario, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>, await repoParaTablero(ctx, p.id));
+});
+ruta("DELETE", "/tableros/:id/archivos/:archivo/comentarios/:comentario", async (ctx, p) => {
+  equipoOInvitado(ctx);
+  if (!esUuid(p.comentario)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese comentario");
+  return ARCHIVOS_TABLERO.borrarComentario(repoArchivosTablero(ctx), p.id, p.archivo, p.comentario, await yoTablero(ctx), await repoParaTablero(ctx, p.id));
 });
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, cuerpo) => {
   equipoOInvitado(ctx);

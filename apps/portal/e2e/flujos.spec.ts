@@ -783,6 +783,31 @@ test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin
   await visor.getByRole("button", { name: /^Comentar en la V1/ }).click();
   await expect(visor.getByRole("button", { name: /^Comentario 1 de Diego Castro/ })).toBeVisible({ timeout: 20_000 });
   await expect(visor.getByRole("button", { name: /Punto 1/ })).toBeVisible();
+  // 18 nov: corregir y borrar el propio comentario.
+  await visor.getByRole("button", { name: "Editar el comentario de Diego Castro" }).click();
+  await visor.getByLabel("Corregir el comentario").fill("El logo aquí, un 20 % más grande");
+  await visor.getByRole("button", { name: "Guardar" }).click();
+  await expect(visor.getByText("El logo aquí, un 20 % más grande")).toBeVisible({ timeout: 20_000 });
+  await expect(visor.getByText(/· editado/)).toBeVisible();
+  page.once("dialog", (d) => void d.accept());
+  await visor.getByRole("button", { name: "Borrar el comentario de Diego Castro" }).click();
+  await expect(visor.getByText("Todavía no hay comentarios.")).toBeVisible({ timeout: 20_000 });
+});
+
+test("menú lateral (18 nov, Ernesto): se contrae a íconos y se recuerda al volver", async ({ page }) => {
+  test.setTimeout(90_000);
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/mi-panel");
+  const lateral = page.getByRole("complementary", { name: "Menú principal" });
+  await lateral.getByRole("button", { name: "Contraer el menú" }).click({ timeout: 30_000 });
+  await expect(lateral).toHaveClass(/lateral--plegada/);
+  await expect(lateral.getByRole("link", { name: "Proyectos" })).toBeVisible();
+  const ancho = (await lateral.boundingBox())!.width;
+  expect(ancho).toBeLessThan(120);
+  await page.reload();
+  await expect(page.getByRole("complementary", { name: "Menú principal" })).toHaveClass(/lateral--plegada/, { timeout: 30_000 });
+  await page.getByRole("button", { name: "Expandir el menú" }).click();
+  await expect(page.getByRole("complementary", { name: "Menú principal" })).not.toHaveClass(/lateral--plegada/);
 });
 
 test("IA del tablero (16 nov): resume y propone ítems desde un texto; se agregan los elegidos", async ({ page, request }) => {

@@ -349,6 +349,33 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.deepEqual([a2.version, a2.nombre, a2.versiones.length], [2, "corte-v2.mp4", 2]);
     });
 
+    test("18 nov: un comentario de una foto lo corrige quien lo escribió y lo borra él o un admin", async () => {
+      await reiniciar();
+      const t0 = (await llamar("POST", "/tableros/PROJ-OPS01/columnas", DIEGO, { tipo: "file", nombre: "Piezas" })).json;
+      const col = t0.columnas.find((c: any) => c.nombre === "Piezas").id;
+      const item = t0.items[0].id;
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR42mNk+M9Qz0AEYBxVSFIAAPNbB/3E14+zAAAAAElFTkSuQmCC";
+      const t1 = (await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/columnas/${col}/archivos`, DIEGO, { nombre: "pieza.png", mime: "image/png", base64: png })).json;
+      const archivo = (t1.items.find((i: any) => i.id === item).datos[col] as any[])[0].id;
+      const ruta = `/tableros/PROJ-OPS01/archivos/${archivo}/comentarios`;
+      const c1 = (await llamar("POST", ruta, DIEGO, { texto: "El logo más grande", ancla: { x: 0.5, y: 0.5, t: null } })).json.datos[0];
+      assert.deepEqual([c1.esMio, c1.puedeBorrar, c1.editadoEn], [true, true, null]);
+      const comoAdmin = (await llamar("GET", ruta, ADMIN)).json.datos[0];
+      assert.deepEqual([comoAdmin.esMio, comoAdmin.puedeBorrar], [false, true], "el admin no lo corrige, pero lo puede borrar");
+      assert.equal((await llamar("PATCH", `${ruta}/${c1.id}`, ADMIN, { texto: "Otro texto" })).status, 403, "solo quien lo escribió lo corrige");
+      assert.deepEqual((await llamar("PATCH", `${ruta}/${c1.id}`, DIEGO, { texto: " " })).json.errores.map((e: any) => e.campo), ["texto"]);
+      const editado = (await llamar("PATCH", `${ruta}/${c1.id}`, DIEGO, { texto: "El logo un 20 % más grande" })).json.datos[0];
+      assert.equal(editado.texto, "El logo un 20 % más grande");
+      assert.ok(editado.editadoEn, "queda marcado como editado");
+      assert.deepEqual(editado.ancla, { x: 0.5, y: 0.5, t: null }, "el punto se conserva");
+      assert.equal((await llamar("DELETE", `${ruta}/00000000-0000-4000-8000-000000000000`, DIEGO)).status, 404);
+      // Camila (miembro, no admin) no borra lo de Diego; un admin sí.
+      await llamar("POST", "/tableros/PROJ-OPS01/miembros", DIEGO, { usuarioIds: [uid(1, 6)] });
+      assert.equal((await llamar("GET", ruta, CAMILA)).json.datos[0].puedeBorrar, false);
+      assert.equal((await llamar("DELETE", `${ruta}/${c1.id}`, CAMILA)).status, 403);
+      assert.deepEqual((await llamar("DELETE", `${ruta}/${c1.id}`, ADMIN)).json.datos, []);
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);

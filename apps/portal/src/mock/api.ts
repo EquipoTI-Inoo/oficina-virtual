@@ -174,7 +174,7 @@ interface Estado {
   archivosTablero: { id: string; archivoId: string; proyectoId: string; nombre: string; mime: string; contenido: Uint8Array; driveId?: string }[];
   /** 18 nov: el «Drive» de la demo para los videos de los tableros (por su marca de subida). */
   videosDrive: Record<string, { nombre: string; mime: string; contenido: Uint8Array | null }>;
-  comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string; ancla: { x: number; y: number; t: number | null } | null }[];
+  comentariosArchivo: { id: string; proyectoId: string; archivoId: string; version: number; autor: string; texto: string; en: string; ancla: { x: number; y: number; t: number | null } | null; autorId?: string | null; editadoEn?: string | null }[];
   /** Actualizaciones de los ítems de los tableros (12 nov) y los avisos de la campana que generan. */
   actualizacionesTablero: (FilaActualizacion & { proyectoId: string; itemId: string })[];
   /** 16 nov (tanda 4): las marcas de cada cliente. */
@@ -1958,6 +1958,8 @@ ruta("DELETE", "/tableros/:id/grupos/:grupo", async (ctx, p) => {
 });
 
 const ARCHIVOS_TABLERO = crearArchivosTablero((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
+/** Quién comenta en la API simulada (el repo es uno solo para todos; la ruta lo fija antes de comentar). */
+let autorActual: string | null = null;
 const repoArchivosTablero: RepoArchivosTablero = {
   guardar: async (a, contenido) => { E.archivosTablero.push({ id: a.id, archivoId: a.archivoId, proyectoId: a.proyectoId, nombre: a.nombre, mime: a.mime, contenido }); },
   leer: async (proyectoId, id) => E.archivosTablero.find((x) => x.id === id && x.proyectoId === proyectoId && !x.driveId) ?? null,
@@ -1970,8 +1972,15 @@ const repoArchivosTablero: RepoArchivosTablero = {
     E.archivosTablero = E.archivosTablero.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
     E.comentariosArchivo = E.comentariosArchivo.filter((x) => !(x.archivoId === archivoId && x.proyectoId === proyectoId));
   },
-  comentarios: async (proyectoId, archivoId) => E.comentariosArchivo.filter((x) => x.proyectoId === proyectoId && x.archivoId === archivoId).map(({ id, version, autor, texto, en, ancla }) => ({ id, version, autor, texto, en, ancla: ancla ?? null })),
-  comentar: async (c) => { E.comentariosArchivo.push({ ...c, id: crypto.randomUUID(), en: new Date().toISOString() }); },
+  comentarios: async (proyectoId, archivoId) => E.comentariosArchivo.filter((x) => x.proyectoId === proyectoId && x.archivoId === archivoId).map(({ id, version, autor, texto, en, ancla, autorId, editadoEn }) => ({ id, version, autor, texto, en, ancla: ancla ?? null, autorId: autorId ?? null, editadoEn: editadoEn ?? null })),
+  comentar: async (c) => { E.comentariosArchivo.push({ ...c, id: crypto.randomUUID(), en: new Date().toISOString(), autorId: autorActual }); },
+  editarComentario: async (proyectoId, archivoId, id, texto) => {
+    const c = E.comentariosArchivo.find((x) => x.proyectoId === proyectoId && x.archivoId === archivoId && x.id === id);
+    if (c) Object.assign(c, { texto, editadoEn: new Date().toISOString() });
+  },
+  borrarComentario: async (proyectoId, archivoId, id) => {
+    E.comentariosArchivo = E.comentariosArchivo.filter((x) => !(x.proyectoId === proyectoId && x.archivoId === archivoId && x.id === id));
+  },
 };
 // ───────────────────────────── Columnas de los tableros (11 nov): la biblioteca de tipos de Monday
 
@@ -2071,7 +2080,16 @@ ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
 });
 ruta("POST", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p, _q, req) => {
   equipoOInvitado(ctx);
+  autorActual = ctx.usuario.id;
   return ARCHIVOS_TABLERO.comentar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), await repoParaTablero(ctx, p.id));
+});
+ruta("PATCH", "/tableros/:id/archivos/:archivo/comentarios/:comentario", async (ctx, p, _q, req) => {
+  equipoOInvitado(ctx);
+  return ARCHIVOS_TABLERO.editarComentario(repoArchivosTablero, p.id, p.archivo, p.comentario, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req), await repoParaTablero(ctx, p.id));
+});
+ruta("DELETE", "/tableros/:id/archivos/:archivo/comentarios/:comentario", async (ctx, p) => {
+  equipoOInvitado(ctx);
+  return ARCHIVOS_TABLERO.borrarComentario(repoArchivosTablero, p.id, p.archivo, p.comentario, yoTablero(ctx), await repoParaTablero(ctx, p.id));
 });
 
 const ACTUALIZACIONES = crearActualizaciones((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores), TABLEROS);
