@@ -13,7 +13,7 @@ Archivos de este paquete:
 
 ---
 
-## 0. Estado real (9 nov 2026)
+## 0. Estado real (18 nov 2026)
 
 Las secciones 1 a 8 son el diseño original (v1.1, 6 oct). Desde entonces el portal salió a producción **sin
 AWS**, en el VPS de Hostinger. Esta sección describe lo que corre hoy; donde choque con el resto, manda esta.
@@ -40,10 +40,11 @@ flowchart LR
 | Hosting | VPS KVM 1 de Hostinger, Docker Compose (`infra/hostinger`) | AWS (ECS, RDS) |
 | Backend | Dentro del portal (`apps/portal/src/servidor`), todo el contrato sobre Postgres con RLS | Igual |
 | Ingreso | Equipo con su usuario de InooWork (`AUTH_EQUIPO=inoowork`); clientes con correo y contraseña propios (`AUTH_MODO=portal`), sesión firmada con `SESION_SECRETO`. Cognito queda implementado para cuando haya AWS | Cognito |
-| Archivos | Google Drive (`almacen-drive.ts`, permiso `drive.file`): el navegador sube y descarga por el portal con URLs firmadas de corta duración | S3 con URLs prefirmadas |
+| Archivos | Google Drive (`almacen-drive.ts`, permiso `drive.file`): el navegador sube y descarga por el portal con URLs firmadas de corta duración. Los videos de los tableros van directo del navegador a Drive (subida reanudable) y se miran por tramos con un enlace firmado | S3 con URLs prefirmadas |
+| Proyectos | Tableros de InooWork (InooWork es la fuente; el portal lee y guarda el proyecto completo, y sus datos propios viajan en el JSON con prefijo `portal*`) | Pipeline propio |
 | Correos | El portal los manda por SMTP desde el outbox (`CORREOS_POR=portal`) | SES vía n8n |
 | IA del equipo | Jarvis: un Hermes por área, DeepSeek a través de la pasarela del portal. Nadie maneja llaves | Agentes en n8n |
-| IA para clientes | Ninguna en el portal (se quitó el 30 oct). Los agentes para clientes viven en Cosmiq | Sección «Agentes de IA» |
+| IA para clientes | Apagada por defecto. Desde el 16 nov el equipo puede activar, por cliente y con tope mensual, el «Resumen del avance», que nunca menciona la IA | Sección «Agentes de IA» |
 | Procesos programados | Timers de systemd en el VPS (`infra/hostinger/trabajos`) que llaman a `/integraciones/*` con una llave de servicio | n8n |
 | Respaldos | `pg_dump` diario: 14 días en el VPS y los últimos 30 en Drive | Snapshots de RDS |
 
@@ -90,6 +91,26 @@ flowchart LR
   Jarvis puede leer contraseñas (`boveda_leer`), que pasan por el modelo de IA, y ese chat queda privado
   (`sesion_jarvis.privada_de`). Sin la clave no hay recuperación: «Olvidé mi clave» borra la bóveda.
 
+### Tableros, compartir e invitados (12 al 18 nov)
+
+- **Tableros como Monday** sobre los proyectos de InooWork: tabla, kanban, línea de tiempo, calendario, resumen y
+  carga; 34 tipos de columna; subítems; automatizaciones; comentarios por ítem con @menciones; archivos con
+  versiones y comentarios anclados; fila de totales; arrastrar y soltar; alto de filas y densidad; IA (resumen
+  del tablero e ítems desde un texto).
+- **Compartir como en Docs** (`dominio/compartir-tablero.ts`): permiso por persona (lector, comentador, editor) en
+  `portalPermisos`; enlaces por audiencia en `portalEnlaces`, firmados con HMAC (`servidor/firma-enlace.ts`);
+  tableros privados (`portalPrivado`) que ni los admins ven.
+- **Invitados de afuera** (0062): `tipo_usuario` suma `INVITADO`. En el tablero quedan en `portalInvitados` y en
+  los permisos se los nombra «invitado:<usuarioId>», así nunca se confunden con una ficha de InooWork. La API solo
+  les abre las rutas de sus tableros (ver, comentar, cambiar ítems); para lo de clientes, RLS los trata como un
+  cliente sin cuentas (`app_es_cliente`, `app_puede_ver_cliente`). Un invitado editor cambia ítems, no la
+  estructura ni los archivos, y al @mencionar solo ve a la gente de ese tablero.
+- **Carpetas de Proyectos** (0063): empresa → marca → carpeta → subcarpeta, en `carpeta_proyecto` por el nombre
+  normalizado de la empresa (`empresa_clave`); el tablero guarda la suya en `portalCarpetaId`. Borrar es suave y
+  sube proyectos y subcarpetas un nivel sin tocar InooWork. Árbol como en Monday y vista por estado.
+- **Google Calendar por persona** (18 nov): conexión personal más (`conexion_persona`, `GOOGLE_CALENDAR`). La agenda
+  suma los eventos de Google y los eventos del portal se copian a Google (`evento_agenda.google_id`, de la 0034).
+
 ### Migraciones posteriores a la v1.1
 
 | Migraciones | Qué agregaron |
@@ -100,6 +121,9 @@ flowchart LR
 | 0033–0039 | Jarvis por área con topes, calendario del colaborador, accesos por nivel, personas con InooWork, Jarvis sin llaves, recordatorios, super usuario |
 | 0040–0046 | Ingreso propio, clientes de prueba, notificaciones y sesiones, acciones de Jarvis, proyectos culminados, «Subir contenido», entorno de pruebas |
 | 0047–0049 | Chats de Jarvis que se guardan, leads y Gerencia, Jarvis avanzado |
+| 0050–0057 | Conexiones personales, bóveda personal, importación de Monday, archivos y actualizaciones de los tableros, tope de automatizaciones por cliente, comentarios editados, herramientas por persona |
+| 0058–0061 | Marcas con ficha propia, comentarios anclados, 2FA, resumen del avance para el cliente |
+| 0062–0064 | Invitados de afuera, carpetas de Proyectos, comentarios de archivos editables |
 
 ---
 

@@ -40,8 +40,12 @@ La API simulada aplica las reglas que importan para probar el frontend:
 | Errores | `application/problem+json` con `codigo` y `errores[]` |
 
 Rutas solo de pruebas (no son parte del contrato): `POST /api/v1/__pruebas/ingresar`,
-`POST /api/v1/__pruebas/reiniciar`, `PUT /api/v1/__pruebas/subidas/{id}` (simula el PUT a S3) y
+`POST /api/v1/__pruebas/reiniciar`, `PUT /api/v1/__pruebas/subidas/{id}` (simula el PUT a S3),
+`PUT /api/v1/__pruebas/subida-video/{marca}` (simula la subida directa de un video a Drive) y
 `GET /api/v1/__pruebas/eventos?desde=<id>` (outbox: los eventos que el despachador entregaría a n8n).
+
+En la API simulada, Google Calendar se conecta sin Google y muestra una «Reunión de Google (ejemplo)»; los videos
+quedan en la memoria del proceso y se miran por tramos igual que en producción.
 
 ### Integraciones (n8n) contra la API simulada
 
@@ -100,11 +104,11 @@ Para volver al estado inicial: reiniciar `npm run dev` o `curl -X POST localhost
 
 | Suite | Comando | Qué cubre |
 |---|---|---|
-| API (473 pruebas al 9 nov) | `npm run test:api` | Cada flujo (`tests/api/flujo-*.ts`) se corre dos veces: contra la API simulada y contra Postgres en proceso (PGlite, con RLS). Más el contrato: cada ruta, simulada y real, existe en `openapi.yaml` y al revés |
-| Flujos de interfaz | `npm run test:e2e` | `e2e/flujos.spec.ts` en Chromium a 1440 px: los escenarios de arriba y los flujos del equipo (proyectos, tableros, Jarvis, taller web, accesos) |
+| API (577 pruebas al 18 nov) | `npm run test:api` | Cada flujo (`tests/api/flujo-*.ts`) se corre dos veces: contra la API simulada y contra Postgres en proceso (PGlite, con RLS y todas las migraciones). Más el contrato: cada ruta, simulada y real, existe en `openapi.yaml` y al revés. Google, Drive e InooWork se simulan con un `fetch` falso |
+| Flujos de interfaz | `npm run test:e2e` | `e2e/flujos.spec.ts` en Chromium a 1440 px (54 flujos): los escenarios de arriba y los del equipo (proyectos y carpetas, tableros, invitados de afuera, videos, Jarvis, calendario, taller web, accesos, menú lateral) |
 | Móvil | `npx playwright test e2e/movil.spec.ts` | Cajón de navegación y KPIs en 2×2 a 390 px |
 | Visual | `npm run test:visual` | Captura de las 16 pantallas contra las capturas aprobadas |
-| Base de datos (CI) | job `base-de-datos` | Esquema + semillas + `database/pruebas/comprobaciones.sql` en Postgres 16 |
+| Base de datos (CI) | job `base-de-datos` | Todas las migraciones en orden + semillas + `database/pruebas/comprobaciones.sql` en Postgres 16 |
 | Contrato OpenAPI (CI) | job `contrato` | `redocly lint` del contrato |
 
 **Pruebas visuales.** La primera ejecución no tiene capturas aprobadas: correr

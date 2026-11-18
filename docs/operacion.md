@@ -1,6 +1,6 @@
 # Operación del portal en producción
 
-Manual para quien mantiene `portal.inoo.pe`. Al 9 nov 2026 el portal está en producción desde el 6 nov,
+Manual para quien mantiene `portal.inoo.pe`. Al 18 nov 2026 el portal está en producción desde el 6 nov,
 con usuarios reales: **respaldar antes de tocar datos** y no hacer pruebas destructivas en el servidor.
 Ninguna clave va en este documento ni en el repositorio: se dice en qué archivo vive cada una.
 
@@ -14,6 +14,7 @@ Ninguna clave va en este documento ni en el repositorio: se dice en qué archivo
 | n8n y NocoDB | VPS aparte (`76.13.226.162`) | Siguen detrás de la clave de Caddy |
 | InooWork (`intranet.inoo.pe`) | Hosting compartido de Hostinger | El portal usa su login (`AUTH_EQUIPO=inoowork`) y su API (`INOOWORK_URL`, `INOOWORK_API_KEY`) |
 | Archivos | Google Drive de `asesoria@inoo.pe` (carpeta «Portal Inoo») | Sin AWS por ahora. Variables `DRIVE_*` |
+| Videos de los tableros | Mismo Drive, carpeta «Videos de proyectos» › Empresa › Proyecto | Los sube el navegador directo a Google (sección 6 bis) |
 | Respaldos | `infra/hostinger/respaldos` en el VPS (14 días) y Drive («Respaldos del portal», últimos 30) | `infra/hostinger/respaldo/respaldar.mjs` |
 | Correo | Gmail SMTP de `asesoria@inoo.pe` (clave de aplicación «Portal») | El despachador del outbox manda los correos |
 
@@ -23,6 +24,11 @@ Ninguna clave va en este documento ni en el repositorio: se dice en qué archivo
   «Portal de Inoo», que manda un pase de 60 s y un solo uso. La contraseña se cambia en InooWork.
 - **Clientes:** correo y contraseña propios del portal (`AUTH_MODO=portal`). La crean con un enlace de un solo
   uso que el equipo copia desde la ficha del cliente («Copiar enlace»).
+- **Invitados de afuera (17 nov):** un cliente o freelancer entra con el enlace de invitados de un tablero
+  (Personas → «Para invitados de afuera»), crea su cuenta con su correo y su contraseña y solo ve los tableros
+  donde lo invitaron. Usuarios `tipo = 'INVITADO'`; para todo lo de clientes son como un cliente sin cuentas.
+- **2FA (16 nov):** opcional para todos, en Mi cuenta. App autenticadora (TOTP), códigos de respaldo y
+  dispositivos de confianza por 30 días.
 - **Super usuarios:** Ernesto Vasquez Rojas y Omar Suyo. Solo ellos cambian niveles, permisos, quién es ADMIN,
   qué áreas lidera cada persona y los conectores de Jarvis.
 - **Cuenta de pruebas:** `pruebas@inoo.pe` abre `/pruebas` para entrar como cualquier usuario de prueba. Sus
@@ -60,8 +66,12 @@ docker compose -p inoo-fase1 exec -T postgres psql -U inoo -d oficina_virtual -1
   < ../../database/migraciones/00NN_nombre.sql
 ```
 
-Si algo falla, `-1` deshace todo y la base queda como estaba. **Al 9 nov la producción tiene hasta la 0049**; la 0050
-(conexiones personales) va con su versión.
+Si algo falla, `-1` deshace todo y la base queda como estaba. **Al 18 nov la producción tiene hasta la 0064.**
+Los respaldos previos quedan como `/opt/inoo/respaldos/antes-00NN-AAAAMMDD-HHMM.sql`.
+
+El CI (`.github/workflows/ci.yml`, job `base-de-datos`) aplica todas las migraciones de la carpeta en orden
+sobre un Postgres 16 limpio, carga las semillas y corre `database/pruebas/comprobaciones.sql`: una migración que
+no aplica en una base nueva falla ahí antes de llegar a producción.
 
 ## 5. Procesos programados
 
@@ -102,15 +112,25 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
 - **Conectores (MCP) del área:** el portal guarda solo el catálogo. Un super usuario lo agrega en Jarvis → Conectores y
   queda «Falta conectarlo». TI configura el servidor MCP y su credencial en el Hermes del área y lo marca
   «Conectado». Desde ahí los bots que lo tengan activo lo usan. El portal rechaza llaves o tokens en sus campos.
-- **Conexiones personales (0050):** cada persona conecta su propia cuenta en Mi cuenta → Conexiones (por ahora,
-  Google Drive en solo lectura) y sus bots la usan solo en sus chats, con las herramientas `drive_buscar` y
-  `drive_leer` del MCP. Nadie copia llaves: el portal guarda el permiso cifrado y se puede desconectar. Para
-  activarlo: (1) en el proyecto «Portal Inoo» de Google Cloud, crear un cliente OAuth de tipo Aplicación web con la
-  URI `https://portal.inoo.pe/api/v1/conexiones/google-drive/vuelta`, habilitar la API de Drive y agregar el
-  alcance `drive.readonly`; (2) poner `GOOGLE_OAUTH_CLIENT_ID` y `GOOGLE_OAUTH_CLIENT_SECRET` en el `.env` y
-  reconstruir el portal; (3) copiar `integrations/hermes/mcp-portal.mjs` a `/home/hermes/inoo/` y reiniciar Hermes.
-  Con el público «Interno» solo entran cuentas de `inoo.pe`; para cuentas de Gmail hay que pasar a «Externo» y
-  agregarlas como usuarios de prueba (hasta 100) mientras Google no verifique la app.
+- **Conexiones personales (0050, Calendar desde el 18 nov):** cada persona conecta su propia cuenta de Google (la
+  que quiera, también un Gmail) desde Jarvis → Conectores, Mi cuenta o el Calendario.
+  - **Google Drive** (solo lectura): sus bots lo usan en sus chats con `drive_buscar` y `drive_leer` del MCP.
+  - **Google Calendar** (`calendar.events`): sus reuniones de Google se ven en su calendario del portal, y los
+    eventos que agenda en el portal se copian a su Google (y se cambian o borran allá; `evento_agenda.google_id`).
+    Jarvis todavía no tiene herramientas de agenda (pendiente).
+  - Nadie copia llaves: el portal guarda solo el permiso, cifrado, y se puede desconectar.
+  - **Para activarlo** (en espera de los correos del equipo, 18 nov):
+    1. En el proyecto «Portal Inoo» de Google Cloud, pasar la pantalla de consentimiento a **Externo** (en modo
+       «Prueba») y agregar como usuarios de prueba (hasta 100) los correos de quienes vayan a conectar.
+    2. Habilitar las API de Drive y de Calendar y agregar los alcances `drive.readonly` y `calendar.events`.
+    3. Crear un cliente OAuth de tipo **Aplicación web** con las URI
+       `https://portal.inoo.pe/api/v1/conexiones/google-drive/vuelta` y
+       `https://portal.inoo.pe/api/v1/conexiones/google-calendar/vuelta`.
+    4. Poner `GOOGLE_OAUTH_CLIENT_ID` y `GOOGLE_OAUTH_CLIENT_SECRET` en el `.env` (y en `/opt/inoo/produccion.env`)
+       y reiniciar el portal. `PORTAL_URL` ya llega por el `docker-compose.yml`.
+    5. Para Drive en Jarvis: copiar `integrations/hermes/mcp-portal.mjs` a `/home/hermes/inoo/` y reiniciar Hermes.
+  - En modo «Prueba», Google muestra «app no verificada» (Avanzado → Continuar) y el permiso vence a los 7 días:
+    hay que volver a conectar. Para que no venza, Google tiene que verificar la app.
 - **Bóveda personal (0051):** nada que configurar más allá de `SESION_SECRETO` (o `BOVEDA_SECRETO`). Nadie de TI
   puede abrir una bóveda: si alguien olvida su clave, la borra desde «Olvidé mi clave». Reiniciar el portal cierra
   las bóvedas abiertas (Jarvis deja de poder leerlas hasta que la persona la vuelva a abrir). Para que Jarvis la
@@ -118,6 +138,20 @@ Para revisarlos: `systemctl list-timers 'inoo-*'` y `journalctl -u inoo-diarios.
 - **Rutinas y automatizaciones:** las corre `inoo-jarvis.timer`. Cada ejecución la paga quien la creó, su
   respuesta queda como un chat del bot (`job-<id>`) y se avisa en la campana. Si el Hermes del área no está
   conectado o el área llegó a su tope, la ejecución queda «Falló» con el motivo.
+
+## 6 bis. Archivos y videos de los tableros
+
+- **Archivos** (columna «Archivos»): hasta 50 MB, pasan por el portal y quedan en Drive (`tableros/<proyecto>/…`)
+  con versiones y comentarios (también anclados a un punto de una imagen o a un segundo de un video). Quien
+  escribió un comentario lo corrige o lo borra; un admin también lo borra (0064).
+- **Videos** (18 nov): el navegador los sube **directo a Google**, sin pasar por el servidor, hasta 5 GB. El portal
+  abre una subida reanudable con la cuenta de `asesoria@inoo.pe` (y el `Origin` de `PORTAL_URL`) en
+  «Videos de proyectos» › Empresa › Proyecto; las carpetas se crean solas y se renombran si cambia el proyecto.
+  Al terminar, el video entra a la celda (`archivo_tablero.clave = 'drive:<id>'`). Se mira en el portal por tramos
+  (`Range`) con un enlace firmado de 4 horas (`/api/v1/videos-tablero/{token}`), así que se puede comentar y nadie
+  necesita permisos en Drive. Al quitarlo de la celda va a la papelera de Drive (30 días para recuperarlo).
+- Todavía no se probó una subida real a Drive desde el navegador (en local se simula). Si Google rechazara la
+  subida directa (CORS), el error sale al usuario como «No se pudo subir el video».
 
 ## 7. Respaldos
 
@@ -134,7 +168,11 @@ encima de producción sin respaldar primero lo que haya.
 3. Entrar con un usuario del equipo y abrir Mi panel, Proyectos y Jarvis.
 4. Si hubo migración: que no haya errores en `docker logs inoo-fase1-portal-1 --since 10m`.
 
-## 9. Pendientes de operación (9 nov 2026)
+## 9. Pendientes de operación (18 nov 2026)
 
-- Publicar el APK nuevo de InooWork y luego pasar su API a `estricto: true`.
-- Google Calendar real: en espera de que el equipo tenga cuentas de Gmail propias.
+- **Google Calendar y Drive personales:** juntar los correos de Google del equipo y seguir la sección 6
+  (cliente OAuth web, «Externo» con usuarios de prueba y las dos variables).
+- **Videos:** subir un video real a un tablero para confirmar la subida directa a Drive.
+- **Jarvis con la agenda:** herramientas para ver la agenda y proponer eventos (pendiente acordado el 18 nov).
+- **Textos legales:** borrador de privacidad y términos en revisión; no se publican hasta tener el visto bueno.
+- Publicar el APK nuevo de InooWork.

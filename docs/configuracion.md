@@ -141,7 +141,7 @@ los tableros de InooWork se leen directo de su API. Cada ruta tiene la misma for
 | `PORTAL_URL` | URL | Base de los enlaces de los correos automáticos (p. ej. `https://portal.inoo.pe`) |
 | `AUTH_MODO` = `portal` | | Desde el 5 nov, en producción: los clientes entran con correo y contraseña propios (hash scrypt en `usuario.clave_hash`) y la crean con un enlace de un solo uso |
 | `AUTH_EQUIPO` | `inoowork` | El equipo entra con su usuario y contraseña de InooWork (`POST /api/login` de InooWork). Necesita `INOOWORK_URL` y `SESION_SECRETO` |
-| `SESION_SECRETO` | 32 caracteres o más | Firma las sesiones del portal y las URLs temporales de Drive. Sin él, ingresar responde 503 |
+| `SESION_SECRETO` | 32 caracteres o más | Firma las sesiones del portal, las URLs temporales de Drive, los enlaces para compartir tableros y los enlaces de los videos. Sin él, ingresar responde 503 |
 | `INOOWORK_URL`, `INOOWORK_API_KEY` | URL, clave | API de InooWork (`https://intranet.inoo.pe`); la clave va en el header `x-api-key` (parche INO-00). Sin URL, la conexión se simula |
 | `INOOWORK_SYNC_MINUTOS` | número | `60`. Cada cuánto el portal trae las personas de InooWork, con el propio uso del portal; `0` la apaga |
 | `CORREOS_POR` | `portal`, `n8n` | `portal` (por defecto): el despachador manda los correos por SMTP. `n8n`: se los entrega a n8n |
@@ -153,7 +153,12 @@ los tableros de InooWork se leen directo de su API. Cada ruta tiene la misma for
 | `N8N_URL` | URL | Enlace a cada ejecución de n8n en «Costos de IA» |
 | `PERMITIR_AUTH_DEMO`, `CLAVE_DEMO` | `true`; texto | Solo entornos de prueba: tokens `demo.<id>` y la clave única de los usuarios demo (`demo1234`). Nunca en producción |
 | `NEXT_PUBLIC_FECHA_FIJA` | `AAAA-MM-DD` | Fija «hoy» en la fecha de los datos de prueba (pruebas visuales) |
-| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | | Conexiones personales de Jarvis (9 nov): cliente OAuth de tipo **Aplicación web** (no el de escritorio de Drive) con la URI de redirección `{PORTAL_URL}/api/v1/conexiones/google-drive/vuelta` y el alcance `drive.readonly`. Sin ellas, «Conectar» sale como no disponible |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | | Conexiones personales (9 y 18 nov): cliente OAuth de tipo **Aplicación web** (no el de escritorio de Drive) con las URI de redirección `{PORTAL_URL}/api/v1/conexiones/google-drive/vuelta` y `{PORTAL_URL}/api/v1/conexiones/google-calendar/vuelta`, y los alcances `drive.readonly` y `calendar.events`. Para cuentas fuera de `inoo.pe`, la app en «Externo» con usuarios de prueba. Sin ellas, Drive y Calendar salen como no disponibles y el Calendario esconde «Conectar» |
+| `CORREOS_PAUSADOS` | `1` | Ningún correo automático sale (y no se mandan después). Encendido en producción desde el 11 nov |
+| `CARPETAS_PAUSADAS` | `1` | n8n no recibe «cliente creado»: no se crean carpetas de Drive para clientes nuevos (12 nov) |
+| `MONDAY_API_TOKEN` | clave | Solo para importar de Monday (ya terminado el 13 nov). Conviene quitarla del `.env` y regenerarla en Monday |
+| `DEEPSEEK_API_KEY`, `DEEPSEEK_KEYS` | claves | La IA del equipo (pasarela de Jarvis, IA de tableros, resumen para el cliente) |
+| `STITCH_API_KEY`, `STITCH_URL` | | Prototipos del taller web con Google Stitch |
 | `BOVEDA_SECRETO` | 32 caracteres o más | Opcional: cifra el nombre, el usuario y la web de los accesos de la bóveda (las contraseñas se cifran en el navegador). Si falta, se deriva de `SESION_SECRETO` |
 | `CONEXIONES_SECRETO` | 32 caracteres o más | Opcional: cifra los permisos de las conexiones (AES-256-GCM). Si falta, se deriva de `SESION_SECRETO`; cambiar cualquiera de los dos obliga a reconectar |
 
