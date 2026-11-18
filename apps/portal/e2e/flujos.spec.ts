@@ -799,11 +799,23 @@ test("menú lateral (18 nov, Ernesto): se contrae a íconos y se recuerda al vol
   await entrarComo(page, "equipo");
   await page.goto("/equipo/mi-panel");
   const lateral = page.getByRole("complementary", { name: "Menú principal" });
+  // Queda fija al bajar con la página, abierta y contraída.
+  const fija = async () => {
+    await page.evaluate(() => { (document.querySelector("main.contenido") as HTMLElement).style.minHeight = "4000px"; window.scrollTo(0, 2500); });
+    await page.waitForTimeout(300);
+    const y = (await lateral.getByRole("link", { name: "Proyectos" }).boundingBox())!.y;
+    expect(y).toBeGreaterThan(0);
+    expect(y).toBeLessThan(900);
+    await page.evaluate(() => window.scrollTo(0, 0));
+  };
+  await expect(lateral.getByRole("link", { name: "Proyectos" })).toBeVisible({ timeout: 30_000 });
+  await fija();
   await lateral.getByRole("button", { name: "Contraer el menú" }).click({ timeout: 30_000 });
   await expect(lateral).toHaveClass(/lateral--plegada/);
   await expect(lateral.getByRole("link", { name: "Proyectos" })).toBeVisible();
   const ancho = (await lateral.boundingBox())!.width;
   expect(ancho).toBeLessThan(120);
+  await fija();
   await page.reload();
   await expect(page.getByRole("complementary", { name: "Menú principal" })).toHaveClass(/lateral--plegada/, { timeout: 30_000 });
   await page.getByRole("button", { name: "Expandir el menú" }).click();
