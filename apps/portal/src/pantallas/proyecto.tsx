@@ -252,11 +252,7 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
             <h2 className="tarjeta-titulo">Tus tickets</h2>
           </div>
         </div>
-        <button className="boton boton--chico" onClick={() => setAbierto(true)}>
-          <LuPlus size={14} /> Generar ticket
-        </button>
       </div>
-      {lista.datos?.datos.length === 0 && <p className="texto-xs texto-muted">¿Necesitas un cambio o algo no funciona? Genera un ticket y lo atendemos dentro de tu soporte.</p>}
       <div className="lista-suave">
         {lista.datos?.datos.map((t) => (
           <button type="button" key={t.id} className="fila-suave fila-ticket" style={{ padding: "12px 14px", alignItems: "flex-start", width: "100%", border: 0, textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }} onClick={() => setTicket(t.id)} aria-label={`Abrir el ticket ${t.codigo}`}>
@@ -271,6 +267,10 @@ function TicketsDelServicio({ servicioId }: { servicioId: string }) {
           </button>
         ))}
       </div>
+      {/* 18 nov (Ernesto): pedir ayuda queda discreto, al final, y no como botón principal. */}
+      <button type="button" className="boton-texto texto-xs texto-muted" style={{ justifySelf: "start" }} onClick={() => setAbierto(true)}>
+        ¿Algo no funciona? Generar ticket
+      </button>
       {ticket && <DetalleTicket id={ticket} alCerrar={() => { setTicket(null); void lista.recargar(); }} />}
       <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Generar ticket">
         <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Generar ticket</h2>

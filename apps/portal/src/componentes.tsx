@@ -627,17 +627,15 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar, plegad
           </a>
         )}
       </nav>
-      {espacio === "cliente" ? (
+      {/* 18 nov (Ernesto): la ayuda no va a la mano (sigue en el menú de la foto → Ayuda). El recuadro queda solo para
+          avisos: feriados, días no laborables y fechas especiales del cliente. */}
+      {espacio === "cliente" ? (aviso ? (
         <div className="ayuda">
-          {aviso ? iconoAviso(aviso.tipo) : <LuSparkles size={18} />}
-          <strong>{aviso?.tipo === "ANIVERSARIO" ? aviso.titulo : aviso ? TIPO_AVISO[aviso.tipo] : "Estamos contigo."}</strong>
-          {/* El recuadro sirve para comunicar feriados, días no laborables y fechas especiales del cliente. */}
-          <span>{aviso ? (aviso.tipo === "ANIVERSARIO" ? aviso.mensaje : textoAviso(aviso)) : "Tu equipo Inoo, a un mensaje de distancia."}</span>
-          <Enlace a="/cuenta/ayuda" className="enlace">
-            Contactar a mi equipo
-          </Enlace>
+          {iconoAviso(aviso.tipo)}
+          <strong>{aviso.tipo === "ANIVERSARIO" ? aviso.titulo : TIPO_AVISO[aviso.tipo]}</strong>
+          <span>{aviso.tipo === "ANIVERSARIO" ? aviso.mensaje : textoAviso(aviso)}</span>
         </div>
-      ) : (
+      ) : null) : (
         <div className="ayuda">
           <LuShieldCheck size={18} />
           <strong>Gestión interna</strong>

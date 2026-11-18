@@ -376,6 +376,14 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.deepEqual((await llamar("DELETE", `${ruta}/${c1.id}`, ADMIN)).json.datos, []);
     });
 
+    test("18 nov (Ernesto): al culminar un proyecto, sus ítems vencidos dejan de estar en Mi trabajo", async () => {
+      await reiniciar();
+      const antes = (await llamar("GET", "/mi-trabajo", DIEGO)).json.datos.filter((x: any) => x.tableroId === "PROJ-MKT01");
+      assert.ok(antes.length > 0 && antes.some((x: any) => x.vencido), "tenía pendientes vencidos en ese tablero");
+      assert.equal((await llamar("PATCH", "/tableros/PROJ-MKT01", DIEGO, { estado: "Completado" })).status, 200);
+      assert.deepEqual((await llamar("GET", "/mi-trabajo", DIEGO)).json.datos.filter((x: any) => x.tableroId === "PROJ-MKT01"), []);
+    });
+
     test("cada uno ve los proyectos donde es líder o miembro; el nivel ADMIN, todos; el cliente, nada", async () => {
       await reiniciar();
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);

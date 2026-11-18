@@ -111,7 +111,8 @@ export const pendientesComoEventos = (xs: PendienteTablero[], desde: string, has
 function pendientesDe(proyectos: ProyectoIW[], empleado: string): PendienteTablero[] {
   const datos: PendienteTablero[] = [];
   for (const p of proyectos) {
-    if (p.archived || p.deleted) continue;
+    // 18 nov (Ernesto): un proyecto culminado (o cancelado) ya no deja pendientes ni vencidos, aunque falten los 14 días para archivarse.
+    if (p.archived || p.deleted || p.status === "Completado" || p.status === "Cancelado") continue;
     const cols = columnasPersonalizadas(p).filter((c) => c.type === "people");
     for (const it of p.items ?? []) {
       const grupo = (p.groups ?? []).find((g) => g.id === it.groupId)?.name ?? null;
