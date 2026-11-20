@@ -32,6 +32,7 @@
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
  * tests/api/flujo-piezas.ts corren contra las dos.
  */
+import { MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, type ModuloNovedad } from "../dominio/novedades";
 import { createHash, randomBytes } from "node:crypto";
 import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
@@ -605,6 +606,27 @@ ruta("POST", "/me/notificaciones/leer", async (ctx, _p, _q, cuerpo) => {
   const b = (await cuerpo()) as { ids?: string[] };
   const ids = Array.isArray(b.ids) && b.ids.length ? b.ids : null;
   await ctx.c.query(`UPDATE notificacion SET leida_en = now() WHERE usuario_id = $1 AND leida_en IS NULL ${ids ? "AND id = ANY($2::uuid[])" : ""}`, ids ? [ctx.u.usuarioId, ids] : [ctx.u.usuarioId]);
+  return null;
+});
+
+// 20 nov (Alonso): novedades por sección para los contadores del menú y la alerta de «Mi panel».
+ruta("GET", "/me/novedades", async (ctx) => {
+  soloEquipo(ctx);
+  const cuenta = (await ctx.c.query<{ modulo: string; n: number }>(
+    "SELECT modulo, count(*)::int AS n FROM notificacion WHERE usuario_id = $1 AND leida_en IS NULL AND modulo IS NOT NULL GROUP BY modulo", [ctx.u.usuarioId])).rows;
+  const clientes = (await ctx.c.query<{ id: string; tipo: string; cliente_id: string | null; titulo: string; cuerpo: string | null; enlace: string | null; creado_en: Date }>(
+    "SELECT id, tipo, cliente_id, titulo, cuerpo, enlace, creado_en FROM notificacion WHERE usuario_id = $1 AND leida_en IS NULL AND modulo = 'PANEL' ORDER BY creado_en DESC LIMIT 10", [ctx.u.usuarioId])).rows;
+  const n = (m: string) => cuenta.find((x) => x.modulo === m)?.n ?? 0;
+  return {
+    panel: n("PANEL"), trabajo: n("TRABAJO"),
+    clientes: clientes.map((x) => ({ id: x.id, tipo: x.tipo, clienteId: x.cliente_id, titulo: x.titulo, cuerpo: x.cuerpo, enlace: x.enlace, leida: false, creadoEn: iso(x.creado_en) })),
+  };
+});
+ruta("POST", "/me/novedades/vistas", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as { modulo?: unknown };
+  if (!MODULOS_NOVEDAD.includes(b.modulo as ModuloNovedad)) validacion([{ campo: "modulo", mensaje: "Usa PANEL o TRABAJO" }]);
+  await ctx.c.query("UPDATE notificacion SET leida_en = now() WHERE usuario_id = $1 AND leida_en IS NULL AND modulo = $2", [ctx.u.usuarioId, b.modulo]);
   return null;
 });
 
@@ -7042,8 +7064,22 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
     }
   }
   if (operativo) await sumarOperativoAProyectos(ctx, id, operativo);
+  // 20 nov: avisan a quien lleva la cuenta y a quien lleva el proyecto (nunca a quien lo creó).
+  await avisarCliente(ctx, id, nombre, [[am, "Eres su propietario comercial."], [operativo, "Eres su responsable operativo: llevas su proyecto."]], true);
   return { __status: 201, ...(await clienteVista(ctx, id)), proyectosCreados: desdeIngreso.contrataciones.length - (sinProyecto.length - desdeIngreso.sinProyecto.length), sinProyecto };
 });
+
+/** Aviso de cliente nuevo o asignado, a cada persona una vez (va a la sección «Mi panel»). */
+async function avisarCliente(ctx: Ctx, clienteId: string, nombre: string, a: [string | null | undefined, string][], nuevo: boolean) {
+  const vistos = new Set<string>();
+  for (const [destino, cuerpo] of a) {
+    if (!destino || vistos.has(destino)) continue;
+    vistos.add(destino);
+    await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, $3::uuid, $4, $5, $6)", [
+      destino, ctx.esServicio ? null : ctx.u.usuarioId, clienteId, `${nuevo ? TITULO_CLIENTE_NUEVO : TITULO_CLIENTE_ASIGNADO}: ${nombre}`.slice(0, 200), cuerpo, `/equipo/clientes/${clienteId}`,
+    ]);
+  }
+}
 
 /** El responsable operativo tiene que ser alguien activo del equipo (o null para quitarlo). */
 async function responsableOperativoValido(ctx: Ctx, id: unknown): Promise<string | null> {
@@ -7085,11 +7121,20 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
   if (b.wordpressUrl !== undefined) cambios.push(["wordpress_url", b.wordpressUrl]);
   if (b.fechaAniversario !== undefined) cambios.push(["fecha_aniversario", b.fechaAniversario, "$::date"]);
   if (b.contactoPrincipalId !== undefined) cambios.push(["contacto_principal_id", b.contactoPrincipalId]);
+  const antes = (await ctx.c.query<{ nombre: string; account_manager_id: string | null; responsable_operativo_id: string | null }>(
+    "SELECT nombre, account_manager_id, responsable_operativo_id FROM cliente WHERE id = $1", [p.id])).rows[0];
   if (b.accountManagerId !== undefined) cambios.push(["account_manager_id", b.accountManagerId]);
   if (b.responsableOperativoId !== undefined) {
     const operativo = await responsableOperativoValido(ctx, b.responsableOperativoId);
     cambios.push(["responsable_operativo_id", operativo]);
     if (operativo) await sumarOperativoAProyectos(ctx, p.id, operativo);
+  }
+  // 20 nov: a quien recién asignan a la cuenta o al proyecto le llega el aviso.
+  if (antes) {
+    await avisarCliente(ctx, p.id, antes.nombre, [
+      [b.accountManagerId && b.accountManagerId !== antes.account_manager_id ? b.accountManagerId : null, "Ahora eres su propietario comercial."],
+      [b.responsableOperativoId && b.responsableOperativoId !== antes.responsable_operativo_id ? (b.responsableOperativoId as string) : null, "Ahora eres su responsable operativo: llevas su proyecto."],
+    ], false);
   }
   if (b.limiteGastoIaUsd !== undefined) cambios.push(["limite_gasto_ia_usd", b.limiteGastoIaUsd]);
   if (b.estado !== undefined) cambios.push(["estado", b.estado, "$::estado_cliente"]);

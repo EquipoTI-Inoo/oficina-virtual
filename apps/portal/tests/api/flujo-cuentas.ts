@@ -76,6 +76,36 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
       assert.equal((await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: null })).json.responsableOperativo, null);
     });
 
+    test("20 nov: novedades por sección: cliente nuevo en «Mi panel», tarea asignada en «Mi trabajo», y el contador vuelve a cero al verlas", async () => {
+      await reiniciar();
+      const CAMILA = `demo.${uid(1, 6)}`;
+      const antes = (await llamar("GET", "/me/novedades", CAMILA)).json;
+      const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Retail Oeste", responsableOperativoId: uid(1, 6) });
+      assert.equal(ok.status, 201);
+      const nov = (await llamar("GET", "/me/novedades", CAMILA)).json;
+      assert.equal(nov.panel, antes.panel + 1);
+      assert.match(nov.clientes[0].titulo, /^Nuevo cliente agregado: Retail Oeste/);
+      assert.equal(nov.clientes[0].enlace, `/equipo/clientes/${ok.json.id}`);
+      assert.equal((await llamar("GET", "/me/novedades", DIEGO)).json.clientes.some((n: any) => n.titulo.includes("Retail Oeste")), false, "a quien lo crea no le avisa");
+      assert.equal((await llamar("POST", "/me/novedades/vistas", CAMILA, { modulo: "PANEL" })).status, 204);
+      assert.equal((await llamar("GET", "/me/novedades", CAMILA)).json.panel, 0);
+      assert.equal((await llamar("POST", "/me/novedades/vistas", CAMILA, { modulo: "OTRO" })).status, 422);
+
+      // Un ítem de un tablero asignado a Camila suma en «Mi trabajo».
+      const item = (await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json.items[0];
+      const trabajo = (await llamar("GET", "/me/novedades", CAMILA)).json.trabajo;
+      assert.equal((await llamar("PATCH", `/tableros/PROJ-MKT01/items/${item.id}`, DIEGO, { responsableId: "EMP-003" })).status, 200);
+      assert.equal((await llamar("GET", "/me/novedades", CAMILA)).json.trabajo, trabajo + 1);
+      await llamar("POST", "/me/novedades/vistas", CAMILA, { modulo: "TRABAJO" });
+      assert.equal((await llamar("GET", "/me/novedades", CAMILA)).json.trabajo, 0);
+
+      // Asignarle una cuenta existente también le avisa.
+      await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: null });
+      await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: uid(1, 6) });
+      assert.match((await llamar("GET", "/me/novedades", CAMILA)).json.clientes[0].titulo, /^Te asignaron el cliente: Retail Oeste/);
+      assert.equal((await llamar("GET", "/me/novedades", VALERIA)).status, 403, "solo el equipo");
+    });
+
     test("20 nov: alta con proyectos personalizados: un tablero vacío por servicio, con el servicio como etiqueta y sin servicio con plantilla", async () => {
       await reiniciar();
       const ingreso = { servicios: ["Desarrollo web"], objetivos: "Vender", fechaReunionBrief: "2026-10-20", tipoWeb: "Landing page", estructuraWeb: "Código" };

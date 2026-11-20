@@ -395,6 +395,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/novedades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Novedades sin ver por sección (20 nov): contadores de «Mi panel» y «Mi trabajo» en el menú, y los clientes nuevos o asignados para la alerta del panel */
+        get: operations["misNovedades"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/novedades/vistas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marca como vistas las novedades de una sección al abrirla (20 nov): el contador del menú vuelve a cero */
+        post: operations["verNovedades"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/cuenta": {
         parameters: {
             query?: never;
@@ -10234,6 +10268,60 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    misNovedades: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Avisos sin ver de clientes nuevos o asignados */
+                        panel: number;
+                        /** @description Avisos sin ver de tareas o ítems asignados */
+                        trabajo: number;
+                        /** @description Los avisos de «Mi panel» sin ver (los más nuevos primero) */
+                        clientes: components["schemas"]["Notificacion"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    verNovedades: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    modulo: "PANEL" | "TRABAJO";
+                };
+            };
+        };
+        responses: {
+            /** @description Vistas */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Validacion"];
         };
     };
     miCuentaEquipo: {

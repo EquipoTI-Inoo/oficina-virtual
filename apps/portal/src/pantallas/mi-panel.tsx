@@ -6,9 +6,9 @@
  */
 import { useEffect, useState } from "react";
 import { LuCalendarDays, LuListTodo, LuUsers } from "react-icons/lu";
-import { Enlace, fCorta, useConsulta, useNavegacion, type S } from "../base";
+import { api, Enlace, fCorta, useConsulta, useNavegacion, type S } from "../base";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
-import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta } from "../componentes";
+import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, verNovedades } from "../componentes";
 
 const TONO: Record<S<"KpiProyecto">["nivel"], "verde" | "ambar" | "rojo"> = { OK: "verde", ALERTA: "ambar", CRITICO: "rojo" };
 const COLUMNA: Record<S<"ColumnaProyecto">, string> = {
@@ -31,6 +31,33 @@ export function usePersonaDeLaUrl() {
   return quien;
 }
 
+/**
+ * 20 nov (Alonso): «Nuevo cliente agregado». Los clientes nuevos o asignados desde la última visita se ven arriba del
+ * panel; al abrirlo quedan como vistos (el contador del menú vuelve a cero), pero el aviso sigue hasta salir.
+ */
+function ClientesNuevos() {
+  const [lista, setLista] = useState<S<"Notificacion">[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    api<{ clientes: S<"Notificacion">[] }>("/me/novedades")
+      .then((r) => { if (vivo) setLista(r.clientes); if (r.clientes.length) void verNovedades("PANEL"); })
+      .catch(() => undefined);
+    return () => { vivo = false; };
+  }, []);
+  if (!lista?.length) return null;
+  return (
+    <section className="tarjeta" role="status" style={{ padding: "14px 16px", marginBottom: 16, display: "grid", gap: 8, borderColor: "var(--c-primario)" }} aria-label="Clientes nuevos">
+      <h2 className="tarjeta-titulo fila" style={{ gap: 8, fontSize: "var(--t-md)" }}><LuUsers size={16} /> {lista.length === 1 ? "Nuevo cliente agregado" : `${lista.length} clientes nuevos o asignados`}</h2>
+      {lista.map((n) => (
+        <p key={n.id} className="texto-sm">
+          {n.enlace ? <Enlace a={n.enlace} className="enlace negrita">{n.titulo.replace(/^[^:]*:\s*/, "")}</Enlace> : <strong>{n.titulo}</strong>}
+          {n.cuerpo && <span className="texto-muted"> · {n.cuerpo}</span>}
+        </p>
+      ))}
+    </section>
+  );
+}
+
 function MiPanel() {
   const quien = usePersonaDeLaUrl();
   const { datos: d, error, recargar } = useConsulta<S<"PanelColaborador">>(quien ? `/panel/colaborador?usuarioId=${quien}` : "/panel/colaborador");
@@ -38,6 +65,8 @@ function MiPanel() {
   if (!d) return <Cargando />;
   const r = d.resumen;
   return (
+    <>
+    {!quien && <ClientesNuevos />}
     <>
       {quien && (
         <Enlace a="/equipo/mi-panel" className="volver">
@@ -139,6 +168,7 @@ function MiPanel() {
           </div>
         </aside>
       </div>
+    </>
     </>
   );
 }

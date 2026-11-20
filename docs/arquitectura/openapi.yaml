@@ -531,6 +531,45 @@ paths:
       responses:
         '204': { description: Marcadas }
 
+  /me/novedades:
+    get:
+      tags: [Sesión]
+      operationId: misNovedades
+      summary: 'Novedades sin ver por sección (20 nov): contadores de «Mi panel» y «Mi trabajo» en el menú, y los clientes nuevos o asignados para la alerta del panel'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [panel, trabajo, clientes]
+                properties:
+                  panel: { type: integer, description: Avisos sin ver de clientes nuevos o asignados }
+                  trabajo: { type: integer, description: Avisos sin ver de tareas o ítems asignados }
+                  clientes: { type: array, items: { $ref: '#/components/schemas/Notificacion' }, description: 'Los avisos de «Mi panel» sin ver (los más nuevos primero)' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /me/novedades/vistas:
+    post:
+      tags: [Sesión]
+      operationId: verNovedades
+      summary: 'Marca como vistas las novedades de una sección al abrirla (20 nov): el contador del menú vuelve a cero'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modulo]
+              properties:
+                modulo: { type: string, enum: [PANEL, TRABAJO] }
+      responses:
+        '204': { description: Vistas }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /me/cuenta:
     get:
       tags: [Sesión]

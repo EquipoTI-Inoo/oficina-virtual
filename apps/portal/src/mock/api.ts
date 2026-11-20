@@ -9,6 +9,7 @@
  *   comentario obligatorio al pedir cambios, Idempotency-Key, cupo de ideas, derechos de uso.
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
+import { moduloDeAviso, MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, type ModuloNovedad } from "../dominio/novedades";
 import { PROYECTOS_DEMO } from "./inoowork-demo";
 import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
 import { slugDe as slugSkill, textoMisHerramientas, validarSkillPropia, validarTokenConector, type ArchivoTexto, type AuthConector } from "../dominio/herramientas-persona";
@@ -835,6 +836,28 @@ ruta("POST", "/me/notificaciones/leer", (ctx) => {
   notificaciones(ctx).forEach((n) => E.notificacionesLeidas.add(n.id));
   return null;
 });
+// 20 nov: novedades por sección (contadores del menú y alerta de «Mi panel»).
+const novedadesDe = (ctx: Ctx, m: ModuloNovedad) => notificaciones(ctx).filter((n) => !n.leida && moduloDeAviso(n.titulo) === m);
+ruta("GET", "/me/novedades", (ctx) => {
+  soloEquipo(ctx);
+  return { panel: novedadesDe(ctx, "PANEL").length, trabajo: novedadesDe(ctx, "TRABAJO").length, clientes: novedadesDe(ctx, "PANEL").slice(0, 10) };
+});
+ruta("POST", "/me/novedades/vistas", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  const b = await cuerpo<{ modulo?: unknown }>(req);
+  if (!MODULOS_NOVEDAD.includes(b.modulo as ModuloNovedad)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "modulo", mensaje: "Usa PANEL o TRABAJO" }]);
+  novedadesDe(ctx, b.modulo as ModuloNovedad).forEach((n) => E.notificacionesLeidas.add(n.id));
+  return null;
+});
+/** Aviso de cliente nuevo o asignado (20 nov), a cada persona una vez y nunca a quien lo hace. */
+function avisarClienteMock(ctx: Ctx, c: { id: string; nombre: string }, a: [string | null | undefined, string][], nuevo: boolean) {
+  const vistos = new Set<string>([ctx.usuario.id]);
+  for (const [destino, texto] of a) {
+    if (!destino || vistos.has(destino)) continue;
+    vistos.add(destino);
+    E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: destino, titulo: `${nuevo ? TITULO_CLIENTE_NUEVO : TITULO_CLIENTE_ASIGNADO}: ${c.nombre}`, cuerpo: texto, enlace: `/equipo/clientes/${c.id}`, creadoEn: new Date().toISOString() });
+  }
+}
 
 // Clientes
 ruta("GET", "/clientes", (ctx) => {
@@ -2742,6 +2765,7 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     }
   }
   if (c.responsableOperativoId) sumarOperativo(ctx, c.id, c.responsableOperativoId);
+  avisarClienteMock(ctx, c, [[c.accountManagerId, "Eres su propietario comercial."], [c.responsableOperativoId, "Eres su responsable operativo: llevas su proyecto."]], true);
   return { __status: 201, ...clienteVista(ctx, c), proyectosCreados: desdeIngreso.contrataciones.length - (sinProyecto.length - desdeIngreso.sinProyecto.length), sinProyecto };
 });
 
@@ -2769,10 +2793,15 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
     if (ingreso.errores.length) throw new ErrorApi(422, "VALIDACION", "Completa el ingreso del cliente", undefined, ingreso.errores);
     c.ingreso = { respuestas: ingreso.respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.usuario.id };
   }
+  const antes = { am: c.accountManagerId ?? null, operativo: c.responsableOperativoId ?? null };
   if (b.responsableOperativoId !== undefined) {
     c.responsableOperativoId = operativoValido(b.responsableOperativoId);
     if (c.responsableOperativoId) sumarOperativo(ctx, c.id, c.responsableOperativoId);
   }
+  avisarClienteMock(ctx, c, [
+    [b.accountManagerId && b.accountManagerId !== antes.am ? b.accountManagerId : null, "Ahora eres su propietario comercial."],
+    [b.responsableOperativoId && b.responsableOperativoId !== antes.operativo ? (b.responsableOperativoId as string) : null, "Ahora eres su responsable operativo: llevas su proyecto."],
+  ], false);
   const f = (E.fichas[c.id] ??= structuredClone(fichaDe(c.id)));
   if (b.nombre) c.nombre = b.nombre.trim();
   if (b.limiteGastoIaUsd !== undefined) c.limiteGastoIaUsd = b.limiteGastoIaUsd;

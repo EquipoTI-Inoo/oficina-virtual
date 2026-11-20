@@ -3,10 +3,10 @@
  * Mi trabajo (12 nov 2026), como en Monday: todo lo que tengo asignado en los tableros (como responsable, en una
  * columna de personas o en un subítem), agrupado por cuándo vence. Cada fila abre el ítem en su tablero.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LuCircleCheck, LuCornerDownRight } from "react-icons/lu";
 import { Enlace, HOY_PORTAL, useConsulta } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura } from "../componentes";
+import { Cabecera, Cargando, ErrorCarga, Estructura, verNovedades } from "../componentes";
 import { COLOR_ESTADO, type EstadoItem } from "../dominio/tableros";
 
 type Fila = {
@@ -42,6 +42,8 @@ export function PantallaMiTrabajo() {
 }
 
 function MiTrabajo() {
+  // 20 nov: al abrir «Mi trabajo», las tareas nuevas asignadas dejan de contar en el menú.
+  useEffect(() => void verNovedades("TRABAJO"), []);
   const r = useConsulta<{ datos: Fila[]; vinculado?: boolean }>("/mi-trabajo");
   const [tablero, setTablero] = useState("");
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;

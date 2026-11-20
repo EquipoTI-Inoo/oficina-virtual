@@ -367,6 +367,18 @@ function BuscadorGlobal({ alCerrar }: { alCerrar: () => void }) {
 // Reunión del 12 oct 2026: el cliente solo ve sus servicios y lo que tiene por revisar.
 // Blog y Plan del mes pasan al equipo; Brief se reemplaza por Requerimientos; Biblioteca entra en
 // Paid Media. Usuarios, pagos, correos y ayuda (soporte) están en «Mi cuenta», desde la foto de perfil.
+/** Se avisa cuando alguien vio las novedades de una sección, para que el menú recargue sus contadores (20 nov). */
+export const EVENTO_NOVEDADES = "inoo:novedades";
+/** Marca como vistas las novedades de una sección al abrirla y actualiza el menú. */
+export async function verNovedades(modulo: "PANEL" | "TRABAJO") {
+  try {
+    await api("/me/novedades/vistas", { metodo: "POST", cuerpo: { modulo } });
+    window.dispatchEvent(new Event(EVENTO_NOVEDADES));
+  } catch {
+    /* si falla, el contador queda hasta la próxima visita */
+  }
+}
+
 const NAV_CLIENTE = [
   { a: "/inicio", texto: "Inicio", icono: <LuHouse /> },
   { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
@@ -375,9 +387,9 @@ const NAV_CLIENTE = [
 ];
 const NAV_EQUIPO = [
   // 2 nov: «Panel general» se unió con «Mi panel»; el calendario es de cada colaborador (no solo contenido).
-  { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound /> },
+  { a: "/equipo/mi-panel", texto: "Mi panel", icono: <LuUserRound />, contador: "panel" },
   // 12 nov: Mi trabajo, como en Monday (lo asignado a cada uno en todos los tableros).
-  { a: "/equipo/mi-trabajo", texto: "Mi trabajo", icono: <LuListChecks /> },
+  { a: "/equipo/mi-trabajo", texto: "Mi trabajo", icono: <LuListChecks />, contador: "trabajo" },
   // 13 nov (auditoría): la bandeja del AM (requerimientos enviados y entregables por enviar o corregir).
   { a: "/equipo/por-revisar", texto: "Por revisar", icono: <LuFileCheck />, contador: "porRevisar" },
   { a: "/equipo/calendario", texto: "Calendario", icono: <LuCalendarDays /> },
@@ -747,6 +759,14 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   const me = useConsulta<S<"Sesion">>(sesionLocal ? "/me" : null);
   const inicio = useConsulta<S<"InicioCliente">>(sesionLocal && espacio === "cliente" ? `/clientes/${clienteActivo()}/inicio` : null);
   const porRevisar = useConsulta<{ datos: S<"PorRevisar">[] }>(sesionLocal && espacio === "equipo" ? "/panel/por-revisar" : null);
+  // 20 nov (Alonso): cuántas novedades sin ver hay en «Mi panel» y «Mi trabajo»; se recargan al verlas.
+  const novedades = useConsulta<{ panel: number; trabajo: number }>(sesionLocal && espacio === "equipo" ? "/me/novedades" : null);
+  const recargarNovedades = novedades.recargar;
+  useEffect(() => {
+    const f = () => void recargarNovedades();
+    window.addEventListener(EVENTO_NOVEDADES, f);
+    return () => window.removeEventListener(EVENTO_NOVEDADES, f);
+  }, [recargarNovedades]);
   const [leidas, setLeidas] = useState(false);
 
   useEffect(() => {
@@ -773,7 +793,8 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
 
   const porAprobar = inicio.datos?.indicadores.porAprobar ?? 0;
   const contadores = { porAprobar, requerimientos: inicio.datos?.indicadores.requerimientosPendientes ?? 0,
-    porRevisar: porRevisar.datos?.datos.filter((x) => pideAccion(x.accion)).length ?? 0 };
+    porRevisar: porRevisar.datos?.datos.filter((x) => pideAccion(x.accion)).length ?? 0,
+    panel: novedades.datos?.panel ?? 0, trabajo: novedades.datos?.trabajo ?? 0 };
   const aviso = inicio.datos?.avisos?.[0];
   const sinLeer = !leidas && (me.datos?.notificacionesSinLeer ?? 0) > 0;
   const nombreCuenta = espacio === "cliente" ? inicio.datos?.cuenta?.nombre ?? cuentaActiva(me.datos)?.nombre ?? "" : "Equipo Inoo";
