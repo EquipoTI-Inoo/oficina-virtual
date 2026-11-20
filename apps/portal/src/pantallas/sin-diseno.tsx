@@ -525,6 +525,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
           nombre, limiteGastoIaUsd: Number(limite), canales, fechaAniversario: aniversario || undefined, driveUrl: carpeta.trim() || undefined,
           ingreso: formulario ? Object.fromEntries(Object.entries(ingreso).filter(([, v]) => !respuestaVacia(v))) : undefined,
           responsableProyectosId: conProyecto.length && responsableProyectos ? responsableProyectos : undefined,
+          responsableOperativoId: responsableProyectos || undefined,
           contacto: contacto.nombre || contacto.email ? { nombre: contacto.nombre, email: contacto.email, cargo: contacto.cargo || undefined } : undefined,
         },
         idempotente: true,
@@ -635,16 +636,16 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
           )}
           {Object.keys(erroresIngreso).length > 0 && <Ayuda error="Completa el ingreso: revisa los campos marcados." />}
         </div>
-        {conProyecto.length > 0 && (
-          <div className="campo">
-            <label htmlFor="nc-responsable-proyectos">Quién de Inoo lleva sus proyectos</label>
-            <select id="nc-responsable-proyectos" className="input" value={responsableProyectos} onChange={(e) => setResponsableProyectos(e.target.value)} aria-invalid={!!err.responsableProyectosId} style={{ height: 38 }}>
-              <option value="">Elige a una persona</option>
-              {equipo.datos?.datos.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-            </select>
-            <Ayuda error={err.responsableProyectosId} texto={`Se crean ${conProyecto.length === 1 ? "el proyecto" : `${conProyecto.length} proyectos`} de ${conProyecto.join(", ")} a su cargo.`} />
-          </div>
-        )}
+        {/* 20 nov: el responsable operativo se elige siempre; tú quedas como «Creado por». */}
+        <div className="campo">
+          <label htmlFor="nc-responsable-proyectos">Responsable operativo (quién lleva el proyecto){conProyecto.length > 0 && <span className="texto-primario"> *</span>}</label>
+          <select id="nc-responsable-proyectos" className="input" value={responsableProyectos} onChange={(e) => setResponsableProyectos(e.target.value)} aria-invalid={!!(err.responsableProyectosId || err.responsableOperativoId)} style={{ height: 38 }}>
+            <option value="">{conProyecto.length > 0 ? "Elige a una persona" : "Sin definir todavía"}</option>
+            {equipo.datos?.datos.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+          </select>
+          <Ayuda error={err.responsableProyectosId || err.responsableOperativoId}
+            texto={conProyecto.length > 0 ? `Se crean ${conProyecto.length === 1 ? "el proyecto" : `${conProyecto.length} proyectos`} de ${conProyecto.join(", ")} a su cargo, y queda en el equipo de cada uno.` : "Entra al equipo de los proyectos del cliente. Tú quedas registrado como quien hizo el alta."} />
+        </div>
         {motivos.length > 0 && (
           <div role="alert" style={{ border: "1px solid var(--c-alerta)", borderRadius: 12, padding: "10px 14px", display: "grid", gap: 4 }}>
             <strong className="texto-sm" style={{ color: "var(--c-alerta)" }}>No se creó el cliente:</strong>

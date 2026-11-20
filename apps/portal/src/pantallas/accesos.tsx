@@ -35,10 +35,16 @@ export function GestionCuenta({ cliente, alGuardar }: { cliente: S<"Cliente">; a
   return (
     <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
       <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Gestión de la cuenta</h3>
-      <label className="texto-xs" htmlFor="gc-am">Quién lleva la cuenta</label>
+      <label className="texto-xs" htmlFor="gc-am">Propietario comercial (quién lleva la cuenta)</label>
       <select id="gc-am" className="input" value={cliente.accountManager?.id ?? ""} onChange={(e) => void guardar({ accountManagerId: e.target.value }, "Cambiamos a quien lleva la cuenta")}>
         {!cliente.accountManager && <option value="">Sin asignar</option>}
         {cliente.accountManager && !equipo.datos?.datos.some((p) => p.id === cliente.accountManager?.id) && <option value={cliente.accountManager.id}>{cliente.accountManager.nombre}</option>}
+        {(equipo.datos?.datos ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+      </select>
+      <label className="texto-xs" htmlFor="gc-operativo">Responsable operativo (quién lleva el proyecto)</label>
+      <select id="gc-operativo" className="input" value={cliente.responsableOperativo?.id ?? ""} onChange={(e) => void guardar({ responsableOperativoId: e.target.value || null }, e.target.value ? "Cambiamos al responsable operativo; ya está en el equipo de sus proyectos" : "Quitamos al responsable operativo")}>
+        <option value="">Sin definir</option>
+        {cliente.responsableOperativo && !equipo.datos?.datos.some((p) => p.id === cliente.responsableOperativo?.id) && <option value={cliente.responsableOperativo.id}>{cliente.responsableOperativo.nombre}</option>}
         {(equipo.datos?.datos ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
       </select>
       <label className="texto-xs" htmlFor="gc-estado">Estado de la cuenta</label>

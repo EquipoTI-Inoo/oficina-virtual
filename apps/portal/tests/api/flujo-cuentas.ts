@@ -53,6 +53,29 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
       assert.ok((await llamar("GET", "/clientes", DIEGO)).json.datos.some((c: any) => c.id === ok.json.id));
     });
 
+    test("20 nov: «Creado por», responsable operativo en el equipo del proyecto y transcripciones largas en el ingreso", async () => {
+      await reiniciar();
+      const base = { servicios: ["Desarrollo web"], objetivos: "Vender en línea", fechaReunionBrief: "2026-10-20", tipoWeb: "Web e-commerce", estructuraWeb: "CMS (Elementor, Shopify, WordPress)", cantidadProductos: 40 };
+      const larga = "Cliente: queremos vender en línea. ".repeat(1600); // ~56.000 caracteres
+      const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Retail Sur", ingreso: { ...base, transcripcion: larga, resumen: larga.slice(0, 20_000) }, responsableProyectosId: uid(1, 6) });
+      assert.equal(ok.status, 201, JSON.stringify(ok.json.errores ?? ok.json.title));
+      assert.deepEqual([ok.json.creadoPor?.nombre, ok.json.responsableOperativo?.nombre], ["Diego Castro", "Camila Paredes"]);
+      assert.equal(ok.json.ingreso.respuestas.transcripcion.length, larga.length, "la transcripción completa se guarda");
+      const servicio = (await llamar("GET", `/clientes/${ok.json.id}/servicios`, DIEGO)).json.servicios[0];
+      const equipoDe = async () => (await llamar("GET", `/servicios-contratados/${servicio.servicioContratadoId}/miembros`, DIEGO)).json.datos.map((m: any) => m.persona?.nombre ?? m.nombre);
+      assert.ok((await equipoDe()).includes("Camila Paredes"), "el responsable operativo está en el equipo del proyecto");
+
+      const muyLarga = await llamar("POST", "/clientes", DIEGO, { nombre: "Retail Norte", ingreso: { ...base, resumen: "x".repeat(60_001) }, responsableProyectosId: uid(1, 6) });
+      assert.equal(muyLarga.status, 422);
+      assert.match(muyLarga.json.errores[0].mensaje, /60[.,]?001 caracteres y el máximo es 60[.,]?000/);
+
+      const cambio = await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: uid(1, 3) });
+      assert.deepEqual([cambio.status, cambio.json.responsableOperativo?.nombre, cambio.json.creadoPor?.nombre], [200, "Diego Castro", "Diego Castro"]);
+      assert.ok((await equipoDe()).includes("Diego Castro"), "al cambiarlo, el nuevo entra al equipo");
+      assert.equal((await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: "no-es-alguien" })).status, 422);
+      assert.equal((await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: null })).json.responsableOperativo, null);
+    });
+
     test("alta con el ingreso de cliente (antes en Monday): cada servicio pide lo suyo y solo lo ve el equipo", async () => {
       await reiniciar();
       assert.equal((await llamar("GET", "/formularios/ingreso-cliente", VALERIA)).status, 403);

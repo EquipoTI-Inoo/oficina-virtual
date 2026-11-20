@@ -5746,6 +5746,11 @@ export interface components {
              * @description Solo en el alta: quién de Inoo lleva los proyectos que se crean desde el ingreso
              */
             responsableProyectosId?: string;
+            /**
+             * Format: uuid
+             * @description Quién lleva el proyecto (20 nov). Entra como miembro de los proyectos activos del cliente
+             */
+            responsableOperativoId?: string | null;
             marca?: components["schemas"]["Marca"];
             tono?: components["schemas"]["Tono"];
             publico?: components["schemas"]["Publico"];
@@ -5805,8 +5810,12 @@ export interface components {
             fechaAniversario?: string | null;
             plan?: components["schemas"]["PlanCliente"] | null;
             contactoPrincipal?: components["schemas"]["PersonaMini"] | null;
-            /** @description "Tu equipo de contacto" en el portal y "Responsable de cuenta" en la ficha */
+            /** @description "Tu equipo de contacto" en el portal y "Propietario comercial" en la ficha */
             accountManager?: components["schemas"]["PersonaMini"] | null;
+            /** @description Quién hizo el alta (20 nov). Solo equipo */
+            creadoPor?: components["schemas"]["PersonaMini"] | null;
+            /** @description Quién lleva el proyecto (20 nov). Solo equipo */
+            responsableOperativo?: components["schemas"]["PersonaMini"] | null;
             conteos?: {
                 serviciosActivos?: number;
                 aprobacionesPendientes?: number;

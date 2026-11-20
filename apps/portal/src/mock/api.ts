@@ -869,7 +869,10 @@ function clienteVista(ctx: Ctx, c: D.ClienteDemo): S<"Cliente"> {
   } as S<"Cliente"> & Record<string, unknown>;
   if (ctx.esEquipo) {
     const ingreso = c.ingreso ? { respuestas: c.ingreso.respuestas, registradoEn: c.ingreso.registradoEn, registradoPor: persona(c.ingreso.registradoPorId) } : null;
-    Object.assign(r, { driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd, inactividad: inactividadVista(c), ingreso });
+    Object.assign(r, {
+      driveUrl: f.driveUrl, driveCarpetaId: f.driveUrl ? `demo-${c.slug}` : null, limiteGastoIaUsd: c.limiteGastoIaUsd, inactividad: inactividadVista(c), ingreso,
+      creadoPor: c.creadoPorId ? persona(c.creadoPorId) : null, responsableOperativo: c.responsableOperativoId ? persona(c.responsableOperativoId) : null,
+    });
   }
   return r;
 }
@@ -2689,6 +2692,8 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     creadoEn: new Date().toISOString(),
     accountManagerId: b.accountManagerId ?? (ctx.usuario.rolEquipo === "ACCOUNT_MANAGER" || nivelDe(ctx.usuario) === "CUENTA" ? ctx.usuario.id : null),
     ingreso: ingreso && { respuestas: ingreso.respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.usuario.id },
+    creadoPorId: ctx.esServicio ? null : ctx.usuario.id,
+    responsableOperativoId: operativoValido(b.responsableOperativoId ?? responsableProyectos),
   };
   E.clientes.push(c);
   E.fichas[c.id] = {
@@ -2716,8 +2721,23 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
     const cuerpoServicio = { servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: D.HOY.slice(0, 10), responsableId: responsableProyectos };
     await contratar(ctx, { id: c.id }, new URLSearchParams(), new Request("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cuerpoServicio) }));
   }
+  if (c.responsableOperativoId) sumarOperativo(ctx, c.id, c.responsableOperativoId);
   return { __status: 201, ...clienteVista(ctx, c), proyectosCreados: desdeIngreso.contrataciones.length, sinProyecto: desdeIngreso.sinProyecto };
 });
+
+/** El responsable operativo tiene que ser del equipo; null o vacío lo quita (20 nov). */
+function operativoValido(id: unknown): string | null {
+  if (id === undefined || id === null || id === "") return null;
+  if (typeof id !== "string" || !esDelEquipo(id)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "responsableOperativoId", mensaje: "Elige a alguien del equipo" }]);
+  return id;
+}
+function sumarOperativo(ctx: Ctx, clienteId: string, usuarioId: string) {
+  for (const s of E.servicios.filter((x) => x.clienteId === clienteId && (x.estado === "ACTIVO" || (x.estado as string) === "STANDBY"))) {
+    if (!E.miembrosProyecto.some((m) => m.usuarioId === usuarioId && m.servicioContratadoId === s.id)) {
+      E.miembrosProyecto.push({ usuarioId, servicioContratadoId: s.id, asignadoPorId: ctx.esServicio ? null : ctx.usuario.id });
+    }
+  }
+}
 
 ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
   const c = accesoCliente(ctx, p.id, true);
@@ -2728,6 +2748,10 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, req) => {
     const ingreso = prepararIngreso(b.ingreso);
     if (ingreso.errores.length) throw new ErrorApi(422, "VALIDACION", "Completa el ingreso del cliente", undefined, ingreso.errores);
     c.ingreso = { respuestas: ingreso.respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.usuario.id };
+  }
+  if (b.responsableOperativoId !== undefined) {
+    c.responsableOperativoId = operativoValido(b.responsableOperativoId);
+    if (c.responsableOperativoId) sumarOperativo(ctx, c.id, c.responsableOperativoId);
   }
   const f = (E.fichas[c.id] ??= structuredClone(fichaDe(c.id)));
   if (b.nombre) c.nombre = b.nombre.trim();

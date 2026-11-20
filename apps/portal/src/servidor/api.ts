@@ -668,10 +668,12 @@ async function clienteVista(ctx: Ctx, clienteId: string): Promise<S<"Cliente">> 
   if (ctx.esEquipo) {
     const standby = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM servicio_contratado WHERE cliente_id = $1 AND estado::text = 'STANDBY'", [clienteId])).rows[0].n;
     const ing = c.ingreso as { respuestas: Record<string, unknown>; registradoEn: string; registradoPorId: string | null } | null;
-    const autor = ing?.registradoPorId
-      ? (await ctx.c.query<S<"PersonaMini">>("SELECT id, nombre, cargo, email::text AS email FROM usuario WHERE id = $1", [ing.registradoPorId])).rows[0] ?? null
-      : null;
+    const persona = async (id: string | null | undefined) =>
+      id ? (await ctx.c.query<S<"PersonaMini">>("SELECT id, nombre, cargo, email::text AS email FROM usuario WHERE id = $1", [id])).rows[0] ?? null : null;
+    const autor = await persona(ing?.registradoPorId);
     Object.assign(r, {
+      creadoPor: await persona(c.creado_por),
+      responsableOperativo: await persona(c.responsable_operativo_id),
       ingreso: ing ? { respuestas: ing.respuestas, registradoEn: ing.registradoEn, registradoPor: autor } : null,
       driveUrl: c.drive_url,
       driveCarpetaId: c.drive_carpeta_id,
@@ -6992,13 +6994,16 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   }
   const contactoId = k ? await usuarioCliente(ctx, k.email.trim().toLowerCase(), k.nombre.trim(), k.cargo?.trim() || null) : b.contactoPrincipalId ?? null;
   const am = b.accountManagerId ?? (ctx.u.rolEquipo === "ACCOUNT_MANAGER" || ctx.u.nivelAcceso === "CUENTA" ? ctx.u.usuarioId : null);
+  // 20 nov: quién hizo el alta y quién lleva el proyecto (si no se elige aparte, el que lleva los proyectos del ingreso).
+  const operativo = await responsableOperativoValido(ctx, b.responsableOperativoId ?? responsableProyectos);
   const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario, ingreso, es_prueba)
-     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+    `INSERT INTO cliente (nombre, slug, estado, marca, tono, publico, pilares_contenido, canales, wordpress_url, account_manager_id, contacto_principal_id, limite_gasto_ia_usd, fecha_aniversario, ingreso, es_prueba, creado_por, responsable_operativo_id)
+     VALUES ($1, $2, $3::estado_cliente, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
     [
       nombre, slug, b.estado ?? "ACTIVO", JSON.stringify(b.marca ?? {}), JSON.stringify(b.tono ?? {}), JSON.stringify(b.publico ?? {}),
       b.pilaresContenido ?? b.publico?.intereses ?? [], (b.canales ?? []).map(canalVisible), b.wordpressUrl ?? null, am, contactoId,
       b.limiteGastoIaUsd ?? 25, b.fechaAniversario ?? null, ingreso && JSON.stringify(registroIngreso(ctx, ingreso.respuestas)), !!ctx.u.esPrueba,
+      ctx.esServicio ? null : ctx.u.usuarioId, operativo,
     ],
   )).rows[0].id;
   if (k && contactoId) await invitarMiembro(ctx, id, contactoId, "ADMIN_CLIENTE");
@@ -7016,8 +7021,25 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   for (const x of desdeIngreso.contrataciones) {
     await contratar(ctx, { id }, new URLSearchParams(), async () => ({ servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: HOY_LIMA(), responsableId: responsableProyectos }));
   }
+  if (operativo) await sumarOperativoAProyectos(ctx, id, operativo);
   return { __status: 201, ...(await clienteVista(ctx, id)), proyectosCreados: desdeIngreso.contrataciones.length, sinProyecto: desdeIngreso.sinProyecto };
 });
+
+/** El responsable operativo tiene que ser alguien activo del equipo (o null para quitarlo). */
+async function responsableOperativoValido(ctx: Ctx, id: unknown): Promise<string | null> {
+  if (id === undefined || id === null || id === "") return null;
+  if (typeof id !== "string" || !esUuid(id) || !(await esDelEquipoDb(ctx, id))) validacion([{ campo: "responsableOperativoId", mensaje: "Elige a alguien del equipo" }]);
+  return id as string;
+}
+/** El responsable operativo entra al equipo de los proyectos activos o en pausa del cliente. */
+async function sumarOperativoAProyectos(ctx: Ctx, clienteId: string, usuarioId: string) {
+  await ctx.c.query(
+    `INSERT INTO miembro_proyecto (usuario_id, servicio_contratado_id, asignado_por)
+     SELECT $2, s.id, $3 FROM servicio_contratado s WHERE s.cliente_id = $1 AND s.estado::text IN ('ACTIVO', 'STANDBY')
+     ON CONFLICT DO NOTHING`,
+    [clienteId, usuarioId, ctx.esServicio ? null : ctx.u.usuarioId],
+  );
+}
 
 /** Lo que se guarda en cliente.ingreso: las respuestas, cuándo y quién lo registró. */
 const registroIngreso = (ctx: Ctx, respuestas: Record<string, unknown>) => ({ respuestas, registradoEn: new Date().toISOString(), registradoPorId: ctx.esServicio ? null : ctx.u.usuarioId });
@@ -7044,6 +7066,11 @@ ruta("PATCH", "/clientes/:id", async (ctx, p, _q, cuerpo) => {
   if (b.fechaAniversario !== undefined) cambios.push(["fecha_aniversario", b.fechaAniversario, "$::date"]);
   if (b.contactoPrincipalId !== undefined) cambios.push(["contacto_principal_id", b.contactoPrincipalId]);
   if (b.accountManagerId !== undefined) cambios.push(["account_manager_id", b.accountManagerId]);
+  if (b.responsableOperativoId !== undefined) {
+    const operativo = await responsableOperativoValido(ctx, b.responsableOperativoId);
+    cambios.push(["responsable_operativo_id", operativo]);
+    if (operativo) await sumarOperativoAProyectos(ctx, p.id, operativo);
+  }
   if (b.limiteGastoIaUsd !== undefined) cambios.push(["limite_gasto_ia_usd", b.limiteGastoIaUsd]);
   if (b.estado !== undefined) cambios.push(["estado", b.estado, "$::estado_cliente"]);
   // driveUrl lo escribe n8n después de crear las carpetas, solo si el cliente no tiene una (11 nov: el equipo puede

@@ -99,6 +99,9 @@ export interface ClienteDemo {
   /** Desde cuándo trabajamos juntos: ese día y mes el portal le saluda por el aniversario. */
   fechaAniversario?: string | null;
   accountManagerId?: string | null;
+  /** 20 nov: quién hizo el alta y quién lleva el proyecto. */
+  creadoPorId?: string | null;
+  responsableOperativoId?: string | null;
   /** Última vez que alguien del cliente usó el portal (standby, 16 oct); por defecto HOY. */
   ultimaActividad?: string;
   avisoInactividadEn?: string | null;

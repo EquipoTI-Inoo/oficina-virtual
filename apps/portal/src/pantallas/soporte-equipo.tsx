@@ -839,9 +839,19 @@ function Ficha() {
             <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>Acceso del equipo de agencia.</p>
           </div>
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Responsable de cuenta</h3>
-            <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>{d.accountManager?.nombre} · Inoo</p>
-            <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>Coordinación de contenidos y seguimiento de aprobaciones.</p>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Responsables</h3>
+            {/* 20 nov: quién hizo el alta comercial, quién es el dueño comercial y quién lleva el proyecto. */}
+            {([
+              ["Propietario comercial", d.accountManager, "Lleva la relación con el cliente."],
+              ["Responsable operativo", d.responsableOperativo, "Lleva el proyecto; está en el equipo de sus proyectos."],
+              ["Creado por", d.creadoPor, d.creadoEn ? `Alta del ${new Date(d.creadoEn).toLocaleDateString("es-PE", { day: "numeric", month: "short", year: "numeric" })}.` : null],
+            ] as const).map(([rotulo, persona, ayuda]) => (
+              <div key={rotulo} style={{ display: "grid", gap: 2 }}>
+                <span className="texto-xs texto-muted">{rotulo}</span>
+                <span className="negrita" style={{ fontSize: "var(--t-xs)" }}>{persona?.nombre ?? "Sin definir"}</span>
+                {ayuda && <span className="texto-xs texto-muted">{ayuda}</span>}
+              </div>
+            ))}
           </div>
         </aside>
       </div>

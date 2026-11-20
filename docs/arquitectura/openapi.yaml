@@ -7696,6 +7696,7 @@ components:
       properties:
         nombre: { type: string, minLength: 2 }
         responsableProyectosId: { type: string, format: uuid, description: 'Solo en el alta: quién de Inoo lleva los proyectos que se crean desde el ingreso' }
+        responsableOperativoId: { type: [string, 'null'], format: uuid, description: 'Quién lleva el proyecto (20 nov). Entra como miembro de los proyectos activos del cliente' }
         marca: { $ref: '#/components/schemas/Marca' }
         tono: { $ref: '#/components/schemas/Tono' }
         publico: { $ref: '#/components/schemas/Publico' }
@@ -7746,7 +7747,13 @@ components:
             plan: { oneOf: [ { $ref: '#/components/schemas/PlanCliente' }, { type: 'null' } ] }
             contactoPrincipal: { oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ] }
             accountManager:
-              description: '"Tu equipo de contacto" en el portal y "Responsable de cuenta" en la ficha'
+              description: '"Tu equipo de contacto" en el portal y "Propietario comercial" en la ficha'
+              oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ]
+            creadoPor:
+              description: 'Quién hizo el alta (20 nov). Solo equipo'
+              oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ]
+            responsableOperativo:
+              description: 'Quién lleva el proyecto (20 nov). Solo equipo'
               oneOf: [ { $ref: '#/components/schemas/PersonaMini' }, { type: 'null' } ]
             conteos:
               type: object
