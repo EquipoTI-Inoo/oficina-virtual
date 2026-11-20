@@ -11,7 +11,7 @@
  */
 import {
   aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
-  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
+  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
 } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
 import { enlacesDe, esIdInvitado, esPermiso, esPrivado, fijarInvitado, fijarPermiso, invitadosDe, mayorPermiso, nuevoEnlace, ocultoPara, permisoEn, quitarInvitado, type PermisoTablero } from "../dominio/compartir-tablero";
@@ -168,7 +168,16 @@ function itemVista(p: ProyectoIW, it: ItemIW, cols: ColumnaIW[], conectados: Rec
     id: it.id, nombre: it.name, estado: it.status, responsable: persona(it.assignee, it.assigneeName), fecha: it.dueDate || null,
     prioridad: it.priority || "Media", notas: it.notes || "", grupoId: it.groupId, creadoEn: it.createdAt || null, vencido: itemVencido(it), deMonday: !!it.mondayId,
     valores: Object.fromEntries(cols.map((c) => [c.id, valor(c)]).filter(([, v]) => v !== "")) as Record<string, string | number>,
-    subitems: (it.subitems ?? []).map((s) => ({ id: s.id, nombre: s.name, estado: s.status, responsable: persona(s.assignee, s.assigneeName), fecha: s.dueDate || null, vencido: itemVencido(s) })),
+    // 20 nov: cada subítem con su descripción y los valores de las columnas habilitadas para subítems.
+    subitems: (it.subitems ?? []).map((s) => {
+      const suyas = cols.filter((c) => columnasDeSubitems(p).includes(c.id));
+      return {
+        id: s.id, nombre: s.name, estado: s.status, responsable: persona(s.assignee, s.assigneeName), fecha: s.dueDate || null, vencido: itemVencido(s),
+        notas: s.notes || "",
+        valores: Object.fromEntries(suyas.map((c) => [c.id, s[c.id] ?? ""]).filter(([, v]) => v !== "")) as Record<string, string | number>,
+        datos: Object.fromEntries(suyas.filter((c) => s[`${c.id}__d`] !== undefined).map((c) => [c.id, s[`${c.id}__d`]])),
+      };
+    }),
   };
 }
 
@@ -196,6 +205,8 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     marcaId: typeof p.portalMarcaId === "string" ? p.portalMarcaId : null,
     servicioId: typeof p.portalServicioId === "string" ? p.portalServicioId : null,
     etiquetas: etiquetasDe(p),
+    // 20 nov: las columnas que se muestran (y se llenan) en los subítems.
+    columnasSubitems: columnasDeSubitems(p),
     // 17 nov: su carpeta en Proyectos (la resuelve la API si se borró).
     carpetaId: invitado ? null : carpetaDe(p),
     puedeHacerPrivado: !!yo.empleadoId && p.leaderId === yo.empleadoId && !p.archived,
@@ -390,9 +401,12 @@ export function crearTableros(fallar: Fallar) {
     }),
     /** Para los archivos de una columna: aplica un cambio al dato del ítem (texto y lista de archivos). */
     cambiarDatoColumna: (id: string, itemId: string, colId: string, yo: Yo, fn: (dato: unknown) => { texto: string; dato: unknown }) => cambiar(id, yo, (p) => {
-      const it = item(p, itemId);
+      // 20 nov: el destino puede ser un subítem, si la columna está habilitada para los subítems.
+      const sub = (p.items ?? []).flatMap((x) => x.subitems ?? []).find((s) => s.id === itemId);
+      const it = (sub ?? item(p, itemId)) as ItemIW;
       const col = columnasPersonalizadas(p).find((c) => c.id === colId);
       if (!col || col.type !== "file") throw fallar(404, "NO_ENCONTRADO", "No encontramos esa columna de archivos");
+      if (sub && !columnasDeSubitems(p).includes(colId)) throw fallar(422, "VALIDACION", "Esa columna no está habilitada para los subítems");
       const r = fn(it[`${colId}__d`]);
       guardarValor(it, colId, r.texto, r.dato);
       marcarCambio(it, quienDe(yo));
@@ -444,9 +458,10 @@ export function crearTableros(fallar: Fallar) {
      * `marcaId` y `servicioId` llegan ya revisados por la ruta (que son del mismo cliente); aquí solo se guardan.
      * Cambiar el cliente suelta la marca y el servicio, que eran del anterior.
      */
-    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: string | null; servicioId?: string | null; etiquetas?: unknown; carpetaId?: string | null; nombre?: unknown; descripcion?: unknown }) => cambiar(id, yo, (p) => {
+    cambiarProyecto: (id: string, yo: Yo, b: { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: string | null; servicioId?: string | null; etiquetas?: unknown; carpetaId?: string | null; nombre?: unknown; descripcion?: unknown; columnasSubitems?: unknown }) => cambiar(id, yo, (p) => {
       const errores: { campo: string; mensaje: string }[] = [];
-      if ([b.cliente, b.estado, b.privado, b.marcaId, b.servicioId, b.etiquetas, b.carpetaId, b.nombre, b.descripcion].every((x) => x === undefined)) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: nombre, descripción, cliente, estado, privado, marca, carpeta, servicio o etiquetas" });
+      if (b.columnasSubitems !== undefined) errores.push(...validarColumnasSubitems(p, b.columnasSubitems));
+      if ([b.cliente, b.estado, b.privado, b.marcaId, b.servicioId, b.etiquetas, b.carpetaId, b.nombre, b.descripcion, b.columnasSubitems].every((x) => x === undefined)) errores.push({ campo: "cliente", mensaje: "Di qué cambiar: nombre, descripción, cliente, estado, privado, marca, carpeta, servicio o etiquetas" });
       // 17 nov: el nombre y la descripción se editan desde el portal (la descripción con sus enlaces).
       if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 120)) errores.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 120 caracteres)" });
       if (b.descripcion !== undefined && !(typeof b.descripcion === "string" && b.descripcion.length <= 2000)) errores.push({ campo: "descripcion", mensaje: "La descripción es muy larga (hasta 2000 caracteres)" });
@@ -474,6 +489,7 @@ export function crearTableros(fallar: Fallar) {
       if (b.marcaId !== undefined) { if (b.marcaId) p.portalMarcaId = b.marcaId; else delete p.portalMarcaId; }
       if (b.servicioId !== undefined) { if (b.servicioId) p.portalServicioId = b.servicioId; else delete p.portalServicioId; }
       if (etiquetas) { if (etiquetas.length) p.portalEtiquetas = etiquetas; else delete p.portalEtiquetas; }
+      if (Array.isArray(b.columnasSubitems)) { if (b.columnasSubitems.length) p.portalColumnasSubitems = b.columnasSubitems; else delete p.portalColumnasSubitems; }
     }),
     /**
      * Proceso diario (6 nov): los proyectos «Completado» reciben su fecha de culminado si no la tienen (los que se

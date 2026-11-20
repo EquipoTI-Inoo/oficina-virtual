@@ -6184,7 +6184,7 @@ ruta("DELETE", "/carpetas/:id", async (ctx, p) => {
 
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
-  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown; carpetaId?: unknown; nombre?: unknown; descripcion?: unknown };
+  const b = (await cuerpo()) as { cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown; carpetaId?: unknown; nombre?: unknown; descripcion?: unknown; columnasSubitems?: unknown };
   if (b.cliente !== undefined) b.cliente = await asegurarClienteDb(ctx, b.cliente);
   const yo = await yoTablero(ctx);
   // 17 nov: la carpeta tiene que ser de la empresa del proyecto; el proyecto toma la marca de la carpeta.
@@ -6216,7 +6216,7 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
     }
     validacion(errores);
   }
-  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, ...vinculos, ...carpeta });
+  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, columnasSubitems: b.columnasSubitems, ...vinculos, ...carpeta });
 });
 /** 13 nov: los avisos que piden las automatizaciones del tablero (asignar o avisar a alguien). */
 async function avisosAutomatizacionDb<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {

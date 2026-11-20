@@ -7376,6 +7376,16 @@ export interface components {
             /** Format: date */
             fecha: string | null;
             vencido: boolean;
+            /** @description Descripción del subítem (20 nov) */
+            notas?: string;
+            /** @description Valores de las columnas habilitadas para subítems (20 nov) */
+            valores?: {
+                [key: string]: unknown;
+            };
+            /** @description Datos del portal de esas columnas (archivos, enlaces…) */
+            datos?: {
+                [key: string]: unknown;
+            };
         };
         ItemTablero: {
             id: string;
@@ -7575,6 +7585,8 @@ export interface components {
         TableroInooWork: {
             /** @description Etiquetas libres (16 nov) */
             etiquetas: string[];
+            /** @description Columnas que se muestran en los subítems (20 nov) */
+            columnasSubitems?: string[];
             /**
              * Format: uuid
              * @description El servicio contratado vinculado (16 nov)
@@ -17071,6 +17083,8 @@ export interface operations {
                     nombre?: string;
                     /** @description La descripción del proyecto (17 nov); los enlaces se ven como enlaces */
                     descripcion?: string;
+                    /** @description Columnas que se muestran y se llenan en los subítems (20 nov). Las calculadas y las que conectan tableros no se pueden */
+                    columnasSubitems?: string[];
                 };
             };
         };

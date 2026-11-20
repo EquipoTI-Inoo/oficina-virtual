@@ -52,7 +52,11 @@ function numeroConUnidad(v: string | number | undefined, c: ConfigColumna) {
 
 // ═════════════════════════════════════════════ celda
 
-export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; col: Columna; item: Item; cambiar: Cambiar; editable: boolean }) {
+/**
+ * 20 nov: `rutaValores` guarda en otro lado (un subítem guarda en /items/{item}/subitems/{sub}); los archivos usan el id
+ * de la fila, que puede ser el del subítem.
+ */
+export function CeldaColumna({ t, col, item, cambiar, editable, rutaValores }: { t: Tablero; col: Columna; item: Item; cambiar: Cambiar; editable: boolean; rutaValores?: string }) {
   const avisar = useAviso();
   const [abierto, setAbierto] = useState(false);
   const [visor, setVisor] = useState<string | null>(null);
@@ -61,7 +65,7 @@ export function CeldaColumna({ t, col, item, cambiar, editable }: { t: Tablero; 
   const v = item.valores[col.id];
   const texto = v === undefined ? "" : String(v);
   const dato = (item.datos ?? {})[col.id] as unknown;
-  const guardar = (valor: unknown) => cambiar(`/items/${item.id}`, "PATCH", { valores: { [col.id]: valor } });
+  const guardar = (valor: unknown) => cambiar(rutaValores ?? `/items/${item.id}`, "PATCH", { valores: { [col.id]: valor } });
   const accion = () => cambiar(`/items/${item.id}/columnas/${col.id}/accion`, "POST");
   const etiqueta = `${col.nombre} de ${item.nombre}`;
   const i = info(col.tipo);

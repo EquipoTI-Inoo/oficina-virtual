@@ -5007,6 +5007,7 @@ paths:
                 carpetaId: { type: [string, 'null'], format: uuid, description: 'Una carpeta de la misma empresa (17 nov); el proyecto toma la marca de la carpeta. null lo saca de su carpeta' }
                 nombre: { type: string, maxLength: 120, description: 'El nombre del proyecto (17 nov)' }
                 descripcion: { type: string, maxLength: 2000, description: 'La descripción del proyecto (17 nov); los enlaces se ven como enlaces' }
+                columnasSubitems: { type: array, maxItems: 30, items: { type: string }, description: 'Columnas que se muestran y se llenan en los subítems (20 nov). Las calculadas y las que conectan tableros no se pueden' }
       responses:
         '200':
           description: OK
@@ -9154,6 +9155,9 @@ components:
         responsable: { oneOf: [ { $ref: '#/components/schemas/PersonaInooWork' }, { type: 'null' } ] }
         fecha: { type: [string, 'null'], format: date }
         vencido: { type: boolean }
+        notas: { type: string, description: 'Descripción del subítem (20 nov)' }
+        valores: { type: object, additionalProperties: true, description: 'Valores de las columnas habilitadas para subítems (20 nov)' }
+        datos: { type: object, additionalProperties: true, description: 'Datos del portal de esas columnas (archivos, enlaces…)' }
     ItemTablero:
       type: object
       required: [id, nombre, estado, responsable, fecha, prioridad, notas, grupoId, valores, datos, subitems, vencido, deMonday]
@@ -9365,6 +9369,7 @@ components:
       required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas, soyInvitado, invitados, carpetaId]
       properties:
         etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
+        columnasSubitems: { type: array, items: { type: string }, description: 'Columnas que se muestran en los subítems (20 nov)' }
         servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }
         marcaId: { type: [string, 'null'], format: uuid, description: 'Su marca (16 nov)' }
         id: { type: string }

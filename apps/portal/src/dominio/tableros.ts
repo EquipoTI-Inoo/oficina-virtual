@@ -14,7 +14,12 @@ import { alternarCronometro, alternarVoto, info, validarConfig, valorDeColumna, 
 // ───────────────────────────── formato de InooWork (tabla projects, JSON)
 
 export interface PersonaIW { id: string; nombre: string }
-export interface SubitemIW { id: string; name: string; status: string; assignee?: string; assigneeName?: string; assigneeAvatar?: string; dueDate?: string; createdAt?: string }
+export interface SubitemIW {
+  id: string; name: string; status: string; assignee?: string; assigneeName?: string; assigneeAvatar?: string; dueDate?: string; createdAt?: string;
+  /** 20 nov: descripción y valores de columnas propios del subítem (mismo formato que los ítems). */
+  notes?: string;
+  [columna: string]: unknown;
+}
 export interface ItemIW {
   id: string; name: string; status: string; assignee?: string; assigneeName?: string; assigneeAvatar?: string;
   dueDate?: string; priority?: string; notes?: string; createdAt?: string; groupId: string; subitems?: SubitemIW[];
@@ -295,10 +300,30 @@ export function accionColumna(p: ProyectoIW, itemId: string, colId: string, quie
   return null;
 }
 
+/**
+ * 20 nov (Alonso): columnas que pueden tener los subítems. Las calculadas y las que conectan tableros dependen del
+ * ítem completo, así que quedan fuera.
+ */
+const FUERA_DE_SUBITEMS = new Set(["mirror", "formula", "board_relation", "dependency", "auto_number", "item_id", "creation_log", "last_updated", "progress", "button"]);
+export const columnaParaSubitems = (tipo: string) => !FUERA_DE_SUBITEMS.has(tipo);
+/** Las columnas que el tablero muestra en sus subítems (en el orden del tablero). */
+export function columnasDeSubitems(p: ProyectoIW): string[] {
+  const elegidas = Array.isArray(p.portalColumnasSubitems) ? (p.portalColumnasSubitems as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  return columnasPersonalizadas(p).filter((c) => elegidas.includes(c.id) && columnaParaSubitems(c.type)).map((c) => c.id);
+}
+
 export function validarSubitem(b: CambioItem, p: ProyectoIW, nuevo: boolean): Errores {
-  return validarItem({ ...b, grupoId: undefined, prioridad: undefined, notas: undefined, valores: undefined }, p, false).concat(
+  const errores = validarItem({ ...b, grupoId: undefined, prioridad: undefined }, p, false).concat(
     nuevo && !(typeof b.nombre === "string" && b.nombre.trim()) ? [{ campo: "nombre", mensaje: "Escribe el subítem" }] : [],
   );
+  // Solo las columnas habilitadas para los subítems.
+  if (b.valores && typeof b.valores === "object" && !Array.isArray(b.valores)) {
+    const permitidas = new Set(columnasDeSubitems(p));
+    for (const k of Object.keys(b.valores as Record<string, unknown>)) {
+      if (!permitidas.has(k)) errores.push({ campo: `valores.${k}`, mensaje: "Esa columna no está habilitada para los subítems" });
+    }
+  }
+  return errores;
 }
 
 export function aplicarSubitem(p: ProyectoIW, item: ItemIW, b: CambioItem, subId: string | null): string {
@@ -312,7 +337,20 @@ export function aplicarSubitem(p: ProyectoIW, item: ItemIW, b: CambioItem, subId
   if (typeof b.estado === "string") s.status = b.estado;
   if (b.fecha !== undefined) s.dueDate = (b.fecha as string | null) ?? "";
   if (b.responsableId !== undefined) asignar(p, s, b.responsableId as string | null);
+  if (b.notas !== undefined) s.notes = ((b.notas as string | null) ?? "").trim();
+  if (b.valores) for (const [k, v] of Object.entries(b.valores as Record<string, unknown>)) {
+    const r = valorParaItem(p, k, v, {}, s.id);
+    if ("error" in r) continue; // ya validado
+    guardarValor(s as unknown as ItemIW, k, r.texto, r.dato);
+  }
   return s.id;
+}
+
+/** 20 nov: qué columnas del tablero se muestran en los subítems (ids de columnas que lo admiten). */
+export function validarColumnasSubitems(p: ProyectoIW, v: unknown): Errores {
+  if (!Array.isArray(v) || v.length > 30) return [{ campo: "columnasSubitems", mensaje: "Elige hasta 30 columnas" }];
+  const ok = new Set(columnasPersonalizadas(p).filter((c) => columnaParaSubitems(c.type)).map((c) => c.id));
+  return v.every((x) => typeof x === "string" && ok.has(x)) ? [] : [{ campo: "columnasSubitems", mensaje: "Alguna de esas columnas no existe o no se puede usar en subítems" }];
 }
 
 export function validarGrupo(b: { nombre?: unknown; color?: unknown }, nuevo: boolean): Errores {

@@ -13,10 +13,10 @@ import { BotonIaTablero } from "./ia-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, useAviso, usePortal } from "../componentes";
+import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
 import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
 import { claveEmpresa } from "../dominio/carpetas";
-import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
+import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, columnaParaSubitems, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
 type Item = S<"ItemTablero">;
@@ -57,6 +57,45 @@ function useVistos(tableroId: string): [Record<string, string>, (itemId: string)
     return n;
   }), [clave]);
   return [vistos, marcar];
+}
+
+/**
+ * 20 nov (Alonso): qué columnas del tablero se usan también en los subítems (texto, estado, fecha, archivos, enlaces…).
+ * Las calculadas y las que conectan tableros dependen del ítem completo, así que no aparecen.
+ */
+function ColumnasEnSubitems({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean> }) {
+  const [abierto, setAbierto] = useState(false);
+  const posibles = t.columnas.filter((c) => columnaParaSubitems(c.tipo));
+  const [elegidas, setElegidas] = useState<string[]>(t.columnasSubitems ?? []);
+  if (!posibles.length) return null;
+  const guardar = async () => {
+    if (await cambiar("", "PATCH", { columnasSubitems: elegidas })) setAbierto(false);
+  };
+  return (
+    <>
+      <button className="boton boton--chico" onClick={() => { setElegidas(t.columnasSubitems ?? []); setAbierto(true); }}>
+        Columnas en subítems{(t.columnasSubitems ?? []).length ? ` (${(t.columnasSubitems ?? []).length})` : ""}
+      </button>
+      {abierto && (
+        <Modal abierto alCerrar={() => setAbierto(false)} etiqueta="Columnas en los subítems" ancho={460}>
+          <div className="pila" style={{ gap: 12 }}>
+            <h2 style={{ fontSize: "var(--t-lg)", fontWeight: 600 }}>Columnas en los subítems</h2>
+            <p className="texto-sm texto-muted">Los subítems siempre tienen nombre, responsable, estado, fecha y descripción. Elige qué otras columnas se llenan también en ellos.</p>
+            {posibles.map((c) => (
+              <label key={c.id} className="fila texto-sm" style={{ gap: 8 }}>
+                <input type="checkbox" checked={elegidas.includes(c.id)} onChange={(e) => setElegidas((xs) => (e.target.checked ? [...xs, c.id] : xs.filter((x) => x !== c.id)))} />
+                {c.nombre}
+              </label>
+            ))}
+            <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
+              <button className="boton" onClick={() => setAbierto(false)}>Cancelar</button>
+              <button className="boton boton--primario" onClick={() => void guardar()}>Guardar</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
 }
 
 export function PantallaTablero() {
@@ -563,6 +602,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
           ))}
         </div>
         {Object.keys(altos).length > 0 && <button className="boton boton--chico" onClick={() => setAltos(() => ({}))}>Igualar filas</button>}
+        {estructura && <ColumnasEnSubitems t={t} cambiar={cambiar} />}
         {orden && <button className="boton boton--chico" onClick={() => setOrden(null)}>Quitar orden</button>}
       </div>
       {secciones.map((g) => {
@@ -673,7 +713,17 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                                   <td><Pildora valor={s.estado as EstadoItem} opciones={ESTADOS_ITEM} color={(v) => COLOR_ESTADO[v]} editable={editable} etiqueta={`Estado de ${s.nombre}`} guardar={(estado) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { estado })} /></td>
                                   <td />
                                   <td><Fecha valor={s.fecha ?? null} vencido={s.vencido} editable={editable} etiqueta={`Fecha límite de ${s.nombre}`} guardar={(fecha) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { fecha })} /></td>
-                                  <td colSpan={1 + t.columnas.length + (estructura ? 1 : 0)} />
+                                  {/* 20 nov (Alonso): la descripción y las columnas habilitadas para los subítems. */}
+                                  <td><Texto valor={s.notas ?? ""} editable={editable} etiqueta={`Descripción de ${s.nombre}`} placeholder="Agregar" guardar={(notas) => void cambiar(`/items/${i.id}/subitems/${s.id}`, "PATCH", { notas })} /></td>
+                                  {enOrden.map((c) => (
+                                    <td key={c.id}>
+                                      {(t.columnasSubitems ?? []).includes(c.id) && (
+                                        <CeldaColumna t={t} col={c} editable={editable} cambiar={cambiar} rutaValores={`/items/${i.id}/subitems/${s.id}`}
+                                          item={{ ...i, id: s.id, nombre: s.nombre, valores: (s.valores ?? {}) as Record<string, string | number>, datos: s.datos ?? {}, subitems: [] }} />
+                                      )}
+                                    </td>
+                                  ))}
+                                  {estructura && <td />}
                                   {estructura && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => window.confirm(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
                                 </tr>
                               )),

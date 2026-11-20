@@ -264,6 +264,29 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(it((await item({ valores: { [dep.id]: ["item-mkt-2"] } })).json).valores[dep.id], it((await llamar("GET", `/tableros/${T}`, DIEGO)).json, "item-mkt-2").nombre);
     });
 
+    test("20 nov: subítems con descripción, enlace y archivo en las columnas habilitadas; siguen ahí al recargar", async () => {
+      await reiniciar();
+      const enlace = await col("link", "Enlace de la reunión");
+      const arch = await col("file", "Adjuntos");
+      const formula = await col("formula", "Cálculo", { formula: "1+1" });
+      const sub = (await llamar("POST", `/tableros/${T}/items/item-mkt-1/subitems`, DIEGO, { nombre: "Kickoff" })).json;
+      const subId = it(sub).subitems.find((x: any) => x.nombre === "Kickoff").id;
+      const ruta = `/tableros/${T}/items/item-mkt-1/subitems/${subId}`;
+      assert.equal((await llamar("PATCH", ruta, DIEGO, { valores: { [enlace.id]: "https://meet.google.com/abc-defg-hij" } })).status, 422, "la columna todavía no está habilitada para subítems");
+      assert.equal((await llamar("PATCH", `/tableros/${T}`, DIEGO, { columnasSubitems: [formula.id] })).status, 422, "las calculadas no van en subítems");
+      const conf = await llamar("PATCH", `/tableros/${T}`, DIEGO, { columnasSubitems: [enlace.id, arch.id] });
+      assert.deepEqual(conf.json.columnasSubitems, [enlace.id, arch.id]);
+      const r = await llamar("PATCH", ruta, DIEGO, { notas: "Revisar el brief antes de la llamada", valores: { [enlace.id]: "https://meet.google.com/abc-defg-hij" } });
+      assert.equal(r.status, 200, JSON.stringify(r.json.errores));
+      const f = await llamar("POST", `/tableros/${T}/items/${subId}/columnas/${arch.id}/archivos`, DIEGO, { nombre: "acta.txt", mime: "text/plain", base64: Buffer.from("acuerdos").toString("base64") });
+      assert.equal(f.status, 200, JSON.stringify(f.json));
+      const recargado = it((await llamar("GET", `/tableros/${T}`, DIEGO)).json).subitems.find((x: any) => x.id === subId);
+      assert.equal(recargado.notas, "Revisar el brief antes de la llamada");
+      assert.match(String(recargado.valores[enlace.id]), /meet\.google\.com/);
+      assert.equal(recargado.datos[arch.id][0].nombre, "acta.txt");
+      assert.equal(it((await llamar("GET", `/tableros/${T}`, DIEGO)).json).valores[arch.id], undefined, "el archivo es del subítem, no del ítem");
+    });
+
     test("archivos en una celda: subir, bajar y quitar; conectar tableros y espejo", async () => {
       await reiniciar();
       const arch = await col("file", "Entregables");

@@ -1815,7 +1815,7 @@ ruta("PATCH", "/marcas/:id", async (ctx, p, _q, req) => {
 });
 ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
-  const b = await cuerpo<{ cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown; carpetaId?: unknown; nombre?: unknown; descripcion?: unknown }>(req);
+  const b = await cuerpo<{ cliente?: unknown; estado?: unknown; privado?: unknown; marcaId?: unknown; servicioId?: unknown; etiquetas?: unknown; carpetaId?: unknown; nombre?: unknown; descripcion?: unknown; columnasSubitems?: unknown }>(req);
   if (b.cliente !== undefined) b.cliente = asegurarClienteMock(ctx, b.cliente);
   const yo = yoTablero(ctx);
   let carpeta: { carpetaId?: string | null; marcaId?: string | null } = {};
@@ -1845,7 +1845,7 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
     }
     if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   }
-  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, ...vinculos, ...carpeta });
+  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, columnasSubitems: b.columnasSubitems, ...vinculos, ...carpeta });
 });
 
 // ───────────────────────────── Carpetas de Proyectos (17 nov)
