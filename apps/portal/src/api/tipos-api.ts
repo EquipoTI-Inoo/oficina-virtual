@@ -6459,13 +6459,14 @@ export interface components {
                 ASIGNAR_ACCESOS?: boolean;
                 COSTOS_IA?: boolean;
                 ESTADO_PAGO?: boolean;
+                BORRAR_COLUMNAS?: boolean;
             };
         };
         /**
          * @description El nivel ADMIN los trae todos y el rol FINANZAS trae ESTADO_PAGO. El super usuario puede conceder o quitar cada uno a una persona
          * @enum {string}
          */
-        PermisoEquipo: "GESTIONAR_EQUIPO" | "ASIGNAR_ACCESOS" | "COSTOS_IA" | "ESTADO_PAGO";
+        PermisoEquipo: "GESTIONAR_EQUIPO" | "ASIGNAR_ACCESOS" | "COSTOS_IA" | "ESTADO_PAGO" | "BORRAR_COLUMNAS";
         CambioAcceso: {
             /** Format: uuid */
             id: string;
@@ -13976,6 +13977,7 @@ export interface operations {
                         ASIGNAR_ACCESOS?: boolean | null;
                         COSTOS_IA?: boolean | null;
                         ESTADO_PAGO?: boolean | null;
+                        BORRAR_COLUMNAS?: boolean | null;
                     };
                 };
             };

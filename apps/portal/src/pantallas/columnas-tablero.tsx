@@ -10,7 +10,7 @@ import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, Lu
   LuRefreshCw, LuFingerprint, LuListOrdered, LuFileVideo, LuFileAudio, LuFileImage, LuPencil } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
-import { Modal, useAviso } from "../componentes";
+import { Modal, useAviso, usePortal } from "../componentes";
 import { CampoMenciones } from "./campo-menciones";
 import {
   COLORES_ETIQUETA, configInicial, FUNCIONES_FORMULA, info, LISTA_PAISES, resumenNumeros, textoDuracion, TIPOS_COLUMNA, ZONAS_HORARIAS,
@@ -821,11 +821,21 @@ export function BibliotecaColumnas({ t, cambiar, cerrar }: { t: Tablero; cambiar
 }
 
 export function ConfigurarColumna({ t, col, cambiar, cerrar }: { t: Tablero; col: Columna; cambiar: Cambiar; cerrar: () => void }) {
+  const puedeBorrarColumnas = !!usePortal().sesion?.usuario.permisos?.includes("BORRAR_COLUMNAS");
   return (
     <Modal abierto alCerrar={cerrar} etiqueta={`Configurar ${col.nombre}`} ancho={680}>
       <FormColumna t={t} tipo={col.tipo as TipoColumna} col={col}
         guardar={async (nombre, config) => { if (await cambiar(`/columnas/${col.id}`, "PATCH", { nombre, ...(info(col.tipo) ? { config } : {}) })) cerrar(); }}
-        borrar={async () => { if (window.confirm(`¿Borrar la columna «${col.nombre}» y todos sus valores? También se borra en InooWork.`) && (await cambiar(`/columnas/${col.id}`, "DELETE"))) cerrar(); }} />
+        borrar={puedeBorrarColumnas ? async () => {
+          // 20 nov: antes de borrar se dice qué se pierde.
+          const conValor = t.items.filter((i) => { const v = i.valores[col.id]; return v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && !v.length); }).length;
+          const aviso = conValor
+            ? `¿Borrar la columna «${col.nombre}»?
+
+Se pierden sus valores en ${conValor} ${conValor === 1 ? "ítem" : "ítems"} de este tablero (también en InooWork). No se puede deshacer.`
+            : `¿Borrar la columna «${col.nombre}»? Está vacía; se borra también en InooWork.`;
+          if (window.confirm(aviso) && (await cambiar(`/columnas/${col.id}`, "DELETE"))) cerrar();
+        } : undefined} />
     </Modal>
   );
 }

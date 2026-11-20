@@ -6375,6 +6375,7 @@ ruta("PATCH", "/tableros/:id/columnas/:col", async (ctx, p, _q, cuerpo) => {
 });
 ruta("DELETE", "/tableros/:id/columnas/:col", async (ctx, p) => {
   soloEquipo(ctx);
+  exigirPermiso(ctx, "BORRAR_COLUMNAS");
   return TABLEROS.borrarColumna(p.id, p.col, await yoTablero(ctx));
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) => {

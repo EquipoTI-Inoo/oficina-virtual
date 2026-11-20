@@ -22,7 +22,7 @@ const NIVEL_DEL_AREA: Record<Area, Nivel> = {
  * Permisos sueltos (5 nov 2026). El nivel da unos por defecto y el super usuario puede conceder o quitar cada
  * uno a una persona. Lo que cada quien ve (cuentas y proyectos) sigue saliendo del nivel.
  */
-export const PERMISOS = ["GESTIONAR_EQUIPO", "ASIGNAR_ACCESOS", "COSTOS_IA", "ESTADO_PAGO"] as const;
+export const PERMISOS = ["GESTIONAR_EQUIPO", "ASIGNAR_ACCESOS", "COSTOS_IA", "ESTADO_PAGO", "BORRAR_COLUMNAS"] as const;
 export type Permiso = (typeof PERMISOS)[number];
 export const esPermiso = (v: unknown): v is Permiso => typeof v === "string" && (PERMISOS as readonly string[]).includes(v);
 export const NOMBRE_PERMISO: Record<Permiso, { titulo: string; ayuda: string }> = {
@@ -30,6 +30,8 @@ export const NOMBRE_PERMISO: Record<Permiso, { titulo: string; ayuda: string }> 
   ASIGNAR_ACCESOS: { titulo: "Asignar accesos", ayuda: "Asignar gente a las cuentas y los proyectos que ve" },
   COSTOS_IA: { titulo: "Costos de IA", ayuda: "Ver los costos y mover los topes de cada área" },
   ESTADO_PAGO: { titulo: "Estado de pago", ayuda: "Cambiar si una cuenta está al día o atrasada" },
+  // 20 nov (Alonso): borrar una columna se lleva sus valores en todas las filas; queda para el nivel Admin o a medida.
+  BORRAR_COLUMNAS: { titulo: "Borrar columnas", ayuda: "Borrar columnas de los tableros, con los valores que tienen" },
 };
 /** true = concedido, false = quitado; si no está, manda el nivel. */
 export type PermisosPersonalizados = Partial<Record<Permiso, boolean>>;

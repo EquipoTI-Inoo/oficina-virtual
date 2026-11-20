@@ -136,7 +136,7 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.deepEqual((await llamar("PATCH", admin, ADMIN, { esSuperUsuario: false })).json.errores.map((e: any) => e.campo), ["esSuperUsuario"], "es el último");
 
       const rosa = (await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ADMIN, { esSuperUsuario: true })).json;
-      assert.deepEqual([rosa.esSuperUsuario, rosa.permisos.length], [true, 4]);
+      assert.deepEqual([rosa.esSuperUsuario, rosa.permisos.length], [true, 5], "todos los permisos, también borrar columnas (20 nov)");
       assert.equal((await llamar("PATCH", admin, ROSA, { activo: false })).status, 200, "con otro super usuario, ya se puede");
       assert.deepEqual((await llamar("PATCH", `/panel/equipo/${uid(1, 5)}`, ROSA, { esSuperUsuario: false })).json.errores.map((e: any) => e.campo), ["esSuperUsuario"], "ahora la última es ella");
       assert.equal((await llamar("PATCH", admin, ROSA, { activo: true, esSuperUsuario: false })).status, 200);

@@ -3138,6 +3138,7 @@ paths:
                     ASIGNAR_ACCESOS: { type: [boolean, 'null'] }
                     COSTOS_IA: { type: [boolean, 'null'] }
                     ESTADO_PAGO: { type: [boolean, 'null'] }
+                    BORRAR_COLUMNAS: { type: [boolean, 'null'] }
       responses:
         '200':
           description: OK
@@ -8347,9 +8348,10 @@ components:
                 ASIGNAR_ACCESOS: { type: boolean }
                 COSTOS_IA: { type: boolean }
                 ESTADO_PAGO: { type: boolean }
+                BORRAR_COLUMNAS: { type: boolean }
     PermisoEquipo:
       type: string
-      enum: [GESTIONAR_EQUIPO, ASIGNAR_ACCESOS, COSTOS_IA, ESTADO_PAGO]
+      enum: [GESTIONAR_EQUIPO, ASIGNAR_ACCESOS, COSTOS_IA, ESTADO_PAGO, BORRAR_COLUMNAS]
       description: 'El nivel ADMIN los trae todos y el rol FINANZAS trae ESTADO_PAGO. El super usuario puede conceder o quitar cada uno a una persona'
     CambioAcceso:
       type: object

@@ -34,6 +34,8 @@ function Personas() {
   const r = useConsulta<{ datos: Ficha[]; inooworkConectado: boolean }>("/panel/personas");
   const [editando, setEditando] = useState<Ficha | "nueva" | null>(null);
   const [verInactivas, setVerInactivas] = useState(false);
+  // 20 nov (Alonso): ver de un vistazo quién es super usuario y qué accesos tiene cada uno.
+  const [filtroAcceso, setFiltroAcceso] = useState<"TODOS" | "SUPER" | Nivel>("TODOS");
   const [traspasando, setTraspasando] = useState<Ficha | null>(null);
   const avisar = useAviso();
   const soySuper = !!usePortal().sesion?.usuario.esSuperUsuario;
@@ -42,7 +44,8 @@ function Personas() {
   if (!r.datos) return <Cargando />;
   const todas = r.datos.datos;
   const inactivas = todas.filter((p) => !p.activo).length;
-  const lista = todas.filter((p) => verInactivas || p.activo);
+  const lista = todas.filter((p) => (verInactivas || p.activo) && (filtroAcceso === "TODOS" || (filtroAcceso === "SUPER" ? p.esSuperUsuario : !p.esSuperUsuario && p.nivel === filtroAcceso)));
+  const supers = todas.filter((p) => p.esSuperUsuario && p.activo);
   const nombreDe = (id: string | null) => todas.find((p) => p.id === id)?.nombre ?? null;
 
   const activar = async (p: Ficha, activo: boolean) => {
@@ -114,6 +117,17 @@ function Personas() {
           La conexión con InooWork está simulada: se activa al configurar INOOWORK_URL, una vez desplegado su parche de seguridad.
         </p>
       )}
+      <section className="tarjeta" style={{ padding: "14px 16px", marginBottom: 14, display: "grid", gap: 8 }} aria-label="Super usuarios">
+        <p className="texto-sm">
+          <strong>Super usuarios ({supers.length}):</strong> {supers.length ? supers.map((p) => p.nombre).join(", ") : "nadie"}.
+          <span className="texto-xs texto-muted"> Tienen todos los permisos y son los únicos que cambian el nivel y los permisos de los demás.</span>
+        </p>
+        <div className="chips" role="radiogroup" aria-label="Filtrar por acceso">
+          {([["TODOS", "Todos"], ["SUPER", "Super usuarios"], ...NIVELES.map((n) => [n, NOMBRE_NIVEL[n]])] as [string, string][]).map(([k, t]) => (
+            <button key={k} type="button" role="radio" className="chip" aria-checked={filtroAcceso === k} aria-pressed={filtroAcceso === k} onClick={() => setFiltroAcceso(k as typeof filtroAcceso)}>{t}</button>
+          ))}
+        </div>
+      </section>
       <div className="tabla-envoltura">
         <table className="tabla tabla--tarjetas">
           <thead>
@@ -139,6 +153,9 @@ function Personas() {
                   <td className="texto-sm">
                     {p.esSuperUsuario ? <Etiqueta tono="violeta">Super usuario</Etiqueta> : NOMBRE_NIVEL[p.nivel]}
                     {!p.esSuperUsuario && (p.nivelPersonalizado || Object.keys(p.permisosPersonalizados).length > 0) && <span className="texto-xs texto-muted"> · a medida</span>}
+                    <span className="texto-xs texto-muted" style={{ display: "block", marginTop: 2 }}>
+                      {p.permisos.length ? p.permisos.map((x) => NOMBRE_PERMISO[x].titulo).join(" · ") : "Sin permisos especiales"}
+                    </span>
                   </td>
                   <td className="texto-sm">{nombreDe(p.reportaAId) ?? <span className="texto-muted">—</span>}</td>
                   <td>

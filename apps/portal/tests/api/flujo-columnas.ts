@@ -329,8 +329,11 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       const x = it((await item({ valores: { [con.id]: [otro.id] } })).json);
       assert.deepEqual([x.valores[con.id], x.valores[espejo.id]], [otro.nombre, otro.estado]);
 
-      assert.equal(it((await llamar("DELETE", `/tableros/${T}/columnas/${con.id}`, DIEGO)).json).valores[con.id], undefined);
-      assert.equal((await llamar("DELETE", `/tableros/${T}/columnas/status`, DIEGO)).status, 404, "las fijas no se borran");
+      // 20 nov: borrar columnas es del nivel Admin (o con el permiso a medida).
+      assert.equal((await llamar("DELETE", `/tableros/${T}/columnas/${con.id}`, DIEGO)).status, 403, "Diego no tiene el permiso");
+      const ADMIN = `demo.${uid(1, 4)}`;
+      assert.equal(it((await llamar("DELETE", `/tableros/${T}/columnas/${con.id}`, ADMIN)).json).valores[con.id], undefined);
+      assert.equal((await llamar("DELETE", `/tableros/${T}/columnas/status`, ADMIN)).status, 404, "las fijas no se borran");
     });
   });
 }
