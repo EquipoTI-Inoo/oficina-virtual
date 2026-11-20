@@ -5,6 +5,7 @@
  * conversar con el cliente o dejar notas internas. Desde la ficha del cliente se contratan servicios
  * nuevos a partir de su plantilla.
  */
+import { CeldasColumnasEtapa, EncabezadosColumnasEtapa } from "./columnas-etapas";
 import { EquipoAsignado } from "./accesos";
 import { useState, type ReactNode } from "react";
 import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
@@ -208,6 +209,7 @@ function ProyectoEquipo() {
                       <th style={{ width: 150 }}>Estado</th>
                       <th style={{ width: 170 }}>Fechas</th>
                       <th style={{ width: 100 }}>Lista el</th>
+                      <EncabezadosColumnasEtapa servicioId={d.servicioContratadoId} columnas={d.columnas ?? []} etapas={d.etapas} alCambiar={(av) => perfil.setDatos({ ...d, ...av })} />
                       <th style={{ width: 44 }}><span className="sr-only">Quitar</span></th>
                     </tr>
                   </thead>
@@ -241,6 +243,7 @@ function ProyectoEquipo() {
                           <FechasEtapa e={e} mover={(cuerpo) => void moverEtapa(e, cuerpo)} />
                         </td>
                         <td className="texto-muted">{e.fechaFin ? fCorta(e.fechaFin) : "—"}</td>
+                        <CeldasColumnasEtapa columnas={d.columnas ?? []} etapa={e} clienteId={d.clienteId} mover={(cuerpo) => moverEtapa(e, cuerpo)} />
                         <td>
                           {e.estado === "SIN_INICIAR" && d.etapas.length > 1 && (
                             <button className="boton-icono" aria-label={`Quitar la etapa ${e.nombre}`} title="Quitar etapa (solo si no empezó)" onClick={() => void quitarEtapa(e)}>

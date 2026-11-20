@@ -2051,6 +2051,64 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /servicios-contratados/{servicioContratadoId}/columnas:
+    post:
+      tags: [Proyectos]
+      operationId: crearColumnaEtapa
+      summary: 'Agrega una columna libre a las etapas del proyecto (20 nov): texto, enlace, fecha, estado, aprobación o archivos. Solo equipo'
+      x-roles: [EQUIPO]
+      parameters: [ { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre, tipo]
+              properties:
+                nombre: { type: string, minLength: 1, maxLength: 60 }
+                tipo: { type: string, enum: [TEXTO, ENLACE, FECHA, ESTADO, APROBACION, ARCHIVOS] }
+                opciones: { type: array, maxItems: 20, items: { type: string, maxLength: 40 } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /servicios-contratados/{servicioContratadoId}/columnas/{col}:
+    patch:
+      tags: [Proyectos]
+      operationId: cambiarColumnaEtapa
+      summary: 'Renombra una columna de las etapas o cambia sus opciones (20 nov)'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: col, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre: { type: string, minLength: 1, maxLength: 60 }
+                opciones: { type: array, maxItems: 20, items: { type: string, maxLength: 40 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+    delete:
+      tags: [Proyectos]
+      operationId: borrarColumnaEtapa
+      summary: 'Borra una columna de las etapas con sus valores (20 nov). Exige el permiso BORRAR_COLUMNAS'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: col, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /servicios-contratados/{servicioContratadoId}/etapas:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2106,6 +2164,7 @@ paths:
                 esperaCliente: { type: boolean, description: "13 nov: si la etapa depende del cliente" }
                 tipoFecha: { $ref: '#/components/schemas/TipoFechaEtapa' }
                 hora: { type: [string, 'null'], pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', description: 'Solo REUNION (20 nov)' }
+                valores: { type: object, additionalProperties: true, description: 'Valores de las columnas libres (20 nov); null borra. APROBACION llega como true o false' }
       responses:
         '200':
           description: OK
@@ -9912,6 +9971,15 @@ components:
         atrasada: { type: boolean, description: 'Sin completar y con fechaEstimada anterior a hoy' }
         tipoFecha: { $ref: '#/components/schemas/TipoFechaEtapa' }
         hora: { type: [string, 'null'], description: 'HH:MM, solo en REUNION (20 nov)' }
+        valores: { type: object, additionalProperties: true, description: 'Solo equipo (20 nov): id de columna → valor. APROBACION = {aprobado, por, en}; ARCHIVOS = [{archivoId, nombre}]' }
+    ColumnaEtapa:
+      type: object
+      required: [id, nombre, tipo, opciones]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        tipo: { type: string, enum: [TEXTO, ENLACE, FECHA, ESTADO, APROBACION, ARCHIVOS] }
+        opciones: { type: array, items: { type: string }, description: 'Solo ESTADO' }
     TipoFechaEtapa:
       type: string
       enum: [RANGO, HITO, REUNION]
@@ -10024,6 +10092,7 @@ components:
         progreso: { oneOf: [ { $ref: '#/components/schemas/ProgresoPiezas' }, { type: 'null' } ] }
         avance: { $ref: '#/components/schemas/AvanceProyecto' }
         etapas: { type: array, description: 'Etapas del proyecto, o del mes en curso en servicios mensuales', items: { $ref: '#/components/schemas/EtapaProyecto' } }
+        columnas: { type: array, description: 'Solo equipo (20 nov): columnas libres de las etapas de este proyecto', items: { $ref: '#/components/schemas/ColumnaEtapa' } }
         hitos: { type: array, description: 'Ítems sincronizados de InooWork (opcional)', items: { $ref: '#/components/schemas/Hito' } }
         siguientePaso:
           type: [object, 'null']

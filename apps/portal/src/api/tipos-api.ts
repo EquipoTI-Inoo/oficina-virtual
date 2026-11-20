@@ -1451,6 +1451,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/columnas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agrega una columna libre a las etapas del proyecto (20 nov): texto, enlace, fecha, estado, aprobación o archivos. Solo equipo */
+        post: operations["crearColumnaEtapa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servicios-contratados/{servicioContratadoId}/columnas/{col}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una columna de las etapas con sus valores (20 nov). Exige el permiso BORRAR_COLUMNAS */
+        delete: operations["borrarColumnaEtapa"];
+        options?: never;
+        head?: never;
+        /** Renombra una columna de las etapas o cambia sus opciones (20 nov) */
+        patch: operations["cambiarColumnaEtapa"];
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/etapas": {
         parameters: {
             query?: never;
@@ -8261,6 +8296,19 @@ export interface components {
             tipoFecha?: components["schemas"]["TipoFechaEtapa"];
             /** @description HH:MM, solo en REUNION (20 nov) */
             hora?: string | null;
+            /** @description Solo equipo (20 nov): id de columna → valor. APROBACION = {aprobado, por, en}; ARCHIVOS = [{archivoId, nombre}] */
+            valores?: {
+                [key: string]: unknown;
+            };
+        };
+        ColumnaEtapa: {
+            /** Format: uuid */
+            id: string;
+            nombre: string;
+            /** @enum {string} */
+            tipo: "TEXTO" | "ENLACE" | "FECHA" | "ESTADO" | "APROBACION" | "ARCHIVOS";
+            /** @description Solo ESTADO */
+            opciones: string[];
         };
         /**
          * @description RANGO = varios días (barra en el Gantt); HITO = un día (punto); REUNION = un día con hora (punto y reunión en el calendario). 20 nov
@@ -8388,6 +8436,8 @@ export interface components {
             avance: components["schemas"]["AvanceProyecto"];
             /** @description Etapas del proyecto, o del mes en curso en servicios mensuales */
             etapas: components["schemas"]["EtapaProyecto"][];
+            /** @description Solo equipo (20 nov): columnas libres de las etapas de este proyecto */
+            columnas?: components["schemas"]["ColumnaEtapa"][];
             /** @description Ítems sincronizados de InooWork (opcional) */
             hitos: components["schemas"]["Hito"][];
             siguientePaso?: {
@@ -12505,6 +12555,96 @@ export interface operations {
             422: components["responses"]["Validacion"];
         };
     };
+    crearColumnaEtapa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre: string;
+                    /** @enum {string} */
+                    tipo: "TEXTO" | "ENLACE" | "FECHA" | "ESTADO" | "APROBACION" | "ARCHIVOS";
+                    opciones?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvanceServicio"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarColumnaEtapa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                col: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvanceServicio"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    cambiarColumnaEtapa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                col: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    nombre?: string;
+                    opciones?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvanceServicio"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
     agregarEtapa: {
         parameters: {
             query?: never;
@@ -12593,6 +12733,10 @@ export interface operations {
                     tipoFecha?: components["schemas"]["TipoFechaEtapa"];
                     /** @description Solo REUNION (20 nov) */
                     hora?: string | null;
+                    /** @description Valores de las columnas libres (20 nov); null borra. APROBACION llega como true o false */
+                    valores?: {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

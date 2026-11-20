@@ -9,6 +9,7 @@
  *   comentario obligatorio al pedir cambios, Idempotency-Key, cupo de ideas, derechos de uso.
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
+import { OPCIONES_ESTADO_ETAPA, validarColumnaEtapa, validarValorEtapa } from "../dominio/columnas-etapa";
 import { moduloDeAviso, MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, type ModuloNovedad } from "../dominio/novedades";
 import { PROYECTOS_DEMO } from "./inoowork-demo";
 import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
@@ -193,6 +194,10 @@ interface Estado {
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
   accesosCuenta: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
   miembrosProyecto: { usuarioId: string; servicioContratadoId: string; asignadoPorId: string | null }[];
+  /** 20 nov: columnas libres de las etapas, por proyecto. */
+  columnasEtapa: { id: string; servicioContratadoId: string; nombre: string; tipo: S<"ColumnaEtapa">["tipo"]; opciones: string[] }[];
+  /** 20 nov: de qué cliente es cada archivo subido (para validar los adjuntos de las etapas). */
+  archivosCliente: { id: string; clienteId: string }[];
   /** Conexión simulada con Google Calendar por persona (2 nov). */
   googleCalendar: Record<string, { correo: string; conectadoEn: string }>;
   solicitudesResponsable: {
@@ -280,6 +285,8 @@ function estadoInicial(): Estado {
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
+    columnasEtapa: [],
+    archivosCliente: [],
     googleCalendar: {},
     solicitudesResponsable: [],
     fichas: { [D.uid(2, 1)]: structuredClone(D.FICHA_CASA_OLIVA) },
@@ -704,7 +711,7 @@ const etapaVista = (e: D.EtapaDemo, equipo = false): S<"EtapaProyecto"> => ({
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: null, periodo: e.periodo, avancePct: e.avancePct, estado: e.estado, esperaCliente: e.esperaCliente,
   reunionClave: e.reunionClave ?? null, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: e.fechaFin, atrasada: etapaAtrasada(e, D.HOY),
   tipoFecha: e.tipoFecha ?? "RANGO", hora: e.hora ?? null,
-  ...(equipo ? { causaAtraso: e.causaAtraso ?? null, justificacionAtraso: e.justificacionAtraso ?? null, diasCorridosCliente: e.diasCorridosCliente ?? 0 } : {}),
+  ...(equipo ? { causaAtraso: e.causaAtraso ?? null, justificacionAtraso: e.justificacionAtraso ?? null, diasCorridosCliente: e.diasCorridosCliente ?? 0, valores: e.valores ?? {} } : {}),
 });
 function avanceDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
   const mensual = servicioDeCatalogo(s.codigo)!.modalidad === "MENSUAL";
@@ -1399,6 +1406,7 @@ ruta("POST", "/clientes/:id/archivos", async (ctx, p, _q, req) => {
   if (b.bytes > limite * 1024 * 1024) throw new ErrorApi(413, "ARCHIVO_DEMASIADO_GRANDE", `El archivo supera ${limite} MB`);
   if (!MIME_ARCHIVO.test(b.mime)) throw new ErrorApi(415, "TIPO_NO_PERMITIDO", "Formato no admitido");
   const id = nuevoId(10);
+  E.archivosCliente.push({ id, clienteId: p.id });
   const tipo = b.mime.startsWith("image") ? "Foto" : b.mime.startsWith("video") ? "Video" : "Documento";
   if (b.uso === "BIBLIOTECA") {
     if (b.declaraDerechos !== true) throw new ErrorApi(422, "DERECHOS_REQUERIDOS", "Declara que tienes los derechos de uso del archivo", undefined, [{ campo: "declaraDerechos", mensaje: "Obligatorio para la biblioteca" }]);
@@ -2458,6 +2466,7 @@ function avanceServicio(s: D.ServicioContratadoDemo, equipo = false, periodo = D
     progreso: v.progreso,
     avance: a,
     etapas: etapasDe(s, periodo).map((e) => etapaVista(e, equipo)),
+    ...(equipo ? { columnas: E.columnasEtapa.filter((c) => c.servicioContratadoId === s.id).map(({ id, nombre, tipo, opciones }) => ({ id, nombre, tipo, opciones })) } : {}),
     hitos: E.hitosInooWork[s.id] ?? [],
     siguientePaso: s.siguientePaso ? { texto: `Siguiente paso: ${s.siguientePaso}`, responsable: persona(E.usuarios[2].id)! } : null,
     sincronizadoEn: E.sincronizadoEn[s.id] ?? "2026-10-06T14:55:00Z",
@@ -3067,7 +3076,7 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   const s = E.servicios.find((x) => x.id === p.id);
   const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
   if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean; tipoFecha?: "RANGO" | "HITO" | "REUNION"; hora?: string | null }>(req);
+  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean; tipoFecha?: "RANGO" | "HITO" | "REUNION"; hora?: string | null; valores?: unknown }>(req);
   const errores: { campo: string; mensaje: string }[] = [...validarAtraso(b), ...validarEdicionEtapa(b)];
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
   // 20 nov: hito y reunión son de un día; la hora solo en reuniones.
@@ -3077,6 +3086,23 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   const ini = b.fechaInicio !== undefined ? b.fechaInicio : e.fechaInicio;
   const finPrevisto = b.fechaEstimada !== undefined ? b.fechaEstimada : e.fechaEstimada;
   if (tipo === "RANGO" && ini && finPrevisto && ini > finPrevisto) errores.push({ campo: "fechaInicio", mensaje: "El inicio va antes del fin" });
+  // 20 nov: valores de las columnas libres.
+  const valores: Record<string, unknown> = { ...(e.valores ?? {}) };
+  if (b.valores !== undefined) {
+    if (!b.valores || typeof b.valores !== "object" || Array.isArray(b.valores)) errores.push({ campo: "valores", mensaje: "Valores no válidos" });
+    else for (const [k, v] of Object.entries(b.valores as Record<string, unknown>)) {
+      const col = E.columnasEtapa.find((c) => c.id === k && c.servicioContratadoId === s.id);
+      if (!col) { errores.push({ campo: `valores.${k}`, mensaje: "Esa columna no es de este proyecto" }); continue; }
+      const r = validarValorEtapa(col, v);
+      if ("error" in r) { errores.push({ campo: `valores.${k}`, mensaje: `${col.nombre}: ${r.error}` }); continue; }
+      if (r.valor === null) { delete valores[k]; continue; }
+      if (col.tipo === "ARCHIVOS" && !(r.valor as { archivoId: string }[]).every((a) => E.archivosCliente.some((x) => x.id === a.archivoId && x.clienteId === s.clienteId))) {
+        errores.push({ campo: `valores.${k}`, mensaje: `${col.nombre}: algún archivo no es de este cliente` });
+        continue;
+      }
+      valores[k] = col.tipo === "APROBACION" ? { aprobado: r.valor, por: ctx.usuario.nombre, en: new Date().toISOString() } : r.valor;
+    }
+  }
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
   }
@@ -3095,9 +3121,44 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   if (typeof b.nombre === "string") e.nombre = b.nombre.trim();
   if (typeof b.esperaCliente === "boolean") e.esperaCliente = b.esperaCliente;
   e.tipoFecha = tipo;
+  e.valores = valores;
   if (tipo !== "REUNION") e.hora = null;
   else if (b.hora !== undefined) e.hora = b.hora;
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
+  return avanceServicio(s, true);
+});
+
+// 20 nov: columnas libres de las etapas (solo equipo).
+const servicioDe = (id: string) => { const s = E.servicios.find((x) => x.id === id); if (!s) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos lo que buscas"); return s; };
+ruta("POST", "/servicios-contratados/:id/columnas", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = servicioDe(p.id);
+  const b = await cuerpo<{ nombre?: unknown; tipo?: unknown; opciones?: unknown }>(req);
+  if (b.tipo === "ESTADO" && b.opciones === undefined) b.opciones = OPCIONES_ESTADO_ETAPA;
+  const errores = validarColumnaEtapa(b, true);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  E.columnasEtapa.push({ id: crypto.randomUUID(), servicioContratadoId: s.id, nombre: (b.nombre as string).trim(), tipo: b.tipo as S<"ColumnaEtapa">["tipo"], opciones: b.tipo === "ESTADO" ? (b.opciones as string[]) : [] });
+  return { __status: 201, ...avanceServicio(s, true) };
+});
+ruta("PATCH", "/servicios-contratados/:id/columnas/:col", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = servicioDe(p.id);
+  const col = E.columnasEtapa.find((c) => c.id === p.col && c.servicioContratadoId === s.id);
+  if (!col) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa columna");
+  const b = await cuerpo<{ nombre?: unknown; opciones?: unknown }>(req);
+  const errores = validarColumnaEtapa(b, false);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (typeof b.nombre === "string") col.nombre = b.nombre.trim();
+  if (col.tipo === "ESTADO" && Array.isArray(b.opciones)) col.opciones = b.opciones as string[];
+  return avanceServicio(s, true);
+});
+ruta("DELETE", "/servicios-contratados/:id/columnas/:col", (ctx, p) => {
+  soloEquipo(ctx);
+  exigirPermiso(ctx, "BORRAR_COLUMNAS");
+  const s = servicioDe(p.id);
+  if (!E.columnasEtapa.some((c) => c.id === p.col && c.servicioContratadoId === s.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa columna");
+  E.columnasEtapa = E.columnasEtapa.filter((c) => c.id !== p.col);
+  for (const e of E.etapas.filter((x) => x.servicioContratadoId === s.id && x.valores)) delete e.valores![p.col];
   return avanceServicio(s, true);
 });
 

@@ -32,6 +32,7 @@
  * Las respuestas tienen la misma forma que la API simulada (src/mock/api.ts); las pruebas de
  * tests/api/flujo-piezas.ts corren contra las dos.
  */
+import { OPCIONES_ESTADO_ETAPA, validarColumnaEtapa, validarValorEtapa, type ValorArchivos } from "../dominio/columnas-etapa";
 import { MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, type ModuloNovedad } from "../dominio/novedades";
 import { createHash, randomBytes } from "node:crypto";
 import type { components } from "../api/tipos-api";
@@ -1563,6 +1564,8 @@ interface FilaEtapa {
   /** 20 nov: RANGO, HITO o REUNION; hora solo en REUNION (time de Postgres: «10:00:00»). */
   tipo_fecha?: "RANGO" | "HITO" | "REUNION";
   hora?: string | null;
+  /** 20 nov: valores de las columnas libres (solo equipo). */
+  valores?: Record<string, unknown> | null;
   servicio_contratado_id: string;
   periodo: string | null;
   orden: number;
@@ -1624,7 +1627,7 @@ const etapaVista = (e: FilaEtapa, hoy: string, equipo = false): S<"EtapaProyecto
   reunionClave: e.reunion_clave, fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin),
   atrasada: etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy),
   tipoFecha: e.tipo_fecha ?? "RANGO", hora: e.hora ? e.hora.slice(0, 5) : null,
-  ...(equipo ? { causaAtraso: e.causa_atraso, justificacionAtraso: e.justificacion_atraso, diasCorridosCliente: e.dias_corridos_cliente } : {}),
+  ...(equipo ? { causaAtraso: e.causa_atraso, justificacionAtraso: e.justificacion_atraso, diasCorridosCliente: e.dias_corridos_cliente, valores: e.valores ?? {} } : {}),
 });
 
 async function progresoPiezas(ctx: Ctx, servicioId: string | null, clienteId: string, periodo: string, totales: number): Promise<S<"ProgresoPiezas">> {
@@ -1656,6 +1659,12 @@ async function servicioVista(ctx: Ctx, s: FilaServicio, periodo: string): Promis
   };
 }
 
+/** Las columnas libres de las etapas de un proyecto (20 nov). */
+async function columnasEtapaDb(ctx: Ctx, servicioId: string): Promise<S<"ColumnaEtapa">[]> {
+  return (await ctx.c.query<{ id: string; nombre: string; tipo: S<"ColumnaEtapa">["tipo"]; opciones: string[] }>(
+    "SELECT id, nombre, tipo, opciones FROM columna_etapa WHERE servicio_contratado_id = $1 ORDER BY orden, creado_en", [servicioId])).rows;
+}
+
 async function avanceServicio(ctx: Ctx, s: FilaServicio, periodo: string): Promise<S<"AvanceServicio">> {
   const { etapas, ...v } = await servicioVista(ctx, s, periodo);
   const a = v.avance;
@@ -1666,6 +1675,7 @@ async function avanceServicio(ctx: Ctx, s: FilaServicio, periodo: string): Promi
     servicioContratadoId: s.id, codigo: s.codigo, nombre: v.nombre, titulo: v.titulo, variante: v.variante, detalle: s.detalle, responsable: v.responsable,
     estado: a.totalEtapas > 0 && a.etapasCompletadas === a.totalEtapas ? "COMPLETADO" : s.estado === "PAUSADO" || s.estado === "STANDBY" ? s.estado : a.etapasCompletadas === 0 && a.etapaActual?.estado === "SIN_INICIAR" ? "SIN_INICIAR" : "EN_CURSO",
     progreso: v.progreso, avance: a, etapas: etapas.map((e) => etapaVista(e, HOY_LIMA(), ctx.esEquipo)),
+    ...(ctx.esEquipo ? { columnas: await columnasEtapaDb(ctx, s.id) } : {}),
     hitos: hitos.map((h) => ({ id: h.id, grupo: h.grupo, titulo: h.titulo, estado: h.estado, fechaInicio: fechaIso(h.fecha_inicio), fechaFin: fechaIso(h.fecha_estimada), esperaCliente: h.espera_cliente, nota: h.nota_cliente, responsableNombre: h.responsable_nombre })),
     siguientePaso: s.siguiente_paso ? { texto: `Siguiente paso: ${s.siguiente_paso}`, responsable: s.paso_id ? { id: s.paso_id, nombre: s.paso_nombre ?? "", cargo: s.paso_cargo, email: s.paso_email ?? undefined } : (undefined as never) } : null,
     sincronizadoEn: iso(hitos[0]?.sincronizado_en ?? null) ?? new Date().toISOString(),
@@ -5631,7 +5641,7 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   if (!esUuid(p.etapa)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
   const e = (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2 FOR UPDATE", [p.etapa, s.id])).rows[0];
   if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean; tipoFecha?: TipoFechaEtapa; hora?: string | null };
+  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean; tipoFecha?: TipoFechaEtapa; hora?: string | null; valores?: unknown };
   const errores: { campo: string; mensaje: string }[] = [...validarAtraso(b), ...validarEdicionEtapa(b)];
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
   // 20 nov: un hito o una reunión son de un solo día (inicio = fin previsto); la hora solo va en las reuniones.
@@ -5641,6 +5651,27 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   const ini = b.fechaInicio !== undefined ? b.fechaInicio : fechaIso(e.fecha_inicio);
   const finPrevisto = b.fechaEstimada !== undefined ? b.fechaEstimada : fechaIso(e.fecha_estimada);
   if (tipo === "RANGO" && ini && finPrevisto && ini > finPrevisto) errores.push({ campo: "fechaInicio", mensaje: "El inicio va antes del fin" });
+  // 20 nov: valores de las columnas libres de este proyecto.
+  const valores: Record<string, unknown> = { ...(e.valores ?? {}) };
+  if (b.valores !== undefined) {
+    if (!b.valores || typeof b.valores !== "object" || Array.isArray(b.valores)) errores.push({ campo: "valores", mensaje: "Valores no válidos" });
+    else {
+      const cols = await columnasEtapaDb(ctx, s.id);
+      for (const [k, v] of Object.entries(b.valores as Record<string, unknown>)) {
+        const col = cols.find((c) => c.id === k);
+        if (!col) { errores.push({ campo: `valores.${k}`, mensaje: "Esa columna no es de este proyecto" }); continue; }
+        const r = validarValorEtapa(col, v);
+        if ("error" in r) { errores.push({ campo: `valores.${k}`, mensaje: `${col.nombre}: ${r.error}` }); continue; }
+        if (r.valor === null) { delete valores[k]; continue; }
+        if (col.tipo === "ARCHIVOS") {
+          const ids = (r.valor as ValorArchivos).map((a) => a.archivoId);
+          const ok = ids.every(esUuid) && (await ctx.c.query("SELECT 1 FROM archivo WHERE id = ANY($1::uuid[]) AND cliente_id = $2 AND estado <> 'ELIMINADO'", [ids, s.cliente_id])).rows.length === new Set(ids).size;
+          if (!ok) { errores.push({ campo: `valores.${k}`, mensaje: `${col.nombre}: algún archivo no es de este cliente` }); continue; }
+        }
+        valores[k] = col.tipo === "APROBACION" ? { aprobado: r.valor, por: ctx.u.nombre ?? null, en: new Date().toISOString() } : r.valor;
+      }
+    }
+  }
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
   }
@@ -5662,13 +5693,49 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
             causa_atraso = CASE WHEN $7::boolean THEN $8::causa_atraso ELSE causa_atraso END,
             justificacion_atraso = CASE WHEN $9::boolean THEN $10 ELSE justificacion_atraso END,
             nombre = coalesce($11, nombre), espera_cliente = coalesce($12, espera_cliente),
-            tipo_fecha = $13, hora = CASE WHEN $13 <> 'REUNION' THEN NULL WHEN $14::boolean THEN $15::time ELSE hora END WHERE id = $1`,
+            tipo_fecha = $13, hora = CASE WHEN $13 <> 'REUNION' THEN NULL WHEN $14::boolean THEN $15::time ELSE hora END, valores = $16 WHERE id = $1`,
     [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId, b.causaAtraso !== undefined, b.causaAtraso ?? null, b.justificacionAtraso !== undefined, b.justificacionAtraso?.trim() || null,
       typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.esperaCliente === "boolean" ? b.esperaCliente : null,
-      tipo, b.hora !== undefined, b.hora ?? null],
+      tipo, b.hora !== undefined, b.hora ?? null, JSON.stringify(valores)],
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
+});
+
+// 20 nov (Alonso, opción A): columnas libres en las etapas del proyecto, solo para el equipo.
+ruta("POST", "/servicios-contratados/:id/columnas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const b = (await cuerpo()) as { nombre?: unknown; tipo?: unknown; opciones?: unknown };
+  if (b.tipo === "ESTADO" && b.opciones === undefined) b.opciones = OPCIONES_ESTADO_ETAPA;
+  validacion(validarColumnaEtapa(b, true));
+  const n = (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM columna_etapa WHERE servicio_contratado_id = $1", [s.id])).rows[0].n;
+  if (n >= 30) validacion([{ campo: "nombre", mensaje: "Hasta 30 columnas por proyecto" }]);
+  await ctx.c.query(
+    "INSERT INTO columna_etapa (servicio_contratado_id, cliente_id, nombre, tipo, opciones, orden, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    [s.id, s.cliente_id, (b.nombre as string).trim(), b.tipo, JSON.stringify(b.tipo === "ESTADO" ? (b.opciones as string[]).map((o) => o.trim()) : []), n, ctx.esServicio ? null : ctx.u.usuarioId],
+  );
+  return { __status: 201, ...(await avanceServicio(ctx, s, PERIODO_ACTUAL())) };
+});
+ruta("PATCH", "/servicios-contratados/:id/columnas/:col", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const col = esUuid(p.col) ? (await ctx.c.query<{ id: string; tipo: string }>("SELECT id, tipo FROM columna_etapa WHERE id = $1 AND servicio_contratado_id = $2", [p.col, s.id])).rows[0] : undefined;
+  if (!col) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa columna");
+  const b = (await cuerpo()) as { nombre?: unknown; opciones?: unknown };
+  validacion(validarColumnaEtapa(b, false));
+  await ctx.c.query("UPDATE columna_etapa SET nombre = coalesce($2, nombre), opciones = CASE WHEN $3::jsonb IS NULL THEN opciones ELSE $3::jsonb END WHERE id = $1",
+    [col.id, typeof b.nombre === "string" ? b.nombre.trim() : null, col.tipo === "ESTADO" && Array.isArray(b.opciones) ? JSON.stringify(b.opciones) : null]);
+  return avanceServicio(ctx, s, PERIODO_ACTUAL());
+});
+ruta("DELETE", "/servicios-contratados/:id/columnas/:col", async (ctx, p) => {
+  soloEquipo(ctx);
+  exigirPermiso(ctx, "BORRAR_COLUMNAS");
+  const s = await buscarServicio(ctx, p.id);
+  const r = esUuid(p.col) ? (await ctx.c.query("DELETE FROM columna_etapa WHERE id = $1 AND servicio_contratado_id = $2 RETURNING id", [p.col, s.id])).rows : [];
+  if (!r.length) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa columna");
+  await ctx.c.query("UPDATE etapa_proyecto SET valores = valores - $2 WHERE servicio_contratado_id = $1 AND valores ? $2", [s.id, p.col]);
+  return avanceServicio(ctx, s, PERIODO_ACTUAL());
 });
 
 // 13 nov (pedido): agregar o quitar etapas después de contratar. El orden queda seguido (sin huecos), porque

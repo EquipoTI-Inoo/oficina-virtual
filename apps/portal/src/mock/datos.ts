@@ -199,6 +199,8 @@ export interface EtapaDemo {
   /** 20 nov: RANGO (por defecto), HITO o REUNION; hora «HH:MM» solo en REUNION. */
   tipoFecha?: "RANGO" | "HITO" | "REUNION";
   hora?: string | null;
+  /** 20 nov: valores de las columnas libres. */
+  valores?: Record<string, unknown>;
   servicioContratadoId: string;
   clienteId: string;
   periodo: string | null;

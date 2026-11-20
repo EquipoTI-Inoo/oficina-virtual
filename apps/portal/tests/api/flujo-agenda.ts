@@ -84,6 +84,42 @@ export function pruebasAgenda(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal((await llamar("PATCH", `/tareas/${t.id}`, DIEGO, { fechaLimite: null })).json.hora, null, "sin fecha no hay hora");
     });
 
+    test("20 nov: columnas libres en las etapas: enlace en el kickoff, aprobación y archivo; borrar exige el permiso", async () => {
+      await reiniciar();
+      const WEB = uid(4, 4);
+      const ADMIN = `demo.${uid(1, 4)}`;
+      const base = `/servicios-contratados/${WEB}`;
+      const nueva = (b: object) => llamar("POST", `${base}/columnas`, DIEGO, b);
+      assert.equal((await nueva({ nombre: "X", tipo: "OTRO" })).status, 422);
+      const enlace = (await nueva({ nombre: "Enlace de la reunión", tipo: "ENLACE" })).json.columnas.find((c: any) => c.nombre === "Enlace de la reunión");
+      const aprob = (await nueva({ nombre: "Aprobación", tipo: "APROBACION" })).json.columnas.find((c: any) => c.tipo === "APROBACION");
+      const arch = (await nueva({ nombre: "Archivos", tipo: "ARCHIVOS" })).json.columnas.find((c: any) => c.tipo === "ARCHIVOS");
+      const estado = (await nueva({ nombre: "Revisión", tipo: "ESTADO" })).json.columnas.find((c: any) => c.tipo === "ESTADO");
+      assert.deepEqual(estado.opciones, ["Pendiente", "En curso", "Listo"]);
+      const etapas = (await llamar("GET", `${base}/avance`, DIEGO)).json.etapas;
+      const kickoff = etapas[0].id;
+      const etapa = (id: string, valores: object) => llamar("PATCH", `${base}/etapas/${id}`, DIEGO, { valores });
+      assert.equal((await etapa(kickoff, { [enlace.id]: "no es un enlace" })).status, 422);
+      assert.equal((await etapa(kickoff, { "otra-col": "x" })).status, 422);
+      const r = await etapa(kickoff, { [enlace.id]: "https://meet.google.com/abc-defg-hij", [aprob.id]: true, [estado.id]: "Listo" });
+      assert.equal(r.status, 200, JSON.stringify(r.json.errores));
+      const v = r.json.etapas[0].valores;
+      assert.equal(v[enlace.id], "https://meet.google.com/abc-defg-hij");
+      assert.deepEqual([v[aprob.id].aprobado, v[aprob.id].por], [true, "Diego Castro"]);
+      assert.equal((await etapa(etapas[1].id, { [arch.id]: [{ archivoId: "00000000-0000-4000-8000-000000000000", nombre: "x.pdf" }] })).status, 422, "el archivo tiene que ser del cliente");
+      // El cliente no ve las columnas ni los valores.
+      const delCliente = (await llamar("GET", `${base}/avance`, VALERIA)).json;
+      assert.equal(delCliente.columnas, undefined);
+      assert.equal(delCliente.etapas[0].valores, undefined);
+      // Borrar: solo con el permiso, y se lleva los valores.
+      assert.equal((await llamar("DELETE", `${base}/columnas/${enlace.id}`, DIEGO)).status, 403);
+      const borrada = await llamar("DELETE", `${base}/columnas/${enlace.id}`, ADMIN);
+      assert.equal(borrada.status, 200);
+      assert.equal(borrada.json.columnas.some((c: any) => c.id === enlace.id), false);
+      assert.equal(borrada.json.etapas[0].valores[enlace.id], undefined);
+      assert.equal((await llamar("PATCH", `${base}/columnas/${estado.id}`, DIEGO, { nombre: "Revisión interna" })).json.columnas.find((c: any) => c.id === estado.id).nombre, "Revisión interna");
+    });
+
     test("crea, edita y elimina pendientes y eventos; los invitados los ven", async () => {
       await reiniciar();
       const malo = await llamar("POST", "/me/agenda/eventos", DIEGO, { tipo: "TAREA", titulo: "x", fecha: "2026-13-01", horaInicio: "25:00" });

@@ -66,7 +66,7 @@ docker compose -p inoo-fase1 exec -T postgres psql -U inoo -d oficina_virtual -1
   < ../../database/migraciones/00NN_nombre.sql
 ```
 
-Si algo falla, `-1` deshace todo y la base queda como estaba. **Al 18 nov la producción tiene hasta la 0066.**
+Si algo falla, `-1` deshace todo y la base queda como estaba. **Al 20 nov la producción tiene hasta la 0070.**
 Los respaldos previos quedan como `/opt/inoo/respaldos/antes-00NN-AAAAMMDD-HHMM.sql`.
 
 El CI (`.github/workflows/ci.yml`, job `base-de-datos`) aplica todas las migraciones de la carpeta en orden
