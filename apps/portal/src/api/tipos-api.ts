@@ -8027,6 +8027,8 @@ export interface components {
             mensaje?: string;
             /** @description Plazo; por defecto el de la plantilla */
             diasHabiles?: number;
+            /** @description Las preguntas para este cliente (20 nov): se parte de las de la plantilla y se pueden agregar, cambiar o quitar. Si no viene, van las de la plantilla */
+            campos?: components["schemas"]["CampoFormulario"][];
         };
         Requerimiento: {
             /** Format: uuid */

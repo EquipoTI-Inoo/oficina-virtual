@@ -224,6 +224,30 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.deepEqual(final.map((e: any) => e.fechaEstimada), despues.map((e: any) => e.fechaEstimada));
     });
 
+    test("20 nov: preguntas editadas antes de enviar: el cliente (y el enlace) ve exactamente esas; la plantilla no cambia", async () => {
+      await reiniciar();
+      const pl = (await llamar("GET", "/plantillas-requerimiento", DIEGO)).json.datos.find((x: any) => x.codigo === "BRIEF_WEB");
+      const campos = [
+        { ...pl.campos[0], etiqueta: "¿Cómo se llama tu marca?" },
+        { clave: "presupuesto", etiqueta: "¿Cuál es tu presupuesto?", tipo: "OPCION", obligatorio: true, opciones: ["Menos de S/ 5,000", "Más de S/ 5,000"] },
+        { clave: "notas", etiqueta: "Algo más", tipo: "TEXTO_LARGO", obligatorio: false, mostrarSi: { campo: "no-existe", valores: ["x"] } },
+      ];
+      const malo = await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: uid(4, 4), campos: [{ clave: "a", etiqueta: "¿?", tipo: "OPCION", obligatorio: true, opciones: ["solo una"] }] });
+      assert.equal(malo.status, 422);
+      assert.match(malo.json.errores.map((e: any) => e.mensaje).join(" "), /opciones/);
+      const r = await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: uid(4, 4), campos });
+      assert.equal(r.status, 201, JSON.stringify(r.json.errores));
+      const visto = (await llamar("GET", `/requerimientos/${r.json.id}`, VALERIA)).json;
+      assert.deepEqual(visto.campos.map((c: any) => c.etiqueta), ["¿Cómo se llama tu marca?", "¿Cuál es tu presupuesto?", "Algo más"]);
+      assert.equal(visto.campos[2].mostrarSi, undefined, "una condición a una pregunta que no está se descarta");
+      const enlace = (await llamar("POST", `/requerimientos/${r.json.id}/enlace`, DIEGO, {})).json.enlace.url.slice(3);
+      assert.deepEqual((await llamar("GET", `/publico/formularios/${enlace}`)).json.campos.map((c: any) => c.clave), [pl.campos[0].clave, "presupuesto", "notas"]);
+      const sinPresupuesto = await llamar("PUT", `/requerimientos/${r.json.id}/respuesta`, VALERIA, { respuestas: { [pl.campos[0].clave]: "Casa Oliva" }, enviar: true });
+      assert.deepEqual(sinPresupuesto.json.errores.map((e: any) => e.campo), ["presupuesto"], "la pregunta nueva obligatoria se exige");
+      const otra = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: uid(4, 4) })).json;
+      assert.deepEqual(otra.campos.map((c: any) => c.clave), pl.campos.map((c: any) => c.clave), "la plantilla sigue igual para los demás");
+    });
+
     test("el equipo observa lo enviado con una nota y luego lo aprueba", async () => {
       await reiniciar();
       const revision = `/requerimientos/${CATALOGO}/revision`;

@@ -215,6 +215,48 @@ const miles = (n: number) => n.toLocaleString("es-PE");
 export const mensajeLargo = (largo: number, max: number) =>
   `Tiene ${miles(largo)} caracteres y el máximo es ${miles(max)}. Recorta el texto o adjúntalo como archivo: lo que escribiste no se pierde.`;
 
+/**
+ * Preguntas editadas antes de enviar un formulario (20 nov, Alonso): se parte de las de la plantilla y el equipo
+ * agrega, cambia o quita preguntas para ese cliente. Devuelve las preguntas limpias (una condición que apunta a una
+ * pregunta quitada se descarta) o los errores.
+ */
+export const TIPOS_PREGUNTA = ["TEXTO", "TEXTO_LARGO", "LISTA", "URL", "OPCION", "OPCIONES", "SI_NO", "ARCHIVOS", "NUMERO", "FECHA"] as const;
+export function prepararPreguntas(v: unknown): { campos: Campo[]; errores: { campo: string; mensaje: string }[] } {
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (!Array.isArray(v) || v.length < 1 || v.length > 60) return { campos: [], errores: [{ campo: "campos", mensaje: "Deja entre 1 y 60 preguntas" }] };
+  const campos: Campo[] = [];
+  const claves = new Set<string>();
+  v.forEach((x, i) => {
+    const c = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+    const donde = `campos.${i}`;
+    const clave = typeof c.clave === "string" ? c.clave.trim() : "";
+    const etiqueta = typeof c.etiqueta === "string" ? c.etiqueta.trim() : "";
+    if (!/^[A-Za-z][\w-]{0,59}$/.test(clave) || claves.has(clave)) errores.push({ campo: donde, mensaje: `Pregunta ${i + 1}: identificador inválido o repetido` });
+    if (etiqueta.length < 2 || etiqueta.length > 300) errores.push({ campo: donde, mensaje: `Pregunta ${i + 1}: escribe la pregunta (hasta 300 caracteres)` });
+    if (!(TIPOS_PREGUNTA as readonly unknown[]).includes(c.tipo)) errores.push({ campo: donde, mensaje: `Pregunta ${i + 1}: elige el tipo de respuesta` });
+    const opciones = Array.isArray(c.opciones) ? [...new Set(c.opciones.filter((o): o is string => typeof o === "string").map((o) => o.trim()).filter(Boolean))] : [];
+    const conOpciones = c.tipo === "OPCION" || c.tipo === "OPCIONES";
+    if (conOpciones && (opciones.length < 2 || opciones.length > 30 || opciones.some((o) => o.length > 120))) errores.push({ campo: donde, mensaje: `Pregunta ${i + 1}: pon entre 2 y 30 opciones` });
+    if (typeof c.ayuda === "string" && c.ayuda.length > 500) errores.push({ campo: donde, mensaje: `Pregunta ${i + 1}: la ayuda va hasta 500 caracteres` });
+    claves.add(clave);
+    const m = c.mostrarSi as { campo?: unknown; valores?: unknown } | undefined;
+    campos.push({
+      clave, etiqueta, tipo: c.tipo as Campo["tipo"], obligatorio: c.obligatorio === true,
+      ...(typeof c.ayuda === "string" && c.ayuda.trim() ? { ayuda: c.ayuda.trim() } : {}),
+      ...(conOpciones ? { opciones } : {}),
+      ...(typeof c.seccion === "string" && c.seccion.trim() ? { seccion: c.seccion.trim().slice(0, 120) } : {}),
+      ...(m && typeof m.campo === "string" && Array.isArray(m.valores) && m.valores.length ? { mostrarSi: { campo: m.campo, valores: m.valores.filter((x): x is string => typeof x === "string") } } : {}),
+    });
+  });
+  // Una condición solo vale si apunta a una pregunta anterior que sigue estando.
+  const anteriores = new Set<string>();
+  for (const c of campos) {
+    if (c.mostrarSi && !anteriores.has(c.mostrarSi.campo)) delete c.mostrarSi;
+    anteriores.add(c.clave);
+  }
+  return { campos, errores };
+}
+
 export function prepararIngreso(v: unknown): { respuestas: Respuestas; errores: { campo: string; mensaje: string }[] } {
   if (!v || typeof v !== "object" || Array.isArray(v)) return { respuestas: {}, errores: [{ campo: "ingreso", mensaje: "Respuesta inválida" }] };
   const r = v as Respuestas;

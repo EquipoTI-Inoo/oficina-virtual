@@ -8,7 +8,7 @@
  */
 
 import { etapasDesdePlantilla, plantillaPara, type CodigoServicio, type EstadoEtapa } from "../dominio/servicios";
-import { fechaLimite, plantillaRequerimiento } from "../dominio/requerimientos";
+import { fechaLimite, plantillaRequerimiento, type Campo } from "../dominio/requerimientos";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../dominio/calendario";
 import type { Area } from "../dominio/ia-equipo";
 import { EMPLEADO_DEMO } from "./inoowork-demo";
@@ -503,6 +503,8 @@ export const REFERENCIAS_INICIALES = [
  */
 export interface RequerimientoDemo {
   id: string;
+  /** 20 nov: las preguntas que se dejaron al enviarlo, si se editaron; si no, las de la plantilla. */
+  campos?: Campo[];
   servicioContratadoId: string;
   clienteId: string;
   plantillaCodigo: string;

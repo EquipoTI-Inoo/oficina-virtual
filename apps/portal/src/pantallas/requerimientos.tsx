@@ -7,7 +7,7 @@
  */
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
+import { LuArrowDown, LuArrowUp, LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { camposVisibles, ENLACE_FORMULARIO, limiteTexto, semaforoRequerimiento } from "../dominio/requerimientos";
@@ -797,10 +797,11 @@ function NuevoFormulario({ abierto, clienteId, servicioContratadoId, codigoServi
   const [dias, setDias] = useState(String(ENLACE_FORMULARIO.diasDefecto));
   const [ocupado, setOcupado] = useState(false);
   const url = creado?.enlace && typeof window !== "undefined" ? `${window.location.origin}${creado.enlace.url}` : null;
+  const ed = usePreguntas(disponibles.find((p) => p.codigo === plantilla)?.campos);
   const crear = async () => {
     setOcupado(true);
     try {
-      const r = await api<Req>(`/clientes/${clienteId}/requerimientos`, { metodo: "POST", cuerpo: { plantillaCodigo: plantilla, servicioContratadoId, mensaje: mensaje.trim() || undefined }, idempotente: true });
+      const r = await api<Req>(`/clientes/${clienteId}/requerimientos`, { metodo: "POST", cuerpo: { plantillaCodigo: plantilla, servicioContratadoId, mensaje: mensaje.trim() || undefined, ...preguntasParaEnviar(ed.preguntas, ed.cambiadas) }, idempotente: true });
       alCrear(await api<Req>(`/requerimientos/${r.id}/enlace`, { metodo: "POST", cuerpo: { diasVigencia: Number(dias) } }));
       setMensaje("");
     } catch (e) {
@@ -818,7 +819,7 @@ function NuevoFormulario({ abierto, clienteId, servicioContratadoId, codigoServi
     }
   };
   return (
-    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo formulario" ancho={500}>
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo formulario" ancho={640}>
       <div className="pila" style={{ gap: 14 }}>
         <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuLink size={18} /> Nuevo formulario</h2>
         {url ? (
@@ -839,6 +840,7 @@ function NuevoFormulario({ abierto, clienteId, servicioContratadoId, codigoServi
               </select>
               <span className="ayuda-campo">{disponibles.find((p) => p.codigo === plantilla)?.descripcion}</span>
             </div>
+            {ed.preguntas.length > 0 && <EditorPreguntas preguntas={ed.preguntas} cambiar={ed.setPreguntas} cambiadas={ed.cambiadas} reiniciar={ed.reiniciar} />}
             <div className="campo">
               <label htmlFor="form-mensaje">Mensaje para el cliente <span className="texto-muted">(opcional)</span></label>
               <textarea id="form-mensaje" className="input" rows={2} maxLength={1000} value={mensaje} onChange={(e) => setMensaje(e.target.value)} placeholder="Ej.: Súbenos los videos del evento y las fotos de los productos." />
@@ -863,6 +865,73 @@ const TIPO_CAMPO: Record<string, string> = {
   ARCHIVOS: "Archivos", NUMERO: "Número", FECHA: "Fecha",
 };
 
+type Pregunta = S<"CampoFormulario">;
+/** Las preguntas de una plantilla, listas para editar; se reinician al cambiar de plantilla (20 nov). */
+function usePreguntas(base: Pregunta[] | undefined) {
+  const [preguntas, setPreguntas] = useState<Pregunta[]>([]);
+  const firma = JSON.stringify(base ?? []);
+  useEffect(() => setPreguntas(JSON.parse(firma) as Pregunta[]), [firma]);
+  const cambiadas = JSON.stringify(preguntas) !== firma;
+  return { preguntas, setPreguntas, cambiadas, reiniciar: () => setPreguntas(JSON.parse(firma) as Pregunta[]) };
+}
+
+/**
+ * 20 nov (Alonso): editar las preguntas antes de enviar el formulario. Se parte de las de la plantilla; lo que se deje
+ * es exactamente lo que verá ese cliente. La plantilla no cambia.
+ */
+function EditorPreguntas({ preguntas, cambiar, cambiadas, reiniciar }: { preguntas: Pregunta[]; cambiar: (p: Pregunta[]) => void; cambiadas: boolean; reiniciar: () => void }) {
+  const poner = (i: number, c: Partial<Pregunta>) => cambiar(preguntas.map((x, j) => (j === i ? { ...x, ...c } : x)));
+  const mover = (i: number, d: -1 | 1) => {
+    const j = i + d;
+    if (j < 0 || j >= preguntas.length) return;
+    const xs = [...preguntas];
+    [xs[i], xs[j]] = [xs[j], xs[i]];
+    cambiar(xs);
+  };
+  const agregar = () => cambiar([...preguntas, { clave: `p${Date.now().toString(36)}`, etiqueta: "", tipo: "TEXTO_LARGO", obligatorio: false }]);
+  return (
+    <div className="tarjeta" style={{ padding: "14px 16px", display: "grid", gap: 10, boxShadow: "none" }} aria-label="Preguntas del formulario">
+      <div className="fila entre" style={{ flexWrap: "wrap", gap: 8 }}>
+        <span className="etiqueta-direccion">Así le llega al cliente · puedes editarlo</span>
+        {cambiadas && <button type="button" className="enlace texto-xs" onClick={reiniciar}>Volver a las preguntas estándar</button>}
+      </div>
+      {preguntas.map((c, i) => (
+        <div key={c.clave} className="fila-suave" style={{ display: "grid", gap: 6, padding: "10px 12px" }}>
+          <div className="fila" style={{ gap: 6 }}>
+            <span className="texto-xs texto-muted" style={{ minWidth: 18 }}>{i + 1}.</span>
+            <input className="input" style={{ flex: 1, height: 34 }} aria-label={`Pregunta ${i + 1}`} value={c.etiqueta} maxLength={300} placeholder="Escribe la pregunta"
+              onChange={(e) => poner(i, { etiqueta: e.target.value })} />
+            <button type="button" className="boton-icono" aria-label={`Subir la pregunta ${i + 1}`} disabled={i === 0} onClick={() => mover(i, -1)}><LuArrowUp size={14} /></button>
+            <button type="button" className="boton-icono" aria-label={`Bajar la pregunta ${i + 1}`} disabled={i === preguntas.length - 1} onClick={() => mover(i, 1)}><LuArrowDown size={14} /></button>
+            <button type="button" className="boton-icono" aria-label={`Quitar la pregunta ${i + 1}`} disabled={preguntas.length === 1} onClick={() => cambiar(preguntas.filter((_, j) => j !== i))}><LuX size={14} /></button>
+          </div>
+          <div className="fila" style={{ gap: 10, flexWrap: "wrap", paddingLeft: 24 }}>
+            <select className="input" style={{ width: "auto", height: 32 }} aria-label={`Tipo de respuesta de la pregunta ${i + 1}`} value={c.tipo}
+              onChange={(e) => {
+                const tipo = e.target.value as Pregunta["tipo"];
+                poner(i, { tipo, opciones: tipo === "OPCION" || tipo === "OPCIONES" ? (c.opciones?.length ? c.opciones : ["", ""]) : undefined });
+              }}>
+              {Object.entries(TIPO_CAMPO).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+            </select>
+            <label className="fila texto-xs" style={{ gap: 4 }}>
+              <input type="checkbox" checked={c.obligatorio} onChange={(e) => poner(i, { obligatorio: e.target.checked })} /> Obligatoria
+            </label>
+            {c.mostrarSi && <span className="texto-xs texto-muted">Solo si «{preguntas.find((x) => x.clave === c.mostrarSi!.campo)?.etiqueta ?? "otra pregunta"}» es {c.mostrarSi.valores.join(" o ")}</span>}
+          </div>
+          {(c.tipo === "OPCION" || c.tipo === "OPCIONES") && (
+            <textarea className="input" rows={3} style={{ marginLeft: 24 }} aria-label={`Opciones de la pregunta ${i + 1}, una por línea`} placeholder="Una opción por línea"
+              value={(c.opciones ?? []).join("\n")} onChange={(e) => poner(i, { opciones: e.target.value.split("\n") })} />
+          )}
+        </div>
+      ))}
+      <button type="button" className="boton boton--chico" style={{ justifySelf: "start" }} onClick={agregar}><LuPlus size={14} /> Agregar pregunta</button>
+    </div>
+  );
+}
+/** Lo que se manda: las preguntas solo si cambiaron (sin líneas vacías en las opciones). */
+const preguntasParaEnviar = (p: Pregunta[], cambiadas: boolean) =>
+  cambiadas ? { campos: p.map((c) => (c.opciones ? { ...c, opciones: c.opciones.map((o) => o.trim()).filter(Boolean) } : c)) } : {};
+
 /**
  * Pedir un requerimiento (reunión 15 oct): primero el servicio, luego solo las plantillas que aplican a
  * ese servicio, y una vista previa de los campos que le llegarán al cliente.
@@ -879,12 +948,13 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
   const codigoServicio = servicios.datos?.servicios.find((s) => s.servicioContratadoId === servicio)?.codigo;
   const disponibles = (plantillas.datos?.datos ?? []).filter((p) => !p.servicios.length || (codigoServicio && p.servicios.includes(codigoServicio)));
   const elegida = disponibles.find((p) => p.codigo === plantilla);
+  const ed = usePreguntas(elegida?.campos);
   const pedir = async () => {
     setErrores({});
     try {
       await api(`/clientes/${clienteId}/requerimientos`, {
         metodo: "POST",
-        cuerpo: { plantillaCodigo: plantilla, servicioContratadoId: servicio, mensaje: mensaje || undefined, diasHabiles: dias ? Number(dias) : undefined },
+        cuerpo: { plantillaCodigo: plantilla, servicioContratadoId: servicio, mensaje: mensaje || undefined, diasHabiles: dias ? Number(dias) : undefined, ...preguntasParaEnviar(ed.preguntas, ed.cambiadas) },
         idempotente: true,
       });
       avisar({ titulo: "Requerimiento enviado", texto: "El cliente recibe un correo con la fecha límite." });
@@ -955,23 +1025,10 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
         {error("plantillaCodigo")}
       </div>
       {elegida && (
-        <div className="tarjeta" style={{ padding: "14px 16px", display: "grid", gap: 8, boxShadow: "none" }} aria-label="Vista previa del formulario">
-          <span className="etiqueta-direccion">Así le llega al cliente</span>
-          <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
-            {elegida.campos.map((c) => (
-              <li key={c.clave} className="texto-sm">
-                {c.etiqueta}
-                {c.obligatorio && <span className="texto-primario"> *</span>}
-                <span className="texto-xs texto-muted">
-                  {" "}
-                  · {TIPO_CAMPO[c.tipo] ?? c.tipo}
-                  {(c.tipo === "OPCION" || c.tipo === "OPCIONES") && c.opciones?.length ? `: ${c.opciones.join(" / ")}` : ""}
-                  {c.mostrarSi && ` · solo si «${elegida.campos.find((x) => x.clave === c.mostrarSi!.campo)?.etiqueta ?? c.mostrarSi.campo}» es ${c.mostrarSi.valores.join(" o ")}`}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
+        <>
+          <EditorPreguntas preguntas={ed.preguntas} cambiar={ed.setPreguntas} cambiadas={ed.cambiadas} reiniciar={ed.reiniciar} />
+          {Object.entries(errores).filter(([k]) => k.startsWith("campos")).map(([k, m]) => <span key={k} className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>{m}</span>)}
+        </>
       )}
       <div className="campo">
         <label htmlFor="req-dias">Plazo en días hábiles</label>

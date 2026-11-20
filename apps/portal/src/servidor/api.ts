@@ -99,7 +99,7 @@ import { libroXlsx, TIPO_XLSX } from "../dominio/xlsx";
 import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, type EstadoTarea, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import {
-  correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
+  correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, prepararPreguntas, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
   validarEdicionRequerimiento,
 } from "../dominio/requerimientos";
 import { accionPorRevisar, enlacePorRevisar, ordenarPorRevisar } from "../dominio/por-revisar";
@@ -5834,9 +5834,12 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, cuerpo) => {
   if (pl && sc && !plantillaAplica(pl.servicios, sc.codigo)) errores.push({ campo: "plantillaCodigo", mensaje: "Esta plantilla no aplica a ese servicio" });
   if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
   if (b.titulo !== undefined && (typeof b.titulo !== "string" || b.titulo.trim().length < 3)) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
+  // 20 nov: preguntas editadas antes de enviarlo (si no vienen, las de la plantilla).
+  const preguntas = (b as { campos?: unknown }).campos === undefined ? null : prepararPreguntas((b as { campos?: unknown }).campos);
+  if (preguntas) errores.push(...preguntas.errores);
   if (errores.length) validacion(errores);
   const dias = await noHabilesDb(ctx);
-  const id = await pedirAlClienteDb(ctx, sc!.id, p.id, pl!, b.titulo, b.mensaje, b.diasHabiles, dias);
+  const id = await pedirAlClienteDb(ctx, sc!.id, p.id, preguntas ? { ...pl!, campos: preguntas.campos } : pl!, b.titulo, b.mensaje, b.diasHabiles, dias);
   return { __status: 201, ...reqVista(await buscarReq(ctx, id), dias) };
 });
 

@@ -35,7 +35,7 @@ import { leerPaseInooWork } from "../servidor/sesion-inoowork";
 import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, ErrorImagenChat, leerImagenes, validarChat } from "../servidor/jarvis-chat";
 import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
-import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, soloVisibles,
+import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, prepararPreguntas, soloVisibles,
   ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas, validarEdicionRequerimiento } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
@@ -1465,7 +1465,7 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
     id: r.id, servicioContratadoId: r.servicioContratadoId, servicioTitulo: tituloDe(sc), plantillaCodigo: r.plantillaCodigo, titulo: r.titulo,
     descripcion: pl?.descripcion ?? null, mensaje: r.mensaje, estado: r.estado, emitidoEn: r.emitidoEn, fechaLimite: r.fechaLimite,
     diasAtraso: diasAtraso(r.fechaLimite, hasta, noHabiles()), diasParaVencer: diasParaVencer(r.fechaLimite, D.HOY, noHabiles()),
-    diasCorridos: r.diasCorridos, campos: pl?.campos ?? [], respuestas: r.respuestas,
+    diasCorridos: r.diasCorridos, campos: r.campos ?? pl?.campos ?? [], respuestas: r.respuestas,
     notaEquipo: r.notaEquipo, enviadoEn: r.enviadoEn, enviadoPor: firmaCliente(r.enviadoPorId), revisadoEn: r.revisadoEn, creadoPor: persona(r.creadoPorId),
     enlace: r.enlaceToken && r.enlaceVenceEn ? { url: urlFormularioPublico(r.enlaceToken), venceEn: r.enlaceVenceEn, vigente: r.enlaceVenceEn > D.HOY } : null,
     enviadoPorEnlace: r.respondidoPorNombre ?? null,
@@ -1474,7 +1474,7 @@ function requerimientoVista(r: D.RequerimientoDemo): S<"Requerimiento"> {
 }
 /** 18 nov: corregir lo ya enviado. El cliente (o el enlace) lo vuelve a «por revisar»; el equipo no cambia el estado. */
 function corregirReqMock(r: D.RequerimientoDemo, respuestas: Record<string, unknown>, nombre: string, esEquipo: boolean) {
-  const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
+  const campos = r.campos ?? plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
   const errores = validarRespuestas(campos, respuestas, true);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Completa los campos obligatorios", undefined, errores);
   Object.assign(r, { respuestas: soloVisibles(campos, respuestas), editadoEn: new Date().toISOString(), editadoPorNombre: nombre });
@@ -1539,8 +1539,13 @@ ruta("POST", "/clientes/:id/requerimientos", async (ctx, p, _q, req) => {
   if (pl && sc && !plantillaAplica(pl.servicios, sc.codigo)) errores.push({ campo: "plantillaCodigo", mensaje: "Esta plantilla no aplica a ese servicio" });
   if (b.diasHabiles !== undefined && !(Number.isInteger(b.diasHabiles) && b.diasHabiles >= 1 && b.diasHabiles <= 30)) errores.push({ campo: "diasHabiles", mensaje: "Entre 1 y 30 días hábiles" });
   if (b.titulo !== undefined && b.titulo.trim().length < 3) errores.push({ campo: "titulo", mensaje: "Al menos 3 caracteres" });
+  // 20 nov: preguntas editadas antes de enviarlo (si no vienen, las de la plantilla).
+  const preguntas = (b as { campos?: unknown }).campos === undefined ? null : prepararPreguntas((b as { campos?: unknown }).campos);
+  if (preguntas) errores.push(...preguntas.errores);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
-  return { __status: 201, ...requerimientoVista(pedirAlCliente(ctx, sc!, pl!.codigo, b.titulo, b.mensaje, b.diasHabiles)) };
+  const nuevo = pedirAlCliente(ctx, sc!, pl!.codigo, b.titulo, b.mensaje, b.diasHabiles);
+  if (preguntas) nuevo.campos = preguntas.campos;
+  return { __status: 201, ...requerimientoVista(nuevo) };
 });
 
 /** Crea un requerimiento para el cliente: a mano, al contratar (los de la plantilla) o desde una reunión. */
@@ -1574,7 +1579,7 @@ ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
   exigirRol(ctx, r.clienteId, ["ADMIN_CLIENTE", "APROBADOR"]);
   if (!pendienteParaCliente(r.estado)) throw new ErrorApi(409, "REQUERIMIENTO_ENVIADO", "Ya enviaste este requerimiento", "Para cambiar algo, usa «Editar respuestas».");
   const respuestas = b.respuestas && typeof b.respuestas === "object" && !Array.isArray(b.respuestas) ? b.respuestas : {};
-  const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
+  const campos = r.campos ?? plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
   const errores = validarRespuestas(campos, respuestas, b.enviar === true);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", b.enviar ? "Completa los campos obligatorios" : "Revisa los campos marcados", undefined, errores);
   r.respuestas = soloVisibles(campos, respuestas);
@@ -1616,7 +1621,7 @@ async function formularioPublicoMock(req: Request, token: string, resto: string)
   const r = E.requerimientos.find((x) => x.enlaceToken === token);
   if (!r) throw new ErrorApi(404, "ENLACE_NO_VALIDO", "Este enlace no funciona", "Puede que lo hayan reemplazado. Pide uno nuevo a tu equipo Inoo.");
   if (r.enlaceVenceEn && r.enlaceVenceEn <= D.HOY) throw new ErrorApi(410, "ENLACE_VENCIDO", "Este enlace venció", "Pide uno nuevo a tu equipo Inoo.");
-  const campos = plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
+  const campos = r.campos ?? plantillaRequerimiento(r.plantillaCodigo)?.campos ?? [];
   const sc = E.servicios.find((x) => x.id === r.servicioContratadoId)!;
   const vista = (): S<"FormularioPublico"> => ({
     titulo: r.titulo, descripcion: plantillaRequerimiento(r.plantillaCodigo)?.descripcion ?? null, mensaje: r.mensaje, clienteNombre: E.clientes.find((c) => c.id === r.clienteId)!.nombre,
