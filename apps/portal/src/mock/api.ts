@@ -2716,13 +2716,32 @@ ruta("POST", "/clientes", async (ctx, _p, _q, req) => {
   // Quien lo crea (un lead, por ejemplo) sigue viendo la cuenta aunque no sea su AM.
   if (!ctx.esServicio && nivelDe(ctx.usuario) !== "ADMIN" && c.accountManagerId !== ctx.usuario.id) E.accesosCuenta.push({ usuarioId: ctx.usuario.id, clienteId: c.id, asignadoPorId: ctx.usuario.id });
   // Cada servicio por la misma ruta que «Nuevo servicio»: mismas validaciones, etapas y requerimientos.
-  const contratar = RUTAS.find(([m, patron]) => m === "POST" && patron === "/clientes/:id/servicios")![2];
-  for (const x of desdeIngreso.contrataciones) {
-    const cuerpoServicio = { servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: D.HOY.slice(0, 10), responsableId: responsableProyectos };
-    await contratar(ctx, { id: c.id }, new URLSearchParams(), new Request("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cuerpoServicio) }));
+  const sinProyecto = [...desdeIngreso.sinProyecto];
+  if ((b as { proyectosPersonalizados?: unknown }).proyectosPersonalizados === true) {
+    // 20 nov: proyectos personalizados (tableros vacíos, sin la plantilla del servicio).
+    const u = ctx.usuario;
+    for (const x of desdeIngreso.contrataciones) {
+      try {
+        const t = await TABLEROS.crear(yoTablero(ctx), { nombre: `${x.desde} · ${c.nombre}`.slice(0, 120), cliente: c.nombre, miembros: responsableProyectos ? [responsableProyectos] : [] }, {
+          lider: u.inooworkEmpleadoId ? { id: u.inooworkEmpleadoId, nombre: u.nombre } : null,
+          departamento: departamentoDe({ area: u.area ?? null, rolEquipo: u.rolEquipo ?? null }),
+          miembros: async (ids) => equipoInooWork().filter((y) => ids.includes(y.id)).map((y) => ({ id: y.inooworkEmpleadoId!, nombre: y.nombre })),
+        });
+        if (!t) throw new Error("sin tablero");
+        await TABLEROS.cambiarProyecto(t.id, yoTablero(ctx), { etiquetas: [x.desde] });
+      } catch {
+        sinProyecto.push(x.desde);
+      }
+    }
+  } else {
+    const contratar = RUTAS.find(([m, patron]) => m === "POST" && patron === "/clientes/:id/servicios")![2];
+    for (const x of desdeIngreso.contrataciones) {
+      const cuerpoServicio = { servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: D.HOY.slice(0, 10), responsableId: responsableProyectos };
+      await contratar(ctx, { id: c.id }, new URLSearchParams(), new Request("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cuerpoServicio) }));
+    }
   }
   if (c.responsableOperativoId) sumarOperativo(ctx, c.id, c.responsableOperativoId);
-  return { __status: 201, ...clienteVista(ctx, c), proyectosCreados: desdeIngreso.contrataciones.length, sinProyecto: desdeIngreso.sinProyecto };
+  return { __status: 201, ...clienteVista(ctx, c), proyectosCreados: desdeIngreso.contrataciones.length - (sinProyecto.length - desdeIngreso.sinProyecto.length), sinProyecto };
 });
 
 /** El responsable operativo tiene que ser del equipo; null o vacío lo quita (20 nov). */

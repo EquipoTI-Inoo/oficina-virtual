@@ -5980,12 +5980,16 @@ ruta("POST", "/tableros", async (ctx, _p, _q, cuerpo) => {
   const yo = await yoTablero(ctx);
   const b = (await cuerpo()) as Record<string, unknown>;
   b.cliente = await asegurarClienteDb(ctx, b.cliente);
-  return TABLEROS.crear(yo, b, {
+  return TABLEROS.crear(yo, b, datosCreacionTablero(ctx, yo));
+});
+/** Líder, área y miembros (por su id del portal) de un tablero que crea esta persona. */
+function datosCreacionTablero(ctx: Ctx, yo: Awaited<ReturnType<typeof yoTablero>>) {
+  return {
     lider: yo.empleadoId ? { id: yo.empleadoId, nombre: ctx.u.nombre } : null,
     departamento: departamentoDe({ area: ctx.u.area ?? null, rolEquipo: ctx.u.rolEquipo }),
-    miembros: async (ids) => (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id)).map((x) => ({ id: x.empleado, nombre: x.nombre })),
-  });
-});
+    miembros: async (ids: string[]) => (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id)).map((x) => ({ id: x.empleado, nombre: x.nombre })),
+  };
+}
 ruta("GET", "/tableros/:id", async (ctx, p) => {
   equipoOInvitado(ctx);
   return TABLEROS.ver(p.id, await yoTablero(ctx));
@@ -7017,12 +7021,27 @@ ruta("POST", "/clientes", async (ctx, _p, _q, cuerpo) => {
   }
   alcances.delete(ctx);
   // Cada servicio por la misma ruta que «Nuevo servicio»: mismas validaciones, etapas y requerimientos.
-  const contratar = RUTAS.find(([m, patron]) => m === "POST" && patron === "/clientes/:id/servicios")![2];
-  for (const x of desdeIngreso.contrataciones) {
-    await contratar(ctx, { id }, new URLSearchParams(), async () => ({ servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: HOY_LIMA(), responsableId: responsableProyectos }));
+  // 20 nov (Alonso): o como proyectos personalizados, tableros vacíos sin la plantilla del servicio.
+  const sinProyecto = [...desdeIngreso.sinProyecto];
+  if ((b as { proyectosPersonalizados?: unknown }).proyectosPersonalizados === true) {
+    const yo = await yoTablero(ctx);
+    for (const x of desdeIngreso.contrataciones) {
+      try {
+        const t = await TABLEROS.crear(yo, { nombre: `${x.desde} · ${nombre}`.slice(0, 120), cliente: nombre, miembros: responsableProyectos ? [responsableProyectos] : [] }, datosCreacionTablero(ctx, yo));
+        if (!t) throw new Error("InooWork no respondió");
+        await TABLEROS.cambiarProyecto(t.id, yo, { etiquetas: [x.desde] });
+      } catch {
+        sinProyecto.push(x.desde);
+      }
+    }
+  } else {
+    const contratar = RUTAS.find(([m, patron]) => m === "POST" && patron === "/clientes/:id/servicios")![2];
+    for (const x of desdeIngreso.contrataciones) {
+      await contratar(ctx, { id }, new URLSearchParams(), async () => ({ servicioCodigo: x.servicioCodigo, variante: x.variante, detalle: x.detalle, fechaInicio: HOY_LIMA(), responsableId: responsableProyectos }));
+    }
   }
   if (operativo) await sumarOperativoAProyectos(ctx, id, operativo);
-  return { __status: 201, ...(await clienteVista(ctx, id)), proyectosCreados: desdeIngreso.contrataciones.length, sinProyecto: desdeIngreso.sinProyecto };
+  return { __status: 201, ...(await clienteVista(ctx, id)), proyectosCreados: desdeIngreso.contrataciones.length - (sinProyecto.length - desdeIngreso.sinProyecto.length), sinProyecto };
 });
 
 /** El responsable operativo tiene que ser alguien activo del equipo (o null para quitarlo). */

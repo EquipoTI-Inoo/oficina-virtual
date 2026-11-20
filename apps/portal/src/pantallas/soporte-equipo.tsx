@@ -11,7 +11,8 @@ import {
   ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
 } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
-import { EstadoPagoDelCliente, NuevoServicio } from "./proyecto-equipo";
+import { EstadoPagoDelCliente } from "./proyecto-equipo";
+import { NuevoProyectoDeCliente } from "./pipeline";
 import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
 import { AccesoDelCliente, EquipoAsignado, GestionCuenta, TablerosDelCliente } from "./accesos";
@@ -781,11 +782,11 @@ function Ficha() {
               <h3 className="tarjeta-titulo">Servicios y alcance</h3>
               {gestion && (
                 <button className="boton boton--chico" onClick={() => setNuevoServicio(true)}>
-                  <LuPlus size={14} /> Nuevo servicio
+                  <LuPlus size={14} /> Nuevo proyecto
                 </button>
               )}
             </div>
-            <NuevoServicio clienteId={id} abierto={nuevoServicio} alCerrar={() => setNuevoServicio(false)} alCrear={() => void s.recargar()} />
+            <NuevoProyectoDeCliente clienteId={id} clienteNombre={d.nombre} abierto={nuevoServicio} alCerrar={() => setNuevoServicio(false)} alCrear={() => void s.recargar()} />
             <div style={{ display: "grid", gap: 16 }}>
               {s.datos.servicios.map((x) => (
                 <div key={x.servicioContratadoId} className="fila">

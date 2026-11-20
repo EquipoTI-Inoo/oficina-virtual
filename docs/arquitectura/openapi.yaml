@@ -7697,6 +7697,7 @@ components:
         nombre: { type: string, minLength: 2 }
         responsableProyectosId: { type: string, format: uuid, description: 'Solo en el alta: quién de Inoo lleva los proyectos que se crean desde el ingreso' }
         responsableOperativoId: { type: [string, 'null'], format: uuid, description: 'Quién lleva el proyecto (20 nov). Entra como miembro de los proyectos activos del cliente' }
+        proyectosPersonalizados: { type: boolean, description: 'Solo en el alta (20 nov): los servicios del ingreso se crean como proyectos personalizados (tableros vacíos con el servicio como etiqueta) en vez de servicios con plantilla' }
         marca: { $ref: '#/components/schemas/Marca' }
         tono: { $ref: '#/components/schemas/Tono' }
         publico: { $ref: '#/components/schemas/Publico' }

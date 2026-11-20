@@ -76,6 +76,18 @@ export function pruebasCuentas(nombre: string, manejar: Manejador, reiniciar: ()
       assert.equal((await llamar("PATCH", `/clientes/${ok.json.id}`, DIEGO, { responsableOperativoId: null })).json.responsableOperativo, null);
     });
 
+    test("20 nov: alta con proyectos personalizados: un tablero vacío por servicio, con el servicio como etiqueta y sin servicio con plantilla", async () => {
+      await reiniciar();
+      const ingreso = { servicios: ["Desarrollo web"], objetivos: "Vender", fechaReunionBrief: "2026-10-20", tipoWeb: "Landing page", estructuraWeb: "Código" };
+      const ok = await llamar("POST", "/clientes", DIEGO, { nombre: "Retail Este", ingreso, responsableProyectosId: uid(1, 6), proyectosPersonalizados: true });
+      assert.equal(ok.status, 201, JSON.stringify(ok.json.errores ?? ok.json.title));
+      assert.deepEqual([ok.json.proyectosCreados, ok.json.sinProyecto], [1, []]);
+      assert.equal((await llamar("GET", `/clientes/${ok.json.id}/servicios`, DIEGO)).json.servicios.length, 0, "sin plantilla: no se crea el servicio");
+      const t = (await llamar("GET", "/tableros", DIEGO)).json.datos.find((x: any) => x.nombre === "Desarrollo web · Retail Este");
+      assert.ok(t, "el tablero existe");
+      assert.deepEqual([t.cliente, t.etiquetas], ["Retail Este", ["Desarrollo web"]]);
+    });
+
     test("alta con el ingreso de cliente (antes en Monday): cada servicio pide lo suyo y solo lo ve el equipo", async () => {
       await reiniciar();
       assert.equal((await llamar("GET", "/formularios/ingreso-cliente", VALERIA)).status, 403);

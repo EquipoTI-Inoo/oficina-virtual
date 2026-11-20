@@ -5751,6 +5751,8 @@ export interface components {
              * @description Quién lleva el proyecto (20 nov). Entra como miembro de los proyectos activos del cliente
              */
             responsableOperativoId?: string | null;
+            /** @description Solo en el alta (20 nov): los servicios del ingreso se crean como proyectos personalizados (tableros vacíos con el servicio como etiqueta) en vez de servicios con plantilla */
+            proyectosPersonalizados?: boolean;
             marca?: components["schemas"]["Marca"];
             tono?: components["schemas"]["Tono"];
             publico?: components["schemas"]["Publico"];

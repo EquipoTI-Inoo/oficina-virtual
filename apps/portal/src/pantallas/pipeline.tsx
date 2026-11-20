@@ -13,7 +13,7 @@ import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Moda
 import { NuevoServicio } from "./proyecto-equipo";
 import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
 
-type TipoNuevo = "CATALOGO" | "TABLERO";
+export type TipoNuevo = "CATALOGO" | "TABLERO";
 const INOO_INTERNO = "Inoo (interno)";
 
 type Pipeline = { columnas: { clave: S<"ColumnaProyecto">; titulo: string }[]; datos: S<"ProyectoPipeline">[] };
@@ -40,7 +40,7 @@ export function PantallaPipeline() {
 const iniciales = (nombre: string) => nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
 /** Encabezado común de los dos formularios de «Nuevo proyecto», con el cambio de tipo. */
-function CabeceraNuevo({ tipo, cambiar, tablero }: { tipo: TipoNuevo; cambiar: (t: TipoNuevo) => void; tablero: boolean }) {
+export function CabeceraNuevo({ tipo, cambiar, tablero }: { tipo: TipoNuevo; cambiar: (t: TipoNuevo) => void; tablero: boolean }) {
   return (
     <div className="pila" style={{ gap: 10 }}>
       <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
@@ -279,13 +279,18 @@ function PipelineProyectos() {
 }
 
 /** Crea el proyecto en InooWork con su plantilla y abre el tablero (6 nov). */
-function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; cabecera: ReactNode; alCerrar: () => void; destino?: { cliente: string; marcaId: string | null; carpetaId: string | null } | null }) {
+/** Servicios que se pueden anotar en un proyecto personalizado (quedan como etiqueta del tablero). */
+const SERVICIOS_TABLERO = ["Desarrollo web", "Branding", "Social Media", "CRM", "SEO", "Marketing", "Audiovisual"] as const;
+
+export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, clienteFijo }: { equipo: { id: string; nombre: string; area: string | null }[]; clientes: string[]; cabecera: ReactNode; alCerrar: () => void; destino?: { cliente: string; marcaId: string | null; carpetaId: string | null } | null; clienteFijo?: string }) {
   const { ir } = useNavegacion();
   const avisar = useAviso();
   const yo = usePortal().sesion?.usuario.id;
   const [nombre, setNombre] = useState("");
   // 17 nov: «Proyecto aquí» desde una carpeta llega con su empresa (y marca o carpeta) puestas.
-  const [cliente, setCliente] = useState(destino?.cliente ?? "");
+  const [cliente, setCliente] = useState(clienteFijo ?? destino?.cliente ?? "");
+  // 20 nov (Alonso): un proyecto personalizado puede ser de un servicio (Web, Branding…) sin cargar su plantilla.
+  const [servicio, setServicio] = useState("");
   const [otro, setOtro] = useState(false);
   // Inoo como cliente interno (27 oct): si InooWork ya lo tiene como «Inoo», se usa ese nombre.
   const base = clientes.some((c) => /^inoo\b/i.test(c)) ? clientes : [INOO_INTERNO, ...clientes];
@@ -302,6 +307,7 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino }: { equip
     setEnviando(true);
     try {
       const t = await api<S<"TableroInooWork">>("/tableros", { metodo: "POST", cuerpo: { nombre, cliente, ...(descripcion.trim() ? { descripcion } : {}), color, miembros } });
+      if (servicio) await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: { etiquetas: [servicio] } }).catch(() => undefined);
       if (destino && (destino.carpetaId || destino.marcaId)) {
         await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: destino.carpetaId ? { carpetaId: destino.carpetaId } : { marcaId: destino.marcaId } }).catch(() => undefined);
       }
@@ -324,6 +330,9 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino }: { equip
           <div className="entrada"><input id="tab-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={120} placeholder="Ej.: Web institucional 2027" autoFocus /></div>
           {error("nombre")}
         </div>
+        {clienteFijo ? (
+          <p className="texto-sm">Cliente: <strong>{clienteFijo}</strong></p>
+        ) : (
         <div className="campo">
           <label htmlFor="tab-cliente">Cliente</label>
           <select id="tab-cliente" className="input" value={otro ? "__otro" : cliente} onChange={(e) => {
@@ -337,6 +346,16 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino }: { equip
           </select>
           {otro && <div className="entrada" style={{ marginTop: 6 }}><input aria-label="Nombre del cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} maxLength={120} placeholder="Nombre del cliente" autoFocus /></div>}
           {error("cliente")}
+        </div>
+        )}
+        {clienteFijo && error("cliente")}
+        <div className="campo">
+          <label htmlFor="tab-servicio">Servicio <span className="texto-muted">(opcional)</span></label>
+          <select id="tab-servicio" className="input" value={servicio} onChange={(e) => setServicio(e.target.value)}>
+            <option value="">Sin servicio</option>
+            {SERVICIOS_TABLERO.map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
+          <p className="texto-xs texto-muted">Se crea vacío, sin la plantilla del servicio: armas tus grupos y columnas.</p>
         </div>
         <div className="campo">
           <label htmlFor="tab-descripcion">Descripción <span className="texto-muted">(opcional)</span></label>
@@ -375,6 +394,20 @@ function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino }: { equip
       </form>
     </Modal>
   );
+}
+
+/**
+ * «Nuevo proyecto» desde la ficha de un cliente (20 nov, Alonso): lo mismo que en Proyectos, predeterminado (servicio
+ * del catálogo con su plantilla) o personalizado (tablero libre), ya vinculado al cliente.
+ */
+export function NuevoProyectoDeCliente({ clienteId, clienteNombre, abierto, alCerrar, alCrear }: { clienteId: string; clienteNombre: string; abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
+  const [tipo, setTipo] = useState<TipoNuevo>("CATALOGO");
+  const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null; empleadoId: string }[] }>(abierto ? "/tableros" : null);
+  if (!abierto) return null;
+  const cabecera = <CabeceraNuevo tipo={tipo} cambiar={setTipo} tablero={!!r.datos} />;
+  return tipo === "CATALOGO"
+    ? <NuevoServicio clienteId={clienteId} abierto cabecera={cabecera} alCerrar={() => { setTipo("CATALOGO"); alCerrar(); }} alCrear={() => alCrear()} />
+    : <NuevoTablero equipo={r.datos?.equipo ?? []} clientes={[]} clienteFijo={clienteNombre} cabecera={cabecera} alCerrar={() => { setTipo("CATALOGO"); alCerrar(); }} />;
 }
 
 function TarjetaTablero({ t, marca }: { t: S<"TableroResumen">; marca?: string }) {

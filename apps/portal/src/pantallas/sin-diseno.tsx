@@ -474,6 +474,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const [creando, setCreando] = useState(false);
   // 6 nov: lo marcado en «Servicios contratados» se crea como proyecto; alguien de Inoo tiene que llevarlo.
   const [responsableProyectos, setResponsableProyectos] = useState("");
+  const [personalizados, setPersonalizados] = useState(false);
   const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(abierto ? "/panel/equipo" : null);
   const marcados = Array.isArray(ingreso.servicios) ? (ingreso.servicios as string[]) : [];
   const conProyecto = marcados.filter((x) => x !== "SEO");
@@ -526,6 +527,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
           ingreso: formulario ? Object.fromEntries(Object.entries(ingreso).filter(([, v]) => !respuestaVacia(v))) : undefined,
           responsableProyectosId: conProyecto.length && responsableProyectos ? responsableProyectos : undefined,
           responsableOperativoId: responsableProyectos || undefined,
+          proyectosPersonalizados: conProyecto.length && personalizados ? true : undefined,
           contacto: contacto.nombre || contacto.email ? { nombre: contacto.nombre, email: contacto.email, cargo: contacto.cargo || undefined } : undefined,
         },
         idempotente: true,
@@ -646,6 +648,16 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
           <Ayuda error={err.responsableProyectosId || err.responsableOperativoId}
             texto={conProyecto.length > 0 ? `Se crean ${conProyecto.length === 1 ? "el proyecto" : `${conProyecto.length} proyectos`} de ${conProyecto.join(", ")} a su cargo, y queda en el equipo de cada uno.` : "Entra al equipo de los proyectos del cliente. Tú quedas registrado como quien hizo el alta."} />
         </div>
+        {conProyecto.length > 0 && (
+          <div className="campo">
+            <span className="rotulo" id="nc-tipo-proyecto">Cómo crear {conProyecto.length === 1 ? "el proyecto" : "los proyectos"}</span>
+            <div className="chips" role="radiogroup" aria-labelledby="nc-tipo-proyecto">
+              <button type="button" role="radio" className="chip" aria-checked={!personalizados} aria-pressed={!personalizados} onClick={() => setPersonalizados(false)}>Predeterminado</button>
+              <button type="button" role="radio" className="chip" aria-checked={personalizados} aria-pressed={personalizados} onClick={() => setPersonalizados(true)}>Personalizado</button>
+            </div>
+            <Ayuda texto={personalizados ? "Tableros vacíos, sin la plantilla del servicio: armas tus grupos y columnas. No aparecen en «Mis servicios» del cliente." : "Con las etapas de la plantilla de cada servicio. El cliente los ve en su portal y se le piden los requerimientos."} />
+          </div>
+        )}
         {motivos.length > 0 && (
           <div role="alert" style={{ border: "1px solid var(--c-alerta)", borderRadius: 12, padding: "10px 14px", display: "grid", gap: 4 }}>
             <strong className="texto-sm" style={{ color: "var(--c-alerta)" }}>No se creó el cliente:</strong>
