@@ -703,6 +703,7 @@ function etapasDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
 const etapaVista = (e: D.EtapaDemo, equipo = false): S<"EtapaProyecto"> => ({
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: null, periodo: e.periodo, avancePct: e.avancePct, estado: e.estado, esperaCliente: e.esperaCliente,
   reunionClave: e.reunionClave ?? null, fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: e.fechaFin, atrasada: etapaAtrasada(e, D.HOY),
+  tipoFecha: e.tipoFecha ?? "RANGO", hora: e.hora ?? null,
   ...(equipo ? { causaAtraso: e.causaAtraso ?? null, justificacionAtraso: e.justificacionAtraso ?? null, diasCorridosCliente: e.diasCorridosCliente ?? 0 } : {}),
 });
 function avanceDe(s: D.ServicioContratadoDemo, periodo = D.PERIODO) {
@@ -3066,9 +3067,16 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   const s = E.servicios.find((x) => x.id === p.id);
   const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
   if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean }>(req);
+  const b = await cuerpo<{ estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean; tipoFecha?: "RANGO" | "HITO" | "REUNION"; hora?: string | null }>(req);
   const errores: { campo: string; mensaje: string }[] = [...validarAtraso(b), ...validarEdicionEtapa(b)];
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
+  // 20 nov: hito y reunión son de un día; la hora solo en reuniones.
+  const tipo = b.tipoFecha ?? e.tipoFecha ?? "RANGO";
+  if (tipo !== "RANGO" && b.fechaEstimada) b.fechaInicio = b.fechaEstimada;
+  else if (tipo !== "RANGO" && b.tipoFecha && e.fechaEstimada) b.fechaInicio = e.fechaEstimada;
+  const ini = b.fechaInicio !== undefined ? b.fechaInicio : e.fechaInicio;
+  const finPrevisto = b.fechaEstimada !== undefined ? b.fechaEstimada : e.fechaEstimada;
+  if (tipo === "RANGO" && ini && finPrevisto && ini > finPrevisto) errores.push({ campo: "fechaInicio", mensaje: "El inicio va antes del fin" });
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
   }
@@ -3086,6 +3094,9 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   if (b.justificacionAtraso !== undefined) e.justificacionAtraso = b.justificacionAtraso?.trim() || null;
   if (typeof b.nombre === "string") e.nombre = b.nombre.trim();
   if (typeof b.esperaCliente === "boolean") e.esperaCliente = b.esperaCliente;
+  e.tipoFecha = tipo;
+  if (tipo !== "REUNION") e.hora = null;
+  else if (b.hora !== undefined) e.hora = b.hora;
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
   return avanceServicio(s, true);
 });
@@ -3716,7 +3727,7 @@ ruta("GET", "/panel/proyectos", (ctx, _p, q) => {
 function tareaVista(t: D.TareaDemo): S<"Tarea"> {
   return {
     id: t.id, servicioContratadoId: t.servicioContratadoId, etapaId: t.etapaId, etapaNombre: E.etapas.find((e) => e.id === t.etapaId)?.nombre ?? null,
-    titulo: t.titulo, descripcion: t.descripcion, estado: t.estado, responsable: persona(t.responsableId), fechaLimite: t.fechaLimite,
+    titulo: t.titulo, descripcion: t.descripcion, estado: t.estado, responsable: persona(t.responsableId), fechaLimite: t.fechaLimite, hora: t.hora ?? null,
     vencida: tareaVencida(t, D.HOY), comentarios: E.comentariosTarea.filter((c) => c.tareaId === t.id).length,
     creadoPor: persona(t.creadoPorId), creadoEn: t.creadoEn, completadaEn: t.completadaEn,
   };
@@ -3747,13 +3758,13 @@ ruta("GET", "/servicios-contratados/:id/tareas", (ctx, p) => {
 ruta("POST", "/servicios-contratados/:id/tareas", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = buscarServicio(ctx, p.id);
-  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; estado?: D.TareaDemo["estado"]; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null }>(req);
+  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; estado?: D.TareaDemo["estado"]; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null; hora?: string | null }>(req);
   revisarTarea(b, s.id, false);
   const ahora = new Date().toISOString();
   const estado = b.estado ?? "PENDIENTE";
   const t: D.TareaDemo = {
     id: nuevoId(27), servicioContratadoId: s.id, clienteId: s.clienteId, etapaId: b.etapaId ?? null, titulo: b.titulo!.trim(), descripcion: b.descripcion?.trim() || null,
-    estado, responsableId: b.responsableId ?? null, fechaLimite: b.fechaLimite ?? null, completadaEn: estado === "HECHA" ? ahora : null, creadoPorId: ctx.usuario.id, creadoEn: ahora,
+    estado, responsableId: b.responsableId ?? null, fechaLimite: b.fechaLimite ?? null, hora: b.fechaLimite ? b.hora ?? null : null, completadaEn: estado === "HECHA" ? ahora : null, creadoPorId: ctx.usuario.id, creadoEn: ahora,
   };
   E.tareas.push(t);
   if (t.responsableId) emitir("tarea.asignada", s.clienteId, { tareaId: t.id, servicioContratadoId: s.id, responsableId: t.responsableId, usuarioId: ctx.usuario.id });
@@ -3762,12 +3773,14 @@ ruta("POST", "/servicios-contratados/:id/tareas", async (ctx, p, _q, req) => {
 
 ruta("PATCH", "/tareas/:id", async (ctx, p, _q, req) => {
   const t = buscarTarea(ctx, p.id);
-  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; estado?: D.TareaDemo["estado"]; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null }>(req);
+  const b = await cuerpo<{ titulo?: string; descripcion?: string | null; estado?: D.TareaDemo["estado"]; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null; hora?: string | null }>(req);
   revisarTarea(b, t.servicioContratadoId, true);
   if (b.titulo !== undefined) t.titulo = b.titulo.trim();
   if (b.descripcion !== undefined) t.descripcion = b.descripcion?.trim() || null;
   if (b.etapaId !== undefined) t.etapaId = b.etapaId;
   if (b.fechaLimite !== undefined) t.fechaLimite = b.fechaLimite;
+  if (b.hora !== undefined) t.hora = b.hora;
+  if (!t.fechaLimite) t.hora = null;
   if (b.estado !== undefined && b.estado !== t.estado) {
     t.estado = b.estado;
     t.completadaEn = b.estado === "HECHA" ? new Date().toISOString() : null;
@@ -5661,7 +5674,18 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   const eventos: EventoAgenda[] = [];
   for (const t of E.tareas) {
     if (t.responsableId !== yo || t.estado === "HECHA" || !t.fechaLimite || !enRango(t.fechaLimite)) continue;
-    eventos.push({ ...base({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fechaLimite }), detalle: titulo(t.servicioContratadoId), enlace: `/equipo/proyectos/${t.servicioContratadoId}`, vencido: t.fechaLimite < hoy });
+    eventos.push({
+      ...base({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fechaLimite }), detalle: titulo(t.servicioContratadoId), enlace: `/equipo/proyectos/${t.servicioContratadoId}`, vencido: t.fechaLimite < hoy,
+      ...(t.hora ? { horaInicio: t.hora, horaFin: sumarMinutos(t.hora, 30) } : {}),
+    });
+  }
+  // 20 nov: las etapas que son reuniones van al calendario con su hora.
+  for (const e of E.etapas) {
+    if (e.tipoFecha !== "REUNION" || !mios.has(e.servicioContratadoId) || !e.fechaEstimada || !enRango(e.fechaEstimada)) continue;
+    eventos.push({
+      ...base({ id: `etapa-${e.id}`, tipo: "REUNION", titulo: e.nombre, fecha: e.fechaEstimada }), detalle: titulo(e.servicioContratadoId), enlace: `/equipo/proyectos/${e.servicioContratadoId}`,
+      hecho: e.estado === "COMPLETADO", ...(e.hora ? { horaInicio: e.hora, horaFin: sumarMinutos(e.hora, 60) } : {}),
+    });
   }
   // 13 nov: los ítems de tableros con fecha.
   const empleadoAgenda = E.usuarios.find((u) => u.id === yo)?.inooworkEmpleadoId;

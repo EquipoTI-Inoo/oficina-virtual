@@ -119,6 +119,7 @@ function FechaTarea({ t }: { t: Tarea }) {
     <span className="texto-xs" style={{ color: t.vencida ? "var(--c-error)" : "var(--c-muted)", fontWeight: t.vencida ? 600 : undefined }}>
       {t.vencida ? "Venció el " : "Para el "}
       {fCorta(t.fechaLimite)}
+      {t.hora ? ` a las ${t.hora}` : ""}
     </span>
   );
 }
@@ -227,7 +228,7 @@ function NuevaTarea({
   servicioId, etapas, equipo, abierto, alCerrar, alCrear,
 }: { servicioId: string; etapas: S<"EtapaProyecto">[]; equipo: S<"PersonaEquipo">[]; abierto: boolean; alCerrar: () => void; alCrear: (t: Tarea) => void }) {
   const avisar = useAviso();
-  const vacia = { titulo: "", etapaId: "", responsableId: "", fechaLimite: "", descripcion: "" };
+  const vacia = { titulo: "", etapaId: "", responsableId: "", fechaLimite: "", hora: "", descripcion: "" };
   const [f, setF] = useState(vacia);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const crear = async () => {
@@ -235,7 +236,7 @@ function NuevaTarea({
     try {
       const t = await api<Tarea>(`/servicios-contratados/${servicioId}/tareas`, {
         metodo: "POST",
-        cuerpo: { titulo: f.titulo, etapaId: f.etapaId || null, responsableId: f.responsableId || null, fechaLimite: f.fechaLimite || null, descripcion: f.descripcion || null },
+        cuerpo: { titulo: f.titulo, etapaId: f.etapaId || null, responsableId: f.responsableId || null, fechaLimite: f.fechaLimite || null, hora: f.fechaLimite && f.hora ? f.hora : null, descripcion: f.descripcion || null },
         idempotente: true,
       });
       alCrear(t);
@@ -291,6 +292,8 @@ function NuevaTarea({
           <label htmlFor="nt-fecha">Fecha límite</label>
           <div className="entrada">
             <input id="nt-fecha" type="date" value={f.fechaLimite} onChange={(e) => setF({ ...f, fechaLimite: e.target.value })} />
+            {/* 20 nov: con hora, la tarea va al calendario a esa hora (por ejemplo, una llamada). */}
+            <input type="time" aria-label="Hora (opcional)" value={f.hora} disabled={!f.fechaLimite} onChange={(e) => setF({ ...f, hora: e.target.value })} style={{ maxWidth: 120 }} />
           </div>
           {error("fechaLimite")}
         </div>
@@ -359,6 +362,7 @@ function DetalleTarea({
         <SelectorEstado t={t} alCambiar={alCambiar} />
         <div className="entrada">
           <input type="date" aria-label="Fecha límite" value={t.fechaLimite ?? ""} onChange={(e) => alCambiar(t, { fechaLimite: e.target.value || null })} />
+          <input type="time" aria-label="Hora (opcional)" value={t.hora ?? ""} disabled={!t.fechaLimite} onChange={(e) => alCambiar(t, { hora: e.target.value || null })} style={{ maxWidth: 120 }} />
         </div>
       </div>
       <p className="texto-xs texto-muted">

@@ -85,7 +85,7 @@ import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type Co
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
-import { calcularKpis, type CausaAtraso, type Kpi, validarAtraso, validarEdicionEtapa, validarEtapaNueva, avanceEntre } from "../dominio/kpis";
+import { calcularKpis, type CausaAtraso, type Kpi, type TipoFechaEtapa, validarAtraso, validarEdicionEtapa, validarEtapaNueva, avanceEntre } from "../dominio/kpis";
 import { CAMPOS_INGRESO } from "../dominio/briefs";
 import { datosDelBriefWeb, nuevoToken, referenciasDelBrief, type Insumos, type PaginaFlujo, type Punto, type Referencia } from "../dominio/taller-web";
 import { conConsumo } from "./ia-modelos";
@@ -1560,6 +1560,9 @@ interface FilaServicio {
 }
 interface FilaEtapa {
   id: string;
+  /** 20 nov: RANGO, HITO o REUNION; hora solo en REUNION (time de Postgres: «10:00:00»). */
+  tipo_fecha?: "RANGO" | "HITO" | "REUNION";
+  hora?: string | null;
   servicio_contratado_id: string;
   periodo: string | null;
   orden: number;
@@ -1620,6 +1623,7 @@ const etapaVista = (e: FilaEtapa, hoy: string, equipo = false): S<"EtapaProyecto
   id: e.id, orden: e.orden, nombre: e.nombre, descripcion: e.descripcion, periodo: e.periodo, avancePct: e.avance_pct, estado: e.estado, esperaCliente: e.espera_cliente,
   reunionClave: e.reunion_clave, fechaInicio: fechaIso(e.fecha_inicio), fechaEstimada: fechaIso(e.fecha_estimada), fechaFin: fechaIso(e.fecha_fin),
   atrasada: etapaAtrasada({ estado: e.estado, fechaEstimada: fechaIso(e.fecha_estimada) }, hoy),
+  tipoFecha: e.tipo_fecha ?? "RANGO", hora: e.hora ? e.hora.slice(0, 5) : null,
   ...(equipo ? { causaAtraso: e.causa_atraso, justificacionAtraso: e.justificacion_atraso, diasCorridosCliente: e.dias_corridos_cliente } : {}),
 });
 
@@ -4798,12 +4802,27 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   const enlace = (scId: string) => `/equipo/proyectos/${scId}`;
   const eventos: EventoAgenda[] = [];
 
-  const tareas = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; fecha: string }>(
-    "SELECT id, titulo, servicio_contratado_id, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha FROM tarea WHERE responsable_id = $1 AND estado <> 'HECHA' AND fecha_limite BETWEEN $2 AND $3",
+  const tareas = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; fecha: string; hora: string | null }>(
+    "SELECT id, titulo, servicio_contratado_id, to_char(fecha_limite, 'YYYY-MM-DD') AS fecha, to_char(hora, 'HH24:MI') AS hora FROM tarea WHERE responsable_id = $1 AND estado <> 'HECHA' AND fecha_limite BETWEEN $2 AND $3",
     [yo, desde, hasta],
   );
   for (const t of tareas.rows) {
-    eventos.push({ ...baseAgenda({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fecha }), detalle: proyectos.get(t.servicio_contratado_id) ?? null, enlace: enlace(t.servicio_contratado_id), vencido: t.fecha < hoy });
+    eventos.push({
+      ...baseAgenda({ id: `tarea-${t.id}`, tipo: "TAREA", titulo: t.titulo, fecha: t.fecha }), detalle: proyectos.get(t.servicio_contratado_id) ?? null, enlace: enlace(t.servicio_contratado_id), vencido: t.fecha < hoy,
+      ...(t.hora ? { horaInicio: t.hora, horaFin: sumarMinutos(t.hora, 30) } : {}),
+    });
+  }
+  // 20 nov: las etapas que son reuniones (el kickoff del lunes a las 10:00) van al calendario con su hora.
+  const etapasReunion = await ctx.c.query<{ id: string; nombre: string; servicio_contratado_id: string; fecha: string; hora: string | null; estado: string }>(
+    `SELECT id, nombre, servicio_contratado_id, to_char(fecha_estimada, 'YYYY-MM-DD') AS fecha, to_char(hora, 'HH24:MI') AS hora, estado::text AS estado FROM etapa_proyecto
+     WHERE servicio_contratado_id = ANY($1::uuid[]) AND tipo_fecha = 'REUNION' AND fecha_estimada BETWEEN $2 AND $3`,
+    [ids, desde, hasta],
+  );
+  for (const e of etapasReunion.rows) {
+    eventos.push({
+      ...baseAgenda({ id: `etapa-${e.id}`, tipo: "REUNION", titulo: e.nombre, fecha: e.fecha }), detalle: proyectos.get(e.servicio_contratado_id) ?? null, enlace: enlace(e.servicio_contratado_id),
+      hecho: e.estado === "COMPLETADO", ...(e.hora ? { horaInicio: e.hora, horaFin: sumarMinutos(e.hora, 60) } : {}),
+    });
   }
   // Reuniones del proyecto: se guardan con hora (timestamptz); el rango se amplía un día y se filtra en Lima.
   const reuniones = await ctx.c.query<{ id: string; titulo: string; servicio_contratado_id: string; fecha: Date; estado: string; duracion_min: number }>(
@@ -5150,6 +5169,7 @@ interface FilaTarea {
   responsable_id: string | null;
   responsable_nombre: string | null;
   fecha_limite: Date | null;
+  hora?: string | null;
   completada_en: Date | null;
   creado_por: string | null;
   creado_por_nombre: string | null;
@@ -5166,7 +5186,7 @@ const SELECT_TAREA = `
 
 const tareaVistaDb = (t: FilaTarea): S<"Tarea"> => ({
   id: t.id, servicioContratadoId: t.servicio_contratado_id, etapaId: t.etapa_id, etapaNombre: t.etapa_nombre, titulo: t.titulo, descripcion: t.descripcion,
-  estado: t.estado, responsable: persona(t.responsable_id, t.responsable_nombre), fechaLimite: fechaIso(t.fecha_limite),
+  estado: t.estado, responsable: persona(t.responsable_id, t.responsable_nombre), fechaLimite: fechaIso(t.fecha_limite), hora: t.hora ? t.hora.slice(0, 5) : null,
   vencida: tareaVencida({ estado: t.estado, fechaLimite: fechaIso(t.fecha_limite) }, HOY_LIMA()), comentarios: t.comentarios,
   creadoPor: persona(t.creado_por, t.creado_por_nombre), creadoEn: iso(t.creado_en)!, completadaEn: iso(t.completada_en),
 });
@@ -5192,7 +5212,7 @@ async function revisarTarea(ctx: Ctx, b: Record<string, unknown>, servicioId: st
   validacion(errores);
 }
 
-type CuerpoTarea = { titulo?: string; descripcion?: string | null; estado?: EstadoTarea; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null };
+type CuerpoTarea = { titulo?: string; descripcion?: string | null; estado?: EstadoTarea; responsableId?: string | null; etapaId?: string | null; fechaLimite?: string | null; hora?: string | null };
 
 ruta("GET", "/servicios-contratados/:id/tareas", async (ctx, p) => {
   soloEquipo(ctx);
@@ -5208,9 +5228,9 @@ ruta("POST", "/servicios-contratados/:id/tareas", async (ctx, p, _q, cuerpo) => 
   await revisarTarea(ctx, b, sc.id, false);
   const estado = b.estado ?? "PENDIENTE";
   const id = (await ctx.c.query<{ id: string }>(
-    `INSERT INTO tarea (servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, estado, responsable_id, fecha_limite, completada_en, creado_por)
-     VALUES ($1, $2, $3, $4, $5, $6::estado_tarea, $7, $8::date, CASE WHEN $6 = 'HECHA' THEN now() END, $9) RETURNING id`,
-    [sc.id, sc.cliente_id, b.etapaId ?? null, b.titulo!.trim(), b.descripcion?.trim() || null, estado, b.responsableId ?? null, b.fechaLimite ?? null, ctx.esServicio ? null : ctx.u.usuarioId],
+    `INSERT INTO tarea (servicio_contratado_id, cliente_id, etapa_id, titulo, descripcion, estado, responsable_id, fecha_limite, completada_en, creado_por, hora)
+     VALUES ($1, $2, $3, $4, $5, $6::estado_tarea, $7, $8::date, CASE WHEN $6 = 'HECHA' THEN now() END, $9, $10::time) RETURNING id`,
+    [sc.id, sc.cliente_id, b.etapaId ?? null, b.titulo!.trim(), b.descripcion?.trim() || null, estado, b.responsableId ?? null, b.fechaLimite ?? null, ctx.esServicio ? null : ctx.u.usuarioId, b.fechaLimite ? b.hora ?? null : null],
   )).rows[0].id;
   if (b.responsableId) await emitirOutbox(ctx, "tarea.asignada", sc.cliente_id, { tareaId: id, servicioContratadoId: sc.id, responsableId: b.responsableId, usuarioId: ctx.u.usuarioId });
   return { __status: 201, ...tareaVistaDb(await buscarTarea(ctx, id)) };
@@ -5224,11 +5244,13 @@ ruta("PATCH", "/tareas/:id", async (ctx, p, _q, cuerpo) => {
   const responsable = b.responsableId === undefined ? t.responsable_id : b.responsableId;
   await ctx.c.query(
     `UPDATE tarea SET titulo = $2, descripcion = $3, estado = $4::estado_tarea, responsable_id = $5, etapa_id = $6, fecha_limite = $7::date,
+            hora = CASE WHEN $7::date IS NULL THEN NULL ELSE $8::time END,
             completada_en = CASE WHEN $4 <> 'HECHA' THEN NULL WHEN estado = 'HECHA' THEN completada_en ELSE now() END, actualizado_en = now()
      WHERE id = $1`,
     [
       t.id, b.titulo !== undefined ? b.titulo.trim() : t.titulo, b.descripcion !== undefined ? b.descripcion?.trim() || null : t.descripcion, estado, responsable,
       b.etapaId === undefined ? t.etapa_id : b.etapaId, b.fechaLimite === undefined ? fechaIso(t.fecha_limite) : b.fechaLimite,
+      b.hora === undefined ? t.hora ?? null : b.hora,
     ],
   );
   if (responsable && responsable !== t.responsable_id) {
@@ -5609,9 +5631,16 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
   if (!esUuid(p.etapa)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
   const e = (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2 FOR UPDATE", [p.etapa, s.id])).rows[0];
   if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
-  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean };
+  const b = (await cuerpo()) as { estado?: S<"EstadoHito">; fechaInicio?: string | null; fechaEstimada?: string | null; fechaFin?: string | null; causaAtraso?: CausaAtraso | null; justificacionAtraso?: string | null; nombre?: string; esperaCliente?: boolean; tipoFecha?: TipoFechaEtapa; hora?: string | null };
   const errores: { campo: string; mensaje: string }[] = [...validarAtraso(b), ...validarEdicionEtapa(b)];
   if (b.estado !== undefined && !["SIN_INICIAR", "EN_PROGRESO", "EN_REVISION", "COMPLETADO", "BLOQUEADO"].includes(b.estado)) errores.push({ campo: "estado", mensaje: "Estado de etapa inválido" });
+  // 20 nov: un hito o una reunión son de un solo día (inicio = fin previsto); la hora solo va en las reuniones.
+  const tipo = b.tipoFecha ?? e.tipo_fecha ?? "RANGO";
+  if (tipo !== "RANGO" && b.fechaEstimada) b.fechaInicio = b.fechaEstimada;
+  else if (tipo !== "RANGO" && b.tipoFecha && e.fecha_estimada) b.fechaInicio = fechaIso(e.fecha_estimada);
+  const ini = b.fechaInicio !== undefined ? b.fechaInicio : fechaIso(e.fecha_inicio);
+  const finPrevisto = b.fechaEstimada !== undefined ? b.fechaEstimada : fechaIso(e.fecha_estimada);
+  if (tipo === "RANGO" && ini && finPrevisto && ini > finPrevisto) errores.push({ campo: "fechaInicio", mensaje: "El inicio va antes del fin" });
   for (const k of ["fechaInicio", "fechaEstimada", "fechaFin"] as const) {
     if (b[k] != null && !/^\d{4}-\d{2}-\d{2}$/.test(b[k]!)) errores.push({ campo: k, mensaje: "Usa el formato AAAA-MM-DD" });
   }
@@ -5632,9 +5661,11 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
             actualizado_por = $6, actualizado_en = now(),
             causa_atraso = CASE WHEN $7::boolean THEN $8::causa_atraso ELSE causa_atraso END,
             justificacion_atraso = CASE WHEN $9::boolean THEN $10 ELSE justificacion_atraso END,
-            nombre = coalesce($11, nombre), espera_cliente = coalesce($12, espera_cliente) WHERE id = $1`,
+            nombre = coalesce($11, nombre), espera_cliente = coalesce($12, espera_cliente),
+            tipo_fecha = $13, hora = CASE WHEN $13 <> 'REUNION' THEN NULL WHEN $14::boolean THEN $15::time ELSE hora END WHERE id = $1`,
     [e.id, estado, fin, b.fechaInicio ?? null, b.fechaEstimada ?? null, ctx.u.usuarioId, b.causaAtraso !== undefined, b.causaAtraso ?? null, b.justificacionAtraso !== undefined, b.justificacionAtraso?.trim() || null,
-      typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.esperaCliente === "boolean" ? b.esperaCliente : null],
+      typeof b.nombre === "string" ? b.nombre.trim() : null, typeof b.esperaCliente === "boolean" ? b.esperaCliente : null,
+      tipo, b.hora !== undefined, b.hora ?? null],
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());

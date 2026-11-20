@@ -7274,6 +7274,8 @@ export interface components {
             responsable?: components["schemas"]["PersonaMini"] | null;
             /** Format: date */
             fechaLimite?: string | null;
+            /** @description HH:MM (20 nov): con hora, va al calendario a esa hora */
+            hora?: string | null;
             /** @description No está HECHA y su fecha límite ya pasó */
             vencida: boolean;
             comentarios: number;
@@ -7294,6 +7296,7 @@ export interface components {
             etapaId?: string | null;
             /** Format: date */
             fechaLimite?: string | null;
+            hora?: string | null;
         };
         ComentarioTarea: {
             /** Format: uuid */
@@ -8243,7 +8246,15 @@ export interface components {
             fechaFin?: string | null;
             /** @description Sin completar y con fechaEstimada anterior a hoy */
             atrasada: boolean;
+            tipoFecha?: components["schemas"]["TipoFechaEtapa"];
+            /** @description HH:MM, solo en REUNION (20 nov) */
+            hora?: string | null;
         };
+        /**
+         * @description RANGO = varios días (barra en el Gantt); HITO = un día (punto); REUNION = un día con hora (punto y reunión en el calendario). 20 nov
+         * @enum {string}
+         */
+        TipoFechaEtapa: "RANGO" | "HITO" | "REUNION";
         /** @description % = avancePct de la última etapa completada en orden. En servicios mensuales, el del mes en curso. */
         AvanceProyecto: {
             porcentaje: number;
@@ -12567,6 +12578,9 @@ export interface operations {
                     nombre?: string;
                     /** @description 13 nov: si la etapa depende del cliente */
                     esperaCliente?: boolean;
+                    tipoFecha?: components["schemas"]["TipoFechaEtapa"];
+                    /** @description Solo REUNION (20 nov) */
+                    hora?: string | null;
                 };
             };
         };

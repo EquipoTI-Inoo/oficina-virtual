@@ -27,9 +27,11 @@ const estadoBarra = (e: S<"EtapaProyecto">) => (e.estado === "COMPLETADO" ? "hec
 
 /** Gantt de etapas: una barra por etapa de su inicio a su fin (real si terminó, previsto si no), la línea de hoy y las reuniones. */
 export function GanttEtapas({ etapas, reuniones = [], hoy = HOY_PORTAL }: { etapas: S<"EtapaProyecto">[]; reuniones?: { titulo: string; fecha: string }[]; hoy?: string }) {
-  const conFechas = etapas.filter((e) => e.fechaInicio && (e.fechaFin ?? e.fechaEstimada));
+  // 20 nov: un hito o una reunión necesitan solo su día; una actividad de varios días, inicio y fin.
+  const puntual = (e: S<"EtapaProyecto">) => (e.tipoFecha ?? "RANGO") !== "RANGO";
+  const conFechas = etapas.filter((e) => (puntual(e) ? !!e.fechaEstimada : e.fechaInicio && (e.fechaFin ?? e.fechaEstimada)));
   if (!conFechas.length) return <p className="texto-xs texto-muted">Las etapas todavía no tienen fechas.</p>;
-  const fechas = conFechas.flatMap((e) => [e.fechaInicio!, e.fechaFin ?? e.fechaEstimada!]).concat(reuniones.map((r) => r.fecha.slice(0, 10)));
+  const fechas = conFechas.flatMap((e) => (puntual(e) ? [e.fechaEstimada!] : [e.fechaInicio!, e.fechaFin ?? e.fechaEstimada!])).concat(reuniones.map((r) => r.fecha.slice(0, 10)));
   const desde = Math.min(...fechas.map(ms));
   const hasta = Math.max(...fechas.map(ms)) + DIA;
   const pos = (f: string) => ((ms(f) - desde) / (hasta - desde)) * 100;
@@ -53,6 +55,21 @@ export function GanttEtapas({ etapas, reuniones = [], hoy = HOY_PORTAL }: { etap
         </span>
       </div>
       {conFechas.map((e) => {
+        if (puntual(e)) {
+          const dia = e.fechaEstimada!;
+          const centro = pos(dia) + (pos(iso(ms(dia) + DIA)) - pos(dia)) / 2;
+          const texto = `${e.tipoFecha === "REUNION" ? "Reunión" : "Hito"} «${e.nombre}»: ${fCorta(dia)}${e.hora ? ` a las ${e.hora}` : ""}`;
+          return (
+            <div key={e.id} className="gantt-fila" role="row">
+              <span className="gantt-nombre" role="rowheader" title={e.nombre}>{e.nombre}</span>
+              <span className="gantt-pista" role="cell">
+                {hoyPct !== null && <span className="gantt-hoy" style={{ left: `${hoyPct}%` }} aria-hidden />}
+                <span className={`gantt-punto gantt-punto--${e.tipoFecha === "REUNION" ? "reunion" : "hito"} gantt-barra--${estadoBarra(e)}`} style={{ left: `${centro}%` }} title={texto} aria-label={texto} />
+                {e.hora && <span className="gantt-hora" style={{ left: `${centro}%` }} aria-hidden>{e.hora}</span>}
+              </span>
+            </div>
+          );
+        }
         const fin = e.fechaFin ?? e.fechaEstimada!;
         const izq = pos(e.fechaInicio!);
         const ancho = Math.max(pos(iso(ms(fin) + DIA)) - izq, 1.2);
@@ -99,7 +116,12 @@ export function GanttEtapas({ etapas, reuniones = [], hoy = HOY_PORTAL }: { etap
 
 /** Eventos de calendario a partir de las etapas (fin previsto) y las reuniones del proyecto. */
 export const eventosDeEtapas = (etapas: S<"EtapaProyecto">[]): EventoCalendario[] =>
-  etapas.filter((e) => e.fechaEstimada && e.estado !== "COMPLETADO").map((e) => ({ fecha: e.fechaEstimada!, texto: e.nombre, tipo: "ETAPA", alerta: e.atrasada }));
+  etapas.filter((e) => e.fechaEstimada && e.estado !== "COMPLETADO").map((e): EventoCalendario => (
+    // 20 nov: una etapa que es reunión se ve como reunión, con su hora; un hito, como hito.
+    e.tipoFecha === "REUNION"
+      ? { fecha: e.fechaEstimada!, texto: `${e.hora ? `${e.hora} · ` : ""}${e.nombre}`, tipo: "REUNION" }
+      : { fecha: e.fechaEstimada!, texto: e.tipoFecha === "HITO" ? `Hito: ${e.nombre}` : e.nombre, tipo: "ETAPA", alerta: e.atrasada }
+  ));
 export const eventosDeReuniones = (rs: { titulo: string; fecha: string; estado: string }[]): EventoCalendario[] =>
   rs.filter((r) => r.estado !== "CANCELADA").map((r) => ({ fecha: r.fecha.slice(0, 10), texto: r.titulo, tipo: "REUNION" }));
 

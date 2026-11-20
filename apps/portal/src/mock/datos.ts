@@ -196,6 +196,9 @@ export const SERVICIOS_CONTRATADOS: ServicioContratadoDemo[] = [
 
 export interface EtapaDemo {
   id: string;
+  /** 20 nov: RANGO (por defecto), HITO o REUNION; hora «HH:MM» solo en REUNION. */
+  tipoFecha?: "RANGO" | "HITO" | "REUNION";
+  hora?: string | null;
   servicioContratadoId: string;
   clienteId: string;
   periodo: string | null;
@@ -627,6 +630,8 @@ export const EJECUCIONES_INICIALES = [
 /** Tareas internas del equipo en los proyectos de Casa Oliva (reunión 15 oct). Datos de relleno. */
 export interface TareaDemo {
   id: string;
+  /** 20 nov: hora «HH:MM» opcional. */
+  hora?: string | null;
   servicioContratadoId: string;
   clienteId: string;
   etapaId: string | null;

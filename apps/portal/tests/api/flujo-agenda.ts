@@ -53,6 +53,37 @@ export function pruebasAgenda(nombre: string, manejar: Manejador, reiniciar: () 
       assert.equal((await llamar("PATCH", `/me/agenda/eventos/${pendienteDiego}`, CAMILA, { hecho: true })).status, 404, "ni sabe que existe");
     });
 
+    test("20 nov: etapas que son reunión (con hora), hito o varios días; tareas con hora en el calendario", async () => {
+      await reiniciar();
+      const WEB = uid(4, 4);
+      const av = (await llamar("GET", `/servicios-contratados/${WEB}/avance`, DIEGO)).json;
+      const etapas = av.etapas ?? av.datos?.etapas;
+      const [primera, segunda, tercera] = etapas;
+      const etapa = (id: string, cuerpo: Record<string, unknown>) => llamar("PATCH", `/servicios-contratados/${WEB}/etapas/${id}`, DIEGO, cuerpo);
+      const de = (r: any, id: string) => (r.json.etapas ?? r.json.datos?.etapas).find((e: any) => e.id === id);
+
+      assert.equal(primera.tipoFecha, "RANGO", "lo de antes queda como varios días");
+      const kickoff = await etapa(primera.id, { tipoFecha: "REUNION", fechaEstimada: "2026-10-12", hora: "10:00" });
+      assert.equal(kickoff.status, 200, JSON.stringify(kickoff.json.errores));
+      assert.deepEqual(["tipoFecha", "fechaInicio", "fechaEstimada", "hora"].map((k) => de(kickoff, primera.id)[k]), ["REUNION", "2026-10-12", "2026-10-12", "10:00"], "una reunión es de un día");
+      assert.equal((await etapa(primera.id, { hora: "25:00" })).status, 422);
+
+      const hito = await etapa(segunda.id, { tipoFecha: "HITO", fechaEstimada: "2026-10-20", hora: "09:00" });
+      assert.deepEqual(["tipoFecha", "fechaInicio", "hora"].map((k) => de(hito, segunda.id)[k]), ["HITO", "2026-10-20", null], "el hito no lleva hora");
+      assert.equal((await etapa(tercera.id, { tipoFecha: "RANGO", fechaInicio: "2026-10-25", fechaEstimada: "2026-10-21" })).status, 422, "el inicio va antes del fin");
+      const rango = await etapa(tercera.id, { tipoFecha: "RANGO", fechaInicio: "2026-10-19", fechaEstimada: "2026-10-21" });
+      assert.deepEqual(["fechaInicio", "fechaEstimada"].map((k) => de(rango, tercera.id)[k]), ["2026-10-19", "2026-10-21"]);
+
+      const t = (await llamar("POST", `/servicios-contratados/${WEB}/tareas`, DIEGO, { titulo: "Llamada con el cliente", responsableId: uid(1, 3), fechaLimite: "2026-10-15", hora: "16:30" })).json;
+      assert.equal(t.hora, "16:30");
+      const ev = (await llamar("GET", OCTUBRE, DIEGO)).json.eventos;
+      const k = ev.find((e: any) => e.id === `etapa-${primera.id}`);
+      assert.deepEqual([k.tipo, k.fecha, k.horaInicio, k.horaFin], ["REUNION", "2026-10-12", "10:00", "11:00"], "el kickoff, a su hora");
+      const llamada = ev.find((e: any) => e.id === `tarea-${t.id}`);
+      assert.deepEqual([llamada.horaInicio, llamada.horaFin], ["16:30", "17:00"]);
+      assert.equal((await llamar("PATCH", `/tareas/${t.id}`, DIEGO, { fechaLimite: null })).json.hora, null, "sin fecha no hay hora");
+    });
+
     test("crea, edita y elimina pendientes y eventos; los invitados los ven", async () => {
       await reiniciar();
       const malo = await llamar("POST", "/me/agenda/eventos", DIEGO, { tipo: "TAREA", titulo: "x", fecha: "2026-13-01", horaInicio: "25:00" });

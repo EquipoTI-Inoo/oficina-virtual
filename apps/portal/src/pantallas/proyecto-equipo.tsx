@@ -206,7 +206,7 @@ function ProyectoEquipo() {
                     <tr>
                       <th>Etapa</th>
                       <th style={{ width: 150 }}>Estado</th>
-                      <th style={{ width: 150 }}>Fin previsto</th>
+                      <th style={{ width: 170 }}>Fechas</th>
                       <th style={{ width: 100 }}>Lista el</th>
                       <th style={{ width: 44 }}><span className="sr-only">Quitar</span></th>
                     </tr>
@@ -238,7 +238,7 @@ function ProyectoEquipo() {
                           </select>
                         </td>
                         <td>
-                          <input className="input" type="date" aria-label={`Fin previsto de ${e.nombre}`} value={e.fechaEstimada ?? ""} onChange={(x) => x.target.value && void moverEtapa(e, { fechaEstimada: x.target.value })} />
+                          <FechasEtapa e={e} mover={(cuerpo) => void moverEtapa(e, cuerpo)} />
                         </td>
                         <td className="texto-muted">{e.fechaFin ? fCorta(e.fechaFin) : "—"}</td>
                         <td>
@@ -350,7 +350,7 @@ function CalendarioEquipo({ d, irA }: { d: Perfil; irA: (k: Pestana | "ETAPAS") 
   const eventos: EventoCalendario[] = [
     ...eventosDeEtapas(d.etapas).map((e) => ({ ...e, ir: { texto: "Ver etapas", accion: () => irA("ETAPAS") } })),
     ...eventosDeReuniones(reuniones.datos?.datos ?? d.reuniones),
-    ...(tareas.datos?.datos ?? []).filter((t) => t.fechaLimite && t.estado !== "HECHA").map((t): EventoCalendario => ({ fecha: t.fechaLimite!, texto: t.titulo, tipo: "TAREA", alerta: t.vencida, ir: { texto: "Ver tareas", accion: () => irA("TAREAS") } })),
+    ...(tareas.datos?.datos ?? []).filter((t) => t.fechaLimite && t.estado !== "HECHA").map((t): EventoCalendario => ({ fecha: t.fechaLimite!, texto: `${t.hora ? `${t.hora} · ` : ""}${t.titulo}`, tipo: "TAREA", alerta: t.vencida, ir: { texto: "Ver tareas", accion: () => irA("TAREAS") } })),
     ...(reqs.datos?.datos ?? []).filter((r) => r.estado === "PENDIENTE" || r.estado === "OBSERVADO").map((r): EventoCalendario => ({ fecha: r.fechaLimite, texto: r.titulo, tipo: "REQUERIMIENTO", alerta: r.diasAtraso > 0 })),
   ];
   return <CalendarioProyecto eventos={eventos} />;
@@ -384,6 +384,35 @@ export function KpisDelProyecto({ servicioId, version = "" }: { servicioId: stri
 }
 
 /** Por qué se atrasó la etapa (reunión 15 oct). CLIENTE se pone solo cuando un requerimiento atrasado corre el cronograma. */
+/**
+ * 20 nov (Alonso): cada etapa elige qué clase de fecha es. Varios días = inicio y fin (barra en el Gantt); hito = un
+ * día (punto); reunión = un día con hora (punto y reunión en el calendario).
+ */
+const TIPOS_FECHA: [S<"TipoFechaEtapa">, string][] = [["RANGO", "Varios días"], ["HITO", "Hito"], ["REUNION", "Reunión"]];
+function FechasEtapa({ e, mover }: { e: S<"EtapaProyecto">; mover: (cuerpo: Record<string, unknown>) => void }) {
+  const tipo = e.tipoFecha ?? "RANGO";
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <select className="input" style={{ height: 32 }} aria-label={`Tipo de fecha de ${e.nombre}`} value={tipo} onChange={(x) => mover({ tipoFecha: x.target.value })}>
+        {TIPOS_FECHA.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+      </select>
+      {tipo === "RANGO" ? (
+        <span style={{ display: "grid", gap: 4 }}>
+          <input className="input" type="date" style={{ height: 32 }} aria-label={`Inicio de ${e.nombre}`} value={e.fechaInicio ?? ""} max={e.fechaEstimada ?? undefined} onChange={(x) => x.target.value && mover({ fechaInicio: x.target.value })} />
+          <input className="input" type="date" style={{ height: 32 }} aria-label={`Fin previsto de ${e.nombre}`} value={e.fechaEstimada ?? ""} min={e.fechaInicio ?? undefined} onChange={(x) => x.target.value && mover({ fechaEstimada: x.target.value })} />
+        </span>
+      ) : (
+        <span style={{ display: "grid", gap: 4 }}>
+          <input className="input" type="date" style={{ height: 32 }} aria-label={`${tipo === "HITO" ? "Fecha del hito" : "Fecha de la reunión"} ${e.nombre}`} value={e.fechaEstimada ?? ""} onChange={(x) => x.target.value && mover({ fechaEstimada: x.target.value })} />
+          {tipo === "REUNION" && (
+            <input className="input" type="time" style={{ height: 32 }} aria-label={`Hora de ${e.nombre}`} value={e.hora ?? ""} onChange={(x) => mover({ hora: x.target.value || null })} />
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function CausaAtraso({ etapa: e, alGuardar }: { etapa: S<"EtapaProyecto">; alGuardar: (cuerpo: Record<string, unknown>) => Promise<void> }) {
   const [texto, setTexto] = useState(e.justificacionAtraso ?? "");
   return (

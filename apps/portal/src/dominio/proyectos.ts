@@ -108,8 +108,9 @@ export function ordenarTareas<T extends { estado: string; fechaLimite?: string |
 type Errores = { campo: string; mensaje: string }[];
 
 /** Tarea nueva (`parcial` = false) o cambio. Que el responsable sea del equipo y la etapa del proyecto lo revisa la API. */
-export function validarTarea(b: { titulo?: unknown; descripcion?: unknown; estado?: unknown; fechaLimite?: unknown; responsableId?: unknown; etapaId?: unknown }, parcial: boolean): Errores {
+export function validarTarea(b: { titulo?: unknown; descripcion?: unknown; estado?: unknown; fechaLimite?: unknown; responsableId?: unknown; etapaId?: unknown; hora?: unknown }, parcial: boolean): Errores {
   const errores: Errores = [];
+  if (b.hora !== undefined && b.hora !== null && !(typeof b.hora === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.hora))) errores.push({ campo: "hora", mensaje: "Usa la hora como 10:00" });
   if (!parcial || b.titulo !== undefined) {
     const t = typeof b.titulo === "string" ? b.titulo.trim() : "";
     if (t.length < 3 || t.length > 200) errores.push({ campo: "titulo", mensaje: "Escribe la tarea (entre 3 y 200 caracteres)" });

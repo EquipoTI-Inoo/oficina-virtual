@@ -143,8 +143,15 @@ export function validarAtraso(b: { causaAtraso?: unknown; justificacionAtraso?: 
 }
 
 /** 13 nov (mapeo de lo automático): las etapas salen de la plantilla, pero se pueden renombrar y marcar si dependen del cliente. */
-export function validarEdicionEtapa(b: { nombre?: unknown; esperaCliente?: unknown }): { campo: string; mensaje: string }[] {
+/** 20 nov: qué clase de fecha es una etapa (barra, punto o reunión con hora). */
+export const TIPOS_FECHA_ETAPA = ["RANGO", "HITO", "REUNION"] as const;
+export type TipoFechaEtapa = (typeof TIPOS_FECHA_ETAPA)[number];
+export const esHora = (v: unknown): v is string => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+
+export function validarEdicionEtapa(b: { nombre?: unknown; esperaCliente?: unknown; tipoFecha?: unknown; hora?: unknown }): { campo: string; mensaje: string }[] {
   const e: { campo: string; mensaje: string }[] = [];
+  if (b.tipoFecha !== undefined && !(TIPOS_FECHA_ETAPA as readonly unknown[]).includes(b.tipoFecha)) e.push({ campo: "tipoFecha", mensaje: "Elige: varios días, hito o reunión" });
+  if (b.hora !== undefined && b.hora !== null && !esHora(b.hora)) e.push({ campo: "hora", mensaje: "Usa la hora como 10:00" });
   if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 2 && b.nombre.trim().length <= 120)) e.push({ campo: "nombre", mensaje: "Entre 2 y 120 caracteres" });
   if (b.esperaCliente !== undefined && typeof b.esperaCliente !== "boolean") e.push({ campo: "esperaCliente", mensaje: "Debe ser verdadero o falso" });
   return e;
