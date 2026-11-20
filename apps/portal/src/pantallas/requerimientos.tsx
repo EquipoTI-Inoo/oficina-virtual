@@ -7,7 +7,7 @@
  */
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
+import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { camposVisibles, ENLACE_FORMULARIO, semaforoRequerimiento } from "../dominio/requerimientos";
@@ -498,17 +498,42 @@ function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; va
   if (c.tipo === "ARCHIVOS") {
     return (
       <div style={{ display: "grid", gap: 6 }}>
-        {(valor as Archivo[]).map((a) => (
-          <span key={a.archivoId} className="fila texto-sm" style={{ gap: 6 }}>
-            <LuPaperclip size={14} /> {a.nombre}
-          </span>
-        ))}
+        {(valor as Archivo[]).map((a) => <ArchivoDescargable key={a.archivoId} a={a} />)}
       </div>
     );
   }
   return <p className="texto-sm" style={{ whiteSpace: "pre-line", lineHeight: 1.5 }}>{String(valor)}</p>;
 }
 
+
+/**
+ * 20 nov: el archivo que mandó el cliente en un formulario se abre al tocarlo (antes era solo el nombre). La ventana se
+ * abre en el clic y después recibe la dirección firmada, para que el navegador no la bloquee.
+ */
+function ArchivoDescargable({ a }: { a: Archivo }) {
+  const avisar = useAviso();
+  const [abriendo, setAbriendo] = useState(false);
+  const abrir = async () => {
+    const ventana = window.open("", "_blank");
+    setAbriendo(true);
+    try {
+      const r = await api<{ url: string }>(`/archivos/${a.archivoId}/descarga`);
+      if (ventana) ventana.location.href = r.url;
+      else window.location.href = r.url;
+    } catch (e) {
+      ventana?.close();
+      avisar({ titulo: `No pudimos abrir ${a.nombre}`, texto: (e as ProblemaApi).detalle ?? (e as ProblemaApi).titulo });
+    } finally {
+      setAbriendo(false);
+    }
+  };
+  return (
+    <button type="button" className="enlace fila texto-sm" style={{ gap: 6, justifySelf: "start", textAlign: "left" }} onClick={() => void abrir()} disabled={abriendo}
+      title="Abrir o descargar el archivo">
+      <LuPaperclip size={14} /> {a.nombre} <LuDownload size={13} aria-hidden />
+    </button>
+  );
+}
 
 export interface Subida {
   iniciar: (a: { nombre: string; mime: string; bytes: number }) => Promise<{ archivo: { id: string }; subida: { url: string; headers: Record<string, string> } }>;

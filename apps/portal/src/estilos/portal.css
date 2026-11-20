@@ -3069,3 +3069,19 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
   .proyectos-dos-columnas--sin-arbol > .arbol-columna { display: none; }
 }
 @media (max-width: 900px) { .arbol-alternar { display: none; } }
+
+/* 20 nov (feedback del equipo): en grupos largos la barra para deslizar a la derecha salía recién al final del grupo.
+   Ahora cada grupo tiene un alto máximo con su propio desplazamiento (como Monday): la barra siempre se ve y los
+   encabezados quedan fijos arriba. */
+.tablero-grupo .tabla-envoltura { max-height: 72vh; overflow: auto; }
+.tabla-tablero thead th { position: sticky; top: 0; z-index: 2; background: var(--c-blanco); }
+.tabla-tablero thead th:nth-child(-n+2) { z-index: 4; }
+/* En el celular la casilla y el nombre fijos ocupaban todo el ancho: la tabla se deslizaba por debajo y parecía
+   trabada. Solo el nombre queda fijo, y más angosto. */
+@media (max-width: 720px) {
+  .tablero-grupo .tabla-envoltura { max-height: 65vh; }
+  .tabla-tablero tbody tr:not(.fila-pie):not(.fila-nueva) td:nth-child(1) { position: static; }
+  .tabla-tablero thead th:nth-child(1) { left: auto; z-index: 2; }
+  .tabla-tablero thead th:nth-child(2),
+  .tabla-tablero tbody tr:not(.fila-pie):not(.fila-nueva) td:nth-child(2) { left: 0; width: 150px !important; min-width: 150px !important; max-width: 150px !important; }
+}
