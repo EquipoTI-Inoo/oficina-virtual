@@ -10,7 +10,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
-import { camposVisibles, ENLACE_FORMULARIO, semaforoRequerimiento } from "../dominio/requerimientos";
+import { camposVisibles, ENLACE_FORMULARIO, limiteTexto, semaforoRequerimiento } from "../dominio/requerimientos";
 
 type Req = S<"Requerimiento">;
 type Lista = { datos: Req[]; pendientes: number; atrasados: number };
@@ -348,9 +348,12 @@ function CampoRequerimiento({ campo: c, valor, error, soloLectura, alCambiar, su
     control = <RespuestaLectura campo={c} valor={valor} />;
   } else if (c.tipo === "TEXTO_LARGO" || c.tipo === "LISTA") {
     control = (
-      <div className="entrada">
-        <textarea id={id} value={(valor as string) ?? ""} onChange={(e) => alCambiar(e.target.value)} aria-invalid={!!error} rows={c.tipo === "LISTA" ? 5 : 4} />
-      </div>
+      <>
+        <div className="entrada">
+          <textarea id={id} value={(valor as string) ?? ""} onChange={(e) => alCambiar(e.target.value)} aria-invalid={!!error} rows={c.tipo === "LISTA" ? 5 : 4} />
+        </div>
+        <Contador largo={((valor as string) ?? "").length} max={limiteTexto(c.tipo)} />
+      </>
     );
   } else if (c.tipo === "OPCION" && ((c.opciones ?? []).length > 5 || (c.opciones ?? []).some((o) => o.length > 40))) {
     // Muchas opciones o muy largas: lista desplegable, como en Monday.
@@ -490,6 +493,16 @@ function EnlaceSinCuenta({ r, alCambiar }: { r: Req; alCambiar: (r: Req) => void
   );
 }
 
+/** Cuántos caracteres van; se ve al acercarse al máximo y en rojo si se pasa (20 nov). */
+export function Contador({ largo, max }: { largo: number; max: number }) {
+  if (largo < max * 0.8) return null;
+  return (
+    <span className="texto-xs" style={{ justifySelf: "end", color: largo > max ? "var(--c-alerta)" : "var(--c-muted)" }} aria-live="polite">
+      {largo.toLocaleString("es-PE")} / {max.toLocaleString("es-PE")}
+    </span>
+  );
+}
+
 function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; valor: unknown }) {
   if (vacio(valor)) return <p className="texto-sm texto-muted">Sin respuesta</p>;
   if (c.tipo === "SI_NO") return <p className="texto-sm">{valor ? "Sí" : "No"}</p>;
@@ -539,6 +552,12 @@ export interface Subida {
   iniciar: (a: { nombre: string; mime: string; bytes: number }) => Promise<{ archivo: { id: string }; subida: { url: string; headers: Record<string, string> } }>;
   confirmar: (archivoId: string) => Promise<unknown>;
 }
+
+/** Subida a la cuenta de un cliente desde el equipo (ficha o alta): el cliente va explícito, no el de la sesión. */
+export const subidaDeCliente = (clienteId: string): Subida => ({
+  iniciar: (a) => api(`/clientes/${clienteId}/archivos`, { metodo: "POST", cuerpo: { ...a, uso: "REQUERIMIENTO" }, idempotente: true }),
+  confirmar: (id) => api(`/archivos/${id}/confirmar`, { metodo: "POST", cuerpo: {} }),
+});
 
 const SUBIDA_CLIENTE: Subida = {
   iniciar: (a) => api(`/clientes/${clienteActivo()}/archivos`, { metodo: "POST", cuerpo: { ...a, uso: "REQUERIMIENTO" }, idempotente: true }),

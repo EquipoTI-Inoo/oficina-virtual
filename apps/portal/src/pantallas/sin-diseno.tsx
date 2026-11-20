@@ -5,11 +5,12 @@
  * tomarlas como diseño final.
  */
 import { useRef, useState, type FormEvent } from "react";
-import { LuCheck, LuChevronLeft, LuChevronRight, LuPencil, LuPlus, LuSparkles, LuTriangleAlert, LuUpload } from "react-icons/lu";
+import { LuCheck, LuChevronLeft, LuChevronRight, LuPaperclip, LuPencil, LuPlus, LuSparkles, LuTriangleAlert, LuUpload, LuX } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fCorta, fDiaHora, fMesAnio, PERIODO_PORTAL, ProblemaApi, useConsulta, type S, rolCliente } from "../base";
 import { Aviso, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, EtiquetaPieza, Modal, useAviso, usePortal } from "../componentes";
-import { respuestaVacia } from "../dominio/requerimientos";
-import { CamposFormulario } from "./requerimientos";
+import { LIMITE_TEXTO_LARGO, respuestaVacia } from "../dominio/requerimientos";
+import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
+import { CamposFormulario, Contador, subidaDeCliente } from "./requerimientos";
 import { JarvisPorArea } from "./jarvis";
 
 const usd = (n: number) => `US$ ${n.toFixed(2).replace(".", ",")}`;
@@ -479,6 +480,8 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
   const avisarAlta = useAviso();
   // Fase 17: desde la transcripción de la venta se completa el formulario; Comercial lo revisa antes de crear.
   const [transcripcion, setTranscripcion] = useState("");
+  // 20 nov: archivos del traspaso. El cliente todavía no existe: se suben apenas se crea y quedan en su ingreso.
+  const [archivosTraspaso, setArchivosTraspaso] = useState<File[]>([]);
   const [leyendo, setLeyendo] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const completar = async () => {
@@ -498,6 +501,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
         ...(x.ingreso.tipoWeb ? { tipoWeb: x.ingreso.tipoWeb } : {}),
         ...(x.ingreso.cantidadProductos ? { cantidadProductos: x.ingreso.cantidadProductos } : {}),
         ...(resumen ? { resumen } : {}),
+        transcripcion: transcripcion.slice(0, LIMITE_TEXTO_LARGO),
       }));
       setAviso(conIa ? "Completamos lo que se dijo en la reunión. Revísalo antes de crear el cliente." : "Completamos un borrador básico (la IA no estaba disponible). Revísalo antes de crear el cliente.");
     } catch (x) {
@@ -525,6 +529,10 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
         },
         idempotente: true,
       });
+      const pendientes = await subirTraspaso(c.id, archivosTraspaso, Object.fromEntries(Object.entries(ingreso).filter(([, v]) => !respuestaVacia(v))));
+      if (pendientes.length) {
+        avisarAlta({ titulo: `${pendientes.length === 1 ? "Un archivo no se subió" : `${pendientes.length} archivos no se subieron`}`, texto: `${pendientes.join(", ")}. Súbelos desde la ficha del cliente, en «Ingreso del cliente».` });
+      }
       const creados = (c as { proyectosCreados?: number }).proyectosCreados ?? 0;
       const sin = (c as { sinProyecto?: string[] }).sinProyecto ?? [];
       if (creados || sin.length) {
@@ -558,6 +566,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
             <div className="entrada">
               <textarea id="nc-transcripcion" rows={5} value={transcripcion} placeholder="Pega lo que se dijo en la reunión de venta (Meet, Zoom…)" onChange={(e) => setTranscripcion(e.target.value)} aria-invalid={!!err.transcripcion} />
             </div>
+            <Contador largo={transcripcion.length} max={LIMITE_TEXTO_LARGO} />
             <Ayuda error={err.transcripcion} texto="Llenamos la marca, el responsable, el ingreso y el alcance prometido. Nada se guarda hasta que crees el cliente." />
           </div>
           <button type="button" className="boton" disabled={leyendo || transcripcion.trim().length < 120} onClick={() => void completar()}>
@@ -617,7 +626,10 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
             <p className="texto-xs texto-muted">Lo que se habló en la venta. Cada servicio pide sus datos; solo lo ve el equipo.</p>
           </div>
           {formulario ? (
-            <CamposFormulario campos={formulario.campos} valores={ingreso} errores={erroresIngreso} soloLectura={false} alCambiar={(k, v) => setIngreso((r) => ({ ...r, [k]: v }))} />
+            <>
+              <CamposFormulario campos={formulario.campos.filter((c) => c.tipo !== "ARCHIVOS")} valores={ingreso} errores={erroresIngreso} soloLectura={false} alCambiar={(k, v) => setIngreso((r) => ({ ...r, [k]: v }))} />
+              <ArchivosPendientes archivos={archivosTraspaso} cambiar={setArchivosTraspaso} />
+            </>
           ) : (
             <Cargando />
           )}
@@ -645,6 +657,59 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
       </form>
     </Modal>
   );
+}
+
+/** Archivos elegidos en el alta que se suben cuando el cliente ya existe (20 nov). */
+function ArchivosPendientes({ archivos, cambiar }: { archivos: File[]; cambiar: (f: File[]) => void }) {
+  const avisar = useAviso();
+  const elegir = (lista: FileList | null) => {
+    const nuevos: File[] = [];
+    for (const f of Array.from(lista ?? [])) {
+      const mime = mimeDeArchivo(f.name, f.type);
+      if (!MIME_ARCHIVO.test(mime)) avisar({ titulo: `${f.name} no se puede adjuntar`, texto: `Sube ${FORMATOS_PERMITIDOS}.` });
+      else if (f.size > 100 * 1024 * 1024) avisar({ titulo: `${f.name} pesa más de 100 MB`, texto: "Compártelo con un enlace de Drive en el resumen." });
+      else nuevos.push(f);
+    }
+    cambiar([...archivos, ...nuevos]);
+  };
+  return (
+    <div className="campo">
+      <label htmlFor="nc-archivos-traspaso">Archivos del traspaso</label>
+      {archivos.map((f, n) => (
+        <span key={`${f.name}-${n}`} className="fila-suave texto-sm" style={{ padding: "8px 12px" }}>
+          <span className="fila" style={{ gap: 6 }}><LuPaperclip size={14} /> {f.name}</span>
+          <button type="button" className="enlace" aria-label={`Quitar ${f.name}`} onClick={() => cambiar(archivos.filter((_, i) => i !== n))}><LuX size={14} /></button>
+        </span>
+      ))}
+      <input id="nc-archivos-traspaso" type="file" multiple onChange={(e) => { elegir(e.target.files); e.target.value = ""; }} />
+      <Ayuda texto="Transcripción, propuesta o notas de la venta (hasta 100 MB cada uno). Se suben al crear el cliente y Operaciones los abre desde su ficha." />
+    </div>
+  );
+}
+
+/** Sube los archivos del alta y los deja en el ingreso del cliente. Devuelve los nombres que no se pudieron subir. */
+async function subirTraspaso(clienteId: string, archivos: File[], respuestas: Record<string, unknown>): Promise<string[]> {
+  if (!archivos.length) return [];
+  const subida = subidaDeCliente(clienteId);
+  const listos: { archivoId: string; nombre: string }[] = [];
+  const fallidos: string[] = [];
+  for (const f of archivos) {
+    try {
+      const r = await subida.iniciar({ nombre: f.name, mime: mimeDeArchivo(f.name, f.type), bytes: f.size });
+      const put = await fetch(r.subida.url, { method: "PUT", headers: r.subida.headers, body: f });
+      if (!put.ok) throw new Error(String(put.status));
+      await subida.confirmar(r.archivo.id);
+      listos.push({ archivoId: r.archivo.id, nombre: f.name });
+    } catch {
+      fallidos.push(f.name);
+    }
+  }
+  if (listos.length) {
+    await api(`/clientes/${clienteId}`, { metodo: "PATCH", cuerpo: { ingreso: { ...respuestas, archivosTraspaso: listos } } }).catch(() => {
+      fallidos.push(...listos.map((x) => x.nombre));
+    });
+  }
+  return fallidos;
 }
 
 /** Ingreso del cliente en su ficha (solo equipo): lo que llenó Comercial en el alta; quien gestiona la cuenta lo corrige. */
@@ -680,7 +745,7 @@ export function IngresoDelCliente({ cliente, editable, alGuardar }: { cliente: S
       </div>
       {editando ? (
         <>
-          <CamposFormulario campos={formulario.campos} valores={editando} errores={err} soloLectura={false} alCambiar={(k, v) => setEditando((r) => ({ ...r, [k]: v }))} />
+          <CamposFormulario campos={formulario.campos} valores={editando} errores={err} soloLectura={false} alCambiar={(k, v) => setEditando((r) => ({ ...r, [k]: v }))} subida={subidaDeCliente(cliente.id)} />
           <div className="fila" style={{ gap: 10 }}>
             <button className="boton boton--primario" onClick={() => void guardar()}>Guardar ingreso</button>
             <button className="boton" onClick={() => { setEditando(null); setErr({}); }}>Cancelar</button>

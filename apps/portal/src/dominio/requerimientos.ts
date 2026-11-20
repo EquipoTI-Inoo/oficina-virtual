@@ -181,10 +181,11 @@ export function validarRespuestas(campos: Campo[], r: Respuestas, enviar: boolea
       : f.tipo === "NUMERO" ? typeof v === "number" && Number.isFinite(v) && v >= 0
       : f.tipo === "FECHA" ? typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
       : f.tipo === "URL" ? typeof v === "string" && /^https?:\/\/\S+\.\S+/.test(v.trim())
-      : typeof v === "string" && v.length <= 5000;
+      : typeof v === "string" && v.length <= limiteTexto(f.tipo);
     if (!ok) {
       const mensaje =
-        f.tipo === "URL" ? "Escribe un enlace que empiece con https://"
+        typeof v === "string" && v.length > limiteTexto(f.tipo) ? mensajeLargo(v.length, limiteTexto(f.tipo))
+        : f.tipo === "URL" ? "Escribe un enlace que empiece con https://"
         : f.tipo === "OPCION" || f.tipo === "OPCIONES" ? "Elige entre las opciones"
         : f.tipo === "NUMERO" ? "Escribe un número"
         : f.tipo === "FECHA" ? "Elige una fecha"
@@ -203,6 +204,17 @@ export function validarRespuestas(campos: Campo[], r: Respuestas, enviar: boolea
  * El ingreso de cliente que manda Comercial en el alta (o al corregirlo): completo y solo con las preguntas del
  * camino elegido. Los errores llevan el prefijo «ingreso.» porque viajan en el cuerpo del cliente.
  */
+/**
+ * Largo máximo de una respuesta de texto (20 nov). Los textos largos aceptan una transcripción completa; antes todo
+ * cortaba en 5.000 y el error decía solo «Respuesta inválida».
+ */
+export const LIMITE_TEXTO_LARGO = 60_000;
+export const LIMITE_TEXTO = 5_000;
+export const limiteTexto = (tipo: string) => (tipo === "TEXTO_LARGO" || tipo === "LISTA" ? LIMITE_TEXTO_LARGO : LIMITE_TEXTO);
+const miles = (n: number) => n.toLocaleString("es-PE");
+export const mensajeLargo = (largo: number, max: number) =>
+  `Tiene ${miles(largo)} caracteres y el máximo es ${miles(max)}. Recorta el texto o adjúntalo como archivo: lo que escribiste no se pierde.`;
+
 export function prepararIngreso(v: unknown): { respuestas: Respuestas; errores: { campo: string; mensaje: string }[] } {
   if (!v || typeof v !== "object" || Array.isArray(v)) return { respuestas: {}, errores: [{ campo: "ingreso", mensaje: "Respuesta inválida" }] };
   const r = v as Respuestas;

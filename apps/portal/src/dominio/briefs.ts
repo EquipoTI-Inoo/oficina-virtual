@@ -224,6 +224,9 @@ export const CAMPOS_INGRESO: Campo[] = [
   c("cantidadProductos", "Cantidad de productos", "NUMERO", false, { ayuda: "Los productos pactados que se van a subir a la web.", ...si("tipoWeb", "Web catálogo", "Web e-commerce") }),
   c("webSeo", "Página web (SEO)", "URL", false, { seccion: "SEO", ...si("servicios", "SEO") }),
   c("objetivos", "¿Cuáles son los objetivos del cliente?", "TEXTO_LARGO", true, { seccion: "Para todos los servicios" }),
-  c("resumen", "Resumen de lo conversado con el cliente", "TEXTO_LARGO"),
+  c("resumen", "Resumen de lo conversado con el cliente", "TEXTO_LARGO", false, { ayuda: "Hasta 60.000 caracteres." }),
+  // 20 nov (traspaso de Comercial a Operaciones): la transcripción completa y los archivos de la venta quedan en la ficha.
+  c("transcripcion", "Transcripción de la reunión de venta", "TEXTO_LARGO", false, { ayuda: "Pega la transcripción completa (hasta 60.000 caracteres). Si es más larga, adjúntala como archivo abajo." }),
+  c("archivosTraspaso", "Archivos del traspaso", "ARCHIVOS", false, { ayuda: "Transcripción, propuesta o notas de la venta: PDF, Word, Excel, imágenes o video, hasta 100 MB cada uno." }),
   c("fechaReunionBrief", "Fecha de la reunión de brief", "FECHA", true),
 ];
