@@ -19,3 +19,9 @@
 	encode gzip
 	reverse_proxy nocodb:8080
 }
+
+# 23 nov 2026: InooWork (antes en el hosting compartido). Sin la clave de caddy-extra: tiene su propio ingreso.
+{$DOMINIO_INOOWORK} {
+	encode gzip
+	reverse_proxy inoowork:3000
+}

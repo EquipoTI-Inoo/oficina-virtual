@@ -12,6 +12,7 @@ services:
       DOMINIO_N8N: ${DOMINIO_N8N}
       DOMINIO_NOCODB: ${DOMINIO_NOCODB}
       CORREO_ACME: ${CORREO_ACME}
+      DOMINIO_INOOWORK: ${DOMINIO_INOOWORK:-intranet.inoo.pe}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Reglas extra que no van al repositorio (p. ej. la clave de acceso mientras el portal es una demo).
@@ -211,6 +212,20 @@ services:
     volumes: [./respaldos:/respaldos, ./respaldo/respaldar.mjs:/app/respaldar.mjs:ro]
     depends_on:
       postgres: { condition: service_healthy }
+
+  # 23 nov 2026: InooWork se mudó del hosting compartido, que se quedaba sin procesos (120/120) y lo tumbaba.
+  # Su código, su base (users.db) y las fotos viven en /opt/inoo/inoowork, fuera del repo. El portal le habla por
+  # dentro (INOOWORK_URL=http://inoowork:3000) y Caddy lo publica en intranet.inoo.pe.
+  inoowork:
+    image: node:20-bookworm-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "server.js"]
+    environment:
+      INOOWORK_PUERTO: "3000"
+      PORTAL_URL: https://${DOMINIO_PORTAL}
+    volumes: [/opt/inoo/inoowork:/app]
+    mem_limit: 512m
 
 volumes:
   caddy-datos:
