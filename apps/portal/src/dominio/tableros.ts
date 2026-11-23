@@ -431,3 +431,20 @@ export function nuevoProyecto(b: TableroNuevo, lider: PersonaIW | null, miembros
     groups: [{ id: "default", name: "To-Do", color, collapsed: false }],
   };
 }
+
+/**
+ * 23 nov (auditoría Impeccable, contraste): los colores de estado son los de Monday, y el texto blanco sobre naranja,
+ * gris o rojo no llega a 4,5:1. El texto va blanco o casi negro, el que contraste más con ese fondo.
+ */
+export function textoSobre(fondo: string | undefined | null): string | undefined {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(fondo?.trim() ?? "");
+  if (!m) return undefined;
+  const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join("") : m[1];
+  const canal = (i: number) => { const v = parseInt(h.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const l = 0.2126 * canal(0) + 0.7152 * canal(2) + 0.0722 * canal(4);
+  const conBlanco = 1.05 / (l + 0.05);
+  const conOscuro = (l + 0.05) / (0.0056 + 0.05); // #111111
+  return conOscuro > conBlanco ? "#111111" : "#ffffff";
+}
+/** Fondo de color con su texto legible. */
+export const fondoConTexto = (fondo: string | undefined | null) => ({ background: fondo ?? undefined, color: textoSobre(fondo) });

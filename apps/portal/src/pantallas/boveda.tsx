@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { LuCopy, LuEye, LuEyeOff, LuLock, LuLockOpen, LuPencil, LuPlus, LuSearch, LuShieldAlert, LuTrash2, LuVault } from "react-icons/lu";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
+import { Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import {
   abrirBoveda, cambiarClaveBoveda, cifrarSecreto, crearBoveda, descifrarSecreto, fuerzaClave, llaveCruda, MIN_CLAVE_BOVEDA,
 } from "../dominio/boveda-cripto";
@@ -230,7 +230,7 @@ function BovedaAbierta({ llave, datos, alCerrar, alCambiar }: { llave: CryptoKey
   const t = q.trim().toLowerCase();
   const xs = (lista.datos?.datos ?? []).filter((a) => !t || [a.nombre, a.usuario ?? "", a.url ?? "", a.cliente?.nombre ?? ""].some((x) => x.toLowerCase().includes(t)));
   const borrar = async (a: S<"AccesoBoveda">) => {
-    if (!window.confirm(`¿Borrar «${a.nombre}» de tu bóveda?`)) return;
+    if (!(await confirmar(`¿Borrar «${a.nombre}» de tu bóveda?`))) return;
     await api(`/me/boveda/accesos/${a.id}`, { metodo: "DELETE" }).then(() => lista.recargar(), (x) => avisar({ titulo: "No se pudo borrar", texto: errorDe(x) }));
   };
   return (
@@ -248,7 +248,7 @@ function BovedaAbierta({ llave, datos, alCerrar, alCambiar }: { llave: CryptoKey
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap" }}>
         <div className="entrada" style={{ maxWidth: 360, flex: 1 }}>
           <span className="icono-inicio"><LuSearch size={17} /></span>
-          <input type="search" placeholder="Buscar acceso..." aria-label="Buscar acceso" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input type="search" placeholder="Buscar acceso…" aria-label="Buscar acceso" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <button className="boton boton--primario" onClick={() => setEditor("nuevo")}><LuPlus size={16} /> Nuevo acceso</button>
       </div>

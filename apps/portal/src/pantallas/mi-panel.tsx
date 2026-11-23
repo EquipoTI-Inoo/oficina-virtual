@@ -77,34 +77,17 @@ function MiPanel() {
         </Enlace>
       )}
       <Cabecera
-        antetitulo="Equipo Inoo"
         titulo={quien ? `Panel de ${d.persona.nombre}` : `Mi panel · ${d.persona.nombre}`}
         bajada={quien ? "Sus tareas, sus proyectos y cómo van." : "Tus tareas, tus proyectos y cómo van."}
         accion={quien ? <Enlace a={`/equipo/calendario?usuarioId=${quien}`} className="boton"><LuCalendarDays size={16} /> Su calendario</Enlace> : undefined}
       />
-      {d.miArea && <MiArea gente={d.miArea} />}
-      <div className="grid-4 kpis">
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Tareas abiertas</div>
-          <div className="kpi-valor">{r.tareasAbiertas}</div>
-          <div className="kpi-pie" style={r.tareasVencidas ? { color: "var(--c-alerta)" } : undefined}>{r.tareasVencidas ? `${r.tareasVencidas} vencida${r.tareasVencidas === 1 ? "" : "s"}` : "Ninguna vencida"}</div>
-        </div>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Proyectos activos</div>
-          <div className="kpi-valor">{r.proyectosActivos}</div>
-          <div className="kpi-pie">{r.proyectosCerrados} cerrados</div>
-        </div>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Con retraso</div>
-          <div className="kpi-valor">{r.conRetraso}</div>
-          <div className="kpi-pie">Proyectos con una etapa atrasada</div>
-        </div>
-        <div className="tarjeta kpi">
-          <div className="kpi-cab">Rebotes</div>
-          <div className="kpi-valor">{r.rebotes}</div>
-          <div className="kpi-pie">Cambios pedidos por clientes</div>
-        </div>
-      </div>
+      {/* 23 nov (auditoría Impeccable): las cifras van en una línea, no en cuatro tarjetas iguales. */}
+      <p className="resumen-linea">
+        <span><strong>{r.tareasAbiertas}</strong> {r.tareasAbiertas === 1 ? "tarea abierta" : "tareas abiertas"}{r.tareasVencidas > 0 && <span className="texto-alerta"> ({r.tareasVencidas} vencida{r.tareasVencidas === 1 ? "" : "s"})</span>}</span>
+        <span><strong>{r.proyectosActivos}</strong> {r.proyectosActivos === 1 ? "proyecto activo" : "proyectos activos"}</span>
+        {r.conRetraso > 0 && <span className="texto-alerta"><strong>{r.conRetraso}</strong> con retraso</span>}
+        {r.rebotes > 0 && <span><strong>{r.rebotes}</strong> {r.rebotes === 1 ? "cambio pedido" : "cambios pedidos"} por clientes</span>}
+      </p>
       <div className="con-lateral seccion">
         <section className="pila">
           <h2 className="seccion-titulo">Mis proyectos</h2>
@@ -171,6 +154,7 @@ function MiPanel() {
           </div>
         </aside>
       </div>
+      {!!d.miArea?.length && <MiArea gente={d.miArea} />}
     </>
     </>
   );
@@ -180,7 +164,7 @@ function MiPanel() {
 function MiArea({ gente }: { gente: NonNullable<S<"PanelColaborador">["miArea"]> }) {
   const area = gente[0]?.persona.area;
   return (
-    <section className="tarjeta" style={{ padding: "18px 18px 10px", marginBottom: 20 }}>
+    <section className="tarjeta seccion" style={{ padding: "18px 18px 10px" }}>
       <h2 className="tarjeta-titulo fila" style={{ gap: 8 }}><LuUsers size={16} /> Mi área{area ? ` · ${NOMBRE_AREA[area]}` : ""}</h2>
       {!gente.length && <p className="texto-sm texto-muted" style={{ padding: "10px 0" }}>Todavía no hay más gente en tu área.</p>}
       <div className="lista-lineas" style={{ marginTop: 6 }}>

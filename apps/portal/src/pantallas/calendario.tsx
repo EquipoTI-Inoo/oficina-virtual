@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { LuCalendarPlus, LuCheck, LuChevronLeft, LuChevronRight, LuExternalLink, LuPencil, LuPlus, LuTrash2, LuUsers, LuTriangleAlert } from "react-icons/lu";
 import { api, Enlace, HOY_PORTAL, ProblemaApi, useConsulta, type S } from "../base";
-import { TextoConEnlaces, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import type { TipoAgenda } from "../dominio/agenda";
 import { usePersonaDeLaUrl } from "./mi-panel";
 
@@ -129,7 +129,6 @@ function Calendario() {
         </Enlace>
       )}
       <Cabecera
-        antetitulo="Equipo Inoo"
         titulo={quien ? `Calendario de ${deQuien?.nombre ?? "…"}` : "Calendario"}
         bajada={quien ? "Sus reuniones, eventos y vencimientos. Sus pendientes personales no se muestran." : "Tus reuniones, pendientes, vencimientos de tareas y lo que deben entregar tus clientes."}
         accion={quien ? undefined : (
@@ -254,7 +253,7 @@ function Chip({ e, alAbrir }: { e: Evento; alAbrir: (e: Evento) => void }) {
   return (
     <button
       className={`chip-agenda${lleno ? " chip-agenda--lleno" : ""}${e.hecho ? " chip-agenda--hecho" : ""}`}
-      style={lleno ? { background: COLOR[e.tipo] } : undefined}
+      style={lleno ? { background: `color-mix(in srgb, ${COLOR[e.tipo]} 16%, var(--c-blanco))`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${COLOR[e.tipo]} 45%, transparent)` } : undefined}
       onClick={(x) => { x.stopPropagation(); alAbrir(e); }}
       title={e.titulo}
     >
@@ -370,7 +369,7 @@ function VistaHoras({ dias, hoy, eventos, alAbrir, alCrear, alVerDia }: { dias: 
                     className={`bloque-agenda${e.hecho ? " bloque-agenda--hecho" : ""}`}
                     style={{
                       top: ((ini - HORA_INICIO * 60) / 60) * ALTO_HORA, height: Math.max(((fin - ini) / 60) * ALTO_HORA - 2, 20),
-                      left: `calc(${(carril / de) * 100}% + 2px)`, width: `calc(${100 / de}% - 4px)`, borderLeftColor: COLOR[e.tipo], background: `color-mix(in srgb, ${COLOR[e.tipo]} 12%, transparent)`,
+                      left: `calc(${(carril / de) * 100}% + 2px)`, width: `calc(${100 / de}% - 4px)`, borderColor: `color-mix(in srgb, ${COLOR[e.tipo]} 45%, transparent)`, background: `color-mix(in srgb, ${COLOR[e.tipo]} 14%, var(--c-blanco))`,
                     }}
                     onClick={() => alAbrir(e)}
                   >
@@ -405,7 +404,7 @@ function DetalleEvento({ e, alCerrar, alEditar, alCambiar }: { e: Evento; alCerr
     }
   };
   const eliminar = async () => {
-    if (!window.confirm(`¿Eliminar «${e.titulo}»?${e.invitados.length ? " También desaparece del calendario de los invitados." : ""}`)) return;
+    if (!(await confirmar(`¿Eliminar «${e.titulo}»?${e.invitados.length ? " También desaparece del calendario de los invitados." : ""}`))) return;
     try {
       await api(`/me/agenda/eventos/${e.eventoId}`, { metodo: "DELETE" });
       avisar({ titulo: "Eliminado" });

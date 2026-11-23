@@ -7,7 +7,7 @@
  */
 import { Fragment, useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { LuBuilding2, LuChevronRight, LuEllipsis, LuFolder, LuFolderPlus, LuLayers, LuLock, LuPencil, LuPlus, LuSearch, LuSlidersHorizontal, LuTag, LuTrash2, LuX } from "react-icons/lu";
-import { Enlace, type S } from "../base";
+import { Enlace, fDiaMes, type S } from "../base";
 import { claveEmpresa } from "../dominio/carpetas";
 import { Barra, Modal } from "../componentes";
 
@@ -253,7 +253,7 @@ export function ArbolProyectos({ arbol, lugar, ir, alSoltar, etiqueta, tableros,
 
 type Orden = "nombre" | "ubicacion" | "estado" | "lider" | "avance" | "vencidos" | "actividad";
 const pct = (t: Tablero) => (t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0);
-const fechaCorta = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
+const fechaCorta = (iso: string | null) => (iso ? fDiaMes(iso) : "—");
 
 /**
  * Todos los proyectos del lugar elegido (también los de sus carpetas), con su ruta arriba y una columna «Carpeta»

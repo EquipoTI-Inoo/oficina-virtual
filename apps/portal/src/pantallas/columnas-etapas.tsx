@@ -8,7 +8,7 @@
 import { useRef, useState } from "react";
 import { LuDownload, LuExternalLink, LuPaperclip, LuPlus, LuTrash2, LuX } from "react-icons/lu";
 import { descargarDesde, api, ProblemaApi, type S } from "../base";
-import { Modal, useAviso, usePortal } from "../componentes";
+import { Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { etapasConValor, NOMBRE_TIPO_COLUMNA_ETAPA, OPCIONES_ESTADO_ETAPA, TIPOS_COLUMNA_ETAPA, type TipoColumnaEtapa } from "../dominio/columnas-etapa";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { subidaDeCliente } from "./requerimientos";
@@ -63,7 +63,7 @@ function ConfigColumna({ servicioId, col, etapas, cerrar, alCambiar }: { servici
     const aviso = n
       ? `¿Borrar la columna «${col.nombre}»?\n\nSe pierde lo que tiene en ${n} ${n === 1 ? "etapa" : "etapas"}. No se puede deshacer.`
       : `¿Borrar la columna «${col.nombre}»? Está vacía.`;
-    if (!window.confirm(aviso)) return;
+    if (!(await confirmar(aviso))) return;
     try {
       alCambiar(await api<Avance>(`${base}/${col.id}`, { metodo: "DELETE" }));
       cerrar();
@@ -194,7 +194,7 @@ function ArchivosEtapa({ archivos, etiqueta, clienteId, guardar }: { archivos: A
       {archivos.map((a) => (
         <span key={a.archivoId} className="fila texto-xs" style={{ gap: 4 }}>
           <button type="button" className="enlace fila" style={{ gap: 4 }} onClick={() => void abrir(a)}><LuPaperclip size={12} /> {a.nombre} <LuDownload size={11} aria-hidden /></button>
-          <button type="button" className="boton-icono" aria-label={`Quitar ${a.nombre}`} onClick={() => window.confirm(`¿Quitar «${a.nombre}» de esta etapa?`) && void guardar(archivos.filter((x) => x.archivoId !== a.archivoId))}><LuX size={11} /></button>
+          <button type="button" className="boton-icono" aria-label={`Quitar ${a.nombre}`} onClick={async () => (await confirmar(`¿Quitar «${a.nombre}» de esta etapa?`)) && void guardar(archivos.filter((x) => x.archivoId !== a.archivoId))}><LuX size={11} /></button>
         </span>
       ))}
       <input ref={input} type="file" multiple hidden aria-label={etiqueta} onChange={(e) => { void subir(e.target.files); e.target.value = ""; }} />

@@ -8,7 +8,7 @@ import { SeccionDosPasos } from "./dos-pasos";
 import { useEffect, useState, type ReactNode } from "react";
 import { LuBell, LuBot, LuBuilding2, LuExternalLink, LuKeyRound, LuLogOut, LuPlug, LuUserRound } from "react-icons/lu";
 import { actualizarSesion, api, Enlace, fDiaHora, type ProblemaApi, useConsulta, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso } from "../componentes";
+import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso, confirmar } from "../componentes";
 import { NOMBRE_AREA, type Area } from "../dominio/ia-equipo";
 import { NOMBRE_NIVEL, type Nivel } from "../dominio/accesos";
 
@@ -317,7 +317,7 @@ export function Conexiones() {
     }
   };
   const desconectar = async (c: S<"ConexionPersonal">) => {
-    if (!window.confirm(`¿Desconectar ${c.nombre}? Tus bots dejan de poder usarlo.`)) return;
+    if (!(await confirmar(`¿Desconectar ${c.nombre}? Tus bots dejan de poder usarlo.`))) return;
     setOcupado(c.proveedor);
     try {
       await api(`/me/conexiones/${c.proveedor}`, { metodo: "DELETE" });

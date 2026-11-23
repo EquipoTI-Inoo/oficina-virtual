@@ -9,7 +9,7 @@
 import { useState, type ReactNode } from "react";
 import { LuExternalLink, LuFileText, LuImage, LuLink, LuMonitorSmartphone, LuPencil, LuPlus, LuSend, LuTrash2, LuUpload } from "react-icons/lu";
 import { api, Enlace, fDiaHora, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, ModalPedirCambios, useAviso, usePortal } from "../componentes";
+import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, ModalPedirCambios, useAviso, usePortal, confirmar } from "../componentes";
 
 type Entregable = S<"Entregable">;
 type Detalle = S<"EntregableDetalle">;
@@ -60,9 +60,9 @@ export function FilaEntregable({ e, a }: { e: Entregable; a: string }) {
           </span>
         </span>
       </span>
-      <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
+      <span className="fila fila-entregable-lado" style={{ gap: 10, flexShrink: 0 }}>
         <EtiquetaEntregable e={e} />
-        {e.estado === "LISTO_REVISION" && comoCliente() && <span className="texto-primario negrita texto-sm">Revisar</span>}
+        {e.estado === "LISTO_REVISION" && comoCliente() && <span className="boton boton--chico boton--primario fila-entregable-accion">Revisar y aprobar</span>}
       </span>
     </Enlace>
   );
@@ -235,7 +235,7 @@ function AccionesEquipo({ d, alCambiar }: { d: Detalle; alCambiar: (d: Detalle) 
   // 13 nov (auditoría): se quita solo si el cliente nunca lo vio.
   const nuncaEnviado = !d.versiones.some((v) => v.enviadaEn);
   const quitar = async () => {
-    if (!window.confirm(`¿Quitar «${d.titulo}»? El cliente nunca lo vio; se borra con sus versiones.`)) return;
+    if (!(await confirmar(`¿Quitar «${d.titulo}»? El cliente nunca lo vio; se borra con sus versiones.`))) return;
     try {
       await api(`/entregables/${d.id}`, { metodo: "DELETE" });
       avisar({ titulo: "Entregable quitado" });

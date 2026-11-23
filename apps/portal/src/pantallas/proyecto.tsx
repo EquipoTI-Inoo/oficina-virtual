@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, rolCliente } from "../base";
-import { TextoConEnlaces, AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal, confirmar } from "../componentes";
 import { AsiVaElMes, ResultadosDelMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
@@ -439,7 +439,7 @@ export function TextoComentario({ servicioId, c, alCambiar }: { servicioId: stri
     }
   };
   const borrar = async () => {
-    if (!window.confirm("¿Borrar tu comentario?")) return;
+    if (!(await confirmar("¿Borrar tu comentario?"))) return;
     try {
       await api(`/servicios-contratados/${servicioId}/comentarios/${c.id}`, { metodo: "DELETE" });
       alCambiar();
@@ -518,7 +518,7 @@ function Comentarios({ servicioId }: { servicioId: string }) {
         <div className="campo">
           <label htmlFor="comentario-proyecto">Tu comentario</label>
           <div className="entrada">
-            <textarea id="comentario-proyecto" placeholder="Escribe una duda o un comentario sobre el proyecto..." value={texto} onChange={(e) => setTexto(e.target.value)} aria-invalid={!!error} />
+            <textarea id="comentario-proyecto" placeholder="Escribe una duda o un comentario sobre el proyecto…" value={texto} onChange={(e) => setTexto(e.target.value)} aria-invalid={!!error} />
           </div>
           {error && (
             <span className="ayuda-campo" role="alert" style={{ color: "var(--c-alerta)" }}>

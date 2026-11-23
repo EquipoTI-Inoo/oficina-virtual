@@ -740,7 +740,7 @@ function Entregables() {
   const pendientes = total + docs.length;
   return (
     <>
-      <Cabecera antetitulo="Tus proyectos con Inoo" titulo="Entregables por revisar" bajada="El siguiente paso es tuyo. Revisa cada entregable y cuéntanos qué te parece." />
+      <Cabecera titulo="Entregables por revisar" bajada="El siguiente paso es tuyo. Revisa cada entregable y cuéntanos qué te parece." />
       <Aviso icono={<LuCircleCheck size={18} />} titulo={pendientes === 1 ? "Tienes 1 entregable listo para revisar" : `Tienes ${pendientes} entregables listos para revisar`} elevado>
         Aprueba la versión actual o pide cambios. Avanzamos solo con lo que apruebas.
       </Aviso>
@@ -753,7 +753,7 @@ function Entregables() {
           <span className="icono-inicio">
             <LuSearch size={17} />
           </span>
-          <input aria-label="Buscar una pieza" placeholder="Buscar una pieza..." value={q} onChange={(e) => setQ(e.target.value)} />
+          <input aria-label="Buscar una pieza" placeholder="Buscar una pieza…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <label className="selector selector--alto" style={{ position: "relative", fontWeight: 500 }}>
           <span className="sr-only">Canal</span>
@@ -1120,7 +1120,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
             <div className="campo">
               <label htmlFor="comentario">Tu comentario</label>
               <div className="entrada">
-                <textarea id="comentario" placeholder="Cuéntanos qué debemos ajustar..." value={texto} onChange={(e) => setTexto(e.target.value)} aria-invalid={!!errorTexto} />
+                <textarea id="comentario" placeholder="Cuéntanos qué debemos ajustar…" value={texto} onChange={(e) => setTexto(e.target.value)} aria-invalid={!!errorTexto} />
               </div>
               <span className="ayuda-campo" style={errorTexto ? { color: "var(--c-alerta)" } : undefined} role={errorTexto ? "alert" : undefined}>
                 {errorTexto ?? "Para dudas o comentarios. Si quieres cambios, usa «Pedir cambios»."}

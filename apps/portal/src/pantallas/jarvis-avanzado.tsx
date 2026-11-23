@@ -11,7 +11,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { LuBookOpen, LuDownload, LuPause, LuPlay, LuPlus, LuTrash2, LuPencil, LuZap, LuClock, LuPlug, LuActivity, LuSparkles, LuSearch } from "react-icons/lu";
 import { api, Enlace, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
-import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
+import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso, confirmar } from "../componentes";
 import { MAX_ARCHIVOS_SKILL, MAX_TEXTO_ARCHIVO } from "../dominio/jarvis-avanzado";
 import { MisConectores, MisSkills } from "./mis-herramientas";
 import { Conexiones, JarvisDesdeChrome } from "./mi-cuenta-equipo";
@@ -148,7 +148,7 @@ function Skills({ espacio }: { espacio: string | null }) {
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const borrar = async (s: S<"SkillJarvis">) => {
-    if (!window.confirm(`¿Borrar la skill «${s.nombre}»? Se desactiva de sus bots.`)) return;
+    if (!(await confirmar(`¿Borrar la skill «${s.nombre}»? Se desactiva de sus bots.`))) return;
     await api(`/jarvis/skills/${s.id}`, { metodo: "DELETE" }).then(() => r.recargar(), (e) => avisar({ titulo: "No pudimos borrarla", texto: (e as ProblemaApi).titulo }));
   };
   return (
@@ -339,7 +339,7 @@ function Rutinas({ espacio, bots, alAbrirChat }: { espacio: string | null; bots:
                   {x.activa ? <><LuPause size={13} /> Pausar</> : <><LuPlay size={13} /> Reanudar</>}
                 </button>
                 <button className="boton-icono" aria-label={`Editar ${x.nombre}`} onClick={() => setEditor(x)}><LuPencil size={14} /></button>
-                <button className="boton-icono" aria-label={`Borrar ${x.nombre}`} onClick={() => window.confirm(`¿Borrar la rutina «${x.nombre}»?`) && void accion(() => api(`/jarvis/rutinas/${x.id}`, { metodo: "DELETE" }), "Rutina borrada")}><LuTrash2 size={14} /></button>
+                <button className="boton-icono" aria-label={`Borrar ${x.nombre}`} onClick={async () => (await confirmar(`¿Borrar la rutina «${x.nombre}»?`)) && void accion(() => api(`/jarvis/rutinas/${x.id}`, { metodo: "DELETE" }), "Rutina borrada")}><LuTrash2 size={14} /></button>
               </span>
             )}
           </article>
@@ -456,7 +456,7 @@ function Automatizaciones({ espacio, bots, alAbrirChat }: { espacio: string | nu
                   {x.activa ? <><LuPause size={13} /> Pausar</> : <><LuPlay size={13} /> Reanudar</>}
                 </button>
                 <button className="boton-icono" aria-label={`Editar ${x.nombre}`} onClick={() => setEditor(x)}><LuPencil size={14} /></button>
-                <button className="boton-icono" aria-label={`Borrar ${x.nombre}`} onClick={() => window.confirm(`¿Borrar «${x.nombre}»?`) && void accion(() => api(`/jarvis/automatizaciones/${x.id}`, { metodo: "DELETE" }), "Automatización borrada")}><LuTrash2 size={14} /></button>
+                <button className="boton-icono" aria-label={`Borrar ${x.nombre}`} onClick={async () => (await confirmar(`¿Borrar «${x.nombre}»?`)) && void accion(() => api(`/jarvis/automatizaciones/${x.id}`, { metodo: "DELETE" }), "Automatización borrada")}><LuTrash2 size={14} /></button>
               </span>
             )}
           </article>
@@ -544,7 +544,7 @@ function Biblioteca({ espacio, alAbrirChat }: { espacio: string | null; alAbrirC
       <Cabeza titulo="Biblioteca" bajada={`Lo que generó Jarvis y alguien guardó con «Guardar en biblioteca» debajo de una respuesta.${r.datos.drive ? " Cada elemento tiene su copia en Drive." : ""}`} />
       <form className="entrada" style={{ maxWidth: 360, marginBottom: 14 }} onSubmit={(e) => { e.preventDefault(); setBuscar(q.trim()); }}>
         <span className="icono-inicio"><LuSearch size={17} /></span>
-        <input type="search" aria-label="Buscar en la biblioteca" placeholder="Buscar..." value={q} onChange={(e) => { setQ(e.target.value); if (!e.target.value) setBuscar(""); }} />
+        <input type="search" aria-label="Buscar en la biblioteca" placeholder="Buscar…" value={q} onChange={(e) => { setQ(e.target.value); if (!e.target.value) setBuscar(""); }} />
       </form>
       {!r.datos.datos.length && <Vacio>{buscar ? "No encontramos nada con eso." : "Todavía no se guardó nada en la biblioteca de esta área."}</Vacio>}
       <div style={rejilla}>
@@ -566,7 +566,7 @@ function ElementoBiblioteca({ id, alCerrar, alBorrar, alAbrirChat }: { id: strin
   const avisar = useAviso();
   const x = r.datos;
   const borrar = async () => {
-    if (!x || !window.confirm(`¿Sacar «${x.titulo}» de la biblioteca?${x.enDrive ? " La copia en Drive se queda." : ""}`)) return;
+    if (!x || !(await confirmar(`¿Sacar «${x.titulo}» de la biblioteca?${x.enDrive ? " La copia en Drive se queda." : ""}`))) return;
     await api(`/jarvis/biblioteca/${x.id}`, { metodo: "DELETE" }).then(alBorrar, (e) => avisar({ titulo: "No se pudo", texto: (e as ProblemaApi).titulo }));
   };
   return (
@@ -630,7 +630,7 @@ function Conectores({ espacio }: { espacio: string | null }) {
   if (r.error) return <ErrorCarga error={r.error} reintentar={r.recargar} />;
   if (!r.datos) return <Cargando />;
   const borrar = async (c: S<"ConectorJarvis">) => {
-    if (!window.confirm(`¿Quitar el conector «${c.nombre}»? Sus bots dejan de tenerlo.`)) return;
+    if (!(await confirmar(`¿Quitar el conector «${c.nombre}»? Sus bots dejan de tenerlo.`))) return;
     await api(`/jarvis/conectores/${c.id}`, { metodo: "DELETE" }).then(() => r.recargar(), (e) => avisar({ titulo: "No se pudo", texto: (e as ProblemaApi).titulo }));
   };
   return (

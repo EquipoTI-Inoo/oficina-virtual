@@ -9,14 +9,14 @@ import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, Lu
   LuGlobe, LuLink, LuFlag, LuPalette, LuPaperclip, LuFileText, LuMousePointerClick, LuGitBranch, LuNetwork, LuCopy, LuSigma, LuChartBar, LuHistory,
   LuRefreshCw, LuFingerprint, LuListOrdered, LuFileVideo, LuFileAudio, LuFileImage, LuPencil } from "react-icons/lu";
 import type { IconType } from "react-icons";
-import { api, ProblemaApi, useConsulta, type S } from "../base";
-import { TextoConEnlaces, Modal, useAviso, usePortal } from "../componentes";
+import { api, ProblemaApi, useConsulta, type S, fCorta } from "../base";
+import { TextoConEnlaces, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { CampoMenciones } from "./campo-menciones";
 import {
   COLORES_ETIQUETA, configInicial, FUNCIONES_FORMULA, info, LISTA_PAISES, resumenNumeros, textoDuracion, TIPOS_COLUMNA, ZONAS_HORARIAS,
   type ConfigColumna, type EtiquetaColumna, type TipoColumna,
 } from "../dominio/columnas";
-import { ESTADOS_ITEM } from "../dominio/tableros";
+import { ESTADOS_ITEM, fondoConTexto } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
 type Item = S<"ItemTablero">;
@@ -86,9 +86,9 @@ export function CeldaColumna({ t, col, item, cambiar, editable, rutaValores }: {
   switch (col.tipo as TipoColumna | "text" | "file") {
     case "etiqueta": {
       const l = (c.etiquetas ?? []).find((x) => x.texto === texto);
-      if (!editable) return l ? <span className="pildora" style={{ background: l.color }}>{l.texto}</span> : vacio;
+      if (!editable) return l ? <span className="pildora" style={{ ...fondoConTexto(l.color) }}>{l.texto}</span> : vacio;
       return (
-        <select className="pildora" aria-label={etiqueta} style={{ background: l?.color ?? "#c4c4c4" }} value={texto} onChange={(e) => void guardar(e.target.value || null)}>
+        <select className="pildora" aria-label={etiqueta} style={{ ...fondoConTexto(l?.color ?? "#c4c4c4") }} value={texto} onChange={(e) => void guardar(e.target.value || null)}>
           <option value="">—</option>
           {(c.etiquetas ?? []).map((x) => <option key={x.texto} value={x.texto}>{x.texto}</option>)}
         </select>
@@ -247,7 +247,7 @@ export function CeldaColumna({ t, col, item, cambiar, editable, rutaValores }: {
                 <span className="nombre-archivo">{a.nombre}</span>{(a.version ?? 1) > 1 && <span className="texto-muted"> · V{a.version}</span>}
                 <GloboComentarios tableroId={t.id} archivoId={a.id} />
               </button>
-              {editable && !t.soyInvitado && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={() => window.confirm(`¿Quitar «${a.nombre}» con todas sus versiones y comentarios?`) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
+              {editable && !t.soyInvitado && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={async () => (await confirmar(`¿Quitar «${a.nombre}» con todas sus versiones y comentarios?`)) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
             </span>
           ))}
           {/* 17 nov: subir y quitar archivos es del equipo; un invitado los ve y los comenta. */}
@@ -516,7 +516,7 @@ const segundos = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 6
 
 type Comentarios = S<"ComentariosArchivo">;
 const pesoArchivo = (b: number) => (b > 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
-const fechaCorta = (f: string) => (f ? new Date(f).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" }) : "");
+const fechaCorta = (f: string) => (f ? fCorta(f) : "");
 
 function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { t: Tablero; col: Columna; item: Item; archivoId: string; editable: boolean; cambiar: Cambiar; cerrar: () => void }) {
   const avisar = useAviso();
@@ -542,7 +542,7 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
     }
   };
   const borrarComentario = async (id: string) => {
-    if (!window.confirm("¿Borrar este comentario? No se puede deshacer.")) return;
+    if (!(await confirmar("¿Borrar este comentario? No se puede deshacer."))) return;
     try {
       r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios/${id}`, { metodo: "DELETE" }));
       avisarComentarios(t.id);
@@ -873,7 +873,7 @@ export function ConfigurarColumna({ t, col, cambiar, cerrar }: { t: Tablero; col
 
 Se pierden sus valores en ${conValor} ${conValor === 1 ? "ítem" : "ítems"} de este tablero (también en InooWork). No se puede deshacer.`
             : `¿Borrar la columna «${col.nombre}»? Está vacía; se borra también en InooWork.`;
-          if (window.confirm(aviso) && (await cambiar(`/columnas/${col.id}`, "DELETE"))) cerrar();
+          if ((await confirmar(aviso)) && (await cambiar(`/columnas/${col.id}`, "DELETE"))) cerrar();
         } : undefined} />
     </Modal>
   );
@@ -1002,7 +1002,7 @@ function Etiquetas({ valor, cambiar }: { valor: EtiquetaColumna[]; cambiar: (v: 
       <span className="texto-sm negrita">Etiquetas</span>
       {valor.map((l, k) => (
         <div key={k} className="fila" style={{ gap: 8 }}>
-          <select aria-label={`Color de ${l.texto}`} className="pildora" style={{ background: l.color, width: 44, minWidth: 44 }} value={l.color} onChange={(e) => poner(k, { color: e.target.value })}>
+          <select aria-label={`Color de ${l.texto}`} className="pildora" style={{ ...fondoConTexto(l.color), width: 44, minWidth: 44 }} value={l.color} onChange={(e) => poner(k, { color: e.target.value })}>
             {COLORES_ETIQUETA.map((cl) => <option key={cl} value={cl} style={{ background: cl }}>■</option>)}
           </select>
           <input className="input" aria-label={`Etiqueta ${k + 1}`} maxLength={40} value={l.texto} onChange={(e) => poner(k, { texto: e.target.value })} style={{ flex: 1 }} />

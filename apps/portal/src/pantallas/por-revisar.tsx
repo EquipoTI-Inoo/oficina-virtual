@@ -65,7 +65,7 @@ function PorRevisar() {
             const del = xs.filter((x) => x.accion === g.clave);
             if (!del.length) return null;
             return (
-              <section key={g.clave} className="mi-trabajo-grupo" style={{ borderLeftColor: TONO[g.clave] }} aria-label={`${g.titulo}: ${del.length}`}>
+              <section key={g.clave} className="mi-trabajo-grupo" aria-label={`${g.titulo}: ${del.length}`}>
                 <h2 className="fila" style={{ gap: 8, fontSize: "var(--t-md)", fontWeight: 600, color: TONO[g.clave], marginBottom: 2 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
                 <p className="texto-xs texto-muted" style={{ marginBottom: 8 }}>{g.ayuda}</p>
                 <div className="pila" style={{ gap: 6 }}>

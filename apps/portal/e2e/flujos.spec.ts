@@ -579,8 +579,9 @@ test("equipo: el ADMIN invita a un colaborador con su jefe y aparece en el organ
   await expect(camila.locator(".nav-item", { hasText: /^Equipo$/ })).toHaveCount(0);
   await camila.close();
 
-  page.on("dialog", (x) => x.accept());
   await fila.getByRole("button", { name: "Desactivar" }).click();
+  // 23 nov: la confirmación es un modal del portal, no la del navegador.
+  await page.getByRole("dialog", { name: "Confirmar" }).getByRole("button", { name: "Desactivar" }).click();
   await expect(page.getByRole("row", { name: /Lucía Rojas/ })).toHaveCount(0, { timeout: 20_000 });
 });
 
@@ -790,8 +791,8 @@ test("tableros (16 nov, tanda 5): comentar en un punto de una imagen deja un pin
   await visor.getByRole("button", { name: "Guardar" }).click();
   await expect(visor.getByText("El logo aquí, un 20 % más grande")).toBeVisible({ timeout: 20_000 });
   await expect(visor.getByText(/· editado/)).toBeVisible();
-  page.once("dialog", (d) => void d.accept());
   await visor.getByRole("button", { name: "Borrar el comentario de Diego Castro" }).click();
+  await page.getByRole("dialog", { name: "Confirmar" }).getByRole("button", { name: "Borrar" }).click();
   await expect(visor.getByText("Todavía no hay comentarios.")).toBeVisible({ timeout: 20_000 });
 });
 

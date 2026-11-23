@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { LuFlaskConical, LuNetwork, LuPencil, LuRefreshCw, LuUserPlus } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { NIVELES, NOMBRE_NIVEL, NOMBRE_PERMISO, permisosDe, PERMISOS, type Nivel, type Permiso } from "../dominio/accesos";
 import { AREAS, NOMBRE_AREA, type Area } from "../dominio/ia-equipo";
 
@@ -49,7 +49,7 @@ function Personas() {
   const nombreDe = (id: string | null) => todas.find((p) => p.id === id)?.nombre ?? null;
 
   const activar = async (p: Ficha, activo: boolean) => {
-    if (!activo && !window.confirm(`¿Desactivar a ${p.nombre}? Pierde el acceso al portal y a InooWork. Sus registros se conservan y puedes reactivarla cuando quieras.`)) return;
+    if (!activo && !(await confirmar(`¿Desactivar a ${p.nombre}? Pierde el acceso al portal y a InooWork. Sus registros se conservan y puedes reactivarla cuando quieras.`))) return;
     try {
       await api(`/panel/equipo/${p.id}`, { metodo: "PATCH", cuerpo: { activo } });
       avisar({ titulo: activo ? `${p.nombre} reactivada` : `${p.nombre} desactivada` });
@@ -91,7 +91,6 @@ function Personas() {
   return (
     <>
       <Cabecera
-        antetitulo="Agencia"
         titulo="Equipo"
         bajada="Quién trabaja en Inoo, qué ve cada persona y a quién reporta. Los cambios se reflejan en InooWork."
         accion={
@@ -434,7 +433,6 @@ function Organigrama() {
   return (
     <>
       <Cabecera
-        antetitulo="Equipo Inoo"
         titulo="Organigrama"
         bajada={`${personas.length} ${personas.length === 1 ? "persona" : "personas"} en el equipo. Quién reporta a quién.`}
         accion={

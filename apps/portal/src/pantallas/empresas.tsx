@@ -41,12 +41,12 @@ function ListaEmpresas() {
   const xs = datos.datos.filter((e) => !q || e.nombre.toLowerCase().includes(q));
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Agencia" titulo="Empresas" bajada="Inoo y cada cliente con su gente, sus proyectos y quién del equipo tiene acceso." />
+      <Cabecera titulo="Empresas" bajada="Inoo y cada cliente con su gente, sus proyectos y quién del equipo tiene acceso." />
       <div className="entrada" style={{ maxWidth: 360, marginBottom: 16 }}>
         <span className="icono-inicio">
           <LuSearch size={17} />
         </span>
-        <input type="search" placeholder="Buscar empresa..." aria-label="Buscar empresa" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+        <input type="search" placeholder="Buscar empresa…" aria-label="Buscar empresa" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
       </div>
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
         {xs.map((e) => (
@@ -98,7 +98,6 @@ function DetalleEmpresa() {
   return (
     <>
       <Cabecera
-        antetitulo="Equipo Inoo · Empresas"
         titulo={e.nombre}
         bajada={inoo ? "La agencia: su equipo, sus proyectos internos y quién ve todas las cuentas." : "Su gente en el portal, sus proyectos y quién de Inoo entra a la cuenta."}
         accion={

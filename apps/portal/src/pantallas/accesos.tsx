@@ -6,7 +6,7 @@
 import { useState, type FormEvent } from "react";
 import { LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
-import { Etiqueta, useAviso, usePortal } from "../componentes";
+import { Etiqueta, useAviso, usePortal, confirmar } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
 import { mismoCliente } from "../dominio/tableros";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
@@ -29,8 +29,8 @@ export function GestionCuenta({ cliente, alGuardar }: { cliente: S<"Cliente">; a
       avisar({ titulo: "No pudimos guardar el cambio", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
     }
   };
-  const cambiarEstado = (estado: S<"Cliente">["estado"]) => {
-    if (estado === "BAJA" && !window.confirm(`¿Dar de baja a ${cliente.nombre}? Sale de las listas de cuentas activas. Se puede revertir.`)) return;
+  const cambiarEstado = async (estado: S<"Cliente">["estado"]) => {
+    if (estado === "BAJA" && !(await confirmar(`¿Dar de baja a ${cliente.nombre}? Sale de las listas de cuentas activas. Se puede revertir.`))) return;
     void guardar({ estado }, `${cliente.nombre}: ${ESTADO_CUENTA[estado].toLowerCase()}`);
   };
   return (
@@ -131,7 +131,7 @@ export function AccesoDelCliente({ clienteId, nombreCliente }: { clienteId: stri
     }
   };
   const quitarAcceso = async (m: S<"Miembro">) => {
-    if (!window.confirm(`¿Quitarle el acceso a ${m.nombre}? No podrá ver más esta cuenta.`)) return;
+    if (!(await confirmar(`¿Quitarle el acceso a ${m.nombre}? No podrá ver más esta cuenta.`))) return;
     try {
       await api(`/clientes/${clienteId}/miembros/${m.usuarioId}`, { metodo: "DELETE" });
       avisar({ titulo: `${m.nombre} ya no tiene acceso` });
@@ -222,7 +222,7 @@ export function EquipoAsignado({ ruta, titulo, ayuda, soloNivelCuenta }: { ruta:
     }
   };
   const quitar = async (a: S<"AccesoPersona">) => {
-    if (!window.confirm(`¿Quitarle el acceso a ${a.persona.nombre}?`)) return;
+    if (!(await confirmar(`¿Quitarle el acceso a ${a.persona.nombre}?`))) return;
     try {
       await api(`${ruta}/${a.persona.id}`, { metodo: "DELETE" });
       avisar({ titulo: `${a.persona.nombre} ya no tiene acceso` });

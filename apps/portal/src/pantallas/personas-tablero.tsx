@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { LuCopy, LuLink, LuLock, LuUserMinus, LuUserPlus, LuUsers } from "react-icons/lu";
 import { api, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Cargando, Estructura, Modal, useAviso } from "../componentes";
+import { Cargando, Estructura, Modal, useAviso, confirmar } from "../componentes";
 
 type Permiso = S<"PermisoTablero">;
 const PERMISOS: [Permiso, string][] = [["LECTOR", "Lector"], ["COMENTADOR", "Comentador"], ["EDITOR", "Editor"]];
@@ -44,7 +44,7 @@ function Personas({ t, cambiar, alCerrar }: { t: Tablero; cambiar: Cambiar; alCe
     setOcupado(false);
   };
   const quitar = async (p: { id: string; nombre: string }) => {
-    if (!window.confirm(`¿Quitar a ${p.nombre} del proyecto? Deja de ver el tablero (salvo que sea admin); sus ítems siguen a su nombre.`)) return;
+    if (!(await confirmar(`¿Quitar a ${p.nombre} del proyecto? Deja de ver el tablero (salvo que sea admin); sus ítems siguen a su nombre.`))) return;
     if (await cambiar(`/miembros/${encodeURIComponent(p.id)}`, "DELETE")) candidatos.recargar();
   };
   const nombreDe = (id: string) => candidatos.datos?.datos.find((c) => c.id === id)?.nombre ?? id;
@@ -56,9 +56,10 @@ function Personas({ t, cambiar, alCerrar }: { t: Tablero; cambiar: Cambiar; alCe
 
       {t.puedeHacerPrivado ? (
         <label className="fila-suave fila" style={{ gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
-          <input type="checkbox" checked={t.privado} style={{ marginTop: 3 }} onChange={(e) => {
-            if (e.target.checked && !window.confirm("¿Hacer privado este tablero? Solo lo verán las personas de esta lista: ni los admins lo verán.")) return;
-            void cambiar("", "PATCH", { privado: e.target.checked });
+          <input type="checkbox" checked={t.privado} style={{ marginTop: 3 }} onChange={async (e) => {
+            const marcado = e.target.checked;
+            if (marcado && !(await confirmar("¿Hacer privado este tablero? Solo lo verán las personas de esta lista: ni los admins lo verán."))) return;
+            void cambiar("", "PATCH", { privado: marcado });
           }} />
           <span className="pila" style={{ gap: 2 }}>
             <span className="texto-sm negrita fila" style={{ gap: 6 }}><LuLock size={14} /> Tablero privado</span>
@@ -192,7 +193,7 @@ function EnlaceDe({ t, cambiar, audiencia }: { t: Tablero; cambiar: Cambiar; aud
               {PERMISOS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
             </select>
             <button className="boton boton--chico" onClick={() => void cambiar(`/enlaces/${audiencia}`, "PATCH", { activo: !e.activo })}>{e.activo ? "Apagar" : "Prender"}</button>
-            <button className="boton boton--chico" onClick={() => window.confirm("¿Crear un enlace nuevo? El actual deja de funcionar.") && void cambiar("/enlaces", "POST", { audiencia, permiso: e.permiso })}>Enlace nuevo</button>
+            <button className="boton boton--chico" onClick={async () => (await confirmar("¿Crear un enlace nuevo? El actual deja de funcionar.")) && void cambiar("/enlaces", "POST", { audiencia, permiso: e.permiso })}>Enlace nuevo</button>
           </div>
         </>
       )}
@@ -226,7 +227,7 @@ function Invitados({ t, cambiar }: { t: Tablero; cambiar: Cambiar }) {
               )}
               {manda && (
                 <button className="boton-icono" aria-label={`Quitar a ${x.nombre}`} title="Quitar del tablero"
-                  onClick={() => window.confirm(`¿Quitar a ${x.nombre}? Deja de ver el tablero al instante.`) && void cambiar(`/invitados/${encodeURIComponent(x.id)}`, "DELETE")}>
+                  onClick={async () => (await confirmar(`¿Quitar a ${x.nombre}? Deja de ver el tablero al instante.`)) && void cambiar(`/invitados/${encodeURIComponent(x.id)}`, "DELETE")}>
                   <LuUserMinus size={14} />
                 </button>
               )}

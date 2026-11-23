@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { LuBookmarkPlus, LuCheck, LuChevronDown, LuWrench, LuCircleAlert, LuHand, LuLoader, LuMessageSquarePlus, LuPaperclip, LuSparkles, LuPencil, LuPlus, LuSend, LuShare2, LuSquare, LuTrash2, LuX } from "react-icons/lu";
 import { api, BASE, Enlace, fDiaHora, leerSesion, ProblemaApi, useConsulta, type S } from "../base";
-import { Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
+import { Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { AREAS, NOMBRE_AREA, COLORES_BOT, FORMAS_BOT, PERSONAJES_BOT, saludoInicial, sesionConfiguracion, sinBloqueTrabajo, type PersonajeBot } from "../dominio/ia-equipo";
 import { EstadoArea, usd } from "./jarvis";
 import { ACEPTA_ADJUNTOS, leerAdjunto, type Adjunto } from "./leer-archivos";
@@ -240,7 +240,7 @@ function ChatsDelBot({ bot, espacio, activa, version, alAbrir, alNuevo }: { bot:
     }
   };
   const borrar = async (c: S<"ConversacionJarvis">) => {
-    if (!window.confirm(`¿Borrar el chat «${c.titulo}»? No se puede deshacer.`)) return;
+    if (!(await confirmar(`¿Borrar el chat «${c.titulo}»? No se puede deshacer.`))) return;
     try {
       await api(`/jarvis/conversaciones/${encodeURIComponent(c.id)}`, { metodo: "DELETE" });
       if (c.id === activa) alNuevo();
@@ -290,7 +290,7 @@ function CompartirBot({ bot, conGerencia, alCerrar, alCambiar }: { bot: Bot; con
     }
   };
   const quitar = async (clave: string) => {
-    if (!window.confirm("¿Dejar de prestar este bot a esa área?")) return;
+    if (!(await confirmar("¿Dejar de prestar este bot a esa área?"))) return;
     try {
       await api(`/jarvis/bots/${bot.id}/compartir/${clave}`, { metodo: "DELETE" });
       setPrestamos((xs) => xs.filter((x) => x.clave !== clave));
@@ -718,7 +718,7 @@ function ChatBot({ bot, espacio, conectado, sesion, configurar, alCompartir, alE
   };
   const eliminar = async () => {
     setMenu(false);
-    if (!window.confirm(`¿Eliminar ${bot.nombre}? Tu área deja de verlo.`)) return;
+    if (!(await confirmar(`¿Eliminar ${bot.nombre}? Tu área deja de verlo.`))) return;
     try {
       await api(`/jarvis/bots/${bot.id}`, { metodo: "DELETE" });
       avisar({ titulo: `${bot.nombre} eliminado` });

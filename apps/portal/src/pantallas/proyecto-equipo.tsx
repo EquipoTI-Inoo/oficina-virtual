@@ -12,7 +12,7 @@ import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight,
 import { FormulariosDelProyecto } from "./requerimientos";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { entrarComoCliente } from "../base";
-import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { AvanceLineal, Aviso, Cabecera, Cargando, detalleServicio, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { ROLES_FINANZAS } from "../dominio/pagos";
 import { CAUSAS_ATRASO, ETIQUETA_CAUSA } from "../dominio/kpis";
 import { archivoReporte } from "../dominio/reporte";
@@ -103,7 +103,7 @@ function ProyectoEquipo() {
     }
   };
   const quitarEtapa = async (etapa: S<"EtapaProyecto">) => {
-    if (!window.confirm(`¿Quitar la etapa «${etapa.nombre}»? Las tareas y entregables que tenga quedan sin etapa.`)) return;
+    if (!(await confirmar(`¿Quitar la etapa «${etapa.nombre}»? Las tareas y entregables que tenga quedan sin etapa.`))) return;
     try {
       const av = await api<S<"AvanceServicio">>(`/servicios-contratados/${d.servicioContratadoId}/etapas/${etapa.id}`, { metodo: "DELETE" });
       perfil.setDatos({ ...d, ...av });

@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from "react";
 import { LuTrash2 } from "react-icons/lu";
 import { api, fCorta, type ProblemaApi, useConsulta, type S } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, iconoAviso, textoAviso, TIPO_AVISO, useAviso } from "../componentes";
+import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, iconoAviso, textoAviso, TIPO_AVISO, useAviso, confirmar } from "../componentes";
 
 /** Banners del Inicio (el aniversario primero). */
 export function AvisosInicio({ avisos }: { avisos: S<"Aviso">[] }) {
@@ -56,7 +56,7 @@ function AvisosEquipo() {
     }
   };
   const quitar = async (a: S<"Aviso">) => {
-    if (!window.confirm(`¿Quitar «${a.titulo}»?`)) return;
+    if (!(await confirmar(`¿Quitar «${a.titulo}»?`))) return;
     await api(`/avisos/${a.id}`, { metodo: "DELETE" }).catch(() => undefined);
     void lista.recargar();
   };

@@ -1,13 +1,14 @@
 "use client";
 import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
+  LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
   LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor, LuPanelLeftClose, LuPanelLeftOpen,
   LuKeyRound,
+  LuShieldCheck,
 } from "react-icons/lu";
 import { pideAccion } from "./dominio/por-revisar";
-import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
+import { fDiaHora, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
 
 // ───────────────────────────── etiquetas de estado (Figma: «Etiquetas de estado»)
 
@@ -290,6 +291,51 @@ export function Modal({ abierto, alCerrar, children, etiqueta, ancho }: { abiert
         {children}
       </div>
     </div>
+  );
+}
+
+// ───────────────────────────── confirmaciones (23 nov, auditoría Impeccable)
+
+type PedidoConfirmar = { texto: string; accion: string; peligro: boolean; resolver: (ok: boolean) => void };
+let mostrarConfirmar: ((p: PedidoConfirmar) => void) | null = null;
+const VERBOS_CONFIRMAR: [RegExp, string][] = [
+  [/^¿Borrar/, "Borrar"], [/^¿Eliminar/, "Eliminar"], [/^¿Quitar/, "Quitar"], [/^¿Anular/, "Anular"], [/^¿Dar de baja/, "Dar de baja"],
+  [/^¿Desactivar/, "Desactivar"], [/^¿Desconectar/, "Desconectar"], [/^¿Sacar/, "Sacar"], [/^¿Detener/, "Detener"], [/^¿Dejar de/, "Dejar de prestar"],
+  [/^¿Desarchivar/, "Desarchivar"], [/^¿Crear/, "Crear"], [/^¿Hacer privado/, "Hacerlo privado"], [/^¿Volver/, "Volver a esta versión"],
+];
+const PELIGROSAS = new Set(["Borrar", "Eliminar", "Quitar", "Anular", "Dar de baja", "Desactivar", "Desconectar", "Sacar"]);
+/**
+ * Reemplaza a window.confirm con un modal del portal (las confirmaciones del navegador se ven fuera de estilo y no se
+ * pueden leer bien en el celular). Devuelve true si la persona confirma. Sin el host montado, usa el del navegador.
+ */
+export function confirmar(texto: string, o: { accion?: string; peligro?: boolean } = {}): Promise<boolean> {
+  const accion = o.accion ?? VERBOS_CONFIRMAR.find(([re]) => re.test(texto))?.[1] ?? "Confirmar";
+  const peligro = o.peligro ?? PELIGROSAS.has(accion);
+  if (!mostrarConfirmar) return Promise.resolve(typeof window !== "undefined" && window.confirm(texto));
+  return new Promise((resolver) => mostrarConfirmar!({ texto, accion, peligro, resolver }));
+}
+function HostConfirmar() {
+  const [p, setP] = useState<PedidoConfirmar | null>(null);
+  const cancelar = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    mostrarConfirmar = setP;
+    return () => { if (mostrarConfirmar === setP) mostrarConfirmar = null; };
+  }, []);
+  useEffect(() => { if (p) cancelar.current?.focus(); }, [p]);
+  const cerrar = useCallback((ok: boolean) => { setP((x) => { x?.resolver(ok); return null; }); }, []);
+  const alCerrar = useCallback(() => cerrar(false), [cerrar]);
+  const [pregunta, ...resto] = (p?.texto ?? "").split(/(?<=\?)\s+/);
+  return (
+    <Modal abierto={!!p} alCerrar={alCerrar} etiqueta="Confirmar" ancho={440}>
+      <div className="pila" style={{ gap: 10 }}>
+        <h2 className="modal-titulo" style={{ paddingRight: 28 }}>{pregunta}</h2>
+        {resto.length > 0 && <p className="texto-sm texto-muted">{resto.join(" ")}</p>}
+        <div className="fila" style={{ gap: 8, justifyContent: "flex-end", marginTop: 8, flexWrap: "wrap" }}>
+          <button ref={cancelar} type="button" className="boton" onClick={alCerrar}>Cancelar</button>
+          <button type="button" className={`boton ${p?.peligro ? "boton--peligro-lleno" : "boton--primario"}`} onClick={() => cerrar(true)}>{p?.accion}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -652,13 +698,7 @@ function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar, plegad
           <strong>{aviso.tipo === "ANIVERSARIO" ? aviso.titulo : TIPO_AVISO[aviso.tipo]}</strong>
           <span>{aviso.tipo === "ANIVERSARIO" ? aviso.mensaje : textoAviso(aviso)}</span>
         </div>
-      ) : null) : (
-        <div className="ayuda">
-          <LuShieldCheck size={18} />
-          <strong>Gestión interna</strong>
-          <span>Clientes, producción y costos de IA. Solo para el equipo de agencia.</span>
-        </div>
-      )}
+      ) : null) : null}
       <div className="persona">
         {espacio === "cliente" ? (
           <Enlace a="/cuenta" className="avatar" aria-label="Mi cuenta" onClick={alNavegar}>
@@ -826,6 +866,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
   return (
     <ContextoPortal.Provider value={{ sesion: me.datos, porAprobar, refrescar: () => void inicio.recargar() }}>
       <div className={`app${flotante ? " app--flotante" : ""}${plegada ? " app--lateral-plegada" : ""}`}>
+        <a href="#contenido" className="saltar">Saltar al contenido</a>
         <Lateral espacio={espacio} contadores={contadores} sesion={me.datos} aviso={aviso} cosmiq={inicio.datos?.cuenta?.enlaceCosmiq} plegada={plegada} alPlegar={alternarPlegada} />
         <div className="principal">
           <div className="superior">
@@ -843,7 +884,6 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
               </nav>
             </div>
             <div className="superior-der">
-              <span className="periodo">{fMesAnio(PERIODO_PORTAL)}</span>
               {espacio === "equipo" && (
                 <button className="campana" aria-label="Buscar (Ctrl+K)" title="Buscar (Ctrl+K)" onClick={() => setBuscando(true)}>
                   <LuSearch size={18} />
@@ -859,7 +899,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
             </div>
           </div>
           {buscando && <BuscadorGlobal alCerrar={() => setBuscando(false)} />}
-          <main className="contenido">
+          <main className="contenido" id="contenido" tabIndex={-1}>
             {me.datos?.usuario.esPrueba && (
               <div className="barra-pruebas" role="status">
                 <span><strong>Entorno de pruebas</strong> · estás como {me.datos.usuario.nombre}. Nada de esto toca clientes reales.</span>
@@ -881,6 +921,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
           </div>
         </div>
       )}
+      <HostConfirmar />
     </ContextoPortal.Provider>
   );
 }
@@ -921,7 +962,7 @@ export function EstructuraInvitado({ migas, children }: { migas: string; childre
               <MenuCuenta sesion={me.datos} espacio="invitado" />
             </div>
           </div>
-          <main className="contenido">{children}</main>
+          <main className="contenido" id="contenido" tabIndex={-1}>{children}</main>
         </div>
       </div>
     </ContextoPortal.Provider>

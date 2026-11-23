@@ -88,7 +88,7 @@
   --c-categoria-violeta: #9b51e0;
 
   /* 13 nov: escala tipográfica (todo tamaño de letra sale de aquí). micro solo para miniaturas decorativas. */
-  --t-micro: 10px;
+  --t-micro: 12px; /* 23 nov (auditoría): 10 px no se lee; 12 px es el mínimo */
   --t-xs: 12px;
   --t-sm: 13px;
   --t-base: 14px;
@@ -203,7 +203,7 @@ p {
 .lateral {
   background: var(--c-blanco);
   border-right: 1px solid var(--c-borde);
-  border-radius: 0 24px 24px 0;
+  border-radius: 0;
   padding: 28px 16px 24px;
   min-height: 100vh;
 }
@@ -2338,7 +2338,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 .mini-mes-grilla { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: var(--t-xs); }
 .mini-mes-grilla button { border: 0; background: none; aspect-ratio: 1; border-radius: 50%; font-size: var(--t-xs); color: var(--c-texto); cursor: pointer; }
 .mini-mes-grilla button:hover { background: var(--c-fondo); }
-.mini-mes-grilla button.fuera { color: var(--c-muted); opacity: 0.85; }
+.mini-mes-grilla button.fuera { color: var(--c-muted); }
 .mini-mes-grilla button.elegido { background: var(--c-primario-suave); color: var(--c-primario); font-weight: 600; }
 .mini-mes-grilla button.hoy { background: var(--c-primario-solido); color: var(--c-sobre-color); font-weight: 600; }
 
@@ -2347,14 +2347,14 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 .vista-mes-dia { min-height: 112px; padding: 4px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--c-borde); border-bottom: 1px solid var(--c-borde); cursor: pointer; min-width: 0; }
 .vista-mes-dia:nth-child(7n) { border-right: 0; }
 .vista-mes-dia.fuera { background: var(--c-fondo); }
-.vista-mes-dia.fuera .num-dia { color: var(--c-tenue); }
+.vista-mes-dia.fuera .num-dia { color: var(--c-muted); }
 .vista-mes-dia.feriado { background: var(--c-semaforo-rojo-suave); }
 .num-dia { align-self: center; border: 0; background: none; width: 26px; height: 26px; border-radius: 50%; font-size: var(--t-xs); font-weight: 600; color: var(--c-texto); cursor: pointer; }
 .num-dia:hover { background: var(--c-neutro-suave); }
 .num-dia.hoy { background: var(--c-primario-solido); color: var(--c-sobre-color); }
 .chip-agenda { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; border: 0; border-radius: var(--r-xs); background: transparent; padding: 2px 5px; font-size: var(--t-xs); text-align: left; color: var(--c-tinta); cursor: pointer; }
 .chip-agenda:hover { background: var(--c-neutro-suave); }
-.chip-agenda--lleno { color: var(--c-sobre-color); }
+.chip-agenda--lleno { color: var(--c-tinta); } /* 23 nov: fondo suave y texto oscuro (contraste) */
 .chip-agenda--lleno:hover { filter: brightness(0.95); background: inherit; }
 .chip-agenda--hecho .chip-texto { text-decoration: line-through; opacity: 0.7; }
 .chip-agenda .punto { flex: none; width: 7px; height: 7px; border-radius: 50%; }
@@ -2377,7 +2377,7 @@ button.calendario-celda:focus-visible { outline: 2px solid var(--c-primario); ou
 .vista-horas-columna { position: relative; border-left: 1px solid var(--c-borde); }
 .vista-horas-celda { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--c-borde); background: none; cursor: pointer; }
 .vista-horas-celda:hover { background: var(--c-fondo); }
-.bloque-agenda { position: absolute; display: grid; align-content: start; gap: 1px; overflow: hidden; padding: 3px 6px; border: 0; border-left: 3px solid; border-radius: var(--r-xs); font-size: var(--t-xs); text-align: left; color: var(--c-tinta); cursor: pointer; }
+.bloque-agenda { position: absolute; display: grid; align-content: start; gap: 1px; overflow: hidden; padding: 3px 6px; border: 1px solid; border-radius: var(--r-xs); font-size: var(--t-xs); text-align: left; color: var(--c-tinta); cursor: pointer; }
 .bloque-agenda > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bloque-agenda--hecho { opacity: 0.6; }
 .linea-ahora { position: absolute; left: 0; right: 0; height: 2px; background: var(--c-semaforo-rojo); pointer-events: none; }
@@ -2700,6 +2700,8 @@ main, .contenido, .principal { min-width: 0; }
   .tabla--tarjetas td { display: block; padding: 0 !important; border: 0 !important; width: auto !important; }
   .tabla--tarjetas td:first-child { flex: 1 1 100%; }
   .tabla--tarjetas td:last-child:empty { display: none; }
+  /* 23 nov (auditoría): en el celular cada número lleva su etiqueta («2 Por aprobar»). */
+  .tabla--tarjetas td[data-etiqueta]::after { content: " " attr(data-etiqueta); font-size: var(--t-xs); font-weight: 500; color: var(--c-muted); }
 }
 
 /* Panel del ítem (12 nov): al costado, como en Monday. */
@@ -2725,7 +2727,7 @@ main, .contenido, .principal { min-width: 0; }
 .boton-conversacion--nuevo::after { content: ""; position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--c-marca-verde); box-shadow: 0 0 0 2px var(--c-blanco); }
 @media (max-width: 640px) { .panel-lateral { width: 100%; } .actualizacion--respuesta { margin-left: 14px; } }
 /* Mi trabajo (12 nov). */
-.mi-trabajo-grupo { border-left: 3px solid var(--c-borde); padding-left: 14px; }
+.mi-trabajo-grupo { padding-left: 0; } /* 23 nov: sin franja lateral; el título ya lleva el color */
 .mi-trabajo-fila { text-decoration: none; color: inherit; padding: 12px 14px; }
 .mi-trabajo-fila:hover { background: var(--c-primario-suave); }
 @media (max-width: 640px) { .mi-trabajo-fila { flex-wrap: wrap; } .mi-trabajo-fila > :first-child { flex: 1 1 100%; } }
@@ -3092,7 +3094,35 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .gantt-hora { position: absolute; top: -2px; transform: translateX(-50%); font-size: 10px; color: var(--c-muted); white-space: nowrap; }
 
 /* 24 nov: cuántos comentarios tiene un archivo del tablero */
-.globo-comentarios { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 999px; background: var(--c-primario); color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; }
+.globo-comentarios { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 999px; background: var(--c-primario); color: #fff; font-size: 11px; font-weight: 600; line-height: 16px; }
 
 /* 24 nov: clientes y proyectos de su primera semana */
-.etiqueta-nuevo { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--c-acento, #21F921); color: #111; font-size: 10px; font-weight: 700; line-height: 16px; letter-spacing: .02em; vertical-align: 1px; text-transform: uppercase; }
+.etiqueta-nuevo { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--c-acento, #21F921); color: #111; font-size: 11px; font-weight: 700; line-height: 16px; letter-spacing: .02em; vertical-align: 1px; text-transform: uppercase; }
+/* 23 nov (auditoría Impeccable): los datos del proyecto plegados en una línea sobre la tabla. */
+.datos-proyecto { margin-bottom: 14px; border: 1px solid var(--c-borde); border-radius: var(--r-md); background: var(--c-blanco); }
+.datos-proyecto-resumen { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 10px 14px; border: 0; border-radius: var(--r-md); background: none; color: var(--c-texto); font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer; }
+.datos-proyecto-resumen:hover { background: var(--c-neutro-suave); }
+.datos-proyecto-resumen:focus-visible { outline: 2px solid var(--c-primario); outline-offset: -2px; }
+.datos-proyecto-texto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.datos-proyecto-flecha { flex: none; transition: transform 0.15s ease-out; }
+.datos-proyecto-resumen[aria-expanded="true"] .datos-proyecto-flecha { transform: rotate(90deg); }
+.datos-proyecto-cuerpo { padding: 14px 14px 0; border-top: 1px solid var(--c-borde); }
+.resumen-linea { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 4px; font-size: var(--t-sm); color: var(--c-muted); font-variant-numeric: tabular-nums; }
+.resumen-linea strong { color: var(--c-tinta); font-size: var(--t-md); }
+.texto-alerta, .texto-alerta strong { color: var(--c-alerta); }
+/* 23 nov (auditoría): en el celular el entregable se apila y «Revisar y aprobar» es un botón ancho. */
+@media (max-width: 600px) {
+  .fila-entregable { flex-wrap: wrap; gap: 12px; }
+  .fila-entregable > .fila:first-child { flex: 1 1 100%; }
+  .fila-entregable-lado { flex: 1 1 100%; justify-content: space-between; }
+  .fila-entregable-accion { flex: 1; justify-content: center; }
+}
+.modal-titulo { font-size: var(--t-lg); font-weight: 600; line-height: 1.35; text-wrap: balance; }
+.boton--peligro-lleno { background: var(--c-semaforo-rojo-intenso); border-color: var(--c-semaforo-rojo-intenso); color: #ffffff; }
+.boton--peligro-lleno:hover { background: #7d160e; border-color: #7d160e; }
+/* 23 nov (auditoría): enlace para saltar el menú con el teclado; aparece solo al enfocarlo. */
+.saltar { position: absolute; left: 12px; top: -48px; z-index: 100; padding: 10px 14px; border-radius: var(--r-md); background: var(--c-accion); color: var(--c-sobre-accion); font-weight: 600; text-decoration: none; }
+.saltar:focus { top: 12px; }
+.contenido:focus { outline: none; }
+/* 23 nov (auditoría): los textos de ayuda de las celdas tenían 4,3:1. */
+.celda-texto::placeholder { color: var(--c-muted); opacity: 1; }

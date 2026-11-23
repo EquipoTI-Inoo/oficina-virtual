@@ -6,8 +6,8 @@
 import { useEffect, useState } from "react";
 import { LuCornerDownRight, LuFile, LuHistory, LuMessageSquare, LuPencil, LuTrash2, LuX } from "react-icons/lu";
 import { api, fDiaHora, ProblemaApi, useConsulta, type S } from "../base";
-import { useAviso } from "../componentes";
-import { COLOR_ESTADO, ESTADOS_ITEM, PRIORIDADES_ITEM, type EstadoItem } from "../dominio/tableros";
+import { useAviso, confirmar } from "../componentes";
+import { COLOR_ESTADO, ESTADOS_ITEM, PRIORIDADES_ITEM, type EstadoItem, fondoConTexto } from "../dominio/tableros";
 import { CeldaColumna } from "./columnas-tablero";
 import { HistorialMonday } from "./monday";
 
@@ -89,7 +89,7 @@ export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Table
         {a.esMia && (
           <span className="fila" style={{ gap: 2 }}>
             <button className="boton-icono" aria-label="Editar la actualización" onClick={() => setEditando({ id: a.id, texto: a.texto })}><LuPencil size={13} /></button>
-            <button className="boton-icono" aria-label="Borrar la actualización" onClick={() => window.confirm(esRespuesta ? "¿Borrar esta respuesta?" : "¿Borrar esta actualización y sus respuestas?") && void pedir(`${base}/${a.id}`, "DELETE")}><LuTrash2 size={13} /></button>
+            <button className="boton-icono" aria-label="Borrar la actualización" onClick={async () => (await confirmar(esRespuesta ? "¿Borrar esta respuesta?" : "¿Borrar esta actualización y sus respuestas?")) && void pedir(`${base}/${a.id}`, "DELETE")}><LuTrash2 size={13} /></button>
           </span>
         )}
       </header>
@@ -114,13 +114,13 @@ export function PanelItem({ t, item, cerrar, alActualizar, cambiar }: { t: Table
             <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600, margin: "2px 0 8px", overflowWrap: "anywhere" }}>{item.nombre}</h2>
             {!editable ? (
               <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-                <span className="pildora pildora--chica" style={{ background: COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4", width: "auto" }}>{item.estado}</span>
+                <span className="pildora pildora--chica" style={{ ...fondoConTexto(COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4"), width: "auto" }}>{item.estado}</span>
                 <span className="texto-xs texto-muted">{item.responsable?.nombre ?? "Sin responsable"}{item.fecha ? ` · vence ${item.fecha.split("-").reverse().join("/")}` : ""}</span>
               </span>
             ) : (
               <div className="panel-campos">
                 <label><span>Estado</span>
-                  <select className="pildora" style={{ background: COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4" }} value={item.estado} onChange={(e) => void guardar({ estado: e.target.value })}>
+                  <select className="pildora" style={{ ...fondoConTexto(COLOR_ESTADO[item.estado as EstadoItem] ?? "#c4c4c4") }} value={item.estado} onChange={(e) => void guardar({ estado: e.target.value })}>
                     {ESTADOS_ITEM.map((x) => <option key={x}>{x}</option>)}
                   </select></label>
                 <label><span>Responsable</span>

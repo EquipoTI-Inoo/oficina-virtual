@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { LuCircleCheck, LuCornerDownRight } from "react-icons/lu";
 import { Enlace, HOY_PORTAL, useConsulta } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, verNovedades } from "../componentes";
-import { COLOR_ESTADO, type EstadoItem } from "../dominio/tableros";
+import { COLOR_ESTADO, type EstadoItem, fondoConTexto } from "../dominio/tableros";
 
 type Fila = {
   tableroId: string; tablero: string; cliente: string | null; itemId: string; nombre: string; padre: string | null; grupo: string | null;
@@ -80,7 +80,7 @@ function MiTrabajo() {
             const del = xs.filter((x) => grupoDe(x, hoy) === g.clave);
             if (!del.length) return null;
             return (
-              <section key={g.clave} className="mi-trabajo-grupo" style={{ borderLeftColor: g.tono }} aria-label={`${g.titulo}: ${del.length}`}>
+              <section key={g.clave} className="mi-trabajo-grupo" aria-label={`${g.titulo}: ${del.length}`}>
                 <h2 className="fila" style={{ gap: 8, fontSize: "var(--t-md)", fontWeight: 600, color: g.tono, marginBottom: 8 }}>{g.titulo} <span className="pipeline-contador">{del.length}</span></h2>
                 <div className="pila" style={{ gap: 6 }}>
                   {del.map((x, i) => (
@@ -92,7 +92,7 @@ function MiTrabajo() {
                         <span className="texto-xs texto-muted">{x.como === "TAREA" ? "Tarea del proyecto · " : ""}{x.padre ? `Subítem de ${x.padre} · ` : ""}{x.tablero}{x.cliente ? ` · ${x.cliente}` : ""}{x.grupo ? ` · ${x.grupo}` : ""}</span>
                       </span>
                       <span className="fila" style={{ gap: 10, flexShrink: 0 }}>
-                        <span className="pildora pildora--chica" style={{ background: COLOR_ESTADO[x.estado as EstadoItem] ?? "#c4c4c4", width: "auto" }}>{x.estado}</span>
+                        <span className="pildora pildora--chica" style={{ ...fondoConTexto(COLOR_ESTADO[x.estado as EstadoItem] ?? "#c4c4c4"), width: "auto" }}>{x.estado}</span>
                         <span className="texto-xs" style={{ minWidth: 92, textAlign: "right", color: x.vencido ? "var(--c-semaforo-rojo-intenso)" : undefined }}>{fecha(x.fecha) || "—"}</span>
                       </span>
                     </Enlace>

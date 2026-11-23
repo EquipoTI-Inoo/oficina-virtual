@@ -92,7 +92,7 @@ function Biblioteca() {
 
   return (
     <>
-      <Cabecera antetitulo="Contenido listo para usar" titulo="Biblioteca" bajada="Piezas aprobadas que podemos usar en anuncios y el material que compartiste con nosotros." />
+      <Cabecera titulo="Biblioteca" bajada="Piezas aprobadas que podemos usar en anuncios y el material que compartiste con nosotros." />
       <div className="con-lateral">
         <div className="pila">
           <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
@@ -212,7 +212,7 @@ function CalendarioEquipo() {
   const [et, tono] = d ? ESTADO_CAL[d.estado] : ["", "verde" as const];
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Calendario" titulo="Planes de contenido" bajada="Revisa la propuesta mensual del Jefe de Marketing antes de que los agentes produzcan." accion={<Enlace a="/equipo/calendario" className="boton">← Mi calendario</Enlace>} />
+      <Cabecera titulo="Planes de contenido" bajada="Revisa la propuesta mensual del Jefe de Marketing antes de que los agentes produzcan." accion={<Enlace a="/equipo/calendario" className="boton">← Mi calendario</Enlace>} />
       <div className="fila" style={{ gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Selector etiqueta="Cliente" valor={clienteId} alCambiar={setClienteId} opciones={(clientes.datos?.datos ?? []).map((c) => [c.id, c.nombre] as [string, string])} />
         <div className="fila" style={{ gap: 4 }}>
@@ -332,7 +332,7 @@ function CostosIa() {
   if (costos.error?.status === 403) {
     return (
       <>
-        <Cabecera antetitulo="Equipo Inoo · Gobernanza" titulo="Costos de IA" />
+        <Cabecera titulo="Costos de IA" />
         <Aviso icono={<LuTriangleAlert size={18} />} titulo="Solo para administración">
           El detalle por modelo y las ejecuciones los ve el rol ADMIN. El consumo por cliente está en <Enlace a="/equipo/clientes" className="enlace">Clientes</Enlace>.
         </Aviso>
@@ -346,7 +346,7 @@ function CostosIa() {
   const conError = ejec.datos?.datos.filter((x) => x.estado === "ERROR").length ?? 0;
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Gobernanza" titulo="Costos de IA" bajada={`Consumo de ${fMesAnio(r.periodo).toLowerCase()} por cliente y por modelo. Alerta desde el 80 % del límite.`} />
+      <Cabecera titulo="Costos de IA" bajada={`Consumo de ${fMesAnio(r.periodo).toLowerCase()} por cliente y por modelo. Alerta desde el 80 % del límite.`} />
       <div className="grid-4">
         <div className="tarjeta kpi">
           <div className="kpi-cab">Gasto del mes</div>

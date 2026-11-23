@@ -9,7 +9,7 @@ import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/arc
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { LuArrowDown, LuArrowUp, LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
 import { descargarDesde, api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
-import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { camposVisibles, ENLACE_FORMULARIO, limiteTexto, semaforoRequerimiento } from "../dominio/requerimientos";
 
 type Req = S<"Requerimiento">;
@@ -643,7 +643,7 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
     }
   };
   const anular = async () => {
-    if (!window.confirm(`¿Anular «${r.titulo}»? El cliente deja de verlo y se borra lo que haya avanzado.`)) return;
+    if (!(await confirmar(`¿Anular «${r.titulo}»? El cliente deja de verlo y se borra lo que haya avanzado.`))) return;
     try {
       await api(`/requerimientos/${r.id}`, { metodo: "DELETE" });
       avisar({ titulo: "Requerimiento anulado" });

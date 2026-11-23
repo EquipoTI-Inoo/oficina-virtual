@@ -7,8 +7,8 @@
 import { useRef, useState } from "react";
 import { LuCheck, LuSearch } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
-import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
-import { COLOR_ESTADO, ESTADOS_ITEM, type EstadoItem } from "../dominio/tableros";
+import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, confirmar } from "../componentes";
+import { COLOR_ESTADO, ESTADOS_ITEM, type EstadoItem, fondoConTexto } from "../dominio/tableros";
 
 type Lista = { conectado: boolean; datos: { id: string; nombre: string; espacio: string | null; items: number; actualizadoEn: string | null; importado: { proyectoId: string; en: string } | null }[] };
 type Previa = S<"PreviaMonday">;
@@ -206,7 +206,7 @@ function Revision({ id, alCerrar, alImportar }: { id: string; alCerrar: () => vo
               return (
                 <div key={e.etiqueta} className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
                   <span className="texto-sm" style={{ flex: "1 1 220px" }}>{e.etiqueta || <span className="texto-muted">(sin estado)</span>} <span className="texto-xs texto-muted">· {e.cantidad}</span></span>
-                  <select className="pildora" style={{ background: COLOR_ESTADO[valor], width: 180, flex: "0 0 auto" }} aria-label={`Estado para «${e.etiqueta || "sin estado"}»`} value={valor} onChange={(x) => setEstados({ ...estados, [e.etiqueta]: x.target.value as EstadoItem })}>
+                  <select className="pildora" style={{ ...fondoConTexto(COLOR_ESTADO[valor]), width: 180, flex: "0 0 auto" }} aria-label={`Estado para «${e.etiqueta || "sin estado"}»`} value={valor} onChange={(x) => setEstados({ ...estados, [e.etiqueta]: x.target.value as EstadoItem })}>
                     {ESTADOS_ITEM.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
@@ -273,7 +273,7 @@ function ImportarTodos({ tableros, alCerrar }: { tableros: Lista["datos"]; alCer
   };
 
   return (
-    <Modal abierto alCerrar={() => { if (!corriendo || window.confirm("¿Detener la importación? Lo ya importado se queda.")) { parar.current = true; alCerrar(); } }} etiqueta="Importar todos los tableros" ancho={760}>
+    <Modal abierto alCerrar={async () => { if (!corriendo || (await confirmar("¿Detener la importación? Lo ya importado se queda."))) { parar.current = true; alCerrar(); } }} etiqueta="Importar todos los tableros" ancho={760}>
       <div className="pila" style={{ gap: 12 }}>
         <div>
           <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Importar {tableros.length} tableros de un tirón</h2>

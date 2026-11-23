@@ -9,7 +9,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
-import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal } from "../componentes";
+import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { NuevoServicio } from "./proyecto-equipo";
 import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
 
@@ -159,7 +159,7 @@ function PipelineProyectos() {
     }
   };
   const borrarCarpeta = async (c: Carpeta) => {
-    if (!window.confirm(`¿Borrar la carpeta «${c.nombre}»? Sus proyectos y subcarpetas suben un nivel; no se borra ningún proyecto.`)) return;
+    if (!(await confirmar(`¿Borrar la carpeta «${c.nombre}»? Sus proyectos y subcarpetas suben un nivel; no se borra ningún proyecto.`))) return;
     try {
       await api(`/carpetas/${c.id}`, { metodo: "DELETE" });
       setLugar({ ...lugar, carpeta: c.padreId });

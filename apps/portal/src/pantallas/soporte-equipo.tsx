@@ -8,8 +8,7 @@ import {
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, cuentaActiva } from "../base";
 import {
   Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
-  ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal,
-} from "../componentes";
+  ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
 import { EstadoPagoDelCliente } from "./proyecto-equipo";
 import { NuevoProyectoDeCliente } from "./pipeline";
@@ -91,7 +90,7 @@ function Soporte() {
             <span className="icono-inicio">
               <LuSearch size={16} />
             </span>
-            <input style={{ height: 40, fontSize: "var(--t-xs)" }} placeholder="Buscar por asunto o número..." aria-label="Buscar ticket" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input style={{ height: 40, fontSize: "var(--t-xs)" }} placeholder="Buscar por asunto o número…" aria-label="Buscar ticket" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
         </div>
         {error ? (
@@ -202,7 +201,7 @@ export function DetalleTicket({ id, alCerrar }: { id: string; alCerrar: () => vo
             </div>
           ))}
           <div className="entrada">
-            <textarea style={{ minHeight: 80 }} placeholder="Escribe una respuesta..." value={texto} onChange={(e) => setTexto(e.target.value)} aria-label="Respuesta" />
+            <textarea style={{ minHeight: 80 }} placeholder="Escribe una respuesta…" value={texto} onChange={(e) => setTexto(e.target.value)} aria-label="Respuesta" />
           </div>
           <button className="boton boton--primario" onClick={responder}>
             <LuSend size={16} /> Enviar respuesta
@@ -475,10 +474,10 @@ function TablaClientes({ filas: todasLasFilas, todas }: { filas: S<"FilaPanelCli
                     </div>
                   </td>
                   {/* 2 nov: la IA del cliente ya no existe; en su lugar, cuántos proyectos tiene en curso. */}
-                  <td style={{ fontSize: "var(--t-md)", fontWeight: 600 }}>{f.proyectosActivos ?? 0}</td>
-                  <td style={{ fontSize: "var(--t-md)", fontWeight: 600 }}>{f.serviciosActivos ?? 0}</td>
-                  <td style={{ fontSize: "var(--t-md)", color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
-                  <td style={{ fontSize: "var(--t-md)", color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
+                  <td data-etiqueta="Proyectos" style={{ fontSize: "var(--t-md)", fontWeight: 600 }}>{f.proyectosActivos ?? 0}</td>
+                  <td data-etiqueta="Servicios" style={{ fontSize: "var(--t-md)", fontWeight: 600 }}>{f.serviciosActivos ?? 0}</td>
+                  <td data-etiqueta="Atrasadas" style={{ fontSize: "var(--t-md)", color: f.atrasadas ? "var(--c-alerta)" : "var(--c-muted)", fontWeight: 600 }}>{f.atrasadas}</td>
+                  <td data-etiqueta="Por aprobar" style={{ fontSize: "var(--t-md)", color: "var(--c-primario)", fontWeight: 600 }}>{f.porAprobar}</td>
                   <td>
                     <Enlace a={`/equipo/clientes/${f.cliente.id}`} className="enlace" style={{ fontSize: "var(--t-xs)" }}>
                       Ver ficha
@@ -533,7 +532,6 @@ function TusCuentas({ todas }: { todas: boolean }) {
   return (
     <>
       <Cabecera
-        antetitulo="Equipo Inoo · Cuentas"
         titulo="Clientes"
         bajada={todas ? "Todas las cuentas activas de la agencia." : "Las cuentas que tienes a tu cargo o que te asignaron."}
         accion={
@@ -566,7 +564,7 @@ function MisMarcas() {
   if (!datos) return <Cargando />;
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Marcas" titulo="Mis marcas" bajada={<>Las marcas de los clientes con los que trabajas y tus proyectos con cada una. ¿Te falta alguna? <Enlace a="/equipo/mis-accesos" className="enlace">Pídela en Mis accesos</Enlace>.</>} />
+      <Cabecera titulo="Mis marcas" bajada={<>Las marcas de los clientes con los que trabajas y tus proyectos con cada una. ¿Te falta alguna? <Enlace a="/equipo/mis-accesos" className="enlace">Pídela en Mis accesos</Enlace>.</>} />
       {!datos.datos.length && (
         <div className="tarjeta vacio">
           <p className="negrita">Todavía no tienes proyectos asignados</p>
@@ -697,7 +695,7 @@ function CarpetaManual({ clienteId, actual, alCambiar }: { clienteId: string; ac
       {error && <span className="texto-xs" style={{ color: "var(--c-alerta)" }}>{error}</span>}
       <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
         <button className="boton boton--chico boton--primario" disabled={!url.trim()} onClick={() => void guardar(url.trim())}>Guardar</button>
-        {actual && <button className="boton boton--chico" onClick={() => window.confirm("¿Quitar la carpeta de este cliente? La carpeta en Drive no se borra.") && void guardar(null)}>Quitar</button>}
+        {actual && <button className="boton boton--chico" onClick={async () => (await confirmar("¿Quitar la carpeta de este cliente? La carpeta en Drive no se borra.")) && void guardar(null)}>Quitar</button>}
         <button className="boton boton--chico" onClick={() => setAbierto(false)}>Cancelar</button>
       </div>
     </div>
@@ -723,9 +721,8 @@ function Ficha() {
   return (
     <>
       <Cabecera
-        antetitulo={`Equipo Inoo · ${d.nombre}`}
-        titulo="Ficha de cliente"
-        bajada="El contexto de marca que guía cada pieza. Información para el equipo de agencia."
+        titulo={d.nombre}
+        bajada="Ficha de marca: el contexto que guía cada pieza. Solo para el equipo de agencia."
         accion={
           <button className="boton" onClick={() => setEditando(true)}>
             <LuPencil size={16} /> Editar ficha

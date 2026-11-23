@@ -7,7 +7,7 @@
 import { useState, type DragEvent } from "react";
 import { LuAtSign, LuMessageSquare, LuPlus, LuTrash2 } from "react-icons/lu";
 import { api, fCorta, fDiaHora, type ProblemaApi, useConsulta, type S } from "../base";
-import { Cargando, Etiqueta, Modal, useAviso } from "../componentes";
+import { Cargando, Etiqueta, Modal, useAviso, confirmar } from "../componentes";
 
 type Tarea = S<"Tarea">;
 type Estado = S<"EstadoTarea">;
@@ -340,7 +340,7 @@ function DetalleTarea({
     }
   };
   const borrar = async () => {
-    if (!window.confirm(`¿Eliminar la tarea «${t.titulo}»?`)) return;
+    if (!(await confirmar(`¿Eliminar la tarea «${t.titulo}»?`))) return;
     try {
       await api(`/tareas/${t.id}`, { metodo: "DELETE" });
       avisar({ titulo: "Tarea eliminada" });

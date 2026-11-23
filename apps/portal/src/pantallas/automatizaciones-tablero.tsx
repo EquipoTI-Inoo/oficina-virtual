@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { LuPause, LuPlay, LuPlus, LuTrash2, LuZap } from "react-icons/lu";
 import { type S } from "../base";
-import { Modal } from "../componentes";
+import { Modal, confirmar } from "../componentes";
 import { ESTADOS_ITEM, PRIORIDADES_ITEM } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
@@ -62,7 +62,7 @@ function Automatizaciones({ t, cambiar, alCerrar }: { t: Tablero; cambiar: Cambi
                 <button className="boton-icono" aria-label={a.activa ? `Pausar: ${a.texto}` : `Reanudar: ${a.texto}`} onClick={() => void cambiar(`/automatizaciones/${a.id}`, "PATCH", { activa: !a.activa })}>
                   {a.activa ? <LuPause size={14} /> : <LuPlay size={14} />}
                 </button>
-                <button className="boton-icono" aria-label={`Borrar: ${a.texto}`} onClick={() => window.confirm(`¿Borrar «${a.texto}»?`) && void cambiar(`/automatizaciones/${a.id}`, "DELETE")}>
+                <button className="boton-icono" aria-label={`Borrar: ${a.texto}`} onClick={async () => (await confirmar(`¿Borrar «${a.texto}»?`)) && void cambiar(`/automatizaciones/${a.id}`, "DELETE")}>
                   <LuTrash2 size={14} />
                 </button>
               </span>

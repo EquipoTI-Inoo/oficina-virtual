@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LuCamera, LuCheck, LuFileUp, LuImage, LuMic, LuPaperclip, LuChevronDown, LuChevronUp, LuCopy, LuExternalLink, LuFileText, LuLayoutTemplate, LuLink2Off, LuPause, LuPencil, LuPlay, LuPlus, LuRotateCcw, LuSave, LuSparkles, LuTrash2, LuWandSparkles, LuX } from "react-icons/lu";
 import { api, Enlace, fDiaHora, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso } from "../componentes";
+import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, confirmar } from "../componentes";
 import { leerAdjunto } from "./leer-archivos";
 import { MAX_BYTES_MATERIAL, type TipoMaterial, type AjustesTaller, conAjustes, type Insumos, LIMITES_TALLER, mensajeBoceto, paginaParaPrompt, type Plantilla, promptStitch, promptStitchSitio } from "../dominio/taller-web";
 
@@ -272,8 +272,8 @@ type Paso = (clave: string, camino: string, cuerpo?: Record<string, unknown>, ex
  * 13 nov (auditoría): regenerar reemplaza lo que hay (con lo que corrigió el equipo). Antes de hacerlo se avisa, y lo
  * anterior queda en «Versiones anteriores» para volver.
  */
-const confirmarRegenerar = (hay: boolean, que: string) =>
-  !hay || window.confirm(`Se reemplaza ${que} actual, incluido lo que corregiste a mano. Queda guardado en «Versiones anteriores» y puedes volver a él. ¿Seguimos?`);
+const confirmarRegenerar = async (hay: boolean, que: string) =>
+  !hay || (await confirmar(`Se reemplaza ${que} actual, incluido lo que corregiste a mano. Queda guardado en «Versiones anteriores» y puedes volver a él. ¿Seguimos?`));
 
 function VersionesAnteriores({ t, tipo, paso, ocupado }: { t: Taller; tipo: "ANALISIS" | "FLUJOGRAMA" | "ESTRATEGIA"; paso: Paso; ocupado: string | null }) {
   const xs = (t.historial ?? []).filter((h) => h.tipo === tipo);
@@ -286,7 +286,7 @@ function VersionesAnteriores({ t, tipo, paso, ocupado }: { t: Taller; tipo: "ANA
           <span key={h.id} className="fila entre texto-xs" style={{ gap: 8 }}>
             <span>Guardada el {fDiaHora(h.guardadoEn)}</span>
             <button className="boton boton--chico" disabled={!!ocupado}
-              onClick={() => window.confirm("¿Volver a esta versión? La actual queda guardada en su lugar.") && void paso("restaurar", "/restaurar", { historialId: h.id }, () => "Volviste a la versión anterior")}>
+              onClick={async () => (await confirmar("¿Volver a esta versión? La actual queda guardada en su lugar.")) && void paso("restaurar", "/restaurar", { historialId: h.id }, () => "Volviste a la versión anterior")}>
               <LuRotateCcw size={12} /> Volver a esta
             </button>
           </span>
@@ -387,7 +387,7 @@ function Materiales({ t, ruta, paso, ocupado, alCambiar }: { t: Taller; ruta: st
     if (r) setPegada("");
   };
   const quitar = async (id: string, nombre: string) => {
-    if (!window.confirm(`¿Sacar «${nombre}» del taller?`)) return;
+    if (!(await confirmar(`¿Sacar «${nombre}» del taller?`))) return;
     try {
       alCambiar((await api<{ taller: Taller }>(`${ruta}/materiales/${encodeURIComponent(id)}`, { metodo: "DELETE" })).taller);
     } catch (e) {
@@ -545,13 +545,13 @@ function CopyYAlcance({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador;
   const setCopy = (c: Partial<NonNullable<Estrategia["copy"]>>) => setE({ copy: { ...copy, ...c } });
   const heros = [0, 1, 2].map((n) => copy.heros[n] ?? { titulo: "", subtitulo: "", cta: "" });
   const setHero = (n: number, c: Partial<(typeof heros)[number]>) => setCopy({ heros: heros.map((h, j) => (j === n ? { ...h, ...c } : h)).filter((h) => h.titulo || h.subtitulo || h.cta) });
-  const generar = () => confirmarRegenerar(!!e.copy, "el copy, la matriz y los pendientes") &&
+  const generar = async () => (await confirmarRegenerar(!!e.copy, "el copy, la matriz y los pendientes")) &&
     paso("estrategia", "/estrategia", {}, (r) => (r.simulado ? "Base de ejemplo lista (la IA no estaba disponible): ajústala" : "Copy, matriz y pendientes listos: revísalos"));
   // 13 nov (auditoría): rehacer una sola parte sin perder lo corregido en las otras.
   const rehacer = (parte: "COPY" | "FUNCIONALIDADES" | "PENDIENTES", que: string) => (
     e.copy ? (
       <button type="button" className="boton boton--chico" disabled={!!ocupado}
-        onClick={() => confirmarRegenerar(true, que) && void paso("estrategia", "/estrategia", { parte }, () => `Listo: ${que} nuevo`)}>
+        onClick={async () => (await confirmarRegenerar(true, que)) && void paso("estrategia", "/estrategia", { parte }, () => `Listo: ${que} nuevo`)}>
         <LuWandSparkles size={12} /> Rehacer solo esto
       </button>
     ) : null
@@ -767,7 +767,7 @@ function Benchmark({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; ed
             <button className="boton boton--chico" disabled={!!ocupado || !b.referencias.length} onClick={() => void paso("capturas", "/capturas", {}, () => "Capturas listas")}>
               <LuCamera size={14} /> {ocupado === "capturas" ? "Capturando…" : "Sacar capturas"}
             </button>
-            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !b.referencias.length} onClick={() => confirmarRegenerar(t.hallazgos.length > 0 || t.recomendaciones.length > 0, "el análisis") && void paso("analisis", "/analisis", {}, () => "Benchmark analizado")}>
+            <button className="boton boton--chico boton--primario" disabled={!!ocupado || !b.referencias.length} onClick={async () => (await confirmarRegenerar(t.hallazgos.length > 0 || t.recomendaciones.length > 0, "el análisis")) && void paso("analisis", "/analisis", {}, () => "Benchmark analizado")}>
               <LuSparkles size={14} /> {ocupado === "analisis" ? "Analizando…" : "Analizar con IA"}
             </button>
           </span>
@@ -871,7 +871,7 @@ function Flujograma({ t, b, editar, paso, ocupado }: { t: Taller; b: Borrador; e
               </button>
             ))}
           </div>
-          <button className="boton boton--chico boton--primario" disabled={!!ocupado} onClick={() => confirmarRegenerar(ps.length > 0, "el flujograma") && void paso("flujograma", "/flujograma", {}, () => "Flujograma propuesto")}>
+          <button className="boton boton--chico boton--primario" disabled={!!ocupado} onClick={async () => (await confirmarRegenerar(ps.length > 0, "el flujograma")) && void paso("flujograma", "/flujograma", {}, () => "Flujograma propuesto")}>
             <LuWandSparkles size={14} /> {ocupado === "flujograma" ? "Pensando…" : ps.length ? "Proponer de nuevo" : "Proponer con IA"}
           </button>
         </span>
@@ -1320,7 +1320,7 @@ function Demos({ t, paso, ocupado, alCambiar }: { t: Taller; paso: Paso; ocupado
   const vigente = (d: Taller["demos"][number]) => !d.revocada && new Date(d.venceEn) > new Date();
   const absoluta = (url: string) => (typeof window === "undefined" ? url : `${window.location.origin}${url}`);
   const revocar = async (id: string) => {
-    if (!window.confirm("¿Dar de baja este link? Quien lo tenga ya no podrá ver el demo.")) return;
+    if (!(await confirmar("¿Dar de baja este link? Quien lo tenga ya no podrá ver el demo."))) return;
     try {
       alCambiar(await api<Taller>(`/servicios-contratados/${t.servicioContratadoId}/taller-web/demos/${id}`, { metodo: "DELETE" }));
       avisar({ titulo: "Link dado de baja" });

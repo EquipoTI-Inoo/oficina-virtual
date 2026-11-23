@@ -5,18 +5,18 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
+import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
 import { BotonPersonas } from "./personas-tablero";
 import { BotonIaTablero } from "./ia-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
-import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { TextoConEnlaces, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
+import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S, fDiaMes } from "../base";
+import { TextoConEnlaces, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
 import { claveEmpresa } from "../dominio/carpetas";
-import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, columnaParaSubitems, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
+import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, columnaParaSubitems, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem, fondoConTexto } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
 type Item = S<"ItemTablero">;
@@ -24,7 +24,7 @@ type Item = S<"ItemTablero">;
 type Vista = S<"TableroInooWork">["vistas"][number]["tipo"] | "CARGA";
 
 const NOMBRE_VISTA: Record<Vista, string> = { TABLA: "Tabla", KANBAN: "Kanban", CALENDARIO: "Calendario", LINEA_TIEMPO: "Línea de tiempo", GRAFICO: "Resumen", CARGA: "Carga" };
-const fecha = (f: string | null | undefined) => (f ? new Date(`${f}T12:00:00`).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—");
+const fecha = (f: string | null | undefined) => (f ? fDiaMes(f) : "—");
 
 // ═════════════════════════════════════════════ tablero
 
@@ -265,6 +265,63 @@ function EditarDatos({ t, cambiar, cerrar }: { t: Tablero; cambiar: (ruta: strin
  * Progreso del tablero (17 nov, Ernesto: «progreso por tablero, no por columna»): cuánto del tablero está completado,
  * de un vistazo arriba, también para los invitados de afuera. Cuenta los ítems (los subítems son parte de su ítem).
  */
+/**
+ * 23 nov (auditoría Impeccable): cliente, estado, marca, carpeta, servicio y etiquetas iban como seis selectores
+ * abiertos antes de la tabla. Ahora quedan en una línea de resumen que se despliega para editarlos.
+ */
+function DatosDelProyecto({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+  const [abierto, setAbierto] = useState(false);
+  const resumen = [
+    t.cliente ?? "Sin cliente",
+    t.estado ?? "En Progreso",
+    t.servicioId ? "Con servicio vinculado" : null,
+    t.etiquetas.length ? t.etiquetas.join(", ") : null,
+  ].filter(Boolean).join(" · ");
+  return (
+    <section className="datos-proyecto">
+      <button type="button" className="datos-proyecto-resumen" aria-expanded={abierto} aria-controls="datos-proyecto-cuerpo" onClick={() => setAbierto(!abierto)}>
+        <LuChevronRight size={15} aria-hidden="true" className="datos-proyecto-flecha" />
+        <span className="negrita">Datos del proyecto</span>
+        <span className="texto-muted datos-proyecto-texto">{resumen}</span>
+        {t.puedeEditar && <span className="enlace texto-sm" aria-hidden="true">{abierto ? "Listo" : "Cambiar"}</span>}
+      </button>
+      {abierto && (
+        <div id="datos-proyecto-cuerpo" className="datos-proyecto-cuerpo">
+          {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
+          {t.puedeEditar && <EstadoDelTablero t={t} cambiar={cambiar} />}
+          {t.cliente && <VinculosDelTablero t={t} cambiar={cambiar} editable={t.puedeEditar} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Acciones poco usadas o peligrosas, fuera de la fila principal (23 nov). */
+function MasAcciones({ borrar }: { borrar: () => void }) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!pos) return;
+    const cerrar = (e: Event) => { if (!(e.target as HTMLElement).closest?.(".mas-acciones")) setPos(null); };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setPos(null);
+    document.addEventListener("pointerdown", cerrar);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", cerrar); document.removeEventListener("keydown", esc); };
+  }, [pos]);
+  return (
+    <span className="mas-acciones">
+      <button type="button" className="boton boton--chico" aria-label="Más acciones" aria-haspopup="menu" aria-expanded={!!pos}
+        onClick={(ev) => { if (pos) return setPos(null); const r = ev.currentTarget.getBoundingClientRect(); setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(window.innerWidth - 216, r.right - 208)) }); }}>
+        <LuEllipsis size={16} />
+      </button>
+      {pos && (
+        <span className="arbol-menu-caja" role="menu" style={pos}>
+          <button type="button" role="menuitem" className="peligro" onClick={() => { setPos(null); borrar(); }}><LuTrash2 size={14} /> Borrar proyecto</button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ProgresoTablero({ t }: { t: Tablero }) {
   const total = t.items.length;
   if (!total) return null;
@@ -332,7 +389,7 @@ function TableroProyecto() {
     }
   };
   const desarchivar = async () => {
-    if (!window.confirm(`¿Desarchivar «${t.nombre}»? Vuelve a la lista de proyectos, en curso.`)) return;
+    if (!(await confirmar(`¿Desarchivar «${t.nombre}»? Vuelve a la lista de proyectos, en curso.`))) return;
     try {
       r.setDatos(await api<Tablero>(`/tableros/${t.id}/desarchivar`, { metodo: "POST" }));
       avisar({ titulo: "Proyecto desarchivado" });
@@ -341,7 +398,7 @@ function TableroProyecto() {
     }
   };
   const borrarProyecto = async () => {
-    if (!window.confirm(`¿Borrar el proyecto «${t.nombre}» con todos sus ítems? Desaparece del portal y de InooWork (un admin lo puede recuperar en InooWork).`)) return;
+    if (!(await confirmar(`¿Borrar el proyecto «${t.nombre}» con todos sus ítems? Desaparece del portal y de InooWork (un admin lo puede recuperar en InooWork).`))) return;
     try {
       await api(`/tableros/${t.id}`, { metodo: "DELETE" });
       avisar({ titulo: "Proyecto borrado" });
@@ -378,21 +435,19 @@ function TableroProyecto() {
             {!t.soyInvitado && <BotonPersonas t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonIaTablero t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
-            {t.puedeBorrar && <button className="boton boton--chico boton--peligro" onClick={() => void borrarProyecto()}><LuTrash2 size={13} /> Borrar proyecto</button>}
+            {t.puedeBorrar && <MasAcciones borrar={() => void borrarProyecto()} />}
           </span>
         }
       />
       {editandoDatos && <EditarDatos t={t} cambiar={cambiar} cerrar={() => setEditandoDatos(false)} />}
       {t.archivado && (
         <div className="aviso-archivado" role="status">
-          <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${new Date(t.archivadoEn).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}` : ""}. Está en solo lectura.</span>
+          <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${fCorta(t.archivadoEn)}` : ""}. Está en solo lectura.</span>
           {t.puedeDesarchivar && <button className="boton boton--chico boton--primario" onClick={() => void desarchivar()}>Desarchivar</button>}
         </div>
       )}
       <ProgresoTablero t={t} />
-      {t.puedeEditar && !t.soyInvitado && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
-      {t.puedeEditar && !t.soyInvitado && <EstadoDelTablero t={t} cambiar={cambiar} />}
-      {t.cliente && !t.soyInvitado && <VinculosDelTablero t={t} cambiar={cambiar} editable={t.puedeEditar} />}
+      {!t.soyInvitado && <DatosDelProyecto t={t} cambiar={cambiar} />}
       <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div className="segmentado" role="tablist" aria-label="Vista del tablero">
           {vistas.map((v) => (
@@ -445,9 +500,9 @@ function Texto({ valor, guardar, editable, etiqueta, placeholder }: { valor: str
 }
 
 function Pildora<T extends string>({ valor, opciones, color, guardar, editable, etiqueta }: { valor: T; opciones: readonly T[]; color: (v: T) => string; guardar: (v: T) => void; editable: boolean; etiqueta: string }) {
-  if (!editable) return <span className="pildora" style={{ background: color(valor) }}>{valor}</span>;
+  if (!editable) return <span className="pildora" style={{ ...fondoConTexto(color(valor)) }}>{valor}</span>;
   return (
-    <select className="pildora" aria-label={etiqueta} style={{ background: color(valor) }} value={valor} onChange={(e) => guardar(e.target.value as T)}>
+    <select className="pildora" aria-label={etiqueta} style={{ ...fondoConTexto(color(valor)) }} value={valor} onChange={(e) => guardar(e.target.value as T)}>
       {opciones.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
@@ -483,12 +538,12 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
   };
   const item = (i: Item, b: Record<string, unknown>) => cambiar(`/items/${i.id}`, "PATCH", b);
   const nuevoGrupo = () => cambiar("/grupos", "POST", { nombre: "Nuevo grupo", color: COLORES_GRUPO[t.grupos.length % COLORES_GRUPO.length] });
-  const borrarGrupo = (g: Tablero["grupos"][number]) => {
-    if (!window.confirm(`¿Borrar el grupo «${g.nombre}»? Sus ítems pasan al primer grupo.`)) return;
+  const borrarGrupo = async (g: Tablero["grupos"][number]) => {
+    if (!(await confirmar(`¿Borrar el grupo «${g.nombre}»? Sus ítems pasan al primer grupo.`))) return;
     void cambiar(`/grupos/${g.id}`, "DELETE");
   };
-  const borrarItem = (i: Item) => {
-    if (!window.confirm(`¿Borrar «${i.nombre}»${i.subitems.length ? " con sus subítems" : ""}? También se borra en InooWork.`)) return;
+  const borrarItem = async (i: Item) => {
+    if (!(await confirmar(`¿Borrar «${i.nombre}»${i.subitems.length ? " con sus subítems" : ""}? También se borra en InooWork.`))) return;
     void cambiar(`/items/${i.id}`, "DELETE");
   };
   // 17 nov: un invitado de afuera con permiso de editor cambia los ítems, no la estructura (grupos, columnas, borrar).
@@ -708,7 +763,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                                     </td>
                                   ))}
                                   {estructura && <td />}
-                                  {estructura && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={() => window.confirm(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
+                                  {estructura && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={async () => (await confirmar(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`)) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
                                 </tr>
                               )),
                               ...(editable ? [<FilaNueva key={`${i.id}-nuevo`} columnas={columnas} sangria etiqueta={`Nuevo subítem en ${i.nombre}`} texto="+ Agregar subítem" crear={(nombre) => cambiar(`/items/${i.id}/subitems`, "POST", { nombre })} />] : []),
@@ -833,7 +888,7 @@ function BarraLote({ t, ids, cambiar, limpiar }: { t: Tablero; ids: string[]; ca
         <option value="">Mover a…</option>{t.grupos.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
       </select>
       <input type="date" className="input" aria-label="Cambiar la fecha límite" onChange={(e) => e.target.value && void lote({ cambio: { fecha: e.target.value } })} />
-      <button className="boton boton--chico boton--peligro" onClick={() => window.confirm(`¿Borrar ${ids.length} ítem${ids.length === 1 ? "" : "s"}? También se borran en InooWork.`) && void lote({ borrar: true })}><LuTrash2 size={13} /> Borrar</button>
+      <button className="boton boton--chico boton--peligro" onClick={async () => (await confirmar(`¿Borrar ${ids.length} ítem${ids.length === 1 ? "" : "s"}? También se borran en InooWork.`)) && void lote({ borrar: true })}><LuTrash2 size={13} /> Borrar</button>
       <button className="boton-icono" aria-label="Quitar la selección" onClick={limpiar}><LuX size={14} /></button>
     </div>
   );
@@ -858,12 +913,12 @@ function FilaNueva({ columnas, etiqueta, texto, crear, sangria }: { columnas: nu
     }
   };
   /** Pegar varias líneas (de Excel o de Monday) crea un ítem por línea, como en Monday. */
-  const pegar = (e: ClipboardEvent<HTMLInputElement>) => {
+  const pegar = async (e: ClipboardEvent<HTMLInputElement>) => {
     const lineas = e.clipboardData.getData("text").split(/\r?\n/).map((x) => x.split("\t")[0].trim()).filter(Boolean);
     if (lineas.length < 2) return;
     e.preventDefault();
     if (lineas.length > 100) return void window.alert("Pega hasta 100 líneas a la vez.");
-    if (window.confirm(`¿Crear ${lineas.length} ítems, uno por línea?`)) void enviar(lineas);
+    if ((await confirmar(`¿Crear ${lineas.length} ítems, uno por línea?`))) void enviar(lineas);
   };
   return (
     <tr className="fila-nueva">
@@ -894,7 +949,7 @@ function VistaKanban({ t, items, cambiar, editable, abrir, conteo, nuevos }: Ctx
         return (
           <section key={estado} className={`kanban-columna${sobre === estado ? " kanban-columna--sobre" : ""}`} aria-label={estado}
             onDragOver={(e) => { if (editable) { e.preventDefault(); setSobre(estado); } }} onDragLeave={() => setSobre(null)} onDrop={(e) => soltar(e, estado)}>
-            <header className="kanban-cabecera" style={{ background: COLOR_ESTADO[estado] }}>{estado} <span>{suyos.length}</span></header>
+            <header className="kanban-cabecera" style={{ ...fondoConTexto(COLOR_ESTADO[estado]) }}>{estado} <span>{suyos.length}</span></header>
             {suyos.map((i) => (
               <article key={i.id} className="tarjeta kanban-item" draggable={editable} onDragStart={(e) => e.dataTransfer.setData("text/plain", i.id)}
                 role="button" tabIndex={0} aria-label={`Abrir ${i.nombre}`} onClick={() => abrir(i)} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), abrir(i))} style={{ cursor: "pointer" }}>
@@ -905,7 +960,7 @@ function VistaKanban({ t, items, cambiar, editable, abrir, conteo, nuevos }: Ctx
                   <span style={i.vencido ? { color: "var(--c-alerta)" } : undefined}>{fecha(i.fecha)}</span>
                 </span>
                 <span className="fila" style={{ gap: 6 }}>
-                  <span className="pildora pildora--chica" style={{ background: COLOR_PRIORIDAD[i.prioridad as PrioridadItem] }}>{i.prioridad}</span>
+                  <span className="pildora pildora--chica" style={{ ...fondoConTexto(COLOR_PRIORIDAD[i.prioridad as PrioridadItem]) }}>{i.prioridad}</span>
                   {i.subitems.length > 0 && <span className="texto-xs texto-muted">{i.subitems.filter((s) => s.estado === "Completado").length}/{i.subitems.length} subítems</span>}
                   {conteo[i.id] ? <span className={`texto-xs fila${nuevos.has(i.id) ? " boton-conversacion--nuevo" : " texto-muted"}`} style={{ gap: 3 }}><LuMessageSquare size={11} /> {conteo[i.id]}</span> : null}
                 </span>

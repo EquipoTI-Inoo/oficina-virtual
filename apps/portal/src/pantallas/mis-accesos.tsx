@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LuCheck, LuKeyRound, LuPlus, LuSearch, LuSquareKanban, LuTag, LuX } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
 import { NOMBRE_MOTIVO_MARCA, NOMBRE_MOTIVO_TABLERO, NOMBRE_ROL_SOLICITUD, type RolSolicitud } from "../dominio/solicitudes-acceso";
 
@@ -340,7 +340,7 @@ function QueVeCadaUno() {
   const avisar = useAviso();
   const yo = usePortal().sesion?.usuario.id;
   const quitar = async (clienteId: string, nombre: string) => {
-    if (!window.confirm(`¿Quitarle ${nombre}? Deja de ver esa marca, salvo que le llegue por un proyecto o un tablero.`)) return;
+    if (!(await confirmar(`¿Quitarle ${nombre}? Deja de ver esa marca, salvo que le llegue por un proyecto o un tablero.`))) return;
     try {
       await api(`/panel/personas/${quien}/marcas/${clienteId}`, { metodo: "DELETE" });
       avisar({ titulo: `Quitamos ${nombre}` });

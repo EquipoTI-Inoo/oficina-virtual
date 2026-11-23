@@ -7,7 +7,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { LuBookOpen, LuCheck, LuExternalLink, LuPlug, LuPlus, LuSearch, LuSparkles, LuTrash2 } from "react-icons/lu";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
-import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso } from "../componentes";
+import { Cargando, ErrorCarga, Etiqueta, Modal, useAviso, confirmar } from "../componentes";
 
 type Skill = S<"SkillCatalogo">;
 type Conector = S<"ConectorCatalogo">;
@@ -71,7 +71,7 @@ export function MisSkills() {
     }
   };
   const borrar = async (s: Skill) => {
-    if (!window.confirm(`¿Borrar tu skill «${s.nombre}»?`)) return;
+    if (!(await confirmar(`¿Borrar tu skill «${s.nombre}»?`))) return;
     await api(`/me/jarvis/skills/${encodeURIComponent(s.slug)}`, { metodo: "DELETE" }).then(() => { setViendo(null); void r.recargar(); }, (e) => avisar({ titulo: "No se pudo borrar", texto: (e as ProblemaApi).titulo }));
   };
 
@@ -215,7 +215,7 @@ export function MisConectores() {
     );
   };
   const desconectar = async (c: Conector) => {
-    if (!window.confirm(`¿Desconectar ${c.nombre}?${c.conToken ? " Se borra tu token." : ""}`)) return;
+    if (!(await confirmar(`¿Desconectar ${c.nombre}?${c.conToken ? " Se borra tu token." : ""}`))) return;
     await api(`/me/jarvis/conectores/${c.slug}`, { metodo: "DELETE" }).then(() => void r.recargar(), (e) => avisar({ titulo: "No se pudo", texto: (e as ProblemaApi).titulo }));
   };
   const probar = async (c: Conector) => {
