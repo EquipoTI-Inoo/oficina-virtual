@@ -92,5 +92,23 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("GET", `/panel/empresas/${uid(2, 99)}`, ADMIN)).status, 404);
       assert.equal((await llamar("GET", "/panel/empresas/no-es-un-id", ADMIN)).status, 404);
     });
+
+    test("23 nov (Alonso): quien trabaja por proyecto ve la marca de los clientes de sus tableros", async () => {
+      await reiniciar();
+      const MAREA = uid(2, 5);
+      assert.ok(!(await llamar("GET", "/clientes", CAMILA)).json.datos.some((c: any) => c.id === MAREA), "sin tablero no la ve");
+      assert.equal((await llamar("GET", `/clientes/${MAREA}/marca`, CAMILA)).status, 404);
+
+      const t = await llamar("POST", "/tableros", DIEGO, { nombre: "Contenido de Marea", cliente: "marea local", miembros: [CAMILA_ID] });
+      assert.equal(t.status, 200);
+
+      const marea = (await llamar("GET", "/clientes", CAMILA)).json.datos.find((c: any) => c.id === MAREA);
+      assert.equal(marea?.acceso, "PROYECTOS", "en «Mis marcas», sin la cuenta completa");
+      const m = await llamar("GET", `/clientes/${MAREA}/marca`, CAMILA);
+      assert.equal(m.status, 200);
+      assert.deepEqual(m.json.tableros.map((x: any) => [x.id, x.nombre]), [[t.json.id, "Contenido de Marea"]]);
+      assert.equal((await llamar("GET", `/clientes/${MAREA}`, CAMILA)).status, 404, "la ficha comercial sigue cerrada");
+      assert.equal((await llamar("GET", `/clientes/${MAREA}/marca`, DIEGO)).json.tableros.length >= 1, true);
+    });
   });
 }

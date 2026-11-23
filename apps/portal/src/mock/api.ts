@@ -57,7 +57,7 @@ import { crearActualizaciones, type FilaActualizacion, type RepoActualizaciones 
 import * as DP from "../servidor/dos-pasos";
 import { itemsDesdeTexto, resumirTablero } from "../servidor/ia-tableros";
 import { resumenParaCliente, TOPE_RESUMENES_MES } from "../servidor/resumen-cliente";
-import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -868,8 +868,9 @@ function avisarClienteMock(ctx: Ctx, c: { id: string; nombre: string }, a: [stri
 }
 
 // Clientes
-ruta("GET", "/clientes", (ctx) => {
-  const visibles = ctx.esEquipo ? E.clientes.filter((c) => veCliente(ctx, c.id)) : E.clientes.filter((c) => rolEn(ctx, c.id));
+ruta("GET", "/clientes", async (ctx) => {
+  const deTableros = await tablerosPorClienteMock(ctx);
+  const visibles = ctx.esEquipo ? E.clientes.filter((c) => veCliente(ctx, c.id) || deTableros.has(c.id)) : E.clientes.filter((c) => rolEn(ctx, c.id));
   const completo = (id: string) => !ctx.esEquipo || veCliente(ctx, id, true);
   return {
     datos: visibles.map((c) => ({ id: c.id, nombre: c.nombre, slug: c.slug, estado: "ACTIVO" as const, logoUrl: null, ...(ctx.esEquipo ? { acceso: completo(c.id) ? ("COMPLETO" as const) : ("PROYECTOS" as const) } : {}) })),
@@ -1724,6 +1725,12 @@ const yoTablero = (ctx: Ctx): Yo => ctx.usuario.tipo === "INVITADO"
   : { empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx), usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre };
 
 // ───────────────────────────── Proyectos → Tableros de InooWork (2 nov; InooWork es la fuente)
+
+/** 23 nov (Alonso): los clientes de los tableros donde está la persona; con eso ve su marca (igual que el backend real). */
+async function tablerosPorClienteMock(ctx: Ctx) {
+  if (!ctx.esEquipo || ctx.esServicio) return new Map<string, S<"TableroEmpresa">[]>();
+  return agruparTablerosPorCliente(await TABLEROS.conCliente(yoTablero(ctx)), E.clientes);
+}
 
 /** Quién puede ser miembro de un proyecto nuevo: el equipo activo con ficha en InooWork. */
 const equipoInooWork = () => E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false && !!u.inooworkEmpleadoId);
@@ -5654,15 +5661,17 @@ ruta("DELETE", "/clientes/:id/accesos/:usuario", (ctx, p) => {
   return null;
 });
 
-ruta("GET", "/clientes/:id/marca", (ctx, p) => {
+ruta("GET", "/clientes/:id/marca", async (ctx, p) => {
   soloEquipo(ctx);
-  const c = accesoCliente(ctx, p.id);
+  const deTableros = await tablerosPorClienteMock(ctx);
+  const c = deTableros.has(p.id) ? E.clientes.find((x) => x.id === p.id)! : accesoCliente(ctx, p.id);
   const f = fichaDe(c.id);
   const mio = deMisProyectos(ctx);
   return {
     clienteId: c.id, nombre: c.nombre, mensajeCentral: f.marca.mensajeCentral ?? null, campanaActual: f.marca.campanaActual ?? null, descripcion: f.marca.descripcion ?? null,
     tono: f.tono.etiquetas ?? [], publico: f.publico.descripcion ?? null,
     proyectos: ordenados(serviciosDe(c.id).filter((x) => mio(x.id, c.id))).map((x) => ({ servicioContratadoId: x.id, titulo: tituloDe(x) })),
+    tableros: deTableros.get(c.id) ?? [],
   } satisfies S<"PerfilMarca">;
 });
 

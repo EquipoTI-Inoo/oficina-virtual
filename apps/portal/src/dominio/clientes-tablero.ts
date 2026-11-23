@@ -31,3 +31,26 @@ export function clienteEnTexto<C extends { nombre: string }>(texto: string, clie
     .filter(({ k }) => k.length >= 4 && k !== "inoo" && t.includes(` ${k} `))
     .sort((a, b) => b.k.length - a.k.length)[0]?.c;
 }
+
+/**
+ * 23 nov 2026 (Alonso: «a Arleth no se le ha asignado ninguna marca»): quien trabaja por proyecto está en los
+ * tableros de InooWork, no en los proyectos del portal. Los tableros que ve la persona se unen a las fichas de
+ * cliente por el nombre; los internos («Inoo», «Inoo Marketing»…) van a la ficha interna de Inoo.
+ */
+export function agruparTablerosPorCliente<T extends { cliente: string }, C extends { id: string; nombre: string }>(
+  tableros: T[],
+  clientes: C[],
+): Map<string, Omit<T, "cliente">[]> {
+  const porClave = new Map<string, string>();
+  for (const c of clientes) {
+    const k = claveCliente(c.nombre);
+    if (k && !porClave.has(k)) porClave.set(k, c.id);
+  }
+  const r = new Map<string, Omit<T, "cliente">[]>();
+  for (const { cliente, ...t } of tableros) {
+    const k = /^inoo\b/i.test(cliente.trim()) ? "inoo" : claveCliente(cliente);
+    const id = porClave.get(k);
+    if (id) r.set(id, [...(r.get(id) ?? []), t]);
+  }
+  return r;
+}

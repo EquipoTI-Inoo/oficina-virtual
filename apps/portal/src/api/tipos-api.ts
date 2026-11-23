@@ -6595,6 +6595,8 @@ export interface components {
             publico?: string | null;
             /** @description Los proyectos de ese cliente que la persona ve */
             proyectos?: components["schemas"]["PersonaMiniProyecto"][];
+            /** @description 23 nov: los tableros de Proyectos de ese cliente donde está la persona (por ellos también ve su marca) */
+            tableros?: components["schemas"]["TableroEmpresa"][];
         };
         PersonaMiniProyecto: {
             /** Format: uuid */

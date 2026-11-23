@@ -597,6 +597,10 @@ function TarjetaMarca({ clienteId }: { clienteId: string }) {
         {(m.proyectos ?? []).map((x) => (
           <Enlace key={x.servicioContratadoId} a={`/equipo/proyectos/${x.servicioContratadoId}`} className="enlace texto-sm">{x.titulo}</Enlace>
         ))}
+        {/* 23 nov: también los tableros de Proyectos donde está la persona. */}
+        {(m.tableros ?? []).map((t) => (
+          <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="enlace texto-sm">{t.nombre}</Enlace>
+        ))}
       </div>
     </section>
   );

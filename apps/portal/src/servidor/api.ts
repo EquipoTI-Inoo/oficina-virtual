@@ -67,7 +67,7 @@ import { carpetaVigente, claveEmpresa, nombreCarpeta, validarCarpetaNueva, type 
 import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./monday";
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
-import { claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
@@ -193,7 +193,31 @@ function alcanceDb(ctx: Ctx) {
 }
 async function veClienteDb(ctx: Ctx, clienteId: string, completo = false) {
   const a = await alcanceDb(ctx);
-  return veCuenta(a, clienteId) || (!completo && [...a.proyectos].some((x) => a.cliente.get(x) === clienteId));
+  if (veCuenta(a, clienteId)) return true;
+  if (completo) return false;
+  return [...a.proyectos].some((x) => a.cliente.get(x) === clienteId) || (await tablerosPorClienteDb(ctx)).has(clienteId);
+}
+const tablerosPorCliente = new WeakMap<Ctx, Promise<Map<string, S<"TableroEmpresa">[]>>>();
+/**
+ * 23 nov (Alonso): los clientes de los tableros de Proyectos donde está la persona. Con eso ve la marca de ese
+ * cliente (lo mismo que da un proyecto del portal: marca, briefs y requerimientos) aunque no tenga proyectos acá.
+ * Una vez por solicitud; si InooWork no responde, ninguno.
+ */
+function tablerosPorClienteDb(ctx: Ctx) {
+  let m = tablerosPorCliente.get(ctx);
+  if (!m) {
+    m = (async () => {
+      if (!ctx.esEquipo || ctx.esServicio) return new Map();
+      try {
+        const clientes = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente ORDER BY creado_en")).rows;
+        return agruparTablerosPorCliente(await TABLEROS.conCliente(await yoTablero(ctx)), clientes);
+      } catch {
+        return new Map();
+      }
+    })();
+    tablerosPorCliente.set(ctx, m);
+  }
+  return m;
 }
 /** ¿Ve este proyecto? (404 si no: no se distingue de uno que no existe). */
 async function accesoProyecto(ctx: Ctx, servicioContratadoId: string | null, clienteId?: string) {
@@ -4681,6 +4705,7 @@ ruta("GET", "/clientes/:id/marca", async (ctx, p) => {
     clienteId: p.id, nombre: c.nombre, mensajeCentral: c.marca?.mensajeCentral ?? null, campanaActual: c.marca?.campanaActual ?? null, descripcion: c.marca?.descripcion ?? null,
     tono: c.tono?.etiquetas ?? [], publico: c.publico?.descripcion ?? null,
     proyectos: proyectos.map((x) => ({ servicioContratadoId: x.id, titulo: tituloServicio(x.nombre, x.marca ?? x.cliente_nombre) })),
+    tableros: (await tablerosPorClienteDb(ctx)).get(p.id) ?? [],
   } satisfies S<"PerfilMarca">;
 });
 
