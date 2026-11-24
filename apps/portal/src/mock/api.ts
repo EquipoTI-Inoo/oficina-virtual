@@ -3052,8 +3052,9 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
   if (!(b.responsableId ?? amDe(c))) errores.push({ campo: "responsableId", mensaje: "Elige quién de Inoo lleva este proyecto" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const variante = b.variante ?? null;
-  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && (s.estado === "ACTIVO" || s.estado === "STANDBY"))) {
-    throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
+  const marcaDe = (m: string | null | undefined) => (m ?? "").trim().toLowerCase();
+  if (serviciosDe(c.id).some((s) => s.codigo === cat!.codigo && s.variante === variante && marcaDe(s.marca) === marcaDe(b.marca) && (s.estado === "ACTIVO" || s.estado === "STANDBY"))) {
+    throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado${b.marca?.trim() ? ` para ${b.marca.trim()}` : ""}: si es para otra marca, escríbela en «Marca»`);
   }
   const sc: D.ServicioContratadoDemo = {
     id: nuevoId(4), clienteId: c.id, codigo: cat!.codigo, variante, detalle: (b.detalle ?? {}) as Record<string, unknown>, marca: b.marca?.trim() || null,

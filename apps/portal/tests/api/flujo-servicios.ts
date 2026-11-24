@@ -234,7 +234,8 @@ export function pruebasServicios(nombre: string, manejar: Manejador, reiniciar: 
       const a = (await llamar("GET", `/servicios-contratados/${ok.json.servicioContratadoId}/avance`, VALERIA)).json;
       // 3 días hábiles desde el viernes 16: 16, 19 y 20 de octubre; la sesión, el 21.
       assert.deepEqual(a.etapas.map((e: any) => [e.fechaInicio, e.fechaEstimada]), [["2026-10-16", "2026-10-20"], ["2026-10-21", "2026-10-21"], ["2026-10-22", "2026-10-28"]]);
-      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", fechaInicio: "2026-10-16" })).json.codigo, "SERVICIO_YA_CONTRATADO");
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", marca: "línea bebé ", fechaInicio: "2026-10-16" })).json.codigo, "SERVICIO_YA_CONTRATADO", "misma marca");
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "AUDIOVISUAL", variante: "FOTOGRAFIA", marca: "Línea Hombre", fechaInicio: "2026-10-16" })).status, 201, "24 nov: otra marca del mismo cliente sí");
       assert.ok((await eventos()).some((e) => e.tipo === "servicio.contratado" && e.datos.variante === "FOTOGRAFIA"));
     });
 

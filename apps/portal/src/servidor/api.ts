@@ -1776,10 +1776,11 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
   if (errores.length) validacion(errores);
   const variante = b.variante ?? null;
   const ya = await ctx.c.query(
-    "SELECT 1 FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.codigo = $2 AND sc.variante IS NOT DISTINCT FROM $3 AND sc.estado::text IN ('ACTIVO', 'STANDBY')",
-    [p.id, cat!.codigo, variante],
+    // 24 nov: el mismo servicio puede ir dos veces si es para otra marca del cliente.
+    "SELECT 1 FROM servicio_contratado sc JOIN servicio s ON s.id = sc.servicio_id WHERE sc.cliente_id = $1 AND s.codigo = $2 AND sc.variante IS NOT DISTINCT FROM $3 AND lower(coalesce(trim(sc.marca), '')) = lower(coalesce(trim($4), '')) AND sc.estado::text IN ('ACTIVO', 'STANDBY')",
+    [p.id, cat!.codigo, variante, b.marca ?? null],
   );
-  if (ya.rows.length) throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado`);
+  if (ya.rows.length) throw new ErrorApi(409, "SERVICIO_YA_CONTRATADO", `${cat!.nombre} ya está contratado${b.marca?.trim() ? ` para ${b.marca.trim()}` : ""}: si es para otra marca, escríbela en «Marca»`);
   const plantilla = (await ctx.c.query<{ id: string; servicio_id: string; requerimientos: string[] | null }>(
     `SELECT pp.id, s.id AS servicio_id, pp.requerimientos FROM servicio s
      LEFT JOIN plantilla_proyecto pp ON pp.servicio_id = s.id AND pp.activa AND (pp.variante = $2 OR pp.variante IS NULL)
