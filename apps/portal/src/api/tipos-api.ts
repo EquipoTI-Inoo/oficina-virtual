@@ -719,6 +719,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/{clienteId}/miembros/{usuarioId}/reenviar-bienvenida": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Vuelve a mandar el correo de bienvenida (24 nov); si todavía no tiene contraseña, trae un enlace nuevo para crearla */
+        post: operations["reenviarBienvenida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/miembros/{usuarioId}": {
         parameters: {
             query?: never;
@@ -11289,6 +11309,33 @@ export interface operations {
                         ruta: string;
                         /** Format: date-time */
                         expiraEn: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    reenviarBienvenida: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: components["parameters"]["ClienteId"];
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description En cola */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        email: string;
                     };
                 };
             };

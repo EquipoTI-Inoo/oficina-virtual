@@ -6711,6 +6711,16 @@ ruta("POST", "/clientes/:id/miembros/:usuario/enlace-acceso", (ctx, p) => {
   return { ruta: rutaCrearClave(token), expiraEn: new Date(Date.now() + DIAS_ENLACE_ACCESO * 86_400_000).toISOString() };
 });
 
+/** 24 nov: volver a mandar la bienvenida (en la API simulada solo responde; no hay correos). */
+ruta("POST", "/clientes/:id/miembros/:usuario/reenviar-bienvenida", (ctx, p) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo");
+  soloEquipo(ctx);
+  accesoCliente(ctx, p.id, true);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  if (!E.miembros.some((m) => m.clienteId === p.id && m.usuarioId === p.usuario)) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso a esta cuenta");
+  return { __status: 202, email: E.usuarios.find((u) => u.id === p.usuario)?.email ?? "" };
+});
+
 ruta("POST", "/integraciones/inoowork/sincronizacion", async (ctx, _p, _q, req) => {
   soloServicio(ctx);
   return aplicarSincronizacion(await cuerpo<Partial<S<"SincronizacionInooWork">>>(req));

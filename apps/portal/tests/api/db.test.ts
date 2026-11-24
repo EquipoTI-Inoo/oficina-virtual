@@ -975,15 +975,54 @@ describe("correos automáticos con n8n · solo backend real", () => {
     assert.match(decision[1].texto, new RegExp(`/equipo/entregables/${prototipo}$`));
   });
 
-  test("invitación: al correo invitado, nombrando a quien invitó; HTML escapado", async () => {
+  test("invitación: la bienvenida con su correo, su permiso y el enlace para crear la contraseña; HTML escapado", async () => {
     await reiniciar();
-    await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa <b>Paz</b>", rol: "APROBADOR" });
-    const [c] = (await preparar(await ultimoEvento("miembro.invitado"))).json.correos;
-    assert.equal(c.para, "rosa@casaoliva.pe");
-    assert.equal(c.asunto, "Te damos la bienvenida al portal de Casa Oliva");
-    assert.match(c.html, /Diego Castro te dio acceso/);
-    assert.match(c.html, /Hola, Rosa:/);
-    assert.ok(!c.html.includes("<b>"));
+    // Con el ingreso propio del portal (solo al armar el correo: las sesiones de prueba son las de demo).
+    const antes = process.env.AUTH_MODO;
+    const prepararPortal = async (ev: unknown) => { process.env.AUTH_MODO = "portal"; try { return await preparar(ev); } finally { if (antes === undefined) delete process.env.AUTH_MODO; else process.env.AUTH_MODO = antes; } };
+    {
+      await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa <b>Paz</b>", rol: "APROBADOR" });
+      const ev = await ultimoEvento("miembro.invitado");
+      const [c] = (await prepararPortal(ev)).json.correos;
+      assert.equal(c.para, "rosa@casaoliva.pe");
+      assert.equal(c.asunto, "Te damos la bienvenida al Portal de Inoo · Casa Oliva");
+      assert.match(c.html, /Hola, Rosa:/);
+      assert.match(c.html, /el espacio donde vas a seguir los proyectos de Casa Oliva/);
+      assert.match(c.html, /rosa@casaoliva\.pe y acceso para revisar y aprobar entregables/);
+      assert.match(c.texto, /Crear mi contraseña: https?:\/\/[^\s]+\/crear-clave\/[\w-]+/);
+      assert.match(c.texto, /sirve una sola vez y vence el \d+ de \w+/);
+      assert.match(c.html, /Cualquier duda, responde a este correo\./);
+      assert.ok(!c.html.includes("<b>"));
+      const enlaces = async () => (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM enlace_clave e JOIN usuario u ON u.id = e.usuario_id WHERE u.email = 'rosa@casaoliva.pe'")).rows[0].n;
+      await prepararPortal(ev);
+      assert.equal(await enlaces(), 1, "si se reintenta, no crea otro enlace");
+      // Reenviar: otro correo con un enlace nuevo.
+      const rosa = (await db.query<{ id: string }>("SELECT id FROM usuario WHERE email = 'rosa@casaoliva.pe'")).rows[0].id;
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros/${rosa}/reenviar-bienvenida`, VALERIA)).status, 403, "lo reenvía el equipo");
+      assert.equal((await llamar("POST", `/clientes/${CASA_OLIVA}/miembros/${rosa}/reenviar-bienvenida`, DIEGO)).status, 202);
+      const [otra] = (await prepararPortal(await ultimoEvento("miembro.invitado"))).json.correos;
+      assert.notEqual(otra.texto.match(/crear-clave\/[\w-]+/)?.[0], c.texto.match(/crear-clave\/[\w-]+/)?.[0]);
+      assert.equal(await enlaces(), 2);
+    }
+  });
+
+  test("CORREOS_SOLO deja salir solo esas reglas, y nada de lo que hace alguien de pruebas", async () => {
+    await reiniciar();
+    const antes = process.env.CORREOS_SOLO;
+    process.env.CORREOS_SOLO = "miembro.invitado, requerimiento.creado";
+    try {
+      assert.equal((await llamar("POST", `/entregables/${uid(29, 2)}/enviar`, DIEGO)).status, 200);
+      assert.deepEqual((await preparar(await ultimoEvento("entregable.listo_revision"))).json.correos, [], "el aviso de entregable no sale");
+      await llamar("POST", `/clientes/${CASA_OLIVA}/miembros`, DIEGO, { email: "rosa@casaoliva.pe", nombre: "Rosa Paz", rol: "APROBADOR" });
+      assert.equal((await preparar(await ultimoEvento("miembro.invitado"))).json.correos.length, 1, "la bienvenida sí");
+      // Diego pasa a ser una persona de pruebas: lo que haga no sale, aunque el cliente sea real.
+      await db.exec(`UPDATE usuario SET es_prueba = true WHERE id = '${uid(1, 3)}'`);
+      await db.exec(`INSERT INTO outbox_evento (tipo, cliente_id, payload) VALUES ('miembro.invitado', '${CASA_OLIVA}', '{"usuarioId":"${uid(1, 1)}","email":"valeria@casaoliva.pe","nombre":"Valeria","rol":"ADMIN_CLIENTE","invitadoPor":"${uid(1, 3)}"}')`);
+      assert.deepEqual((await preparar(await ultimoEvento("miembro.invitado"))).json.correos, []);
+    } finally {
+      if (antes === undefined) delete process.env.CORREOS_SOLO;
+      else process.env.CORREOS_SOLO = antes;
+    }
   });
 
   test("los avisos al equipo van al responsable del servicio; sin servicio, al AM de la cuenta", async () => {

@@ -30,6 +30,11 @@ export interface ContextoCorreo {
   servicios?: string[] | null;
   fechaStandby?: string | null;
   diasSinActividad?: number | null;
+  /** Bienvenida (24 nov): el correo de la persona, su permiso, el enlace para crear la contraseña y cuándo vence. */
+  email?: string | null;
+  rolCliente?: string | null;
+  enlaceClave?: string | null;
+  venceEl?: string | null;
   /** Enlace al lugar del portal donde se ve el detalle. */
   enlace: string;
 }
@@ -39,6 +44,43 @@ interface Plantilla {
   asunto: (c: ContextoCorreo, d: Destino) => string;
   parrafos: (c: ContextoCorreo, d: Destino) => string[];
   boton: string;
+  /** Texto del botón cuando no hay enlace para crear la contraseña (la persona ya tiene una). */
+  botonSinEnlace?: string;
+  /** Reemplaza la nota automática del pie (p. ej. «responde a este correo»). */
+  pie?: string;
+}
+
+/** Cómo se lee el permiso del cliente en la bienvenida. */
+const ROL_BIENVENIDA: Record<string, string> = {
+  ADMIN_CLIENTE: "acceso para administrar la cuenta",
+  APROBADOR: "acceso para revisar y aprobar entregables",
+  LECTOR: "acceso para seguir el avance (solo lectura)",
+};
+/**
+ * 24 nov: la bienvenida al cliente, igual por correo y por WhatsApp (sin el saludo, que pone cada canal).
+ * Con `enlaceClave` la persona crea su contraseña; sin él ya tiene una y entra con su correo.
+ */
+export function bienvenidaCliente(c: Pick<ContextoCorreo, "cliente" | "email" | "rolCliente" | "enlaceClave" | "venceEl" | "conClaveTemporal">, canal: "CORREO" | "WHATSAPP"): string[] {
+  const r = [`Te damos la bienvenida al Portal de Inoo, el espacio donde vas a seguir los proyectos de ${c.cliente}, aprobar entregables y estar en contacto con el equipo.`];
+  const rol = c.rolCliente ? ROL_BIENVENIDA[c.rolCliente] : null;
+  if (c.email) r.push(`Ya tienes una cuenta creada con tu correo ${c.email}${rol ? ` y ${rol}` : ""}.`);
+  if (c.enlaceClave) {
+    r.push(canal === "CORREO" ? "Para entrar por primera vez, crea tu contraseña con el botón de abajo." : `Para entrar por primera vez, crea tu contraseña aquí:\n${c.enlaceClave}`);
+    r.push(`Este enlace es personal, sirve una sola vez${c.venceEl ? ` y vence el ${c.venceEl}` : ""}. Si se te vence, entra a la página de ingreso del portal, pulsa «¿Olvidaste tu contraseña?» y escribe tu correo.`);
+    if (canal === "CORREO") r.push(`Si el botón no funciona, copia este enlace en tu navegador: ${c.enlaceClave}`);
+  } else if (c.conClaveTemporal) r.push("Te llega otro correo con una contraseña temporal: úsala en tu primer ingreso y ahí eliges la tuya.");
+  else r.push("Entra con tu correo y la contraseña que ya usas en el portal.");
+  if (canal === "WHATSAPP") r.push("Cualquier duda, responde a este mensaje.");
+  return r;
+}
+
+/**
+ * 24 nov: qué correos salen. CORREOS_SOLO es una lista separada por comas de reglas (p. ej.
+ * «miembro.invitado,requerimiento.creado»); vacía, salen todas las activas. El resto queda sin mandar.
+ */
+export function correoPermitido(regla: string, lista = process.env.CORREOS_SOLO): boolean {
+  const xs = (lista ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  return !xs.length || xs.includes(regla);
 }
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -123,19 +165,14 @@ export const PLANTILLAS_CORREO: Record<string, Plantilla> = {
     parrafos: (c) => [`Tu equipo Inoo marcó como resuelto el ticket #${c.numero}.`, "Si algo sigue sin funcionar, puedes reabrirlo durante los próximos 7 días."],
     boton: "Ver el ticket",
   },
+  // 24 nov: el formato que gustó (el mensaje que se le mandó a Swiss Capital). Trae el enlace para crear la contraseña.
   "miembro.invitado": {
     destinos: ["INVITADO"],
-    asunto: (c) => `Te damos la bienvenida al portal de ${c.cliente}`,
-    parrafos: (c) => [
-      c.actor ? `${c.actor} te dio acceso al portal de ${c.cliente} en Inoo.` : `Ya tienes acceso al portal de ${c.cliente} en Inoo.`,
-      "Ahí revisas y apruebas los contenidos, sigues el avance de tus servicios y hablas con tu equipo.",
-      c.conClaveTemporal
-        ? "Te llega otro correo con una contraseña temporal: úsala en tu primer ingreso y ahí eliges la tuya."
-        : c.creaSuClave
-          ? "Para crear tu contraseña, entra al portal, pulsa «¿Olvidaste tu contraseña?» y escribe este mismo correo."
-          : "Ingresa con este mismo correo.",
-    ],
-    boton: "Entrar al portal",
+    asunto: (c) => `Te damos la bienvenida al Portal de Inoo · ${c.cliente}`,
+    parrafos: (c) => bienvenidaCliente(c, "CORREO"),
+    boton: "Crear mi contraseña",
+    botonSinEnlace: "Entrar al portal",
+    pie: "Cualquier duda, responde a este correo.",
   },
   "requerimiento.creado": {
     destinos: ["DECISORES"],
@@ -207,6 +244,7 @@ export function renderizarCorreo(regla: string, c: ContextoCorreo, d: Destino, n
   const p = PLANTILLAS_CORREO[regla];
   const saludo = nombre ? `Hola, ${nombre.split(" ")[0]}:` : "Hola:";
   const parrafos = p.parrafos(c, d);
+  const boton = p.botonSinEnlace && !c.enlaceClave ? p.botonSinEnlace : p.boton;
   const html = `<!doctype html><html lang="es"><body style="margin:0;background:#F5F5F5;font-family:Poppins,Arial,Helvetica,sans-serif;color:#111111">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:12px">
@@ -215,10 +253,10 @@ export function renderizarCorreo(regla: string, c: ContextoCorreo, d: Destino, n
 <p style="margin:0 0 16px">${escapar(saludo)}</p>
 ${parrafos.map((x) => `<p style="margin:0 0 16px">${escapar(x)}</p>`).join("\n")}
 </td></tr>
-<tr><td style="padding:8px 32px 32px"><a href="${escapar(c.enlace)}" style="display:inline-block;background:#111111;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px">${escapar(p.boton)}</a></td></tr>
+<tr><td style="padding:8px 32px 32px"><a href="${escapar(c.enlace)}" style="display:inline-block;background:#111111;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px">${escapar(boton)}</a></td></tr>
 </table>
-<p style="font-size:12px;color:#616161;margin:16px 0 0">Recibes este correo porque tienes acceso al portal de Inoo. Es un aviso automático; para responder, escríbenos desde el portal.</p>
+<p style="font-size:12px;color:#616161;margin:16px 0 0">${escapar(p.pie ?? "Recibes este correo porque tienes acceso al portal de Inoo. Es un aviso automático; para responder, escríbenos desde el portal.")}</p>
 </td></tr></table></body></html>`;
-  const texto = [saludo, "", ...parrafos, "", `${p.boton}: ${c.enlace}`].join("\n");
+  const texto = [saludo, "", ...parrafos, "", `${boton}: ${c.enlace}`, ...(p.pie ? ["", p.pie] : [])].join("\n");
   return { asunto: p.asunto(c, d), html, texto };
 }

@@ -815,7 +815,7 @@ function Ficha() {
           {d.inactividad && <ActividadCliente a={d.inactividad} />}
           <ResumenAvanceCliente clienteId={d.id} gestion={gestion} />
           {gestion && <GestionCuenta cliente={d} alGuardar={() => void c.recargar()} />}
-          {gestion && <AccesoDelCliente clienteId={id} />}
+          {gestion && <AccesoDelCliente clienteId={id} nombreCliente={d.nombre} />}
           <TablerosDelCliente nombre={d.nombre} />
           <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />
           {ref && (

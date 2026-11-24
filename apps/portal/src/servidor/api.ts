@@ -83,7 +83,7 @@ import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAc
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
 import { almacen, almacenDriveDelEntorno, almacenOpcional } from "./almacen";
 import { atenderArchivoDrive, type ClienteDrive } from "./almacen-drive";
-import { fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
+import { correoPermitido, fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
 import { plantillaAplica } from "../dominio/ia";
 import { estadoEntregableCliente, type EstadoEntregable, type FormatoEntregable, ordenarEntregables, validarEdicionEntregable, validarEntregable, validarVersionEntregable } from "../dominio/entregables";
@@ -7605,6 +7605,20 @@ ruta("POST", "/clientes/:id/miembros/:usuario/enlace-acceso", async (ctx, p) => 
   return { ruta: rutaCrearClave(token), expiraEn: expira.toISOString() };
 });
 
+/** 24 nov: volver a mandar el correo de bienvenida (con un enlace nuevo si todavía no tiene contraseña). */
+ruta("POST", "/clientes/:id/miembros/:usuario/reenviar-bienvenida", async (ctx, p) => {
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Solo para personas del equipo");
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id, true);
+  exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
+  const m = esUuid(p.usuario)
+    ? (await ctx.c.query<{ email: string; nombre: string; rol: string }>("SELECT u.email::text AS email, u.nombre, m.rol::text AS rol FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id WHERE m.cliente_id = $1 AND m.usuario_id = $2 AND u.activo AND u.tipo = 'CLIENTE'", [p.id, p.usuario])).rows[0]
+    : undefined;
+  if (!m) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso a esta cuenta");
+  await emitirOutbox(ctx, "miembro.invitado", p.id, { usuarioId: p.usuario, email: m.email, nombre: m.nombre, rol: m.rol, invitadoPor: ctx.u.usuarioId, reenvio: true });
+  return { __status: 202, email: m.email };
+});
+
 ruta("PATCH", "/clientes/:id/miembros/:usuario", async (ctx, p, _q, cuerpo) => {
   await accesoCliente(ctx, p.id, true);
   exigirRol(ctx, p.id, ["ACCOUNT_MANAGER", "ADMIN"]);
@@ -8416,8 +8430,13 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<(S<"Correo
   const outbox = (await ctx.c.query<{ id: string }>("SELECT id FROM outbox_evento WHERE id = $1 AND tipo = $2 AND cliente_id IS NOT DISTINCT FROM $3", [ev.id, ev.tipo, clienteId])).rows[0];
   if (!outbox) throw new ErrorApi(404, "NO_ENCONTRADO", "No existe ese evento en el outbox");
   if (!regla || !clienteId) return [];
+  // 24 nov: en producción solo salen los correos de CORREOS_SOLO (bienvenida y formularios).
+  if (!correoPermitido(regla)) return [];
   // Los clientes de prueba no reciben correos: sus direcciones no son de nadie.
   if ((await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1 AND es_prueba", [clienteId])).rows.length) return [];
+  // 24 nov: nada que haya hecho alguien del entorno de pruebas sale por correo, aunque el cliente sea real.
+  const quienes = [datos.usuarioId, datos.invitadoPor].filter(esUuid);
+  if (quienes.length && (await ctx.c.query("SELECT 1 FROM usuario WHERE id = ANY($1::uuid[]) AND (es_prueba OR es_cuenta_pruebas)", [quienes])).rows.length) return [];
   const r = (await reglasDe(ctx, clienteId)).find((x) => x.evento === regla);
   if (!r?.activa) return [];
   const plantilla = PLANTILLAS_CORREO[r.plantilla] ? r.plantilla : regla;
@@ -8463,6 +8482,20 @@ async function prepararCorreosDb(ctx: Ctx, ev: EventoCorreo): Promise<(S<"Correo
     enlaceCliente = "/ingresar";
     c.conClaveTemporal = process.env.AUTH_MODO === "cognito";
     c.creaSuClave = process.env.AUTH_MODO === "portal";
+    c.email = typeof datos.email === "string" ? datos.email : null;
+    c.rolCliente = typeof datos.rol === "string" ? datos.rol : null;
+    // 24 nov: si todavía no tiene contraseña, el correo trae su enlace para crearla (uno por evento: si se reintenta,
+    // sale el contenido de la primera vez).
+    const invitado = esUuid(datos.usuarioId) ? (await ctx.c.query<{ sin_clave: boolean }>("SELECT clave_hash IS NULL AS sin_clave FROM usuario WHERE id = $1 AND activo", [datos.usuarioId])).rows[0] : undefined;
+    const yaArmado = (await ctx.c.query("SELECT 1 FROM correo_enviado WHERE outbox_id = $1", [ev.id])).rows.length > 0;
+    if (invitado?.sin_clave && c.creaSuClave && !yaArmado) {
+      const token = nuevoTokenEnlace();
+      const expira = new Date(Date.now() + DIAS_ENLACE_ACCESO * 86_400_000);
+      await ctx.c.query("INSERT INTO enlace_clave (usuario_id, token_hash, creado_por, expira_en) VALUES ($1, $2, $3, $4)", [datos.usuarioId, hashToken(token), esUuid(datos.invitadoPor) ? datos.invitadoPor : null, expira]);
+      enlaceCliente = rutaCrearClave(token);
+      c.enlaceClave = `${URL_PORTAL()}${enlaceCliente}`;
+      c.venceEl = fechaLarga(new Date(expira.getTime() - 5 * 3_600_000).toISOString());
+    }
   }
   const servicios = servicioIds.size ? (await ctx.c.query<FilaServicio>(`${SELECT_SERVICIO} WHERE sc.id = ANY($1::uuid[]) ORDER BY s.orden, sc.fecha_inicio`, [[...servicioIds]])).rows : [];
   if (regla.startsWith("servicio.standby")) {

@@ -1007,6 +1007,20 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /clientes/{clienteId}/miembros/{usuarioId}/reenviar-bienvenida:
+    parameters:
+      - $ref: '#/components/parameters/ClienteId'
+      - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Clientes]
+      operationId: reenviarBienvenida
+      summary: 'Vuelve a mandar el correo de bienvenida (24 nov); si todavía no tiene contraseña, trae un enlace nuevo para crearla'
+      x-roles: [ACCOUNT_MANAGER, ADMIN]
+      responses:
+        '202': { description: 'En cola', content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /clientes/{clienteId}/miembros/{usuarioId}:
     parameters:
       - $ref: '#/components/parameters/ClienteId'

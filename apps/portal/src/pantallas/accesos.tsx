@@ -4,12 +4,13 @@
  * Asigna el nivel ADMIN a cualquiera o un lead a la gente de su área (las mismas reglas de la API).
  */
 import { useState, type FormEvent } from "react";
-import { LuKeyRound, LuLink, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
+import { LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Etiqueta, useAviso, usePortal } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
 import { mismoCliente } from "../dominio/tableros";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
+import { bienvenidaCliente, fechaLarga } from "../dominio/correos";
 
 const ORIGEN: Record<S<"AccesoPersona">["origen"], string> = { AM: "AM de la cuenta", RESPONSABLE: "Responsable", ASIGNADO: "Asignado" };
 
@@ -79,7 +80,7 @@ const ROL_CLIENTE: Record<S<"Miembro">["rol"], string> = { ADMIN_CLIENTE: "Admin
  * Quién del cliente entra al portal (5 nov 2026). El enlace de acceso es de un solo uso: sirve para el primer
  * ingreso y para quien olvidó su contraseña, y se puede mandar por WhatsApp si el correo no llega.
  */
-export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
+export function AccesoDelCliente({ clienteId, nombreCliente }: { clienteId: string; nombreCliente: string }) {
   const avisar = useAviso();
   const lista = useConsulta<{ datos: S<"Miembro">[] }>(`/clientes/${clienteId}/miembros`);
   const [agregando, setAgregando] = useState(false);
@@ -103,13 +104,22 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
     const ventana = window.open("about:blank", "_blank");
     try {
       const r = await api<{ ruta: string; expiraEn: string }>(`/clientes/${clienteId}/miembros/${m.usuarioId}/enlace-acceso`, { metodo: "POST", cuerpo: {} });
-      const texto = `Hola, ${m.nombre.split(/\s+/)[0]}: ya tienes acceso al portal de Inoo. Crea tu contraseña con este enlace personal, que sirve una sola vez y vence el ${fCorta(r.expiraEn)}: ${window.location.origin}${r.ruta}`;
+      // 24 nov: el mismo texto que el correo de bienvenida.
+      const texto = [`Hola, ${m.nombre.split(/\s+/)[0]}:`, ...bienvenidaCliente({ cliente: nombreCliente, email: m.email, rolCliente: m.rol, enlaceClave: `${window.location.origin}${r.ruta}`, venceEl: fechaLarga(r.expiraEn) }, "WHATSAPP")].join("\n\n");
       const destino = `https://wa.me/?text=${encodeURIComponent(texto)}`;
       if (ventana) ventana.location.href = destino;
       else window.location.href = destino;
     } catch (x) {
       ventana?.close();
       avisar({ titulo: "No pudimos crear el enlace", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const reenviar = async (m: S<"Miembro">) => {
+    try {
+      const r = await api<{ email: string }>(`/clientes/${clienteId}/miembros/${m.usuarioId}/reenviar-bienvenida`, { metodo: "POST", cuerpo: {} });
+      avisar({ titulo: `Le mandamos la bienvenida a ${m.nombre}`, texto: `Llega a ${r.email} en unos minutos${m.invitacionPendiente ? ", con un enlace nuevo para crear su contraseña" : ""}.` });
+    } catch (x) {
+      avisar({ titulo: "No pudimos mandarla", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
     }
   };
   const cambiarRol = async (m: S<"Miembro">, rolNuevo: S<"Miembro">["rol"]) => {
@@ -164,6 +174,7 @@ export function AccesoDelCliente({ clienteId }: { clienteId: string }) {
             {m.invitacionPendiente && <span style={{ display: "block", marginTop: 4 }}><Etiqueta tono="ambar">Todavía no entra</Etiqueta></span>}
           </span>
           <span className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+            <button className="boton boton--chico" onClick={() => void reenviar(m)} aria-label={`Reenviar el correo de bienvenida a ${m.nombre}`}><LuMail size={13} /> Reenviar bienvenida</button>
             <button className="boton boton--chico" onClick={() => void enviarPorWhatsApp(m)} aria-label={`Enviar enlace de acceso de ${m.nombre} por WhatsApp`}><LuMessageCircle size={13} /> WhatsApp</button>
             <button className="boton boton--chico" onClick={() => void copiarEnlace(m)} aria-label={`Copiar enlace de acceso de ${m.nombre}`}><LuLink size={13} /> Copiar enlace</button>
             <button className="boton boton--chico boton--peligro" onClick={() => void quitarAcceso(m)} aria-label={`Quitarle el acceso a ${m.nombre}`}><LuX size={13} /> Quitar</button>

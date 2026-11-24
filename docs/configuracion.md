@@ -155,6 +155,7 @@ los tableros de InooWork se leen directo de su API. Cada ruta tiene la misma for
 | `NEXT_PUBLIC_FECHA_FIJA` | `AAAA-MM-DD` | Fija «hoy» en la fecha de los datos de prueba (pruebas visuales) |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | | Conexiones personales (9 y 18 nov): cliente OAuth de tipo **Aplicación web** (no el de escritorio de Drive) con las URI de redirección `{PORTAL_URL}/api/v1/conexiones/google-drive/vuelta` y `{PORTAL_URL}/api/v1/conexiones/google-calendar/vuelta`, y los alcances `drive.readonly` y `calendar.events`. Para cuentas fuera de `inoo.pe`, la app en «Externo» con usuarios de prueba. Sin ellas, Drive y Calendar salen como no disponibles y el Calendario esconde «Conectar» |
 | `CORREOS_PAUSADOS` | `1` | Ningún correo automático sale (y no se mandan después). Encendido en producción desde el 11 nov |
+| `CORREOS_SOLO` | `miembro.invitado,requerimiento.creado` | Solo salen esas reglas (24 nov: la bienvenida y los formularios que se le mandan al cliente). Vacía, salen todas las activas |
 | `CARPETAS_PAUSADAS` | `1` | n8n no recibe «cliente creado»: no se crean carpetas de Drive para clientes nuevos (12 nov) |
 | `MONDAY_API_TOKEN` | clave | Solo para importar de Monday (ya terminado el 13 nov). Conviene quitarla del `.env` y regenerarla en Monday |
 | `DEEPSEEK_API_KEY`, `DEEPSEEK_KEYS` | claves | La IA del equipo (pasarela de Jarvis, IA de tableros, resumen para el cliente) |
