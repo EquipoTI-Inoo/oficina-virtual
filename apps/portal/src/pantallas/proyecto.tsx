@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { LuArrowDownLeft, LuArrowUpRight, LuCalendarClock, LuCircleCheck, LuClipboardList, LuExternalLink, LuMessageSquare, LuPlus, LuTicket } from "react-icons/lu";
 import { api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, nombreMes, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, rolCliente } from "../base";
-import { AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, AvanceLineal, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_TICKET, Estructura, Etiqueta, EtiquetaEstado, ICONO_SERVICIO, Modal, TarjetaPieza, useAviso, usePortal } from "../componentes";
 import { AsiVaElMes, ResultadosDelMes, TuMarca } from "./principal";
 import { FilaRequerimiento } from "./requerimientos";
 import { EntregablesDelProyecto } from "./entregables";
@@ -201,7 +201,7 @@ function ResumenDelAvance({ servicioId }: { servicioId: string }) {
   return (
     <section className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
       <h2 className="tarjeta-titulo">Resumen del avance</h2>
-      {texto ? <p className="texto-sm" style={{ whiteSpace: "pre-wrap" }}>{texto}</p> : <p className="texto-sm texto-muted">En pocas líneas: en qué va tu proyecto, qué sigue y qué necesitamos de ti.</p>}
+      {texto ? <p className="texto-sm"><TextoConEnlaces texto={texto} /></p> : <p className="texto-sm texto-muted">En pocas líneas: en qué va tu proyecto, qué sigue y qué necesitamos de ti.</p>}
       {error && <p className="texto-sm" role="alert" style={{ color: "var(--c-alerta)" }}>{error}</p>}
       <span className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
         <button className="boton boton--chico boton--primario" disabled={ocupado || r.datos.restantes <= 0} onClick={() => void pedir()}>
@@ -460,7 +460,7 @@ export function TextoComentario({ servicioId, c, alCambiar }: { servicioId: stri
   }
   return (
     <>
-      <p className="texto-sm" style={{ marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{c.texto}</p>
+      <p className="texto-sm" style={{ marginTop: 6, lineHeight: 1.5 }}><TextoConEnlaces texto={c.texto} /></p>
       {mio && (
         <span className="fila texto-xs" style={{ gap: 10, marginTop: 4 }}>
           <button className="boton-texto texto-xs" onClick={() => setEditando(true)}>Editar</button>

@@ -25,6 +25,21 @@ export const ProveedorNavegacion = ({ valor, children }: { valor: Navegacion; ch
 );
 export const useNavegacion = () => useContext(NavCtx);
 
+/**
+ * 24 nov («about:blank al descargar»): los archivos llegan como adjunto, así que se descargan en la misma página, sin
+ * abrir una pestaña que se queda en blanco.
+ */
+export function descargarDesde(url: string, nombre?: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  if (nombre) a.download = nombre;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export function Enlace({ a, children, onClick, ...resto }: { a: string; children: ReactNode } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
   const { ir } = useNavegacion();
   const alClic = (e: MouseEvent<HTMLAnchorElement>) => {

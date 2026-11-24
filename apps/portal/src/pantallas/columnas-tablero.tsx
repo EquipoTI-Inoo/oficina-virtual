@@ -10,7 +10,7 @@ import { LuCheck, LuExternalLink, LuMail, LuMapPin, LuMessageCircle, LuPause, Lu
   LuRefreshCw, LuFingerprint, LuListOrdered, LuFileVideo, LuFileAudio, LuFileImage, LuPencil } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { api, ProblemaApi, useConsulta, type S } from "../base";
-import { Modal, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, Modal, useAviso, usePortal } from "../componentes";
 import { CampoMenciones } from "./campo-menciones";
 import {
   COLORES_ETIQUETA, configInicial, FUNCIONES_FORMULA, info, LISTA_PAISES, resumenNumeros, textoDuracion, TIPOS_COLUMNA, ZONAS_HORARIAS,
@@ -436,7 +436,7 @@ function EditorTextoLargo({ titulo, valor, grande, editable, cerrar, guardar }: 
             <button className="boton boton--primario" onClick={() => guardar(x.trim())}>Guardar</button>
           </div>
         </>
-      ) : <p className="texto-sm" style={{ whiteSpace: "pre-wrap" }}>{valor || "—"}</p>}
+      ) : <p className="texto-sm">{valor ? <TextoConEnlaces texto={String(valor)} /> : "—"}</p>}
     </Modal>
   );
 }
@@ -694,7 +694,7 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
                             <button type="button" className="boton boton--chico boton--primario" disabled={!editando.texto.trim()} onClick={() => void guardarEdicion()}>Guardar</button>
                           </span>
                         </div>
-                      ) : <p className="texto-sm" style={{ whiteSpace: "pre-wrap", marginTop: 2 }}>{x.texto}</p>}
+                      ) : <p className="texto-sm" style={{ marginTop: 2 }}><TextoConEnlaces texto={x.texto} /></p>}
                       {x.ancla && (
                         <button type="button" className="enlace texto-xs fila" style={{ gap: 4, background: "none", border: 0, padding: 0, cursor: "pointer" }}
                           onClick={() => { if (x.version !== v.version) setVerId(a.versiones.find((y) => y.version === x.version)?.id ?? null); irA(x); }}>

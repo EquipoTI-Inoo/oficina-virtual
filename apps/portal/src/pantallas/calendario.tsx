@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { LuCalendarPlus, LuCheck, LuChevronLeft, LuChevronRight, LuExternalLink, LuPencil, LuPlus, LuTrash2, LuUsers, LuTriangleAlert } from "react-icons/lu";
 import { api, Enlace, HOY_PORTAL, ProblemaApi, useConsulta, type S } from "../base";
-import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import type { TipoAgenda } from "../dominio/agenda";
 import { usePersonaDeLaUrl } from "./mi-panel";
 
@@ -439,7 +439,7 @@ function DetalleEvento({ e, alCerrar, alEditar, alCambiar }: { e: Evento; alCerr
             <LuUsers size={15} /> {e.invitados.map((p) => p.nombre).join(", ")}
           </p>
         )}
-        {e.notas && <p className="texto-sm" style={{ whiteSpace: "pre-wrap" }}>{e.notas}</p>}
+        {e.notas && <p className="texto-sm"><TextoConEnlaces texto={e.notas} /></p>}
         <div className="fila" style={{ gap: 8, flexWrap: "wrap", marginTop: 4 }}>
           {e.enlace && (
             <Enlace a={e.enlace} className="boton boton--chico">

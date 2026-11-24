@@ -244,6 +244,15 @@ export function pruebasAccesos(nombre: string, manejar: Manejador, reiniciar: ()
       assert.equal((await llamar("PATCH", `/requerimientos/${id}`, DIEGO, {})).status, 422);
       const r = (await llamar("PATCH", `/requerimientos/${id}`, DIEGO, { titulo: "Brief de la tienda", mensaje: "Con fotos de los productos", fechaLimite: "2027-01-15" })).json;
       assert.deepEqual([r.titulo, r.mensaje, r.fechaLimite], ["Brief de la tienda", "Con fotos de los productos", "2027-01-15"]);
+      // 24 nov: aplazar el plazo extiende el mismo enlace; y se corrigen las preguntas.
+      const conEnlace = (await llamar("POST", `/requerimientos/${id}/enlace`, DIEGO, { diasVigencia: 1 })).json.enlace;
+      const aplazado = (await llamar("PATCH", `/requerimientos/${id}`, DIEGO, { fechaLimite: "2027-02-10" })).json;
+      assert.equal(aplazado.enlace.url, conEnlace.url, "el mismo enlace");
+      assert.ok(Date.parse(aplazado.enlace.venceEn) >= Date.parse("2027-02-11T05:00:00Z"), "sirve hasta el final del nuevo plazo");
+      const preguntas = [...r.campos.slice(0, 2), { clave: "extra", etiqueta: "¿Algo más que debamos saber?", tipo: "TEXTO_LARGO", obligatorio: false }];
+      const conPreguntas = (await llamar("PATCH", `/requerimientos/${id}`, DIEGO, { campos: preguntas })).json;
+      assert.deepEqual(conPreguntas.campos.map((c: any) => c.clave), [...r.campos.slice(0, 2).map((c: any) => c.clave), "extra"]);
+      assert.equal((await llamar("PATCH", `/requerimientos/${id}`, DIEGO, { campos: [] })).status, 422, "al menos una pregunta");
       assert.equal((await llamar("DELETE", `/requerimientos/${id}`, DIEGO)).status, 204);
       assert.equal((await llamar("GET", `/requerimientos/${id}`, DIEGO)).status, 404, "anulado");
       const otro = (await llamar("POST", `/clientes/${CASA_OLIVA}/requerimientos`, DIEGO, { plantillaCodigo: "BRIEF_WEB", servicioContratadoId: WEB })).json.id;

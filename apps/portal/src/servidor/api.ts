@@ -6272,10 +6272,20 @@ ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, cuerpo) => {
   const r = await buscarReq(ctx, p.id, true);
   soloEquipo(ctx);
   if (r.estado === "APROBADO") throw new ErrorApi(409, "REQUERIMIENTO_APROBADO", "Ya está aprobado: no se cambia");
-  const b = (await cuerpo()) as { titulo?: string; mensaje?: string | null; fechaLimite?: string };
-  validacion(validarEdicionRequerimiento(b, HOY_LIMA()));
-  await ctx.c.query("UPDATE requerimiento SET titulo = coalesce($2, titulo), mensaje = CASE WHEN $3 THEN $4 ELSE mensaje END, fecha_limite = coalesce($5::date, fecha_limite) WHERE id = $1",
-    [r.id, b.titulo?.trim() ?? null, b.mensaje !== undefined, b.mensaje?.trim() || null, b.fechaLimite ?? null]);
+  const b = (await cuerpo()) as { titulo?: string; mensaje?: string | null; fechaLimite?: string; campos?: unknown };
+  const errores = validarEdicionRequerimiento(b, HOY_LIMA());
+  // 24 nov: también se corrigen las preguntas (las respuestas que ya hay se quedan con su pregunta, por su clave).
+  const preguntas = b.campos === undefined ? null : prepararPreguntas(b.campos);
+  if (preguntas) errores.push(...preguntas.errores);
+  validacion(errores);
+  // 24 nov: si se aplaza el plazo, el enlace que ya se mandó vuelve a servir hasta el final del nuevo plazo (mismo enlace).
+  await ctx.c.query(
+    `UPDATE requerimiento SET titulo = coalesce($2, titulo), mensaje = CASE WHEN $3 THEN $4 ELSE mensaje END, fecha_limite = coalesce($5::date, fecha_limite),
+       campos = coalesce($6::jsonb, campos),
+       enlace_vence_en = CASE WHEN enlace_token IS NOT NULL AND $5::date IS NOT NULL
+         THEN greatest(enlace_vence_en, (($5::date + 1)::timestamp AT TIME ZONE 'America/Lima')) ELSE enlace_vence_en END
+     WHERE id = $1`,
+    [r.id, b.titulo?.trim() ?? null, b.mensaje !== undefined, b.mensaje?.trim() || null, b.fechaLimite ?? null, preguntas ? JSON.stringify(preguntas.campos) : null]);
   return reqVista(await buscarReq(ctx, r.id), await noHabilesDb(ctx));
 });
 

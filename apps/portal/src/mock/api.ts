@@ -1690,12 +1690,20 @@ ruta("PATCH", "/requerimientos/:id", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);
   soloEquipo(ctx);
   if (r.estado === "APROBADO") throw new ErrorApi(409, "REQUERIMIENTO_APROBADO", "Ya está aprobado: no se cambia");
-  const b = await cuerpo<{ titulo?: string; mensaje?: string | null; fechaLimite?: string }>(req);
+  const b = await cuerpo<{ titulo?: string; mensaje?: string | null; fechaLimite?: string; campos?: unknown }>(req);
   const errores = validarEdicionRequerimiento(b, D.HOY);
+  const preguntas = b.campos === undefined ? null : prepararPreguntas(b.campos);
+  if (preguntas) errores.push(...preguntas.errores);
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   if (b.titulo !== undefined) r.titulo = b.titulo.trim();
   if (b.mensaje !== undefined) r.mensaje = b.mensaje?.trim() || null;
-  if (b.fechaLimite !== undefined) r.fechaLimite = b.fechaLimite;
+  if (preguntas) r.campos = preguntas.campos;
+  if (b.fechaLimite !== undefined) {
+    r.fechaLimite = b.fechaLimite;
+    // 24 nov: el enlace que ya se mandó vuelve a servir hasta el final del nuevo plazo (igual que el backend real).
+    const hasta = new Date(Date.parse(`${b.fechaLimite}T00:00:00-05:00`) + 86_400_000).toISOString();
+    if (r.enlaceToken && r.enlaceVenceEn && r.enlaceVenceEn < hasta) r.enlaceVenceEn = hasta;
+  }
   return requerimientoVista(r);
 });
 

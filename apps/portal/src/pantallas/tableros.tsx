@@ -13,7 +13,7 @@ import { BotonIaTablero } from "./ia-tablero";
 import { BibliotecaColumnas, CeldaColumna, ConfigurarColumna, PieNumeros } from "./columnas-tablero";
 import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
-import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
+import { TextoConEnlaces, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal } from "../componentes";
 import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
 import { claveEmpresa } from "../dominio/carpetas";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, columnaParaSubitems, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem } from "../dominio/tableros";
@@ -226,22 +226,6 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
         {!editable && !t.etiquetas.length && <span className="texto-xs texto-muted">Sin etiquetas</span>}
       </span>
     </div>
-  );
-}
-
-/** 17 nov: un texto con sus enlaces (http/https) clicables; abren en otra pestaña. Respeta los saltos de línea. */
-export function TextoConEnlaces({ texto }: { texto: string }) {
-  const partes = texto.split(/(https?:\/\/[^\s<>"']+)/g);
-  return (
-    <span style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>
-      {partes.map((x, i) => {
-        if (i % 2 === 0) return x;
-        const m = x.match(/^(.*?)([.,;:!?)\]»]*)$/);
-        const url = m ? m[1] : x;
-        const visible = url.length > 64 ? `${url.slice(0, 61)}…` : url;
-        return <span key={i}><a href={url} target="_blank" rel="noopener noreferrer" className="enlace" title={url}>{visible}</a>{m?.[2] ?? ""}</span>;
-      })}
-    </span>
   );
 }
 

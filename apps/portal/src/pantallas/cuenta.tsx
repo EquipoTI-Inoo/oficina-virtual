@@ -8,7 +8,7 @@
 import { SeccionDosPasos } from "./dos-pasos";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { LuFileText, LuMail, LuMessageCircle, LuTicket } from "react-icons/lu";
-import { actualizarSesion, api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente, cuentaActiva } from "../base";
+import { descargarDesde, actualizarSesion, api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, type ProblemaApi, useConsulta, useNavegacion, type S, rolCliente, cuentaActiva } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, useAviso, usePortal } from "../componentes";
 
 export const PESTANAS_CUENTA = [
@@ -128,7 +128,7 @@ function MisDatos() {
   const verContrato = async () => {
     try {
       const u = await api<{ url: string }>(`/clientes/${clienteActivo()}/plan/contrato`);
-      window.open(u.url, "_blank");
+      descargarDesde(u.url);
     } catch {
       avisar({ titulo: "No encontramos el contrato", texto: "Pídeselo a tu equipo Inoo." });
     }

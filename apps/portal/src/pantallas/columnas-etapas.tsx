@@ -7,7 +7,7 @@
  */
 import { useRef, useState } from "react";
 import { LuDownload, LuExternalLink, LuPaperclip, LuPlus, LuTrash2, LuX } from "react-icons/lu";
-import { api, ProblemaApi, type S } from "../base";
+import { descargarDesde, api, ProblemaApi, type S } from "../base";
 import { Modal, useAviso, usePortal } from "../componentes";
 import { etapasConValor, NOMBRE_TIPO_COLUMNA_ETAPA, OPCIONES_ESTADO_ETAPA, TIPOS_COLUMNA_ETAPA, type TipoColumnaEtapa } from "../dominio/columnas-etapa";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
@@ -184,7 +184,7 @@ function ArchivosEtapa({ archivos, etiqueta, clienteId, guardar }: { archivos: A
   const abrir = async (a: Archivo) => {
     try {
       const r = await api<{ url: string }>(`/archivos/${a.archivoId}/descarga`);
-      window.open(r.url, "_blank");
+      descargarDesde(r.url, a.nombre);
     } catch (e) {
       avisar({ titulo: `No pudimos abrir ${a.nombre}`, texto: errorDe(e) });
     }

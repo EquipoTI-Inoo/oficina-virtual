@@ -8,8 +8,8 @@
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { LuArrowDown, LuArrowUp, LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
-import { api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
+import { descargarDesde, api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
+import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { camposVisibles, ENLACE_FORMULARIO, limiteTexto, semaforoRequerimiento } from "../dominio/requerimientos";
 
 type Req = S<"Requerimiento">;
@@ -515,7 +515,7 @@ function RespuestaLectura({ campo: c, valor }: { campo: S<"CampoFormulario">; va
       </div>
     );
   }
-  return <p className="texto-sm" style={{ whiteSpace: "pre-line", lineHeight: 1.5 }}>{String(valor)}</p>;
+  return <p className="texto-sm" style={{ lineHeight: 1.5 }}><TextoConEnlaces texto={String(valor)} /></p>;
 }
 
 
@@ -527,14 +527,11 @@ function ArchivoDescargable({ a }: { a: Archivo }) {
   const avisar = useAviso();
   const [abriendo, setAbriendo] = useState(false);
   const abrir = async () => {
-    const ventana = window.open("", "_blank");
     setAbriendo(true);
     try {
       const r = await api<{ url: string }>(`/archivos/${a.archivoId}/descarga`);
-      if (ventana) ventana.location.href = r.url;
-      else window.location.href = r.url;
+      descargarDesde(r.url, a.nombre);
     } catch (e) {
-      ventana?.close();
       avisar({ titulo: `No pudimos abrir ${a.nombre}`, texto: (e as ProblemaApi).detalle ?? (e as ProblemaApi).titulo });
     } finally {
       setAbriendo(false);
@@ -622,15 +619,20 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
   const [titulo, setTitulo] = useState(r.titulo);
   const [mensaje, setMensaje] = useState(r.mensaje ?? "");
   const [fecha, setFecha] = useState(r.fechaLimite);
+  // 24 nov: también las preguntas, con el mismo editor que al enviarlo.
+  const firma = JSON.stringify(r.campos ?? []);
+  const [preguntas, setPreguntas] = useState<Pregunta[]>(() => JSON.parse(firma) as Pregunta[]);
+  const preguntasCambiadas = JSON.stringify(preguntas) !== firma;
   const [errores, setErrores] = useState<Record<string, string>>({});
   const guardar = async () => {
     setErrores({});
     try {
       const cuerpo: Record<string, unknown> = { titulo, mensaje: mensaje.trim() || null };
       if (fecha !== r.fechaLimite) cuerpo.fechaLimite = fecha;
+      Object.assign(cuerpo, preguntasParaEnviar(preguntas, preguntasCambiadas));
       alCambiar(await api<Req>(`/requerimientos/${r.id}`, { metodo: "PATCH", cuerpo }));
       setAbierto(false);
-      avisar({ titulo: "Cambios guardados" });
+      avisar({ titulo: "Cambios guardados", texto: fecha !== r.fechaLimite && r.enlace ? "El enlace que ya mandaste sigue sirviendo hasta el nuevo plazo." : undefined });
     } catch (e) {
       const p = e as ProblemaApi;
       if (p.errores?.length) setErrores(Object.fromEntries(p.errores.map((x) => [x.campo, x.mensaje])));
@@ -653,13 +655,13 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
     <div className="tarjeta" style={{ padding: "20px 18px", display: "grid", gap: 10 }}>
       <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>¿Te equivocaste?</h3>
       <span className="texto-xs texto-muted" style={{ lineHeight: 1.5 }}>
-        Corrige el nombre, el mensaje o el plazo.{r.estado === "PENDIENTE" ? " Mientras el cliente no lo envíe, también puedes anularlo." : ""}
+        Corrige el nombre, el mensaje, el plazo o las preguntas.{r.estado === "PENDIENTE" ? " Mientras el cliente no lo envíe, también puedes anularlo." : ""}
       </span>
       <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
         <button className="boton boton--chico" onClick={() => setAbierto(true)}>Editar</button>
         {r.estado === "PENDIENTE" && <button className="boton boton--chico boton--peligro" onClick={() => void anular()}>Anular</button>}
       </div>
-      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Editar requerimiento">
+      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Editar requerimiento" ancho={640}>
         <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Editar requerimiento</h2>
         <div className="campo">
           <label htmlFor="er-titulo">Nombre</label>
@@ -675,7 +677,10 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
           <label htmlFor="er-fecha">Fecha límite</label>
           <div className="entrada"><input id="er-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
           {error("fechaLimite")}
+          {r.enlace && <span className="ayuda-campo">Si aplazas el plazo, el enlace que ya mandaste vuelve a servir hasta esa fecha.</span>}
         </div>
+        {preguntas.length > 0 && <EditorPreguntas preguntas={preguntas} cambiar={setPreguntas} cambiadas={preguntasCambiadas} reiniciar={() => setPreguntas(JSON.parse(firma) as Pregunta[])} textoReiniciar="Deshacer los cambios en las preguntas" />}
+        {error("campos")}
         <button className="boton boton--primario boton--bloque" onClick={() => void guardar()}>Guardar cambios</button>
       </Modal>
     </div>
@@ -879,7 +884,7 @@ function usePreguntas(base: Pregunta[] | undefined) {
  * 20 nov (Alonso): editar las preguntas antes de enviar el formulario. Se parte de las de la plantilla; lo que se deje
  * es exactamente lo que verá ese cliente. La plantilla no cambia.
  */
-function EditorPreguntas({ preguntas, cambiar, cambiadas, reiniciar }: { preguntas: Pregunta[]; cambiar: (p: Pregunta[]) => void; cambiadas: boolean; reiniciar: () => void }) {
+function EditorPreguntas({ preguntas, cambiar, cambiadas, reiniciar, textoReiniciar = "Volver a las preguntas estándar" }: { preguntas: Pregunta[]; cambiar: (p: Pregunta[]) => void; cambiadas: boolean; reiniciar: () => void; textoReiniciar?: string }) {
   const poner = (i: number, c: Partial<Pregunta>) => cambiar(preguntas.map((x, j) => (j === i ? { ...x, ...c } : x)));
   const mover = (i: number, d: -1 | 1) => {
     const j = i + d;
@@ -893,7 +898,7 @@ function EditorPreguntas({ preguntas, cambiar, cambiadas, reiniciar }: { pregunt
     <div className="tarjeta" style={{ padding: "14px 16px", display: "grid", gap: 10, boxShadow: "none" }} aria-label="Preguntas del formulario">
       <div className="fila entre" style={{ flexWrap: "wrap", gap: 8 }}>
         <span className="etiqueta-direccion">Así le llega al cliente · puedes editarlo</span>
-        {cambiadas && <button type="button" className="enlace texto-xs" onClick={reiniciar}>Volver a las preguntas estándar</button>}
+        {cambiadas && <button type="button" className="enlace texto-xs" onClick={reiniciar}>{textoReiniciar}</button>}
       </div>
       {preguntas.map((c, i) => (
         <div key={c.clave} className="fila-suave" style={{ display: "grid", gap: 6, padding: "10px 12px" }}>

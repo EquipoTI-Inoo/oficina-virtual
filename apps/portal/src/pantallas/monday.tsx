@@ -7,7 +7,7 @@
 import { useRef, useState } from "react";
 import { LuCheck, LuSearch } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
-import { Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
+import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso } from "../componentes";
 import { COLOR_ESTADO, ESTADOS_ITEM, type EstadoItem } from "../dominio/tableros";
 
 type Lista = { conectado: boolean; datos: { id: string; nombre: string; espacio: string | null; items: number; actualizadoEn: string | null; importado: { proyectoId: string; en: string } | null }[] };
@@ -357,14 +357,14 @@ export function HistorialMonday({ proyectoId, item, alCerrar }: { proyectoId: st
               {h.tipo === "ARCHIVOS" ? <p className="texto-sm negrita" style={{ marginBottom: 6 }}>Archivos del ítem</p> : (
                 <>
                   <p className="texto-xs texto-muted">{h.autor} · {fechaHora(h.fecha)}</p>
-                  <p className="texto-sm" style={{ whiteSpace: "pre-wrap", margin: "4px 0 6px" }}>{h.texto}</p>
+                  <p className="texto-sm" style={{ margin: "4px 0 6px" }}><TextoConEnlaces texto={h.texto} /></p>
                 </>
               )}
               {h.archivos.length > 0 && <Archivos xs={h.archivos} />}
               {h.respuestas.map((x, i) => (
                 <div key={i} style={{ borderLeft: "3px solid var(--c-borde)", paddingLeft: 10, marginTop: 8 }}>
                   <p className="texto-xs texto-muted">{x.autor} · {fechaHora(x.fecha)}</p>
-                  <p className="texto-sm" style={{ whiteSpace: "pre-wrap" }}>{x.texto}</p>
+                  <p className="texto-sm"><TextoConEnlaces texto={x.texto} /></p>
                 </div>
               ))}
             </article>

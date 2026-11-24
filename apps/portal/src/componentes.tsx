@@ -970,3 +970,23 @@ export function ModalPedirCambios({ abierto, titulo, alCerrar, alEnviar }: { abi
     </Modal>
   );
 }
+
+/**
+ * Un texto con sus enlaces clicables, que abren en otra pestaña (17 nov; desde el 24 nov en respuestas de formularios,
+ * comentarios y notas). Reconoce http(s) y también «www.…» sin el protocolo. Respeta los saltos de línea.
+ */
+export function TextoConEnlaces({ texto }: { texto: string }) {
+  const partes = texto.split(/((?:https?:\/\/|www\.)[^\s<>"']+)/gi);
+  return (
+    <span style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>
+      {partes.map((x, i) => {
+        if (i % 2 === 0) return x;
+        const m = x.match(/^(.*?)([.,;:!?)\]»]*)$/);
+        const url = m ? m[1] : x;
+        const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        const visible = url.length > 64 ? `${url.slice(0, 61)}…` : url;
+        return <span key={i}><a href={href} target="_blank" rel="noopener noreferrer" className="enlace" title={href}>{visible}</a>{m?.[2] ?? ""}</span>;
+      })}
+    </span>
+  );
+}

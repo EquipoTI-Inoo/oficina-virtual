@@ -8,11 +8,12 @@ import {
 } from "react-icons/lu";
 import {
   api, clienteActivo, Enlace, fCorta, fDiaHora, fDiaMes, fHoyLargo, guardarDispositivo, guardarSesion, HOY_PORTAL, leerSesion, ProblemaApi,
-  useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL, rolCliente, inicioPara } from "../base";
+  descargarDesde, useConsulta, useNavegacion, type S, fMesAnio, nombreMes, PERIODO_PORTAL, rolCliente, inicioPara } from "../base";
 import {
   Aviso, Barra, Cabecera, Cargando, detalleServicio, ErrorCarga, ESTADO_PIEZA, ESTADO_PIEZA_CLIENTE, Estructura, Etiqueta, EtiquetaEstado, EtiquetaPieza, ICONO_SERVICIO, Miniatura, Modal,
   TarjetaPieza, useAviso, usePortal,
   ModalPedirCambios,
+  TextoConEnlaces,
 } from "../componentes";
 import { AvisosInicio } from "./avisos";
 import { DocumentosPorRevisar, FilaEntregable, rutaDetalle } from "./entregables";
@@ -540,7 +541,7 @@ export function ResultadosDelMes() {
   const descargar = async () => {
     try {
       const u = await api<{ url: string }>(`/clientes/${clienteActivo()}/reportes/informe?periodo=${r.periodo.desde.slice(0, 7)}`);
-      window.open(u.url, "_blank");
+      descargarDesde(u.url);
     } catch (e) {
       avisar({ titulo: "No pudimos preparar el informe", texto: (e as ProblemaApi).titulo });
     }
@@ -878,7 +879,7 @@ function HistorialPieza({ piezaId }: { piezaId: string }) {
                   {e.usuario?.nombre ?? "Inoo"}{e.version ? ` · versión ${e.version}` : ""} · {CANAL_DECISION[e.canal] ?? ""}
                 </p>
                 <p className="texto-xs texto-muted" style={{ marginTop: 3 }}>{fCorta(e.creadoEn)}, {fDiaHora(e.creadoEn).split(" · ")[1]}</p>
-                {e.comentario && <p className="texto-xs" style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>«{e.comentario}»</p>}
+                {e.comentario && <p className="texto-xs" style={{ marginTop: 4 }}>«<TextoConEnlaces texto={e.comentario} />»</p>}
               </div>
             </li>
           ))}
@@ -964,7 +965,7 @@ function DetallePieza({ alProyecto = false }: { alProyecto?: boolean }) {
   const descargar = async () => {
     try {
       const r = await api<{ url: string }>(`/piezas/${p.id}/descarga`);
-      window.open(r.url, "_blank");
+      descargarDesde(r.url);
     } catch (e) {
       avisar({ titulo: "No se pudo descargar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
     }
