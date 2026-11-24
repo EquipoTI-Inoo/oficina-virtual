@@ -14,7 +14,7 @@ Para probar contra el entorno local: `docker compose --profile fase1 up` en `inf
 
 El portal avisa a n8n de todo lo que pasa con eventos del outbox (`npm run outbox` en el portal), firmados
 con HMAC. **Los correos los manda el propio portal** (`CORREOS_POR=portal`, por defecto), con el horario de
-atención de Inoo para los del cliente (L-V 9:00-18:00, sábado 9:00-13:30). n8n solo los manda si se configura
+atención de Inoo para los del cliente (L-V 9:00-19:00, sin sábados desde el 24 nov). n8n solo los manda si se configura
 `CORREOS_POR=n8n` (workflow `correos-por-evento.json`; en ese caso el horario no se aplica).
 
 | Workflow | Disparo | Qué hace |

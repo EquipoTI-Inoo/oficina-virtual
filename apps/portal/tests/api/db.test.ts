@@ -881,7 +881,7 @@ describe("correos directos por SMTP (CORREOS_POR=portal) · solo backend real", 
     const prototipo = uid(29, 2);
     await llamar("POST", `/entregables/${prototipo}/enviar`, DIEGO);
     await llamar("POST", `/entregables/${prototipo}/decision`, VALERIA, { decision: "CAMBIOS_SOLICITADOS", comentario: "Más fotos" });
-    // Sábado 31 oct a las 14:00 de Lima: la oficina ya cerró (sábado hasta las 13:30).
+    // Sábado 31 oct a las 14:00 de Lima: la oficina ya cerró (desde el 24 nov los sábados no se atiende).
     const SABADO_14 = new Date("2026-10-31T19:00:00Z");
     await fijarEventos(SABADO_14);
     const r = await despacharCorreos(smtpOk, { ahora: mas(SABADO_14, 5) });

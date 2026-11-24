@@ -8601,7 +8601,7 @@ ruta("POST", "/integraciones/correos/:id/resultado", async (ctx, p, _q, cuerpo) 
  * Cada correo queda ENVIADO o FALLIDO en correo_enviado; si alguno falla, el evento se reintenta con espera
  * exponencial hasta 24 h y los que ya salieron no se repiten. Es independiente de la entrega a n8n.
  *
- * Horario de atención (26 oct): los correos al cliente solo salen L-V 9:00-18:00 y sábados 9:00-13:30 (Lima),
+ * Horario de atención (26 oct): los correos al cliente solo salen L-V 9:00-19:00 (Lima; desde el 24 nov, sin sábados),
  * fuera de feriados. Fuera de ese horario el evento queda programado para la siguiente apertura; los avisos
  * al equipo salen igual al momento. `ahora` simula otra hora (pruebas).
  */

@@ -374,7 +374,7 @@ function CrearTicket() {
             <span style={{ lineHeight: 1.6, fontSize: "var(--t-xs)" }}>
               Horario de atención
               <br />
-              Lunes a viernes · 9:00 a 18:00
+              Lunes a viernes · 9:00 a 19:00
               <br />
               Hora de Perú
             </span>

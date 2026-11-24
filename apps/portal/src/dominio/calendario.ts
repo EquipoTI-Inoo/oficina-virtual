@@ -37,16 +37,17 @@ export function diasNoLaborables(avisos: { tipo: string; fechaInicio: string; fe
 }
 
 // ───────────────────────────── horario de atención (26 oct): los correos al cliente solo salen en este horario
+// 24 nov: lunes a viernes de 9:00 a 19:00; los sábados ya no se atiende.
 
 /** Minutos desde la medianoche (Lima) en que abre y cierra Inoo, por día de la semana (0 = domingo). */
 export const HORARIO_ATENCION: Record<number, [number, number] | null> = {
   0: null,
-  1: [9 * 60, 18 * 60],
-  2: [9 * 60, 18 * 60],
-  3: [9 * 60, 18 * 60],
-  4: [9 * 60, 18 * 60],
-  5: [9 * 60, 18 * 60],
-  6: [9 * 60, 13 * 60 + 30],
+  1: [9 * 60, 19 * 60],
+  2: [9 * 60, 19 * 60],
+  3: [9 * 60, 19 * 60],
+  4: [9 * 60, 19 * 60],
+  5: [9 * 60, 19 * 60],
+  6: null,
 };
 
 const LIMA_MS = -5 * 3_600_000; // Perú no tiene horario de verano
@@ -57,7 +58,7 @@ function enLima(f: Date) {
   return { dia: l.toISOString().slice(0, 10), semana: l.getUTCDay(), minuto: l.getUTCHours() * 60 + l.getUTCMinutes() };
 }
 
-/** Si a esa hora Inoo atiende (L-V 9:00-18:00, sábado 9:00-13:30, sin feriados ni días no laborables). */
+/** Si a esa hora Inoo atiende (L-V 9:00-19:00, sin feriados ni días no laborables). */
 export function enHorarioDeAtencion(f: Date, noLaborables: ReadonlySet<string>): boolean {
   const { dia, semana, minuto } = enLima(f);
   const h = HORARIO_ATENCION[semana];
