@@ -5340,6 +5340,149 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /me/accesos:
+    get:
+      tags: [Panel interno]
+      operationId: misAccesos
+      summary: 'Qué marcas y tableros veo y por qué, y mis pedidos de acceso (24 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AccesosPersona' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /me/accesos/catalogo:
+    get:
+      tags: [Panel interno]
+      operationId: catalogoAccesos
+      summary: 'Las marcas (sin las dadas de baja) y los tableros no privados que se pueden pedir (24 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [marcas, tableros, inooworkResponde]
+                properties:
+                  marcas: { type: array, items: { type: object, required: [id, nombre], properties: { id: { type: string, format: uuid }, nombre: { type: string } } } }
+                  tableros: { type: array, items: { type: object, required: [id, nombre, cliente, lider], properties: { id: { type: string }, nombre: { type: string }, cliente: { type: [string, 'null'] }, lider: { type: [string, 'null'] } } } }
+                  inooworkResponde: { type: boolean }
+
+  /me/solicitudes-acceso:
+    post:
+      tags: [Panel interno]
+      operationId: pedirAcceso
+      summary: 'Pedir marcas o tableros que me faltan; avisa a quien puede aprobarlo (24 nov). Un pedido pendiente repetido no se duplica'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pedidos]
+              properties:
+                pedidos:
+                  type: array
+                  minItems: 1
+                  maxItems: 40
+                  items:
+                    type: object
+                    required: [tipo]
+                    properties:
+                      tipo: { $ref: '#/components/schemas/TipoSolicitudAcceso' }
+                      clienteId: { type: string, format: uuid, description: 'Si tipo es MARCA' }
+                      tableroId: { type: string, description: 'Si tipo es TABLERO' }
+                rol: { type: string, enum: [RESPONSABLE, APOYO], default: APOYO }
+                nota: { type: [string, 'null'], maxLength: 500 }
+      responses:
+        '201': { description: Pedido, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/SolicitudAcceso' } } } } } } }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
+  /me/solicitudes-acceso/{solicitudId}:
+    parameters:
+      - { name: solicitudId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Panel interno]
+      operationId: cancelarPedidoAcceso
+      summary: 'Cancelar un pedido mío que sigue pendiente (24 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Cancelado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /panel/solicitudes-acceso:
+    get:
+      tags: [Panel interno]
+      operationId: pedidosDeAcceso
+      summary: 'Los pedidos de acceso de la gente que puedo asignar (permiso ASIGNAR_ACCESOS o lead de su área); pendientes, o todos con estado=TODAS (24 nov)'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: estado, in: query, required: false, schema: { type: string, enum: [PENDIENTE, TODAS], default: PENDIENTE } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/SolicitudAcceso' } } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /panel/solicitudes-acceso/{solicitudId}/aprobar:
+    parameters:
+      - { name: solicitudId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Panel interno]
+      operationId: aprobarPedidoAcceso
+      summary: 'Aprobar: la marca queda asignada (cuenta si trabaja por cuenta, marca si trabaja por proyecto) o la persona entra al tablero como editora (24 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: Aprobado, content: { application/json: { schema: { $ref: '#/components/schemas/SolicitudAcceso' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /panel/solicitudes-acceso/{solicitudId}/rechazar:
+    parameters:
+      - { name: solicitudId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Panel interno]
+      operationId: rechazarPedidoAcceso
+      summary: 'Rechazar un pedido, con un motivo opcional que le llega a la persona (24 nov)'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, properties: { motivo: { type: [string, 'null'], maxLength: 500 } } } } }
+      responses:
+        '200': { description: Rechazado, content: { application/json: { schema: { $ref: '#/components/schemas/SolicitudAcceso' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+
+  /panel/personas/{usuarioId}/accesos:
+    parameters:
+      - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Panel interno]
+      operationId: accesosDePersona
+      summary: 'Qué marcas y tableros ve una persona y por qué (para quien la puede asignar) (24 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AccesosPersona' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /panel/personas/{usuarioId}/marcas/{clienteId}:
+    parameters:
+      - { name: usuarioId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Panel interno]
+      operationId: quitarMarcaDePersona
+      summary: 'Quitar una marca o cuenta asignada a mano (no la del AM ni las que vienen de proyectos o tableros) (24 nov)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Quitada }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /me/navegador:
     get:
       tags: [Jarvis]
@@ -8500,6 +8643,48 @@ components:
         persona: { $ref: '#/components/schemas/PersonaEquipo' }
         origen: { type: string, enum: [ASIGNADO, AM, RESPONSABLE], description: 'AM y RESPONSABLE vienen solos y no se quitan desde aquí' }
         puedeQuitar: { type: boolean }
+    TipoSolicitudAcceso: { type: string, enum: [MARCA, TABLERO] }
+    SolicitudAcceso:
+      type: object
+      description: 'Un pedido de acceso a una marca o un tablero (24 nov)'
+      required: [id, persona, tipo, clienteId, tableroId, nombre, rol, nota, estado, motivo, resueltaPor, resueltaEn, creadoEn]
+      properties:
+        id: { type: string, format: uuid }
+        persona: { type: object, required: [id, nombre, area], properties: { id: { type: string, format: uuid }, nombre: { type: string }, area: { oneOf: [{ $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' }] } } }
+        tipo: { $ref: '#/components/schemas/TipoSolicitudAcceso' }
+        clienteId: { type: [string, 'null'], format: uuid }
+        tableroId: { type: [string, 'null'] }
+        nombre: { type: string, description: 'La marca o el tablero' }
+        rol: { type: string, enum: [RESPONSABLE, APOYO] }
+        nota: { type: [string, 'null'] }
+        estado: { type: string, enum: [PENDIENTE, APROBADA, RECHAZADA] }
+        motivo: { type: [string, 'null'], description: 'Por qué se rechazó' }
+        resueltaPor: { type: [string, 'null'] }
+        resueltaEn: { type: [string, 'null'], format: date-time }
+        creadoEn: { type: string, format: date-time }
+    AccesosPersona:
+      type: object
+      description: 'Lo que ve una persona del equipo y por qué (24 nov)'
+      required: [persona, puedePedir, sinFichaInooWork, inooworkResponde, marcas, tableros, solicitudes]
+      properties:
+        persona: { type: object, required: [id, nombre, area, nivel], properties: { id: { type: string, format: uuid }, nombre: { type: string }, area: { oneOf: [{ $ref: '#/components/schemas/AreaEquipo' }, { type: 'null' }] }, nivel: { type: string, enum: [ADMIN, CUENTA, PROYECTO] } } }
+        puedePedir: { type: boolean, description: 'El nivel ADMIN ya ve todo' }
+        sinFichaInooWork: { type: boolean, description: 'Sin ficha no entra a los tableros' }
+        inooworkResponde: { type: boolean }
+        marcas:
+          type: array
+          items:
+            type: object
+            required: [clienteId, nombre, motivo, puedeQuitar]
+            properties:
+              clienteId: { type: string, format: uuid }
+              nombre: { type: string }
+              motivo: { type: string, enum: [TODO, AM, CUENTA, MARCA, PROYECTO, TABLERO] }
+              puedeQuitar: { type: boolean, description: 'Asignada a mano: se quita con DELETE /panel/personas/{id}/marcas/{clienteId}' }
+        tableros:
+          type: array
+          items: { type: object, required: [id, nombre, cliente, motivo], properties: { id: { type: string }, nombre: { type: string }, cliente: { type: [string, 'null'] }, motivo: { type: string, enum: [ADMIN, LIDER, MIEMBRO] } } }
+        solicitudes: { type: array, items: { $ref: '#/components/schemas/SolicitudAcceso' } }
     PerfilMarca:
       type: object
       description: 'Lo de marca de un cliente: lo ven también las personas de nivel PROYECTO que trabajan en él'

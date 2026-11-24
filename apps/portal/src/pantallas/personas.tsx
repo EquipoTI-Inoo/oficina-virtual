@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 import { LuFlaskConical, LuNetwork, LuPencil, LuRefreshCw, LuUserPlus } from "react-icons/lu";
-import { api, fCorta, ProblemaApi, useConsulta, type S } from "../base";
+import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal } from "../componentes";
 import { NIVELES, NOMBRE_NIVEL, NOMBRE_PERMISO, permisosDe, PERMISOS, type Nivel, type Permiso } from "../dominio/accesos";
 import { AREAS, NOMBRE_AREA, type Area } from "../dominio/ia-equipo";
@@ -170,6 +170,7 @@ function Personas() {
                       )}
                       {(soySuper || !p.esSuperUsuario) && (
                         <>
+                          <Enlace a={`/equipo/accesos?persona=${p.id}`} className="boton boton--chico" aria-label={`Qué ve ${p.nombre}`}>Accesos</Enlace>
                           <button className="boton boton--chico" onClick={() => setTraspasando(p)} aria-label={`Traspasar el trabajo de ${p.nombre}`}>Traspasar</button>
                           <button className="boton boton--chico" onClick={() => setEditando(p)} aria-label={`Editar a ${p.nombre}`}>
                             <LuPencil size={13} /> Editar

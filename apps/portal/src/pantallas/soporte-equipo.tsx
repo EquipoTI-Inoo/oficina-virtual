@@ -566,7 +566,7 @@ function MisMarcas() {
   if (!datos) return <Cargando />;
   return (
     <>
-      <Cabecera antetitulo="Equipo Inoo · Marcas" titulo="Mis marcas" bajada="Las marcas de los clientes con los que trabajas y tus proyectos con cada una." />
+      <Cabecera antetitulo="Equipo Inoo · Marcas" titulo="Mis marcas" bajada={<>Las marcas de los clientes con los que trabajas y tus proyectos con cada una. ¿Te falta alguna? <Enlace a="/equipo/mis-accesos" className="enlace">Pídela en Mis accesos</Enlace>.</>} />
       {!datos.datos.length && (
         <div className="tarjeta vacio">
           <p className="negrita">Todavía no tienes proyectos asignados</p>

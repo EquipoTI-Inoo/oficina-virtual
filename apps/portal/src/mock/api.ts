@@ -58,6 +58,7 @@ import * as DP from "../servidor/dos-pasos";
 import { itemsDesdeTexto, resumirTablero } from "../servidor/ia-tableros";
 import { resumenParaCliente, TOPE_RESUMENES_MES } from "../servidor/resumen-cliente";
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -193,6 +194,9 @@ interface Estado {
   eventosAgenda: D.EventoAgendaDemo[];
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
   accesosCuenta: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
+  /** 24 nov: marcas asignadas a quien trabaja por proyecto, y pedidos de acceso. */
+  accesosMarca: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
+  solicitudesAcceso: { id: string; usuarioId: string; tipo: TipoSolicitud; clienteId: string | null; tableroId: string | null; tableroNombre: string | null; rol: RolSolicitud; nota: string | null; estado: EstadoSolicitud; motivo: string | null; resueltaPorId: string | null; resueltaEn: string | null; creadoEn: string }[];
   miembrosProyecto: { usuarioId: string; servicioContratadoId: string; asignadoPorId: string | null }[];
   /** 20 nov: columnas libres de las etapas, por proyecto. */
   columnasEtapa: { id: string; servicioContratadoId: string; nombre: string; tipo: S<"ColumnaEtapa">["tipo"]; opciones: string[] }[];
@@ -284,6 +288,8 @@ function estadoInicial(): Estado {
     skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], videosDrive: {}, comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }], carpetas: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     accesosCuenta: [],
+    accesosMarca: [],
+    solicitudesAcceso: [],
     miembrosProyecto: structuredClone(D.MIEMBROS_PROYECTO_INICIALES),
     columnasEtapa: [],
     archivosCliente: [],
@@ -536,7 +542,7 @@ function alcanceDe(u: D.UsuarioDemo): Alcance {
 const alcance = (ctx: Ctx) => (ctx.esServicio ? ALCANCE_TOTAL : alcanceDe(ctx.usuario));
 function veCliente(ctx: Ctx, clienteId: string, completo = false) {
   const a = alcance(ctx);
-  return veCuenta(a, clienteId) || (!completo && E.servicios.some((x) => x.clienteId === clienteId && a.proyectos.has(x.id)));
+  return veCuenta(a, clienteId) || (!completo && (E.accesosMarca.some((m) => m.usuarioId === ctx.usuario.id && m.clienteId === clienteId) || E.servicios.some((x) => x.clienteId === clienteId && a.proyectos.has(x.id))));
 }
 /** ¿Ve este proyecto? (404 si no: no se distingue de uno que no existe). */
 function accesoProyecto(ctx: Ctx, servicioContratadoId: string) {
@@ -5658,6 +5664,183 @@ ruta("DELETE", "/clientes/:id/accesos/:usuario", (ctx, p) => {
   if (!a) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso asignado a la cuenta");
   if (ctx.esServicio || !puedeAsignar(ctx.usuario, E.usuarios.find((u) => u.id === a.usuarioId)!)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona le puede quitar el acceso");
   E.accesosCuenta = E.accesosCuenta.filter((x) => x !== a);
+  return null;
+});
+
+// ───────────────────────────── pedir acceso (24 nov; igual que el backend real)
+
+type PedidoAccesoDemo = Estado["solicitudesAcceso"][number];
+const pedidoAccesoVista = (s: PedidoAccesoDemo): S<"SolicitudAcceso"> => {
+  const u = E.usuarios.find((x) => x.id === s.usuarioId);
+  return {
+    id: s.id, persona: { id: s.usuarioId, nombre: u?.nombre ?? "", area: u?.area ?? null }, tipo: s.tipo, clienteId: s.clienteId, tableroId: s.tableroId,
+    nombre: s.clienteId ? E.clientes.find((c) => c.id === s.clienteId)?.nombre ?? "" : s.tableroNombre ?? "",
+    rol: s.rol, nota: s.nota, estado: s.estado, motivo: s.motivo, resueltaPor: E.usuarios.find((x) => x.id === s.resueltaPorId)?.nombre ?? null, resueltaEn: s.resueltaEn, creadoEn: s.creadoEn,
+  };
+};
+const SIN_PEDIDO = () => new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pedido");
+const yoTableroDeMock = (u: D.UsuarioDemo): Yo => ({ empleadoId: u.inooworkEmpleadoId ?? null, esAdmin: nivelDe(u) === "ADMIN", usuarioId: u.id, nombre: u.nombre });
+
+async function accesosDePersonaMock(u: D.UsuarioDemo): Promise<S<"AccesosPersona">> {
+  const a = alcanceDe(u);
+  const yoT = yoTableroDeMock(u);
+  let tableros: Awaited<ReturnType<typeof TABLEROS.dePersona>> = [];
+  let inooworkResponde = true;
+  try {
+    tableros = await TABLEROS.dePersona(yoT);
+  } catch {
+    inooworkResponde = false;
+  }
+  const deTableros = agruparTablerosPorCliente(tableros.filter((t) => t.cliente).map((t) => ({ ...t, cliente: t.cliente! })), E.clientes);
+  const marcas = [...E.clientes].sort((x, y) => x.nombre.localeCompare(y.nombre, "es")).flatMap((c) => {
+    const motivo = motivoMarca({
+      todo: a.todo, am: amDe(c) === u.id && a.cuentas.has(c.id), cuenta: a.cuentas.has(c.id), marca: E.accesosMarca.some((m) => m.usuarioId === u.id && m.clienteId === c.id),
+      proyecto: E.servicios.some((x) => x.clienteId === c.id && a.proyectos.has(x.id)), tablero: deTableros.has(c.id),
+    });
+    return motivo ? [{ clienteId: c.id, nombre: c.nombre, motivo, puedeQuitar: motivo === "MARCA" || (motivo === "CUENTA" && amDe(c) !== u.id) }] : [];
+  });
+  return {
+    persona: { id: u.id, nombre: u.nombre, area: u.area ?? null, nivel: a.nivel },
+    puedePedir: a.nivel !== "ADMIN", sinFichaInooWork: !yoT.empleadoId, inooworkResponde, marcas, tableros,
+    solicitudes: E.solicitudesAcceso.filter((s) => s.usuarioId === u.id).sort((x, y) => y.creadoEn.localeCompare(x.creadoEn)).slice(0, 50).map(pedidoAccesoVista),
+  };
+}
+const personaDelEquipo = (id: string) => {
+  const u = E.usuarios.find((x) => x.id === id && x.tipo === "EQUIPO");
+  if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  return u;
+};
+
+ruta("GET", "/me/accesos", async (ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Es de una persona del equipo");
+  return accesosDePersonaMock(ctx.usuario);
+});
+
+ruta("GET", "/me/accesos/catalogo", async (ctx) => {
+  soloEquipo(ctx);
+  let tableros: Awaited<ReturnType<typeof TABLEROS.catalogo>> = [];
+  let inooworkResponde = true;
+  try {
+    tableros = await TABLEROS.catalogo();
+  } catch {
+    inooworkResponde = false;
+  }
+  return { marcas: [...E.clientes].sort((x, y) => x.nombre.localeCompare(y.nombre, "es")).map((c) => ({ id: c.id, nombre: c.nombre })), tableros, inooworkResponde };
+});
+
+ruta("POST", "/me/solicitudes-acceso", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Es de una persona del equipo");
+  const l = leerSolicitud(await req.json().catch(() => ({})));
+  if (!l.ok) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, l.errores);
+  const { pedidos, rol, nota } = l.valor;
+  const mios = await accesosDePersonaMock(ctx.usuario);
+  if (!mios.puedePedir) throw new ErrorApi(409, "YA_VE_TODO", "Con tu nivel ya ves todas las marcas y tableros");
+  const conTableros = pedidos.some((x) => x.tipo === "TABLERO");
+  if (conTableros && mios.sinFichaInooWork) throw new ErrorApi(409, "SIN_FICHA_INOOWORK", "Necesitas tu ficha de InooWork para entrar a los tableros: pídesela a RR. HH.");
+  const catalogo = conTableros ? new Map((await TABLEROS.catalogo()).map((t) => [t.id, t])) : new Map<string, never>();
+  const errores: { campo: string; mensaje: string }[] = [];
+  pedidos.forEach((x, i) => {
+    if (x.tipo === "MARCA") {
+      const c = E.clientes.find((y) => y.id === x.clienteId);
+      if (!c) errores.push({ campo: `pedidos[${i}]`, mensaje: "Esa marca no existe" });
+      else if (mios.marcas.some((m) => m.clienteId === c.id)) errores.push({ campo: `pedidos[${i}]`, mensaje: `Ya ves ${c.nombre}` });
+    } else if (!catalogo.has(x.tableroId)) errores.push({ campo: `pedidos[${i}]`, mensaje: "Ese tablero no existe o es privado" });
+    else if (mios.tableros.some((t) => t.id === x.tableroId)) errores.push({ campo: `pedidos[${i}]`, mensaje: `Ya estás en ${catalogo.get(x.tableroId)!.nombre}` });
+  });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const datos = pedidos.map((x) => {
+    const ya = E.solicitudesAcceso.find((s) => s.usuarioId === ctx.usuario.id && s.estado === "PENDIENTE" && (x.tipo === "MARCA" ? s.clienteId === x.clienteId : s.tableroId === x.tableroId));
+    if (ya) return ya;
+    const t = x.tipo === "TABLERO" ? catalogo.get(x.tableroId)! : null;
+    const s: PedidoAccesoDemo = {
+      id: crypto.randomUUID(), usuarioId: ctx.usuario.id, tipo: x.tipo, clienteId: x.tipo === "MARCA" ? x.clienteId : null, tableroId: t?.id ?? null, tableroNombre: t?.nombre ?? null,
+      rol, nota, estado: "PENDIENTE", motivo: null, resueltaPorId: null, resueltaEn: null, creadoEn: new Date().toISOString(),
+    };
+    E.solicitudesAcceso.push(s);
+    return s;
+  }).map(pedidoAccesoVista);
+  const lista = datos.map((d) => d.nombre).join(", ");
+  for (const destino of E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false && u.id !== ctx.usuario.id && puedeAsignar(u, ctx.usuario))) {
+    E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: destino.id, titulo: `${TITULO_SOLICITUD_NUEVA}: ${ctx.usuario.nombre}`, cuerpo: `Pide ${lista}`, enlace: "/equipo/accesos", creadoEn: new Date().toISOString() });
+  }
+  return { __status: 201, datos };
+});
+
+ruta("DELETE", "/me/solicitudes-acceso/:id", (ctx, p) => {
+  soloEquipo(ctx);
+  const s = E.solicitudesAcceso.find((x) => x.id === p.id && x.usuarioId === ctx.usuario.id && x.estado === "PENDIENTE");
+  if (!s) throw SIN_PEDIDO();
+  E.solicitudesAcceso = E.solicitudesAcceso.filter((x) => x !== s);
+  return null;
+});
+
+ruta("GET", "/panel/solicitudes-acceso", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  if (!ctx.esServicio && !permisosDe(ctx.usuario).includes("ASIGNAR_ACCESOS") && !areasQueLidera(ctx.usuario).length) throw new ErrorApi(403, "SIN_PERMISO", "Los pedidos de acceso los ve quien asigna accesos o un lead");
+  const todas = q.get("estado") === "TODAS";
+  return {
+    datos: E.solicitudesAcceso
+      .filter((s) => (todas || s.estado === "PENDIENTE") && (ctx.esServicio || puedeAsignar(ctx.usuario, E.usuarios.find((u) => u.id === s.usuarioId) ?? { area: null, tipo: "EQUIPO" })))
+      .sort((x, y) => y.creadoEn.localeCompare(x.creadoEn)).slice(0, 300).map(pedidoAccesoVista),
+  };
+});
+
+function pedidoParaResolver(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const s = E.solicitudesAcceso.find((x) => x.id === id);
+  if (!s) throw SIN_PEDIDO();
+  const u = E.usuarios.find((x) => x.id === s.usuarioId)!;
+  if (ctx.esServicio || !puedeAsignar(ctx.usuario, u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien asigna accesos o el lead del área de esa persona lo resuelve");
+  if (s.estado !== "PENDIENTE") throw new ErrorApi(409, "YA_RESUELTA", s.estado === "APROBADA" ? "Ese pedido ya se aprobó" : "Ese pedido ya se rechazó");
+  return { s, u };
+}
+function cerrarPedido(ctx: Ctx, s: PedidoAccesoDemo, estado: "APROBADA" | "RECHAZADA", motivo: string | null) {
+  Object.assign(s, { estado, motivo, resueltaPorId: ctx.usuario.id, resueltaEn: new Date().toISOString() });
+  const v = pedidoAccesoVista(s);
+  E.avisosEquipo.push({
+    id: crypto.randomUUID(), usuarioId: s.usuarioId, titulo: `${TITULO_SOLICITUD_RESUELTA}: ${estado === "APROBADA" ? "aprobado" : "rechazado"}`,
+    cuerpo: estado === "APROBADA" ? `Ya ves ${v.nombre}.` : `No se aprobó ${v.nombre}.${motivo ? ` ${motivo}` : ""}`, enlace: "/equipo/mis-accesos", creadoEn: new Date().toISOString(),
+  });
+  return v;
+}
+
+ruta("POST", "/panel/solicitudes-acceso/:id/aprobar", async (ctx, p) => {
+  const { s, u } = pedidoParaResolver(ctx, p.id);
+  const nivel = nivelDe(u);
+  if (s.tipo === "MARCA") {
+    const lista = nivel === "CUENTA" ? E.accesosCuenta : nivel === "PROYECTO" ? E.accesosMarca : null;
+    if (lista && !lista.some((x) => x.usuarioId === u.id && x.clienteId === s.clienteId)) lista.push({ usuarioId: u.id, clienteId: s.clienteId!, asignadoPorId: ctx.usuario.id });
+  } else {
+    if (!u.inooworkEmpleadoId) throw new ErrorApi(409, "SIN_FICHA_INOOWORK", `${u.nombre} no tiene ficha en InooWork: sin ella no entra a los tableros`);
+    await TABLEROS.agregarMiembros(s.tableroId!, { empleadoId: null, esAdmin: true, usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre }, [{ id: u.inooworkEmpleadoId, nombre: u.nombre }], "EDITOR");
+  }
+  return cerrarPedido(ctx, s, "APROBADA", null);
+});
+
+ruta("POST", "/panel/solicitudes-acceso/:id/rechazar", async (ctx, p, _q, req) => {
+  const { s } = pedidoParaResolver(ctx, p.id);
+  const b = ((await req.json().catch(() => ({}))) ?? {}) as { motivo?: unknown };
+  if (b.motivo !== undefined && b.motivo !== null && (typeof b.motivo !== "string" || b.motivo.length > 500)) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "motivo", mensaje: "Hasta 500 caracteres" }]);
+  return cerrarPedido(ctx, s, "RECHAZADA", typeof b.motivo === "string" ? b.motivo.trim() || null : null);
+});
+
+ruta("GET", "/panel/personas/:id/accesos", async (ctx, p) => {
+  soloEquipo(ctx);
+  const u = personaDelEquipo(p.id);
+  if (!ctx.esServicio && u.id !== ctx.usuario.id && !puedeAsignar(ctx.usuario, u)) throw new ErrorApi(403, "SIN_PERMISO", "Lo ve quien asigna accesos o el lead de su área");
+  return accesosDePersonaMock(u);
+});
+
+ruta("DELETE", "/panel/personas/:id/marcas/:cliente", (ctx, p) => {
+  soloEquipo(ctx);
+  const u = personaDelEquipo(p.id);
+  if (ctx.esServicio || !puedeAsignar(ctx.usuario, u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien asigna accesos o el lead de su área");
+  const antes = E.accesosMarca.length + E.accesosCuenta.length;
+  E.accesosMarca = E.accesosMarca.filter((x) => !(x.usuarioId === u.id && x.clienteId === p.cliente));
+  E.accesosCuenta = E.accesosCuenta.filter((x) => !(x.usuarioId === u.id && x.clienteId === p.cliente));
+  if (E.accesosMarca.length + E.accesosCuenta.length === antes) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa marca no está asignada a mano a esta persona");
   return null;
 });
 

@@ -334,6 +334,24 @@ export function crearTableros(fallar: Fallar) {
      * 16 nov (Ernesto): los tableros sin archivar que ve quien pregunta, con su cliente, para la ficha de Empresas.
      * En InooWork el cliente es solo un nombre: quien llama lo compara con `claveCliente`.
      */
+    /**
+     * 24 nov (pedir acceso): los tableros que se pueden pedir: sin archivar, sin borrar y que no sean privados
+     * (RR. HH., gerencia). Solo el nombre y el cliente, sin su contenido.
+     */
+    catalogo: (prueba?: boolean) => protegido(async () =>
+      (await listarIW(prueba))
+        .filter((p) => !p.archived && !p.deleted && !esPrivado(p))
+        .map((p) => ({ id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, lider: p.leaderName || null }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))),
+    /** 24 nov: los tableros sin archivar que ve alguien y por qué (líder, miembro o admin). */
+    dePersona: (yo: Yo) => protegido(async () =>
+      (await listarIW(yo.prueba))
+        .filter((p) => !p.archived && !p.deleted && veProyecto(p, yo.empleadoId, yo.esAdmin))
+        .map((p) => ({
+          id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null,
+          motivo: (!!yo.empleadoId && p.leaderId === yo.empleadoId ? "LIDER" : (p.members ?? []).some((m) => m.employeeId === yo.empleadoId) ? "MIEMBRO" : "ADMIN") as "LIDER" | "MIEMBRO" | "ADMIN",
+        }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))),
     conCliente: (yo: Yo) => protegido(async () =>
       (await listarIW(yo.prueba))
         .filter((p) => !p.archived && !p.deleted && !!p.clientName?.trim() && veProyecto(p, yo.empleadoId, yo.esAdmin))

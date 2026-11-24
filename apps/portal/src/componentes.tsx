@@ -3,7 +3,8 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useRef, us
 import {
   LuBell, LuChartNoAxesColumnIncreasing, LuChevronRight, LuChevronsUpDown, LuCircleCheck, LuHouse, LuLayers, LuLogOut, LuMenu, LuShieldCheck, LuSquareKanban, LuUserRound, LuExternalLink, LuBot, LuEye, LuIdCard,
   LuSparkles, LuUsers, LuX, LuCalendarDays, LuInstagram, LuVideo, LuMegaphone, LuGlobe, LuSquareUser,
-  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor, LuPanelLeftClose, LuPanelLeftOpen
+  LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor, LuPanelLeftClose, LuPanelLeftOpen,
+  LuKeyRound,
 } from "react-icons/lu";
 import { pideAccion } from "./dominio/por-revisar";
 import { fDiaHora, fMesAnio, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S , PERIODO_PORTAL, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
@@ -402,6 +403,9 @@ const NAV_EQUIPO = [
   { a: "/equipo/empresas", texto: "Empresas", icono: <LuBuilding2 />, porCuenta: true, enMenu: true },
   { a: "/equipo/organigrama", texto: "Organigrama", icono: <LuNetwork />, enMenu: true },
   { a: "/equipo/personas", texto: "Equipo", icono: <LuUserCog />, permiso: "GESTIONAR_EQUIPO", enMenu: true },
+  // 24 nov: pedir lo que falta (todos) y aprobarlo (quien asigna accesos o un lead).
+  { a: "/equipo/mis-accesos", texto: "Mis accesos", icono: <LuKeyRound />, enMenu: true },
+  { a: "/equipo/accesos", texto: "Pedidos de acceso", icono: <LuShieldCheck />, asigna: true, enMenu: true },
   { a: "/equipo/avisos", texto: "Feriados y avisos", icono: <LuMegaphone />, enMenu: true },
   { a: "/equipo/costos", texto: "Costos de IA", icono: <LuCoins />, permiso: "COSTOS_IA", enMenu: true },
 ];
@@ -411,6 +415,7 @@ function navPara(espacio: "cliente" | "equipo", sesion: S<"Sesion"> | null) {
   return (espacio === "cliente" ? NAV_CLIENTE : NAV_EQUIPO)
     .filter((n) => !("permiso" in n) || sesion?.usuario.permisos?.some((x) => x === n.permiso))
     .filter((n) => !("porCuenta" in n) || (!!nivel && nivel !== "PROYECTO"))
+    .filter((n) => !("asigna" in n) || !!sesion?.usuario.esLead || !!sesion?.usuario.permisos?.includes("ASIGNAR_ACCESOS"))
     .map((n) => (n.a === "/equipo/clientes" && nivel === "PROYECTO" ? { ...n, texto: "Mis marcas" } : n));
 }
 

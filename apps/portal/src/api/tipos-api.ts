@@ -3781,6 +3781,170 @@ export interface paths {
         patch: operations["renombrarCarpeta"];
         trace?: never;
     };
+    "/me/accesos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Qué marcas y tableros veo y por qué, y mis pedidos de acceso (24 nov) */
+        get: operations["misAccesos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/accesos/catalogo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Las marcas (sin las dadas de baja) y los tableros no privados que se pueden pedir (24 nov) */
+        get: operations["catalogoAccesos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/solicitudes-acceso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pedir marcas o tableros que me faltan; avisa a quien puede aprobarlo (24 nov). Un pedido pendiente repetido no se duplica */
+        post: operations["pedirAcceso"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/solicitudes-acceso/{solicitudId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancelar un pedido mío que sigue pendiente (24 nov) */
+        delete: operations["cancelarPedidoAcceso"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/solicitudes-acceso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Los pedidos de acceso de la gente que puedo asignar (permiso ASIGNAR_ACCESOS o lead de su área); pendientes, o todos con estado=TODAS (24 nov) */
+        get: operations["pedidosDeAcceso"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/solicitudes-acceso/{solicitudId}/aprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Aprobar: la marca queda asignada (cuenta si trabaja por cuenta, marca si trabaja por proyecto) o la persona entra al tablero como editora (24 nov) */
+        post: operations["aprobarPedidoAcceso"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/solicitudes-acceso/{solicitudId}/rechazar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rechazar un pedido, con un motivo opcional que le llega a la persona (24 nov) */
+        post: operations["rechazarPedidoAcceso"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/personas/{usuarioId}/accesos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        /** Qué marcas y tableros ve una persona y por qué (para quien la puede asignar) (24 nov) */
+        get: operations["accesosDePersona"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/panel/personas/{usuarioId}/marcas/{clienteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quitar una marca o cuenta asignada a mano (no la del AM ni las que vienen de proyectos o tableros) (24 nov) */
+        delete: operations["quitarMarcaDePersona"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/navegador": {
         parameters: {
             query?: never;
@@ -6582,6 +6746,70 @@ export interface components {
              */
             origen: "ASIGNADO" | "AM" | "RESPONSABLE";
             puedeQuitar: boolean;
+        };
+        /** @enum {string} */
+        TipoSolicitudAcceso: "MARCA" | "TABLERO";
+        /** @description Un pedido de acceso a una marca o un tablero (24 nov) */
+        SolicitudAcceso: {
+            /** Format: uuid */
+            id: string;
+            persona: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+                area: components["schemas"]["AreaEquipo"] | null;
+            };
+            tipo: components["schemas"]["TipoSolicitudAcceso"];
+            /** Format: uuid */
+            clienteId: string | null;
+            tableroId: string | null;
+            /** @description La marca o el tablero */
+            nombre: string;
+            /** @enum {string} */
+            rol: "RESPONSABLE" | "APOYO";
+            nota: string | null;
+            /** @enum {string} */
+            estado: "PENDIENTE" | "APROBADA" | "RECHAZADA";
+            /** @description Por qué se rechazó */
+            motivo: string | null;
+            resueltaPor: string | null;
+            /** Format: date-time */
+            resueltaEn: string | null;
+            /** Format: date-time */
+            creadoEn: string;
+        };
+        /** @description Lo que ve una persona del equipo y por qué (24 nov) */
+        AccesosPersona: {
+            persona: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+                area: components["schemas"]["AreaEquipo"] | null;
+                /** @enum {string} */
+                nivel: "ADMIN" | "CUENTA" | "PROYECTO";
+            };
+            /** @description El nivel ADMIN ya ve todo */
+            puedePedir: boolean;
+            /** @description Sin ficha no entra a los tableros */
+            sinFichaInooWork: boolean;
+            inooworkResponde: boolean;
+            marcas: {
+                /** Format: uuid */
+                clienteId: string;
+                nombre: string;
+                /** @enum {string} */
+                motivo: "TODO" | "AM" | "CUENTA" | "MARCA" | "PROYECTO" | "TABLERO";
+                /** @description Asignada a mano: se quita con DELETE /panel/personas/{id}/marcas/{clienteId} */
+                puedeQuitar: boolean;
+            }[];
+            tableros: {
+                id: string;
+                nombre: string;
+                cliente: string | null;
+                /** @enum {string} */
+                motivo: "ADMIN" | "LIDER" | "MIEMBRO";
+            }[];
+            solicitudes: components["schemas"]["SolicitudAcceso"][];
         };
         /** @description Lo de marca de un cliente: lo ven también las personas de nivel PROYECTO que trabajan en él */
         PerfilMarca: {
@@ -17728,6 +17956,254 @@ export interface operations {
             404: components["responses"]["NoEncontrado"];
             409: components["responses"]["Conflicto"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    misAccesos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesosPersona"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    catalogoAccesos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        marcas: {
+                            /** Format: uuid */
+                            id: string;
+                            nombre: string;
+                        }[];
+                        tableros: {
+                            id: string;
+                            nombre: string;
+                            cliente: string | null;
+                            lider: string | null;
+                        }[];
+                        inooworkResponde: boolean;
+                    };
+                };
+            };
+        };
+    };
+    pedirAcceso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    pedidos: {
+                        tipo: components["schemas"]["TipoSolicitudAcceso"];
+                        /**
+                         * Format: uuid
+                         * @description Si tipo es MARCA
+                         */
+                        clienteId?: string;
+                        /** @description Si tipo es TABLERO */
+                        tableroId?: string;
+                    }[];
+                    /**
+                     * @default APOYO
+                     * @enum {string}
+                     */
+                    rol?: "RESPONSABLE" | "APOYO";
+                    nota?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Pedido */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["SolicitudAcceso"][];
+                    };
+                };
+            };
+            409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    cancelarPedidoAcceso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    pedidosDeAcceso: {
+        parameters: {
+            query?: {
+                estado?: "PENDIENTE" | "TODAS";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["SolicitudAcceso"][];
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+        };
+    };
+    aprobarPedidoAcceso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aprobado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SolicitudAcceso"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    rechazarPedidoAcceso: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                solicitudId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    motivo?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Rechazado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SolicitudAcceso"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
+        };
+    };
+    accesosDePersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccesosPersona"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    quitarMarcaDePersona: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                usuarioId: string;
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quitada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     miNavegador: {

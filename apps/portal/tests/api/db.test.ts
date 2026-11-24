@@ -41,6 +41,7 @@ import { pruebasTallerWeb } from "./flujo-taller-web";
 import { pruebasJarvis } from "./flujo-jarvis";
 import { pruebasAgenda } from "./flujo-agenda";
 import { pruebasAccesos } from "./flujo-accesos";
+import { pruebasSolicitudesAcceso } from "./flujo-solicitudes-acceso";
 import { pruebasPersonas } from "./flujo-personas";
 import { pruebasTranscripciones } from "./flujo-transcripciones";
 import { pruebasTableros } from "./flujo-tableros";
@@ -145,6 +146,7 @@ before(async () => {
   await db.exec(sql("migraciones/0068_novedades_por_seccion.sql"));
   await db.exec(sql("migraciones/0069_fechas_con_hora_y_hitos.sql"));
   await db.exec(sql("migraciones/0070_columnas_de_etapas.sql"));
+  await db.exec(sql("migraciones/0071_solicitudes_de_acceso.sql"));
   // Todo lo que no es catálogo cargado por el esquema se vacía y se vuelve a sembrar en cada prueba.
   const { rows } = await db.query<{ t: string }>(
     "SELECT string_agg(format('%I', tablename), ', ') AS t FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('conector_catalogo', 'servicio', 'transicion_pieza', 'tarifa_modelo', 'plantilla_proyecto', 'etapa_plantilla', 'plantilla_requerimiento')",
@@ -201,6 +203,7 @@ pruebasTallerWeb("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasJarvis("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasAgenda("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasAccesos("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
+pruebasSolicitudesAcceso("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasPersonas("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasTranscripciones("Postgres", (req) => manejarSolicitudDb(req), reiniciar);
 pruebasTableros("Postgres", (req) => manejarSolicitudDb(req), reiniciar);

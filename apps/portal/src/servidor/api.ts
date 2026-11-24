@@ -68,6 +68,7 @@ import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./mo
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type CuerpoSolicitud, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
@@ -163,30 +164,36 @@ async function proyectosDePersonaDb(c: Consultor, id: string) {
      UNION SELECT servicio_contratado_id FROM tarea WHERE responsable_id = $1`, [id],
   )).rows.map((r) => r.id);
 }
-const alcances = new WeakMap<Ctx, Promise<Alcance & { cliente: Map<string, string> }>>();
+/** `marcas`: las marcas asignadas a quien trabaja por proyecto (24 nov, acceso_marca): ve su marca, nada comercial. */
+type AlcanceDb = Alcance & { cliente: Map<string, string>; marcas: ReadonlySet<string> };
+const alcances = new WeakMap<Ctx, Promise<AlcanceDb>>();
+/** Lo que ve una persona del equipo, a partir de lo guardado. */
+async function alcanceDePersonaDb(c: Consultor, yo: PersonaAcceso | undefined): Promise<AlcanceDb> {
+  const proyectos = (await c.query<{ id: string; cliente_id: string }>("SELECT id, cliente_id FROM servicio_contratado")).rows;
+  const cliente = new Map(proyectos.map((x) => [x.id, x.cliente_id]));
+  if (!yo) return { nivel: "PROYECTO" as const, todo: false, cuentas: new Set<string>(), proyectos: new Set<string>(), cliente, marcas: new Set<string>() };
+  const cuentas = (await c.query<{ id: string }>(
+    "SELECT cliente_id AS id FROM acceso_cuenta WHERE usuario_id = $1 UNION SELECT id FROM cliente WHERE account_manager_id = $1", [yo.id],
+  )).rows.map((r) => r.id);
+  const marcas = new Set((await c.query<{ id: string }>("SELECT cliente_id AS id FROM acceso_marca WHERE usuario_id = $1", [yo.id])).rows.map((r) => r.id));
+  const todas = (await c.query<{ id: string }>("SELECT id FROM cliente")).rows.map((r) => r.id);
+  const mios = await proyectosDePersonaDb(c, yo.id);
+  return {
+    ...calcularAlcance(yo, {
+      cuentas: () => cuentas, proyectos: () => mios, proyectosDeCuenta: (x) => proyectos.filter((p) => p.cliente_id === x).map((p) => p.id),
+      todasLasCuentas: () => todas, todosLosProyectos: () => proyectos.map((p) => p.id),
+    }),
+    cliente,
+    marcas,
+  };
+}
 /** Lo que ve la persona (se calcula una vez por solicitud). Las llamadas de n8n ven todo. */
 function alcanceDb(ctx: Ctx) {
   let a = alcances.get(ctx);
   if (!a) {
-    a = (async () => {
-      const proyectos = (await ctx.c.query<{ id: string; cliente_id: string }>("SELECT id, cliente_id FROM servicio_contratado")).rows;
-      const cliente = new Map(proyectos.map((x) => [x.id, x.cliente_id]));
-      if (ctx.esServicio) return { ...ALCANCE_TOTAL, cliente };
-      const yo = await personaAccesoDb(ctx.c, ctx.u.usuarioId);
-      if (!yo) return { nivel: "PROYECTO" as const, todo: false, cuentas: new Set<string>(), proyectos: new Set<string>(), cliente };
-      const cuentas = (await ctx.c.query<{ id: string }>(
-        "SELECT cliente_id AS id FROM acceso_cuenta WHERE usuario_id = $1 UNION SELECT id FROM cliente WHERE account_manager_id = $1", [yo.id],
-      )).rows.map((r) => r.id);
-      const todas = (await ctx.c.query<{ id: string }>("SELECT id FROM cliente")).rows.map((r) => r.id);
-      const mios = await proyectosDePersonaDb(ctx.c, yo.id);
-      return {
-        ...calcularAlcance(yo, {
-          cuentas: () => cuentas, proyectos: () => mios, proyectosDeCuenta: (c) => proyectos.filter((x) => x.cliente_id === c).map((x) => x.id),
-          todasLasCuentas: () => todas, todosLosProyectos: () => proyectos.map((x) => x.id),
-        }),
-        cliente,
-      };
-    })();
+    a = ctx.esServicio
+      ? ctx.c.query<{ id: string; cliente_id: string }>("SELECT id, cliente_id FROM servicio_contratado").then((r) => ({ ...ALCANCE_TOTAL, cliente: new Map(r.rows.map((x) => [x.id, x.cliente_id])), marcas: new Set<string>() }))
+      : personaAccesoDb(ctx.c, ctx.u.usuarioId).then((yo) => alcanceDePersonaDb(ctx.c, yo));
     alcances.set(ctx, a);
   }
   return a;
@@ -195,7 +202,7 @@ async function veClienteDb(ctx: Ctx, clienteId: string, completo = false) {
   const a = await alcanceDb(ctx);
   if (veCuenta(a, clienteId)) return true;
   if (completo) return false;
-  return [...a.proyectos].some((x) => a.cliente.get(x) === clienteId) || (await tablerosPorClienteDb(ctx)).has(clienteId);
+  return a.marcas.has(clienteId) || [...a.proyectos].some((x) => a.cliente.get(x) === clienteId) || (await tablerosPorClienteDb(ctx)).has(clienteId);
 }
 const tablerosPorCliente = new WeakMap<Ctx, Promise<Map<string, S<"TableroEmpresa">[]>>>();
 /**
@@ -4690,6 +4697,214 @@ ruta("DELETE", "/clientes/:id/accesos/:usuario", async (ctx, p) => {
   if (!u) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa persona no tiene acceso asignado a la cuenta");
   if (ctx.esServicio || !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo el ADMIN o el lead del área de esa persona le puede quitar el acceso");
   await ctx.c.query("DELETE FROM acceso_cuenta WHERE cliente_id = $1 AND usuario_id = $2", [p.id, u.id]);
+  return null;
+});
+
+// ───────────────────────────────────────────── pedir acceso (24 nov; src/dominio/solicitudes-acceso.ts)
+
+interface FilaPedidoAcceso {
+  id: string; usuario_id: string; persona_nombre: string; persona_area: Area | null; tipo: TipoSolicitud; cliente_id: string | null; cliente_nombre: string | null;
+  tablero_id: string | null; tablero_nombre: string | null; rol: RolSolicitud; nota: string | null; estado: EstadoSolicitud; motivo: string | null;
+  resuelta_por_nombre: string | null; resuelta_en: unknown; creado_en: unknown;
+}
+const SELECT_PEDIDO_ACCESO = `SELECT s.id, s.usuario_id, u.nombre AS persona_nombre, u.area::text AS persona_area, s.tipo, s.cliente_id, c.nombre AS cliente_nombre,
+  s.tablero_id, s.tablero_nombre, s.rol, s.nota, s.estado, s.motivo, r.nombre AS resuelta_por_nombre, s.resuelta_en, s.creado_en
+  FROM solicitud_acceso s JOIN usuario u ON u.id = s.usuario_id LEFT JOIN cliente c ON c.id = s.cliente_id LEFT JOIN usuario r ON r.id = s.resuelta_por`;
+const pedidoAccesoVista = (f: FilaPedidoAcceso): S<"SolicitudAcceso"> => ({
+  id: f.id, persona: { id: f.usuario_id, nombre: f.persona_nombre, area: f.persona_area }, tipo: f.tipo,
+  clienteId: f.cliente_id, tableroId: f.tablero_id, nombre: f.cliente_nombre ?? f.tablero_nombre ?? "",
+  rol: f.rol, nota: f.nota, estado: f.estado, motivo: f.motivo, resueltaPor: f.resuelta_por_nombre, resueltaEn: iso(f.resuelta_en), creadoEn: iso(f.creado_en)!,
+});
+const SIN_SOLICITUD = () => new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese pedido");
+
+/** Quién es alguien en InooWork (su ficha), para ver sus tableros. En pruebas, el set de demo. */
+async function yoTableroDe(ctx: Ctx, usuarioId: string, esAdmin: boolean): Promise<Yo> {
+  if (usuarioId === ctx.u.usuarioId) return { ...(await yoTablero(ctx)), esAdmin };
+  const r = (await ctx.c.query<{ inoowork_empleado_id: string | null; email: string; nombre: string }>("SELECT inoowork_empleado_id, email::text AS email, nombre FROM usuario WHERE id = $1", [usuarioId])).rows[0];
+  if (ctx.u.esPrueba) return { empleadoId: EMPLEADO_DE_PRUEBA[r?.email.toLowerCase() ?? ""] ?? null, esAdmin, prueba: true, usuarioId, nombre: r?.nombre };
+  return { empleadoId: r?.inoowork_empleado_id ?? null, esAdmin, usuarioId, nombre: r?.nombre };
+}
+
+/** Lo que ve una persona del equipo y por qué: sus marcas, sus tableros y sus pedidos. */
+async function accesosDePersonaDb(ctx: Ctx, usuarioId: string): Promise<S<"AccesosPersona">> {
+  const yo = await personaAccesoDb(ctx.c, usuarioId);
+  if (!yo || yo.tipo !== "EQUIPO") throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  const persona = (await ctx.c.query<{ nombre: string }>("SELECT nombre FROM usuario WHERE id = $1", [usuarioId])).rows[0];
+  const a = await alcanceDePersonaDb(ctx.c, yo);
+  const yoT = await yoTableroDe(ctx, usuarioId, a.nivel === "ADMIN");
+  const clientes = (await ctx.c.query<{ id: string; nombre: string; am: string | null }>("SELECT id, nombre, account_manager_id AS am FROM cliente ORDER BY nombre")).rows;
+  let tableros: Awaited<ReturnType<typeof TABLEROS.dePersona>> = [];
+  let inooworkResponde = true;
+  try {
+    tableros = await TABLEROS.dePersona(yoT);
+  } catch {
+    inooworkResponde = false;
+  }
+  const deTableros = agruparTablerosPorCliente(tableros.filter((t) => t.cliente).map((t) => ({ ...t, cliente: t.cliente! })), clientes);
+  const marcas = clientes.flatMap((c) => {
+    const motivo = motivoMarca({
+      todo: a.todo, am: c.am === usuarioId && a.cuentas.has(c.id), cuenta: a.cuentas.has(c.id), marca: a.marcas.has(c.id),
+      proyecto: [...a.proyectos].some((x) => a.cliente.get(x) === c.id), tablero: deTableros.has(c.id),
+    });
+    return motivo ? [{ clienteId: c.id, nombre: c.nombre, motivo, puedeQuitar: motivo === "MARCA" || (motivo === "CUENTA" && c.am !== usuarioId) }] : [];
+  });
+  const solicitudes = (await ctx.c.query<FilaPedidoAcceso>(`${SELECT_PEDIDO_ACCESO} WHERE s.usuario_id = $1 ORDER BY s.creado_en DESC, s.id LIMIT 50`, [usuarioId])).rows.map(pedidoAccesoVista);
+  return {
+    persona: { id: usuarioId, nombre: persona.nombre, area: yo.area, nivel: a.nivel },
+    puedePedir: a.nivel !== "ADMIN", sinFichaInooWork: !yoT.empleadoId, inooworkResponde,
+    marcas, tableros, solicitudes,
+  };
+}
+
+/** Quien lo puede aprobar: con el permiso de asignar accesos o lead del área de la persona (las reglas de siempre). */
+async function aprobadoresDb(ctx: Ctx, objetivo: { area: Area | null }) {
+  const filas = (await ctx.c.query<{ id: string; rol_equipo: string | null; area: Area | null; nivel_acceso: Nivel | null; es_lead: boolean; es_super_usuario: boolean; areas_lideradas: Area[]; permisos_personalizados: PermisosPersonalizados }>(
+    `SELECT id, rol_equipo, area::text AS area, nivel_acceso::text AS nivel_acceso, es_lead, es_super_usuario, areas_lideradas::text[] AS areas_lideradas, permisos_personalizados
+     FROM usuario WHERE tipo = 'EQUIPO' AND activo AND NOT coalesce(es_prueba, false)`,
+  )).rows;
+  return filas.filter((u) => puedeAsignar({ id: u.id, rolEquipo: u.rol_equipo, area: u.area, nivelAcceso: u.nivel_acceso, esLead: u.es_lead, esSuperUsuario: u.es_super_usuario, areasLideradas: u.areas_lideradas, permisosPersonalizados: u.permisos_personalizados }, { ...objetivo, tipo: "EQUIPO" })).map((u) => u.id);
+}
+
+ruta("GET", "/me/accesos", async (ctx) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Es de una persona del equipo");
+  return accesosDePersonaDb(ctx, ctx.u.usuarioId);
+});
+
+ruta("GET", "/me/accesos/catalogo", async (ctx) => {
+  soloEquipo(ctx);
+  const marcas = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente WHERE estado::text <> 'BAJA' ORDER BY nombre")).rows;
+  let tableros: Awaited<ReturnType<typeof TABLEROS.catalogo>> = [];
+  let inooworkResponde = true;
+  try {
+    tableros = await TABLEROS.catalogo(!!ctx.u.esPrueba);
+  } catch {
+    inooworkResponde = false;
+  }
+  return { marcas, tableros, inooworkResponde };
+});
+
+ruta("POST", "/me/solicitudes-acceso", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio) throw new ErrorApi(403, "SIN_PERMISO", "Es de una persona del equipo");
+  const l = leerSolicitud(await cuerpo());
+  if (!l.ok) validacion(l.errores);
+  const { pedidos, rol, nota } = (l as { valor: CuerpoSolicitud }).valor;
+  const mios = await accesosDePersonaDb(ctx, ctx.u.usuarioId);
+  if (!mios.puedePedir) throw new ErrorApi(409, "YA_VE_TODO", "Con tu nivel ya ves todas las marcas y tableros");
+  const errores: { campo: string; mensaje: string }[] = [];
+  const nombres = new Map((await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente WHERE id = ANY($1::uuid[])", [pedidos.flatMap((x) => (x.tipo === "MARCA" ? [x.clienteId] : []))])).rows.map((r) => [r.id, r.nombre]));
+  const conTableros = pedidos.some((x) => x.tipo === "TABLERO");
+  if (conTableros && mios.sinFichaInooWork) throw new ErrorApi(409, "SIN_FICHA_INOOWORK", "Necesitas tu ficha de InooWork para entrar a los tableros: pídesela a RR. HH.");
+  const catalogo = conTableros ? new Map((await TABLEROS.catalogo(!!ctx.u.esPrueba)).map((t) => [t.id, t])) : new Map<string, never>();
+  pedidos.forEach((x, i) => {
+    if (x.tipo === "MARCA") {
+      if (!nombres.has(x.clienteId)) errores.push({ campo: `pedidos[${i}]`, mensaje: "Esa marca no existe" });
+      else if (mios.marcas.some((m) => m.clienteId === x.clienteId)) errores.push({ campo: `pedidos[${i}]`, mensaje: `Ya ves ${nombres.get(x.clienteId)}` });
+    } else if (!catalogo.has(x.tableroId)) errores.push({ campo: `pedidos[${i}]`, mensaje: "Ese tablero no existe o es privado" });
+    else if (mios.tableros.some((t) => t.id === x.tableroId)) errores.push({ campo: `pedidos[${i}]`, mensaje: `Ya estás en ${catalogo.get(x.tableroId)!.nombre}` });
+  });
+  validacion(errores);
+  const ids: string[] = [];
+  for (const x of pedidos) {
+    const ya = (await ctx.c.query<{ id: string }>(
+      `SELECT id FROM solicitud_acceso WHERE usuario_id = $1 AND estado = 'PENDIENTE' AND ${x.tipo === "MARCA" ? "cliente_id = $2::uuid" : "tablero_id = $2"}`, [ctx.u.usuarioId, x.tipo === "MARCA" ? x.clienteId : x.tableroId],
+    )).rows[0];
+    if (ya) { ids.push(ya.id); continue; }
+    const t = x.tipo === "TABLERO" ? catalogo.get(x.tableroId)! : null;
+    ids.push((await ctx.c.query<{ id: string }>(
+      "INSERT INTO solicitud_acceso (usuario_id, tipo, cliente_id, tablero_id, tablero_nombre, rol, nota) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+      [ctx.u.usuarioId, x.tipo, x.tipo === "MARCA" ? x.clienteId : null, t?.id ?? null, t?.nombre.slice(0, 200) ?? null, rol, nota],
+    )).rows[0].id);
+  }
+  const datos = (await ctx.c.query<FilaPedidoAcceso>(`${SELECT_PEDIDO_ACCESO} WHERE s.id = ANY($1::uuid[])`, [ids])).rows.map(pedidoAccesoVista).sort((x, y) => ids.indexOf(x.id) - ids.indexOf(y.id));
+  const lista = datos.map((d) => d.nombre).join(", ");
+  for (const destino of await aprobadoresDb(ctx, { area: mios.persona.area })) {
+    if (destino === ctx.u.usuarioId) continue;
+    await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)", [
+      destino, ctx.u.usuarioId, `${TITULO_SOLICITUD_NUEVA}: ${mios.persona.nombre}`.slice(0, 200), `Pide ${lista}`.slice(0, 1000), "/equipo/accesos",
+    ]);
+  }
+  return { __status: 201, datos };
+});
+
+ruta("DELETE", "/me/solicitudes-acceso/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  if (!esUuid(p.id)) throw SIN_SOLICITUD();
+  const r = await ctx.c.query("DELETE FROM solicitud_acceso WHERE id = $1 AND usuario_id = $2 AND estado = 'PENDIENTE' RETURNING id", [p.id, ctx.u.usuarioId]);
+  if (!r.rows.length) throw SIN_SOLICITUD();
+  return null;
+});
+
+/** La bandeja de quien asigna: los pedidos de la gente que puede asignar (todo el equipo o su área). */
+ruta("GET", "/panel/solicitudes-acceso", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const actor = yoDb(ctx);
+  if (!ctx.esServicio && !actor.permisos.includes("ASIGNAR_ACCESOS") && !areasQueLidera(actor).length) throw new ErrorApi(403, "SIN_PERMISO", "Los pedidos de acceso los ve quien asigna accesos o un lead");
+  const todas = q.get("estado") === "TODAS";
+  const filas = (await ctx.c.query<FilaPedidoAcceso>(`${SELECT_PEDIDO_ACCESO} ${todas ? "" : "WHERE s.estado = 'PENDIENTE'"} ORDER BY s.creado_en DESC, s.id LIMIT 300`)).rows;
+  return { datos: filas.filter((f) => ctx.esServicio || puedeAsignar(actor, { area: f.persona_area, tipo: "EQUIPO" })).map(pedidoAccesoVista) };
+});
+
+async function solicitudParaResolver(ctx: Ctx, id: string) {
+  soloEquipo(ctx);
+  const f = esUuid(id) ? (await ctx.c.query<FilaPedidoAcceso>(`${SELECT_PEDIDO_ACCESO} WHERE s.id = $1`, [id])).rows[0] : undefined;
+  if (!f) throw SIN_SOLICITUD();
+  if (ctx.esServicio || !puedeAsignar(yoDb(ctx), { area: f.persona_area, tipo: "EQUIPO" })) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien asigna accesos o el lead del área de esa persona lo resuelve");
+  if (f.estado !== "PENDIENTE") throw new ErrorApi(409, "YA_RESUELTA", f.estado === "APROBADA" ? "Ese pedido ya se aprobó" : "Ese pedido ya se rechazó");
+  return f;
+}
+async function cerrarSolicitud(ctx: Ctx, f: FilaPedidoAcceso, estado: "APROBADA" | "RECHAZADA", motivo: string | null) {
+  await ctx.c.query("UPDATE solicitud_acceso SET estado = $2, motivo = $3, resuelta_por = $4, resuelta_en = now() WHERE id = $1", [f.id, estado, motivo, ctx.u.usuarioId]);
+  const nombre = f.cliente_nombre ?? f.tablero_nombre ?? "";
+  await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)", [
+    f.usuario_id, ctx.u.usuarioId, `${TITULO_SOLICITUD_RESUELTA}: ${estado === "APROBADA" ? "aprobado" : "rechazado"}`,
+    (estado === "APROBADA" ? `Ya ves ${nombre}.` : `No se aprobó ${nombre}.${motivo ? ` ${motivo}` : ""}`).slice(0, 1000), "/equipo/mis-accesos",
+  ]);
+  return pedidoAccesoVista((await ctx.c.query<FilaPedidoAcceso>(`${SELECT_PEDIDO_ACCESO} WHERE s.id = $1`, [f.id])).rows[0]);
+}
+
+ruta("POST", "/panel/solicitudes-acceso/:id/aprobar", async (ctx, p) => {
+  const f = await solicitudParaResolver(ctx, p.id);
+  const yo = await personaAccesoDb(ctx.c, f.usuario_id);
+  const nivel = yo ? nivelDe(yo) : "PROYECTO";
+  if (f.tipo === "MARCA") {
+    if (nivel === "CUENTA") await ctx.c.query("INSERT INTO acceso_cuenta (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [f.usuario_id, f.cliente_id, ctx.u.usuarioId]);
+    else if (nivel === "PROYECTO") await ctx.c.query("INSERT INTO acceso_marca (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [f.usuario_id, f.cliente_id, ctx.u.usuarioId]);
+  } else {
+    const suyo = await yoTableroDe(ctx, f.usuario_id, false);
+    if (!suyo.empleadoId) throw new ErrorApi(409, "SIN_FICHA_INOOWORK", `${f.persona_nombre} no tiene ficha en InooWork: sin ella no entra a los tableros`);
+    // Quien aprueba ya tiene el derecho de asignar a esta persona: entra al tablero como lo haría un admin.
+    await TABLEROS.agregarMiembros(f.tablero_id!, { empleadoId: null, esAdmin: true, prueba: !!ctx.u.esPrueba, usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre }, [{ id: suyo.empleadoId, nombre: f.persona_nombre }], "EDITOR");
+  }
+  return cerrarSolicitud(ctx, f, "APROBADA", null);
+});
+
+ruta("POST", "/panel/solicitudes-acceso/:id/rechazar", async (ctx, p, _q, cuerpo) => {
+  const f = await solicitudParaResolver(ctx, p.id);
+  const b = ((await cuerpo()) ?? {}) as { motivo?: unknown };
+  if (b.motivo !== undefined && b.motivo !== null && (typeof b.motivo !== "string" || b.motivo.length > 500)) validacion([{ campo: "motivo", mensaje: "Hasta 500 caracteres" }]);
+  return cerrarSolicitud(ctx, f, "RECHAZADA", typeof b.motivo === "string" ? b.motivo.trim() || null : null);
+});
+
+/** Qué ve una persona y por qué (para quien la puede asignar). */
+ruta("GET", "/panel/personas/:id/accesos", async (ctx, p) => {
+  soloEquipo(ctx);
+  const u = esUuid(p.id) ? await personaAccesoDb(ctx.c, p.id) : undefined;
+  if (!u || u.tipo !== "EQUIPO") throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  if (!ctx.esServicio && u.id !== ctx.u.usuarioId && !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Lo ve quien asigna accesos o el lead de su área");
+  return accesosDePersonaDb(ctx, p.id);
+});
+
+/** Quitar una marca o cuenta asignada a mano (no la del AM ni las que vienen de proyectos o tableros). */
+ruta("DELETE", "/panel/personas/:id/marcas/:cliente", async (ctx, p) => {
+  soloEquipo(ctx);
+  const u = esUuid(p.id) && esUuid(p.cliente) ? await personaAccesoDb(ctx.c, p.id) : undefined;
+  if (!u || u.tipo !== "EQUIPO") throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos a esa persona del equipo");
+  if (ctx.esServicio || !puedeAsignar(yoDb(ctx), u)) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien asigna accesos o el lead de su área");
+  const a = await ctx.c.query("DELETE FROM acceso_marca WHERE usuario_id = $1 AND cliente_id = $2 RETURNING usuario_id", [p.id, p.cliente]);
+  const b = await ctx.c.query("DELETE FROM acceso_cuenta WHERE usuario_id = $1 AND cliente_id = $2 RETURNING usuario_id", [p.id, p.cliente]);
+  if (!a.rows.length && !b.rows.length) throw new ErrorApi(404, "NO_ENCONTRADO", "Esa marca no está asignada a mano a esta persona");
   return null;
 });
 
