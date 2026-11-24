@@ -591,9 +591,13 @@ function TarjetaMarca({ clienteId }: { clienteId: string }) {
       {m.descripcion && <p className="texto-sm texto-muted" style={{ lineHeight: 1.6 }}>{m.descripcion}</p>}
       {m.publico && <p className="texto-xs texto-muted"><span className="negrita">Público: </span>{m.publico}</p>}
       {m.campanaActual && <p className="texto-xs">{m.campanaActual}</p>}
-      {!m.mensajeCentral && !m.descripcion && !m.publico && <p className="texto-xs texto-muted">Su perfil de marca todavía no está cargado.</p>}
+      {!m.mensajeCentral && !m.descripcion && !m.publico && <p className="texto-xs texto-muted">El perfil de la marca (mensaje, tono y público) todavía no está cargado: pídeselo a quien lleva la cuenta.</p>}
       <div className="pila" style={{ gap: 6, marginTop: 6 }}>
-        <span className="texto-xs negrita texto-muted">TUS PROYECTOS</span>
+        <span className="texto-xs negrita texto-muted">TUS TABLEROS Y PROYECTOS</span>
+        {/* 24 nov: sin nada, que diga qué hacer en vez de quedar en blanco. */}
+        {!(m.proyectos ?? []).length && !(m.tableros ?? []).length && (
+          <p className="texto-xs texto-muted">Todavía no estás en ningún tablero de esta marca. <Enlace a="/equipo/mis-accesos" className="enlace">Pídelo en Mis accesos</Enlace>.</p>
+        )}
         {(m.proyectos ?? []).map((x) => (
           <Enlace key={x.servicioContratadoId} a={`/equipo/proyectos/${x.servicioContratadoId}`} className="enlace texto-sm">{x.titulo}</Enlace>
         ))}

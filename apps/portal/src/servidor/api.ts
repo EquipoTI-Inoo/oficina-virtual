@@ -4864,6 +4864,28 @@ async function cerrarSolicitud(ctx: Ctx, f: FilaPedidoAcceso, estado: "APROBADA"
   return pedidoAccesoVista((await ctx.c.query<FilaPedidoAcceso>(`${SELECT_PEDIDO_ACCESO} WHERE s.id = $1`, [f.id])).rows[0]);
 }
 
+/**
+ * 24 nov (Arleth: «en mis marcas me aparecen, pero no hay contenido»): quien recibe una marca entra también a los
+ * tableros abiertos de ese cliente (no los privados), como editor; donde ya está, no se toca su permiso.
+ * Sin ficha de InooWork no entra a ninguno. Devuelve los nombres de los tableros a los que se sumó.
+ */
+export async function sumarATablerosDeMarca(c: Consultor, usuarioId: string, clienteId: string, o: { prueba?: boolean; quien?: { usuarioId: string; nombre: string }; simular?: boolean } = {}): Promise<string[]> {
+  const u = (await c.query<{ emp: string | null; nombre: string; email: string }>("SELECT inoowork_empleado_id AS emp, nombre, email::text AS email FROM usuario WHERE id = $1 AND activo", [usuarioId])).rows[0];
+  const cli = (await c.query<{ nombre: string }>("SELECT nombre FROM cliente WHERE id = $1", [clienteId])).rows[0];
+  const emp = o.prueba ? EMPLEADO_DE_PRUEBA[u?.email.toLowerCase() ?? ""] ?? null : u?.emp ?? null;
+  if (!u || !cli || !emp || esClienteInterno(cli.nombre)) return [];
+  const clave = claveCliente(cli.nombre);
+  const ya = new Set((await TABLEROS.dePersona({ empleadoId: emp, esAdmin: false, prueba: o.prueba })).map((t) => t.id));
+  const deLaMarca = (await TABLEROS.catalogo(o.prueba)).filter((t) => t.cliente && claveCliente(t.cliente) === clave && !ya.has(t.id));
+  const admin: Yo = { empleadoId: null, esAdmin: true, prueba: o.prueba, usuarioId: o.quien?.usuarioId, nombre: o.quien?.nombre };
+  const hechos: string[] = [];
+  for (const t of deLaMarca) {
+    if (!o.simular) await TABLEROS.agregarMiembros(t.id, admin, [{ id: emp, nombre: u.nombre }], "EDITOR");
+    hechos.push(t.nombre);
+  }
+  return hechos;
+}
+
 ruta("POST", "/panel/solicitudes-acceso/:id/aprobar", async (ctx, p) => {
   const f = await solicitudParaResolver(ctx, p.id);
   const yo = await personaAccesoDb(ctx.c, f.usuario_id);
@@ -4871,6 +4893,7 @@ ruta("POST", "/panel/solicitudes-acceso/:id/aprobar", async (ctx, p) => {
   if (f.tipo === "MARCA") {
     if (nivel === "CUENTA") await ctx.c.query("INSERT INTO acceso_cuenta (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [f.usuario_id, f.cliente_id, ctx.u.usuarioId]);
     else if (nivel === "PROYECTO") await ctx.c.query("INSERT INTO acceso_marca (usuario_id, cliente_id, asignado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [f.usuario_id, f.cliente_id, ctx.u.usuarioId]);
+    if (nivel !== "ADMIN") await sumarATablerosDeMarca(ctx.c, f.usuario_id, f.cliente_id!, { prueba: !!ctx.u.esPrueba, quien: { usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre } });
   } else {
     const suyo = await yoTableroDe(ctx, f.usuario_id, false);
     if (!suyo.empleadoId) throw new ErrorApi(409, "SIN_FICHA_INOOWORK", `${f.persona_nombre} no tiene ficha en InooWork: sin ella no entra a los tableros`);

@@ -34,6 +34,9 @@ export function pruebasSolicitudesAcceso(nombre: string, manejar: Manejador, rei
       assert.equal((await llamar("POST", "/me/solicitudes-acceso", CAMILA, { pedidos: [] })).status, 422);
       assert.equal((await llamar("POST", "/me/solicitudes-acceso", CAMILA, { pedidos: [{ tipo: "MARCA", clienteId: NATIVA }], rol: "JEFA" })).status, 422);
 
+      // Un tablero de Nativa donde Camila no está: al aprobarle la marca entra también ahí.
+      const deNativa = (await llamar("POST", "/tableros", ADMIN, { nombre: "Contenido de Nativa", cliente: "Nativa Café" })).json;
+      assert.ok(deNativa.id, "se creó el tablero de Nativa");
       const pedido = await llamar("POST", "/me/solicitudes-acceso", CAMILA, { pedidos: [{ tipo: "MARCA", clienteId: NATIVA }, { tipo: "TABLERO", tableroId: "PROJ-OPS01" }], rol: "RESPONSABLE", nota: "Llevo el diseño de Nativa" });
       assert.equal(pedido.status, 201);
       assert.deepEqual(pedido.json.datos.map((s: any) => [s.tipo, s.nombre, s.estado, s.rol]), [["MARCA", "Nativa Café", "PENDIENTE", "RESPONSABLE"], ["TABLERO", "Operaciones y procesos", "PENDIENTE", "RESPONSABLE"]]);
@@ -55,6 +58,7 @@ export function pruebasSolicitudesAcceso(nombre: string, manejar: Manejador, rei
       assert.equal((await llamar("GET", `/clientes/${NATIVA}/marca`, CAMILA)).status, 200);
       assert.equal((await llamar("GET", `/clientes/${NATIVA}`, CAMILA)).status, 404, "la ficha comercial sigue cerrada");
       assert.ok((await llamar("GET", "/tableros", CAMILA)).json.datos.some((t: any) => t.id === "PROJ-OPS01"));
+      assert.ok((await llamar("GET", "/tableros", CAMILA)).json.datos.some((t: any) => t.id === deNativa.id), "con la marca entra a sus tableros");
       const despues = (await llamar("GET", "/me/accesos", CAMILA)).json;
       assert.deepEqual(despues.marcas.find((m: any) => m.clienteId === NATIVA), { clienteId: NATIVA, nombre: "Nativa Café", motivo: "MARCA", puedeQuitar: true });
       assert.deepEqual(despues.solicitudes.map((s: any) => s.estado), ["APROBADA", "APROBADA"]);
@@ -64,7 +68,8 @@ export function pruebasSolicitudesAcceso(nombre: string, manejar: Manejador, rei
       assert.equal((await llamar("GET", `/panel/personas/${CAMILA_ID}/accesos`, ADMIN)).json.marcas.length, 2);
       assert.equal((await llamar("DELETE", `/panel/personas/${CAMILA_ID}/marcas/${CASA_OLIVA}`, ADMIN)).status, 404, "la de sus proyectos no se quita desde aquí");
       assert.equal((await llamar("DELETE", `/panel/personas/${CAMILA_ID}/marcas/${NATIVA}`, ADMIN)).status, 204);
-      assert.equal((await llamar("GET", `/clientes/${NATIVA}/marca`, CAMILA)).status, 404);
+      const queda = (await llamar("GET", `/panel/personas/${CAMILA_ID}/accesos`, ADMIN)).json.marcas.find((m: any) => m.clienteId === NATIVA);
+      assert.equal(queda?.motivo, "TABLERO", "la sigue viendo por el tablero de Nativa, ya no por la marca asignada");
     });
 
     test("rechazar con motivo, cancelar lo propio y el ADMIN no pide nada", async () => {

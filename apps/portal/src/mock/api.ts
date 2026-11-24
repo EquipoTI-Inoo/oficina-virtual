@@ -5812,6 +5812,14 @@ ruta("POST", "/panel/solicitudes-acceso/:id/aprobar", async (ctx, p) => {
   if (s.tipo === "MARCA") {
     const lista = nivel === "CUENTA" ? E.accesosCuenta : nivel === "PROYECTO" ? E.accesosMarca : null;
     if (lista && !lista.some((x) => x.usuarioId === u.id && x.clienteId === s.clienteId)) lista.push({ usuarioId: u.id, clienteId: s.clienteId!, asignadoPorId: ctx.usuario.id });
+    // 24 nov: también entra a los tableros abiertos de esa marca (igual que el backend real).
+    const cli = E.clientes.find((c) => c.id === s.clienteId);
+    if (nivel !== "ADMIN" && u.inooworkEmpleadoId && cli && !esClienteInterno(cli.nombre)) {
+      const ya = new Set((await TABLEROS.dePersona(yoTableroDeMock(u))).map((t) => t.id));
+      for (const t of (await TABLEROS.catalogo()).filter((t) => t.cliente && claveCliente(t.cliente) === claveCliente(cli.nombre) && !ya.has(t.id))) {
+        await TABLEROS.agregarMiembros(t.id, { empleadoId: null, esAdmin: true, usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre }, [{ id: u.inooworkEmpleadoId, nombre: u.nombre }], "EDITOR");
+      }
+    }
   } else {
     if (!u.inooworkEmpleadoId) throw new ErrorApi(409, "SIN_FICHA_INOOWORK", `${u.nombre} no tiene ficha en InooWork: sin ella no entra a los tableros`);
     await TABLEROS.agregarMiembros(s.tableroId!, { empleadoId: null, esAdmin: true, usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre }, [{ id: u.inooworkEmpleadoId, nombre: u.nombre }], "EDITOR");
