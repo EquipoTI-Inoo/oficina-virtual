@@ -6,7 +6,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { uid } from "../../src/mock/datos";
 import { usarFetchTableros } from "../../src/servidor/tableros";
-import { columnaDeTablero } from "../../src/dominio/tableros";
+import { columnaDeTablero, itemVencido } from "../../src/dominio/tableros";
+
+/** 24 nov: los vencidos del tablero de Marketing de demo dependen de la fecha de hoy (sus 4 ítems abiertos vencen en oct y nov de 2026). */
+const VENCIDOS_MKT = () => ["2026-10-08", "2026-10-15", "2026-10-03", "2026-11-20"].filter((dueDate) => itemVencido({ status: "En Progreso", dueDate })).length;
 import { CASA_OLIVA, crearLlamar, DIEGO, VALERIA, type Manejador } from "./flujo-piezas";
 
 const ADMIN = `demo.${uid(1, 4)}`;
@@ -399,7 +402,7 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json.cliente, "Inoo");
       const deAdmin = (await llamar("GET", "/tableros", ADMIN)).json.datos.find((x: any) => x.id === "PROJ-DIS01");
       assert.deepEqual([deAdmin.cliente, deAdmin.esMio], ["Casa Oliva", false], "el ADMIN lo ve sin ser miembro");
-      assert.deepEqual(lista.datos.find((x: any) => x.id === "PROJ-MKT01").items, { total: 5, completados: 1, vencidos: 3 });
+      assert.deepEqual(lista.datos.find((x: any) => x.id === "PROJ-MKT01").items, { total: 5, completados: 1, vencidos: VENCIDOS_MKT() });
 
       const t = (await llamar("GET", "/tableros/PROJ-MKT01", DIEGO)).json;
       assert.deepEqual(t.grupos.map((g: any) => g.nombre), ["Octubre", "Noviembre"]);
