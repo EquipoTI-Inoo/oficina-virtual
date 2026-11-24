@@ -10,7 +10,7 @@
  * - No reemplaza al backend: no hay base de datos, Cognito, S3 ni n8n.
  */
 import { OPCIONES_ESTADO_ETAPA, validarColumnaEtapa, validarValorEtapa } from "../dominio/columnas-etapa";
-import { moduloDeAviso, MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, type ModuloNovedad } from "../dominio/novedades";
+import { moduloDeAviso, MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, TITULO_PROYECTO_NUEVO, type ModuloNovedad } from "../dominio/novedades";
 import { PROYECTOS_DEMO } from "./inoowork-demo";
 import { validarAccesoBoveda, validarBovedaGuardada } from "../dominio/boveda-cripto";
 import { slugDe as slugSkill, textoMisHerramientas, validarSkillPropia, validarTokenConector, type ArchivoTexto, type AuthConector } from "../dominio/herramientas-persona";
@@ -1779,16 +1779,26 @@ function asegurarClienteMock(ctx: Ctx, nombre: unknown): unknown {
   return n;
 }
 
+/** 24 nov: a quien suman a un proyecto le llega el aviso en «Mi panel» (igual que el backend real). */
+function avisarProyectoNuevoMock(ctx: Ctx, usuarioIds: string[], t: { id?: string; nombre?: string }) {
+  if (!t?.id || ctx.esServicio) return;
+  for (const destino of new Set(usuarioIds.filter((x) => x !== ctx.usuario.id))) {
+    E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId: destino, titulo: `${TITULO_PROYECTO_NUEVO}: ${t.nombre ?? "sin nombre"}`, cuerpo: `${ctx.usuario.nombre} te agregó`, enlace: `/equipo/proyectos/tableros/${t.id}`, creadoEn: new Date().toISOString() });
+  }
+}
+
 ruta("POST", "/tableros", async (ctx, _p, _q, req) => {
   soloEquipo(ctx);
   const u = ctx.usuario;
   const b = await cuerpo<Record<string, unknown>>(req);
   b.cliente = asegurarClienteMock(ctx, b.cliente);
-  return TABLEROS.crear(yoTablero(ctx), b, {
+  const t = await TABLEROS.crear(yoTablero(ctx), b, {
     lider: u.inooworkEmpleadoId ? { id: u.inooworkEmpleadoId, nombre: u.nombre } : null,
     departamento: departamentoDe({ area: u.area ?? null, rolEquipo: u.rolEquipo ?? null }),
     miembros: async (ids) => equipoInooWork().filter((x) => ids.includes(x.id)).map((x) => ({ id: x.inooworkEmpleadoId!, nombre: x.nombre })),
   });
+  avisarProyectoNuevoMock(ctx, Array.isArray(b.miembros) ? (b.miembros as unknown[]).filter((x): x is string => typeof x === "string") : [], t as { id?: string; nombre?: string });
+  return t;
 });
 ruta("GET", "/tableros/:id", async (ctx, p) => {
   equipoOInvitado(ctx);
@@ -2016,7 +2026,11 @@ ruta("POST", "/tableros/:id/miembros", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const b = await cuerpo<{ usuarioIds?: unknown; permiso?: unknown }>(req);
   const ids = Array.isArray(b?.usuarioIds) ? b.usuarioIds.filter((x): x is string => typeof x === "string") : [];
-  return TABLEROS.agregarMiembros(p.id, yoTablero(ctx), equipoInooWork().filter((u) => ids.includes(u.id)).map((u) => ({ id: u.inooworkEmpleadoId!, nombre: u.nombre })), b?.permiso ?? "EDITOR");
+  const equipo = equipoInooWork().filter((u) => ids.includes(u.id));
+  const antes = new Set(((await TABLEROS.ver(p.id, yoTablero(ctx))) as { personas?: { id: string }[] }).personas?.map((x) => x.id) ?? []);
+  const t = await TABLEROS.agregarMiembros(p.id, yoTablero(ctx), equipo.map((u) => ({ id: u.inooworkEmpleadoId!, nombre: u.nombre })), b?.permiso ?? "EDITOR");
+  avisarProyectoNuevoMock(ctx, equipo.filter((u) => !antes.has(u.inooworkEmpleadoId!)).map((u) => u.id), t as { id?: string; nombre?: string });
+  return t;
 });
 ruta("PATCH", "/tableros/:id/miembros/:empleado", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
@@ -2178,6 +2192,15 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versione
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
+/** 24 nov: cuántos comentarios tiene cada archivo del tablero (igual que el backend real). */
+ruta("GET", "/tableros/:id/comentarios-archivos", async (ctx, p) => {
+  equipoOInvitado(ctx);
+  await TABLEROS.ver(p.id, yoTablero(ctx));
+  const datos: Record<string, number> = {};
+  for (const c of E.comentariosArchivo) if (c.proyectoId === p.id) datos[c.archivoId] = (datos[c.archivoId] ?? 0) + 1;
+  return { datos };
+});
+
 ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
   equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), await repoParaTablero(ctx, p.id));

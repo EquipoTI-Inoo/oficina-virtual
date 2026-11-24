@@ -9,6 +9,7 @@ import { LuCalendarDays, LuListTodo, LuUsers } from "react-icons/lu";
 import { api, Enlace, fCorta, useConsulta, useNavegacion, type S } from "../base";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, verNovedades } from "../componentes";
+import { TITULO_PROYECTO_NUEVO } from "../dominio/novedades";
 
 const TONO: Record<S<"KpiProyecto">["nivel"], "verde" | "ambar" | "rojo"> = { OK: "verde", ALERTA: "ambar", CRITICO: "rojo" };
 const COLUMNA: Record<S<"ColumnaProyecto">, string> = {
@@ -46,10 +47,12 @@ function ClientesNuevos() {
   }, []);
   if (!lista?.length) return null;
   return (
-    <section className="tarjeta" role="status" style={{ padding: "14px 16px", marginBottom: 16, display: "grid", gap: 8, borderColor: "var(--c-primario)" }} aria-label="Clientes nuevos">
-      <h2 className="tarjeta-titulo fila" style={{ gap: 8, fontSize: "var(--t-md)" }}><LuUsers size={16} /> {lista.length === 1 ? "Nuevo cliente agregado" : `${lista.length} clientes nuevos o asignados`}</h2>
+    <section className="tarjeta" role="status" style={{ padding: "14px 16px", marginBottom: 16, display: "grid", gap: 8, borderColor: "var(--c-primario)" }} aria-label="Clientes y proyectos nuevos">
+      {/* 24 nov: también los proyectos a los que te sumaron. */}
+      <h2 className="tarjeta-titulo fila" style={{ gap: 8, fontSize: "var(--t-md)" }}><LuUsers size={16} /> {lista.length === 1 ? (lista[0].titulo.startsWith(TITULO_PROYECTO_NUEVO) ? "Tienes un proyecto nuevo" : "Tienes un cliente nuevo") : `Tienes ${lista.length} novedades: clientes y proyectos nuevos`}</h2>
       {lista.map((n) => (
-        <p key={n.id} className="texto-sm">
+        <p key={n.id} className="texto-sm fila" style={{ gap: 8, flexWrap: "wrap" }}>
+          <Etiqueta tono="violeta">{n.titulo.startsWith(TITULO_PROYECTO_NUEVO) ? "Proyecto" : "Cliente"}</Etiqueta>
           {n.enlace ? <Enlace a={n.enlace} className="enlace negrita">{n.titulo.replace(/^[^:]*:\s*/, "")}</Enlace> : <strong>{n.titulo}</strong>}
           {n.cuerpo && <span className="texto-muted"> · {n.cuerpo}</span>}
         </p>

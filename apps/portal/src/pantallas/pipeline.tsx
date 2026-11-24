@@ -420,7 +420,7 @@ function TarjetaTablero({ t, marca }: { t: S<"TableroResumen">; marca?: string }
           <LuSquareKanban size={16} />
         </span>
       </span>
-      <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{t.privado && <LuLock size={12} aria-label="Privado" style={{ marginRight: 4, verticalAlign: "-1px" }} />}{t.nombre}</span>
+      <span className="negrita" style={{ fontSize: "var(--t-sm)", lineHeight: 1.35 }}>{t.privado && <LuLock size={12} aria-label="Privado" style={{ marginRight: 4, verticalAlign: "-1px" }} />}{t.nombre}{t.nuevo && <span className="etiqueta-nuevo">Nuevo</span>}</span>
       <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total} completados{t.area ? ` · ${t.area}` : ""}</span>
       {t.etiquetas.length > 0 && <span className="fila" style={{ gap: 4, flexWrap: "wrap" }}>{t.etiquetas.map((x) => <span key={x} className="etiqueta-libre">{x}</span>)}</span>}
       <span className="fila" style={{ gap: 8 }}>

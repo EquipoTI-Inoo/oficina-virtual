@@ -422,7 +422,8 @@ function CausaAtraso({ etapa: e, alGuardar }: { etapa: S<"EtapaProyecto">; alGua
     <span className="causa-atraso">
       {!!e.diasCorridosCliente && (
         <span className="texto-xs texto-muted">
-          Se corrió {e.diasCorridosCliente} {e.diasCorridosCliente === 1 ? "día" : "días"} por el cliente
+          {/* 24 nov: «se corrió 3 días» sonaba mal; ahora es un dato neutro. */}
+          +{e.diasCorridosCliente} {e.diasCorridosCliente === 1 ? "día hábil" : "días hábiles"} esperando al cliente
         </span>
       )}
       <span className="fila" style={{ gap: 6 }}>

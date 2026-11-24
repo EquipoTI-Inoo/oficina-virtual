@@ -323,6 +323,9 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", com, DIEGO, { texto: "x", mencionIds: [uid(1, 1)] })).status, 422, "una clienta no es del equipo");
       await llamar("POST", com, DIEGO, { texto: "@Camila Paredes revisa el logo", mencionIds: [uid(1, 6)] });
       assert.ok((await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.some((n: any) => n.titulo.startsWith("Diego Castro te mencionó en un archivo")));
+      // 24 nov: el tablero sabe cuántos comentarios tiene cada archivo (el globito de la celda).
+      assert.equal((await llamar("GET", `/tableros/${T}/comentarios-archivos`, DIEGO)).json.datos[f.id], 3);
+      assert.equal((await llamar("GET", `/tableros/${T}/comentarios-archivos`, VALERIA)).status, 403);
       // 16 nov (tanda 5): comentarios en un punto; en un texto no hay punto que marcar.
       assert.deepEqual((await llamar("POST", com, DIEGO, { texto: "aquí", ancla: { x: 0.5, y: 0.5 } })).json.errores.map((e: any) => e.campo), ["ancla"]);
       const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";

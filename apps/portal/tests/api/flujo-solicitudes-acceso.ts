@@ -72,6 +72,17 @@ export function pruebasSolicitudesAcceso(nombre: string, manejar: Manejador, rei
       assert.equal(queda?.motivo, "TABLERO", "la sigue viendo por el tablero de Nativa, ya no por la marca asignada");
     });
 
+    test("24 nov: a quien suman a un proyecto le llega el aviso en Mi panel, y el proyecto sale como nuevo", async () => {
+      await reiniciar();
+      const t = (await llamar("POST", "/tableros", ADMIN, { nombre: "Campaña de verano", cliente: "Nativa Café", miembros: [CAMILA_ID] })).json;
+      const nov = (await llamar("GET", "/me/novedades", CAMILA)).json;
+      assert.ok(nov.panel >= 1, "cuenta en Mi panel");
+      assert.ok(nov.clientes.some((n: any) => n.titulo === "Te sumaron al proyecto: Campaña de verano" && n.enlace === `/equipo/proyectos/tableros/${t.id}`));
+      assert.equal((await llamar("GET", "/me/novedades", ADMIN)).json.clientes.some((n: any) => n.titulo.startsWith("Te sumaron al proyecto")), false, "a quien lo crea no");
+      assert.equal((await llamar("GET", "/tableros", CAMILA)).json.datos.find((x: any) => x.id === t.id)?.nuevo, true);
+      assert.equal((await llamar("GET", "/tableros", CAMILA)).json.datos.find((x: any) => x.id === "PROJ-MKT01")?.nuevo, false, "el de septiembre ya no");
+    });
+
     test("rechazar con motivo, cancelar lo propio y el ADMIN no pide nada", async () => {
       await reiniciar();
       const [luma, andes] = (await llamar("POST", "/me/solicitudes-acceso", CAMILA, { pedidos: [{ tipo: "MARCA", clienteId: LUMA }, { tipo: "MARCA", clienteId: ANDES }] })).json.datos;

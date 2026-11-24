@@ -298,12 +298,15 @@ function Requerimiento() {
             <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Plazo</h3>
             <PlazoRequerimiento r={r} />
             <span className="texto-xs texto-muted">Lo pedimos el {fDiaMes(r.emitidoEn)}. Fecha límite: {fDiaMes(r.fechaLimite)}, 23:59.</span>
+            {/* 24 nov: sin tono de reclamo; al cliente se le explica, al equipo se le da el dato. */}
             {!!r.diasCorridos && (
-              <span className="texto-xs" style={{ color: "var(--c-alerta)" }}>
-                Por este atraso, el cronograma del servicio se corrió {plural(r.diasCorridos ?? 0, "día hábil", "días hábiles")}.
+              <span className="texto-xs texto-muted">
+                {esEquipo
+                  ? `El cronograma se movió ${plural(r.diasCorridos ?? 0, "día hábil", "días hábiles")} mientras esperábamos esto.`
+                  : `Mientras esperábamos esto, la entrega de tu proyecto se movió ${plural(r.diasCorridos ?? 0, "día hábil", "días hábiles")}.`}
               </span>
             )}
-            <span className="texto-xs texto-muted" style={{ lineHeight: 1.5 }}>Cada día hábil de atraso corre la fecha de entrega del servicio.</span>
+            <span className="texto-xs texto-muted" style={{ lineHeight: 1.5 }}>Si pasa la fecha límite, la entrega se mueve un día hábil por cada día de espera.</span>
           </div>
           {esEquipo && r.estado !== "APROBADO" && <EdicionRequerimiento r={r} alCambiar={(x) => setDatos(x)} />}
         </aside>

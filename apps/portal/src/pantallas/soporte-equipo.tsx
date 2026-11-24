@@ -464,7 +464,7 @@ function TablaClientes({ filas: todasLasFilas, todas }: { filas: S<"FilaPanelCli
               return (
                 <tr key={f.cliente.id} className="fila-clic" onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) ir(`/equipo/clientes/${f.cliente.id}`); }}>
                   <td style={{ padding: "26px 14px" }}>
-                    <p className="negrita" style={{ fontSize: "var(--t-sm)" }}>{f.cliente.nombre}</p>
+                    <p className="negrita" style={{ fontSize: "var(--t-sm)" }}>{f.cliente.nombre}{f.cliente.nuevo && <span className="etiqueta-nuevo">Nuevo</span>}</p>
                     <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)", marginTop: 5 }}>{f.contactoPrincipalNombre}</p>
                   </td>
                   <td>
@@ -574,18 +574,18 @@ function MisMarcas() {
         </div>
       )}
       <div className="proyectos-cliente">
-        {datos.datos.map((c) => <TarjetaMarca key={c.id} clienteId={c.id} />)}
+        {datos.datos.map((c) => <TarjetaMarca key={c.id} clienteId={c.id} nuevo={!!c.nuevo} />)}
       </div>
     </>
   );
 }
 
-function TarjetaMarca({ clienteId }: { clienteId: string }) {
+function TarjetaMarca({ clienteId, nuevo }: { clienteId: string; nuevo?: boolean }) {
   const { datos: m } = useConsulta<S<"PerfilMarca">>(`/clientes/${clienteId}/marca`);
   if (!m) return <div className="tarjeta" style={{ padding: 20 }}><Cargando /></div>;
   return (
     <section className="tarjeta" style={{ padding: 20, display: "grid", gap: 10, alignContent: "start" }}>
-      <h2 className="tarjeta-titulo">{m.nombre}</h2>
+      <h2 className="tarjeta-titulo">{m.nombre}{nuevo && <span className="etiqueta-nuevo">Nuevo</span>}</h2>
       {m.mensajeCentral && <p className="texto-sm"><strong>«{m.mensajeCentral}»</strong></p>}
       {!!m.tono?.length && <p className="texto-xs texto-muted">Tono: {m.tono.join(" · ")}</p>}
       {m.descripcion && <p className="texto-sm texto-muted" style={{ lineHeight: 1.6 }}>{m.descripcion}</p>}

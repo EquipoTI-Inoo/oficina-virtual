@@ -189,7 +189,7 @@ export function ArbolProyectos({ arbol, lugar, ir, alSoltar, etiqueta, tableros,
         <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="arbol-fila arbol-proyecto" style={{ paddingLeft: 4 + nivel * 14 + 20 }}
           draggable={t.puedeEditar} onDragStart={(e) => { e.dataTransfer.setData(TIPO_ARRASTRE, t.id); e.dataTransfer.effectAllowed = "move"; }}>
           <span className="punto-color" style={{ background: t.color }} aria-hidden />
-          <span className="recortar">{t.privado && <LuLock size={11} aria-label="Privado" style={{ marginRight: 3 }} />}{t.nombre}</span>
+          <span className="recortar">{t.privado && <LuLock size={11} aria-label="Privado" style={{ marginRight: 3 }} />}{t.nombre}</span>{t.nuevo && <span className="etiqueta-nuevo">Nuevo</span>}
         </Enlace>
       ))}
     </Fragment>
@@ -321,7 +321,7 @@ export function VistaCarpetas({ arbol, lugar, ir, tableros, carpetas, marcas }: 
                   <td>
                     <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="fila negrita" style={{ gap: 6, color: "inherit" }}>
                       <span className="punto-color" style={{ background: t.color }} aria-hidden />
-                      {t.privado && <LuLock size={12} aria-label="Privado" />}{t.nombre}
+                      {t.privado && <LuLock size={12} aria-label="Privado" />}{t.nombre}{t.nuevo && <span className="etiqueta-nuevo">Nuevo</span>}
                     </Enlace>
                   </td>
                   {conRuta && <td className="texto-xs texto-muted">{ruta(t) || "—"}</td>}

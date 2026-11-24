@@ -245,6 +245,7 @@ export function CeldaColumna({ t, col, item, cambiar, editable, rutaValores }: {
               <button type="button" className="texto-xs fila" style={{ background: "none", border: 0, cursor: "pointer", padding: 0, gap: 4 }} onClick={() => setVisor(a.id)} title={`Ver ${a.nombre}`}>
                 <Miniatura tableroId={t.id} archivo={a} />
                 <span className="nombre-archivo">{a.nombre}</span>{(a.version ?? 1) > 1 && <span className="texto-muted"> · V{a.version}</span>}
+                <GloboComentarios tableroId={t.id} archivoId={a.id} />
               </button>
               {editable && !t.soyInvitado && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={() => window.confirm(`¿Quitar «${a.nombre}» con todas sus versiones y comentarios?`) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
             </span>
@@ -335,6 +336,38 @@ function Miniatura({ tableroId, archivo }: { tableroId: string; archivo: Archivo
       onMouseLeave={() => setGrande(null)}>
       {url ? <img src={url} alt="" /> : <Icono size={14} />}
       {grande && url && <img className="miniatura-grande" src={url} alt="" style={{ left: Math.min(grande.x, window.innerWidth - 300), top: Math.min(grande.y, window.innerHeight - 300) }} />}
+    </span>
+  );
+}
+
+/**
+ * 24 nov («no hay nada que te indique que se han hecho comentarios»): un globito con los comentarios de cada archivo.
+ * Una consulta por tablero; se vuelve a pedir cuando alguien comenta o borra un comentario.
+ */
+const CONTEOS = new Map<string, Promise<Record<string, number>>>();
+const EVENTO_COMENTARIOS = "inoo:comentarios-archivo";
+function conteoComentarios(tableroId: string) {
+  if (!CONTEOS.has(tableroId)) CONTEOS.set(tableroId, api<{ datos: Record<string, number> }>(`/tableros/${tableroId}/comentarios-archivos`).then((r) => r.datos).catch(() => ({})));
+  return CONTEOS.get(tableroId)!;
+}
+function avisarComentarios(tableroId: string) {
+  CONTEOS.delete(tableroId);
+  window.dispatchEvent(new CustomEvent(EVENTO_COMENTARIOS, { detail: tableroId }));
+}
+function GloboComentarios({ tableroId, archivoId }: { tableroId: string; archivoId: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () => void conteoComentarios(tableroId).then((m) => vivo && setN(m[archivoId] ?? 0));
+    cargar();
+    const alCambiar = (e: Event) => { if ((e as CustomEvent).detail === tableroId) cargar(); };
+    window.addEventListener(EVENTO_COMENTARIOS, alCambiar);
+    return () => { vivo = false; window.removeEventListener(EVENTO_COMENTARIOS, alCambiar); };
+  }, [tableroId, archivoId]);
+  if (!n) return null;
+  return (
+    <span className="globo-comentarios" title={`${n} ${n === 1 ? "comentario" : "comentarios"}`} aria-label={`${n} ${n === 1 ? "comentario" : "comentarios"}`}>
+      <LuMessageCircle size={11} aria-hidden /> {n}
     </span>
   );
 }
@@ -512,6 +545,7 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
     if (!window.confirm("¿Borrar este comentario? No se puede deshacer.")) return;
     try {
       r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios/${id}`, { metodo: "DELETE" }));
+      avisarComentarios(t.id);
     } catch (x) {
       avisar({ titulo: "No se pudo borrar", texto: x instanceof ProblemaApi ? x.titulo : undefined });
     }
@@ -602,6 +636,7 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
     if (!texto.trim() || !v) return;
     try {
       r.setDatos(await api<Comentarios>(`/tableros/${t.id}/archivos/${archivoId}/comentarios`, { metodo: "POST", cuerpo: { texto: texto.trim(), version: v.version, mencionIds: nota.menciones, ...(ancla ? { ancla } : {}) } }));
+      avisarComentarios(t.id);
       setNota({ texto: "", menciones: [] });
       setAncla(null);
     } catch (e) {

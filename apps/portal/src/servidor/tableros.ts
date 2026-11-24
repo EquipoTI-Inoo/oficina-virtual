@@ -9,6 +9,7 @@
  * ese cambio y lo guarda, para no pisar lo que otra persona cambió entretanto.
  * La usan la API simulada y el backend real: cada una pasa quién pide y cómo arma sus errores.
  */
+import { esNuevo } from "../dominio/novedades";
 import {
   aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
@@ -328,6 +329,8 @@ export function crearTableros(fallar: Fallar) {
           carpetaId: esIdInvitado(yo.empleadoId) ? null : carpetaDe(p),
           personaIds: personasDelProyecto(p).map((x) => x.id),
           actualizadoEn: ultimaActividad(p),
+          // 24 nov: «nuevo» la primera semana.
+          nuevo: esNuevo(p.createdAt),
         })),
     })),
     /**

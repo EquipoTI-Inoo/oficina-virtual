@@ -3090,3 +3090,9 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .gantt-punto { position: absolute; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%) rotate(45deg); border-radius: 3px; z-index: 1; }
 .gantt-punto--reunion { border-radius: 50%; transform: translate(-50%, -50%); }
 .gantt-hora { position: absolute; top: -2px; transform: translateX(-50%); font-size: 10px; color: var(--c-muted); white-space: nowrap; }
+
+/* 24 nov: cuántos comentarios tiene un archivo del tablero */
+.globo-comentarios { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 999px; background: var(--c-primario); color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; }
+
+/* 24 nov: clientes y proyectos de su primera semana */
+.etiqueta-nuevo { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--c-acento, #21F921); color: #111; font-size: 10px; font-weight: 700; line-height: 16px; letter-spacing: .02em; vertical-align: 1px; text-transform: uppercase; }

@@ -4705,6 +4705,25 @@ export interface paths {
         patch: operations["editarActualizacionItem"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/comentarios-archivos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        /** Cuántos comentarios tiene cada archivo del tablero (24 nov): id del archivo → cantidad */
+        get: operations["conteoComentariosArchivos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/archivos/{archivoId}/comentarios": {
         parameters: {
             query?: never;
@@ -6052,6 +6071,8 @@ export interface components {
              * @enum {string}
              */
             acceso?: "COMPLETO" | "PROYECTOS";
+            /** @description Equipo: se creó hace menos de 7 días (24 nov) */
+            nuevo?: boolean;
         };
         /** @description Ficha de cliente (panel) y perfil (portal) */
         Cliente: components["schemas"]["ClienteResumen"] & {
@@ -7612,6 +7633,8 @@ export interface components {
             personaIds: string[];
             /** @description La última vez que algo del tablero cambió (17 nov, filtro por actividad) */
             actualizadoEn: string | null;
+            /** @description Se creó hace menos de 7 días (24 nov) */
+            nuevo?: boolean;
             /** @description Etiquetas libres (16 nov) */
             etiquetas: string[];
             /**
@@ -19810,6 +19833,34 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    conteoComentariosArchivos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: {
+                            [key: string]: number;
+                        };
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     comentariosArchivoColumna: {

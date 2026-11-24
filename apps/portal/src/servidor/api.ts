@@ -33,7 +33,7 @@
  * tests/api/flujo-piezas.ts corren contra las dos.
  */
 import { OPCIONES_ESTADO_ETAPA, validarColumnaEtapa, validarValorEtapa, type ValorArchivos } from "../dominio/columnas-etapa";
-import { MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, type ModuloNovedad } from "../dominio/novedades";
+import { esNuevo, MODULOS_NOVEDAD, TITULO_CLIENTE_ASIGNADO, TITULO_CLIENTE_NUEVO, TITULO_PROYECTO_NUEVO, type ModuloNovedad } from "../dominio/novedades";
 import { createHash, randomBytes } from "node:crypto";
 import type { components } from "../api/tipos-api";
 import { autenticar, type Usuario } from "./auth";
@@ -665,11 +665,13 @@ ruta("POST", "/me/novedades/vistas", async (ctx, _p, _q, cuerpo) => {
 // ───────────────────────────────────────────── clientes
 
 ruta("GET", "/clientes", async (ctx) => {
-  const { rows } = await ctx.c.query<{ id: string; nombre: string; slug: string; estado: S<"EstadoCliente"> }>(
-    `SELECT id, nombre, slug, estado FROM cliente ${ctx.esEquipo ? "" : "WHERE id = ANY($1::uuid[])"} ORDER BY nombre`,
+  const { rows: filas } = await ctx.c.query<{ id: string; nombre: string; slug: string; estado: S<"EstadoCliente">; creado_en: Date }>(
+    `SELECT id, nombre, slug, estado, creado_en FROM cliente ${ctx.esEquipo ? "" : "WHERE id = ANY($1::uuid[])"} ORDER BY nombre`,
     ctx.esEquipo ? [] : [ctx.u.clienteIds],
   );
-  if (!ctx.esEquipo) return { datos: rows.map((c) => ({ ...c, logoUrl: null })), paginacion: { siguienteCursor: null } };
+  // 24 nov: «nuevo» la primera semana (la etiqueta del equipo).
+  const rows = filas.map(({ creado_en, ...c }) => ({ ...c, nuevo: esNuevo(creado_en) }));
+  if (!ctx.esEquipo) return { datos: rows.map(({ nuevo: _n, ...c }) => ({ ...c, logoUrl: null })), paginacion: { siguienteCursor: null } };
   // 2 nov: cada uno ve sus cuentas (COMPLETO) y las de sus proyectos (PROYECTOS).
   const datos = [];
   for (const c of rows) {
@@ -6377,8 +6379,19 @@ ruta("POST", "/tableros", async (ctx, _p, _q, cuerpo) => {
   const yo = await yoTablero(ctx);
   const b = (await cuerpo()) as Record<string, unknown>;
   b.cliente = await asegurarClienteDb(ctx, b.cliente);
-  return TABLEROS.crear(yo, b, datosCreacionTablero(ctx, yo));
+  const t = await TABLEROS.crear(yo, b, datosCreacionTablero(ctx, yo));
+  await avisarProyectoNuevo(ctx, Array.isArray(b.miembros) ? (b.miembros as unknown[]).filter((x): x is string => typeof x === "string") : [], t as { id?: string; nombre?: string });
+  return t;
 });
+/** 24 nov: a quien suman a un proyecto le llega el aviso en «Mi panel» (no a quien lo hace). */
+async function avisarProyectoNuevo(ctx: Ctx, usuarioIds: string[], t: { id?: string; nombre?: string }) {
+  if (!t?.id || ctx.esServicio || ctx.u.esPrueba) return;
+  for (const destino of new Set(usuarioIds.filter((x) => esUuid(x) && x !== ctx.u.usuarioId))) {
+    await ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)", [
+      destino, ctx.u.usuarioId, `${TITULO_PROYECTO_NUEVO}: ${t.nombre ?? "sin nombre"}`.slice(0, 200), `${ctx.u.nombre} te agregó`, `/equipo/proyectos/tableros/${t.id}`,
+    ]);
+  }
+}
 /** Líder, área y miembros (por su id del portal) de un tablero que crea esta persona. */
 function datosCreacionTablero(ctx: Ctx, yo: Awaited<ReturnType<typeof yoTablero>>) {
   return {
@@ -6664,8 +6677,11 @@ ruta("POST", "/tableros/:id/miembros", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const b = await cuerpo();
   const ids = idsDe(b);
-  const personas = (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id)).map((x) => ({ id: x.empleado, nombre: x.nombre }));
-  return TABLEROS.agregarMiembros(p.id, await yoTablero(ctx), personas, (b as { permiso?: unknown })?.permiso ?? "EDITOR");
+  const equipo = (await equipoInooWork(ctx)).filter((x) => ids.includes(x.id));
+  const antes = new Set(((await TABLEROS.ver(p.id, await yoTablero(ctx))) as { personas?: { id: string }[] }).personas?.map((x) => x.id) ?? []);
+  const t = await TABLEROS.agregarMiembros(p.id, await yoTablero(ctx), equipo.map((x) => ({ id: x.empleado, nombre: x.nombre })), (b as { permiso?: unknown })?.permiso ?? "EDITOR");
+  await avisarProyectoNuevo(ctx, equipo.filter((x) => !antes.has(x.empleado)).map((x) => x.id), t as { id?: string; nombre?: string });
+  return t;
 });
 ruta("PATCH", "/tableros/:id/miembros/:empleado", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
@@ -6844,6 +6860,16 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versione
   soloEquipo(ctx);
   return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero(ctx), p.id, p.item, p.col, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
 });
+/** 24 nov («no hay nada que te indique que se han hecho comentarios»): cuántos comentarios tiene cada archivo del tablero. */
+ruta("GET", "/tableros/:id/comentarios-archivos", async (ctx, p) => {
+  equipoOInvitado(ctx);
+  await TABLEROS.ver(p.id, await yoTablero(ctx));
+  const filas = (await ctx.c.query<{ archivo_id: string; n: number }>(
+    "SELECT archivo_id, count(*)::int AS n FROM comentario_archivo_tablero WHERE proyecto_iw_id = $1 GROUP BY archivo_id", [p.id],
+  )).rows;
+  return { datos: Object.fromEntries(filas.map((f) => [f.archivo_id, f.n])) };
+});
+
 ruta("GET", "/tableros/:id/archivos/:archivo/comentarios", async (ctx, p) => {
   equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.comentarios(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), await repoParaTablero(ctx, p.id));
@@ -7830,6 +7856,7 @@ ruta("GET", "/clientes/:id/inicio", async (ctx, p, q) => {
 const redondear = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
 interface FilaPanelDb {
+  creado_en: Date;
   id: string; nombre: string; slug: string; estado: S<"EstadoCliente">; contacto: string | null; am: string | null; am_id: string | null;
   limite: string; umbral: number; gasto: string; atrasadas: number; servicios_activos: number; por_aprobar: number; tickets_abiertos: number; tickets_fuera_sla: number; piezas: Record<string, number> | null;
 }
@@ -7837,7 +7864,7 @@ interface FilaPanelDb {
 /** Una fila por cliente (sin los dados de baja): atrasos, aprobaciones, tickets y gasto de IA del mes. */
 async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelCliente"> & { amId: string | null })[]> {
   const { rows } = await ctx.c.query<FilaPanelDb>(
-    `SELECT c.id, c.nombre, c.slug, c.estado, cp.nombre AS contacto, am.nombre AS am, am.id AS am_id,
+    `SELECT c.id, c.nombre, c.slug, c.estado, c.creado_en, cp.nombre AS contacto, am.nombre AS am, am.id AS am_id,
             c.limite_gasto_ia_usd AS limite, c.umbral_alerta_pct AS umbral,
             coalesce((SELECT sum(costo_usd) FROM consumo_modelo m WHERE m.cliente_id = c.id
                       AND to_char(m.creado_en AT TIME ZONE 'America/Lima', 'YYYY-MM') = $1), 0) AS gasto,
@@ -7860,7 +7887,7 @@ async function filasPanel(ctx: Ctx, periodo: string): Promise<(S<"FilaPanelClien
     const limite = Number(c.limite);
     const pct = Math.round((gasto / limite) * 100);
     return {
-      cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: c.estado, logoUrl: null },
+      cliente: { id: c.id, nombre: c.nombre, slug: c.slug, estado: c.estado, logoUrl: null, nuevo: esNuevo(c.creado_en) },
       contactoPrincipalNombre: c.contacto,
       accountManagerNombre: c.am,
       proyectosActivos: tableros(c.nombre).filter((t) => t.estado !== "Completado" && t.estado !== "Cancelado").length,
