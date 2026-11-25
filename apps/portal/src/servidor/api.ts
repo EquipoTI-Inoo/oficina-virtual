@@ -103,6 +103,7 @@ import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, type SituacionPago, UMBRAL_
 import {
   correrFecha, diasAtraso, diasParaVencer, ENLACE_FORMULARIO, fechaLimite, pendienteParaCliente, prepararIngreso, prepararPreguntas, soloVisibles, urlFormularioPublico, validarNombreEnlace, validarRespuestas, type Campo,
   validarEdicionRequerimiento,
+  requerimientosAlContratar,
 } from "../dominio/requerimientos";
 import { accionPorRevisar, enlacePorRevisar, ordenarPorRevisar } from "../dominio/por-revisar";
 import { calcularAvance, calcularMetricas, contratacionesDesdeIngreso, enlaceCosmiqDe, errorAlMoverEtapa, etapaAtrasada, etapasDelProyectoNuevo, plantillaPara, sumarDiasHabiles, tituloServicio, tocaEtapasDelMes, validarContratacion, validarDetalle, validarEtapasPersonalizadas, validarPeriodoEtapas } from "../dominio/servicios";
@@ -1814,7 +1815,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
     );
   }
   // Reunión 15 oct: todo lo que necesitamos del cliente se pide al inicio.
-  for (const codigo of plantilla.requerimientos ?? []) {
+  for (const codigo of requerimientosAlContratar(plantilla.requerimientos ?? [])) {
     const pl = (await ctx.c.query<FilaPlantillaReq>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [codigo])).rows[0];
     if (pl && plantillaAplica(pl.servicios, cat!.codigo)) await pedirAlClienteDb(ctx, id, p.id, pl, null, null, undefined, feriados);
   }

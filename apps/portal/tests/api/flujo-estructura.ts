@@ -51,7 +51,7 @@ export function pruebasEstructura(nombre: string, manejar: Manejador, reiniciar:
       assert.deepEqual(perfil.etapas.map((e: any) => [e.nombre, e.fechaEstimada, e.reunionClave]), esperadas.map((e) => [e.nombre, e.fechaEstimada, e.reunionClave]));
       assert.deepEqual([perfil.responsable.nombre, perfil.alcance], ["Admin Inoo", "Landing con formulario"]);
       const reqs = (await llamar("GET", `/clientes/${CASA_OLIVA}/requerimientos?servicioContratadoId=${id}`, VALERIA)).json.datos;
-      assert.deepEqual(reqs.map((r: any) => r.plantillaCodigo).sort(), ["ACCESOS_WEB", "BRIEF_WEB", "MANUAL_MARCA"], "todo lo que necesitamos, al inicio");
+      assert.deepEqual(reqs.map((r: any) => r.plantillaCodigo).sort(), ["ACCESOS_WEB", "BRIEF_WEB"], "todo lo que necesitamos, al inicio; el manual de marca ya lo pide el brief web (25 nov)");
     });
 
     test("proyecto personalizado: sus propias etapas, con el % que termina en 100", async () => {

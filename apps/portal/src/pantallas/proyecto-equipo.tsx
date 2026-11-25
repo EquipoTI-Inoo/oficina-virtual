@@ -5,6 +5,7 @@
  * conversar con el cliente o dejar notas internas. Desde la ficha del cliente se contratan servicios
  * nuevos a partir de su plantilla.
  */
+import { requerimientosAlContratar } from "../dominio/requerimientos";
 import { CeldasColumnasEtapa, EncabezadosColumnasEtapa } from "./columnas-etapas";
 import { EquipoAsignado } from "./accesos";
 import { useState, type ReactNode } from "react";
@@ -991,7 +992,7 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
   const reqs = useConsulta<{ datos: S<"PlantillaRequerimiento">[] }>(abierto ? "/plantillas-requerimiento" : null);
   const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(abierto ? "/panel/equipo" : null);
   const plantilla = plantillas.datos?.datos.find((p) => p.variante === (f.variante || null)) ?? plantillas.datos?.datos.find((p) => p.variante === null);
-  const aPedir = (plantilla?.requerimientos ?? []).map((c) => reqs.datos?.datos.find((r) => r.codigo === c)?.nombre ?? c);
+  const aPedir = requerimientosAlContratar(plantilla?.requerimientos ?? []).map((c) => reqs.datos?.datos.find((r) => r.codigo === c)?.nombre ?? c);
   const esCrm = f.servicio === "CRM_IMPLEMENTACION" || f.servicio === "CRM_INTEGRACION";
   const esProyecto = cat?.modalidad === "PROYECTO";
   const contratar = async () => {

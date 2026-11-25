@@ -37,7 +37,7 @@ import { areaDeClaveHermes, contenidoDelMensaje, hablarConBot, hermesDelArea, Er
 import { columnaProyecto, COLUMNAS_PROYECTO, culminadoArchivado, ordenarTareas, type PendienteReunion, tareaVencida, validarCierreReunion, validarTarea } from "../dominio/proyectos";
 import { alertaPago, diasAtrasoPago, ROLES_FINANZAS, UMBRAL_ALERTA_PAGO_DIAS, validarEstadoPago } from "../dominio/pagos";
 import { correrFecha, diasAtraso, diasParaVencer, fechaLimite, pendienteParaCliente, PLANTILLAS_REQUERIMIENTO, plantillaRequerimiento, prepararIngreso, prepararPreguntas, soloVisibles,
-  ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas, validarEdicionRequerimiento } from "../dominio/requerimientos";
+  ENLACE_FORMULARIO, urlFormularioPublico, validarNombreEnlace, validarRespuestas, validarEdicionRequerimiento, requerimientosAlContratar } from "../dominio/requerimientos";
 import { aniversarioHoy, diasNoLaborables } from "../dominio/calendario";
 import { DIAS_ENLACE_ACCESO, errorClaveNueva, rutaCrearClave } from "../dominio/claves";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Permiso } from "../dominio/accesos";
@@ -3110,7 +3110,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
     E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, reunionClave: e.reunionClave, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
   }
   // Reunión 15 oct: todo lo que necesitamos del cliente se pide al inicio.
-  for (const codigo of plantilla.requerimientos) {
+  for (const codigo of requerimientosAlContratar(plantilla.requerimientos)) {
     const pl = plantillaRequerimiento(codigo);
     if (pl && plantillaAplica(pl.servicios, sc.codigo)) pedirAlCliente(ctx, sc, codigo);
   }

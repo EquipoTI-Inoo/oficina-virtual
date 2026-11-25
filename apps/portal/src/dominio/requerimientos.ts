@@ -333,3 +333,12 @@ export function validarEdicionRequerimiento(b: { titulo?: unknown; mensaje?: unk
   } else if (typeof b.fechaLimite === "string" && b.fechaLimite < hoy) errores.push({ campo: "fechaLimite", mensaje: "El plazo no puede ser una fecha pasada" });
   return errores;
 }
+
+/**
+ * 25 nov (reunión con Ernesto): al contratar no se manda lo que otro formulario del mismo envío ya pide. El brief web
+ * pide el manual de marca o el logo, así que «Manual de marca y logo» no va aparte (se puede pedir a mano igual).
+ * Los accesos sí van aparte: el brief dice a propósito que no escriban contraseñas ahí.
+ */
+export const CUBIERTO_POR: Readonly<Record<string, readonly string[]>> = { MANUAL_MARCA: ["BRIEF_WEB"] };
+export const requerimientosAlContratar = (codigos: readonly string[]) =>
+  codigos.filter((c) => !(CUBIERTO_POR[c] ?? []).some((b) => codigos.includes(b)));
