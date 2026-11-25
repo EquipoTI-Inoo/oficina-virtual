@@ -6089,6 +6089,35 @@ paths:
         '201': { description: Vinculada, content: { application/json: { schema: { $ref: '#/components/schemas/CarpetaVinculada' } } } }
         '404': { $ref: '#/components/responses/NoEncontrado' }
         '422': { $ref: '#/components/responses/Validacion' }
+  /clientes/{clienteId}/carpetas/sugeridas:
+    parameters:
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Clientes]
+      operationId: carpetasSugeridas
+      summary: 'Carpetas de Drive con el nombre del cliente que todavía no están vinculadas (25 nov). Solo lectura; solo equipo'
+      x-roles: [EQUIPO]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conectado, datos]
+                properties:
+                  conectado: { type: boolean, description: 'false si el portal no tiene Drive conectado' }
+                  datos:
+                    type: array
+                    items:
+                      type: object
+                      required: [driveId, url, nombre, padre]
+                      properties:
+                        driveId: { type: string }
+                        url: { type: string }
+                        nombre: { type: string }
+                        padre: { type: [string, 'null'], description: 'La carpeta que la contiene (el servicio, en el Drive del equipo)' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
   /clientes/{clienteId}/carpetas/{carpetaId}:
     parameters:
       - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }

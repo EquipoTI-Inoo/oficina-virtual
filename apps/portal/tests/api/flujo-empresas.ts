@@ -156,6 +156,10 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       const lista = (await llamar("GET", base, DIEGO)).json.datos;
       assert.deepEqual(lista.map((x: any) => [x.nombre, x.servicio, x.tableroId]), [["Casa Oliva", "Branding", null], ["Web 2027 (nueva)", null, "PROJ-DIS01"]], "un proyecto tiene una sola carpeta");
       assert.equal((await llamar("GET", base, VALERIA)).status, 403, "solo el equipo");
+      const sug = await llamar("GET", `${base}/sugeridas`, DIEGO);
+      assert.equal(sug.status, 200);
+      assert.equal(sug.json.conectado, false, "sin Drive en las pruebas, no sugiere nada");
+      assert.equal((await llamar("GET", `${base}/sugeridas`, VALERIA)).status, 403);
       assert.equal((await llamar("DELETE", `${base}/${branding.json.id}`, DIEGO)).status, 204);
       assert.equal((await llamar("GET", base, DIEGO)).json.datos.length, 1);
     });

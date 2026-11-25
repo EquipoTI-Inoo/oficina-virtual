@@ -6475,6 +6475,27 @@ ruta("GET", "/clientes/:id/carpetas", async (ctx, p) => {
   const filas = (await ctx.c.query<FilaCarpetaVinculada>(`${SELECT_CARPETA_VINCULADA} WHERE c.cliente_id = $1 ORDER BY c.tablero_id NULLS FIRST, lower(coalesce(c.servicio, '')), lower(c.nombre)`, [p.id])).rows;
   return { datos: filas.map(carpetaVinculadaVista) };
 });
+// 25 nov: lo que el portal encuentra en Drive con el nombre del cliente y todavía no está vinculado.
+ruta("GET", "/clientes/:id/carpetas/sugeridas", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const drive = almacenDriveDelEntorno();
+  if (!drive) return { conectado: false, datos: [] };
+  const c = (await ctx.c.query<{ nombre: string; drive_carpeta_id: string | null }>("SELECT nombre, drive_carpeta_id FROM cliente WHERE id = $1", [p.id])).rows[0];
+  const ya = new Set([c.drive_carpeta_id, ...(await ctx.c.query<{ drive_id: string }>("SELECT drive_id FROM carpeta_vinculada WHERE cliente_id = $1", [p.id])).rows.map((x) => x.drive_id)]);
+  let xs: Awaited<ReturnType<typeof drive.carpetasConNombre>> = [];
+  try {
+    xs = await drive.carpetasConNombre(c.nombre.replace(/\s+(s\.?a\.?c\.?|e\.?i\.?r\.?l\.?|s\.?r\.?l\.?)$/i, "").trim());
+  } catch {
+    return { conectado: true, datos: [] };
+  }
+  const clave = claveCliente(c.nombre);
+  return {
+    conectado: true,
+    datos: xs.filter((x) => !ya.has(x.id) && claveCliente(x.nombre).includes(clave))
+      .map((x) => ({ driveId: x.id, url: `https://drive.google.com/drive/folders/${x.id}`, nombre: x.nombre, padre: x.padre })),
+  };
+});
 ruta("POST", "/clientes/:id/carpetas", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   await accesoCliente(ctx, p.id);

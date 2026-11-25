@@ -1864,6 +1864,12 @@ ruta("GET", "/clientes/:id/carpetas", (ctx, p) => {
     .sort((a, b) => Number(!!a.tableroId) - Number(!!b.tableroId) || (a.servicio ?? "").localeCompare(b.servicio ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"));
   return { datos: xs.map(carpetaVinculadaMock) };
 });
+// El simulado no tiene Drive: no sugiere nada.
+ruta("GET", "/clientes/:id/carpetas/sugeridas", (ctx, p) => {
+  soloEquipo(ctx);
+  accesoCliente(ctx, p.id);
+  return { conectado: false, datos: [] };
+});
 ruta("POST", "/clientes/:id/carpetas", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   accesoCliente(ctx, p.id);

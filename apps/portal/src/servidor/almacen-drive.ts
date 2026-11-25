@@ -61,6 +61,11 @@ export interface ClienteDrive extends Almacen {
   recibir(clave: string, mime: string, cuerpo: BodyInit, bytes: number | null): Promise<void>;
   /** 18 nov: videos de los tableros, que van directo del navegador a Drive. */
   videos: VideosDrive;
+  /**
+   * 25 nov: carpetas cuyo nombre contiene `nombre`, en todo lo que ve la cuenta (también lo compartido con ella), con el
+   * nombre de su carpeta padre (en el Drive del equipo, el servicio: Branding › Cliente). Solo lectura.
+   */
+  carpetasConNombre(nombre: string): Promise<{ id: string; nombre: string; padre: string | null }[]>;
 }
 
 /**
@@ -224,10 +229,33 @@ export function almacenDrive(c: ConfigDrive, enviar: typeof fetch = fetch): Clie
 
   const url = (p: Permiso) => `${c.urlPortal.replace(/\/$/, "")}/api/v1/archivos-drive/${firmarUrlDrive(c.secreto, p)}`;
   const vence = (s: number) => Date.now() + s * 1000;
+  async function carpetasConNombre(nombre: string) {
+    const listar = async (q: string, campos: string, tope: number) => {
+      const u = new URL(`${API}/files`);
+      u.searchParams.set("q", q);
+      u.searchParams.set("fields", `files(${campos})`);
+      u.searchParams.set("pageSize", String(tope));
+      u.searchParams.set("supportsAllDrives", "true");
+      u.searchParams.set("includeItemsFromAllDrives", "true");
+      const r = await enviar(u, { headers: await cabeceras(), signal: AbortSignal.timeout(20_000) });
+      if (!r.ok) throw fallo("No pudimos leer Google Drive", `Google respondió ${r.status}.`);
+      return ((await r.json()) as { files: { id: string; name: string; parents?: string[] }[] }).files;
+    };
+    const seguro = nombre.replace(/\\/g, "").replace(/'/g, "\\'");
+    const xs = await listar(`name contains '${seguro}' and mimeType='application/vnd.google-apps.folder' and trashed=false`, "id,name,parents", 30);
+    const padres = new Map<string, string | null>();
+    for (const id of [...new Set(xs.flatMap((x) => x.parents ?? []))].slice(0, 30)) {
+      const r = await enviar(`${API}/files/${id}?fields=name&supportsAllDrives=true`, { headers: await cabeceras(), signal: AbortSignal.timeout(20_000) });
+      padres.set(id, r.ok ? ((await r.json()) as { name: string }).name : null);
+    }
+    return xs.map((x) => ({ id: x.id, nombre: x.name, padre: x.parents?.[0] ? padres.get(x.parents[0]) ?? null : null }));
+  }
+
   return {
     recibir,
     abrir,
     videos,
+    carpetasConNombre,
     urlSubida: (clave, mime, segundos = 900) => ({ url: url({ o: "S", c: clave, m: mime, e: vence(segundos) }), headers: { "Content-Type": mime }, expiraEn: new Date(vence(segundos)).toISOString() }),
     urlDescarga: (clave, nombre, segundos = 900) => ({ url: url({ o: "D", c: clave, n: nombre, e: vence(segundos) }), expiraEn: new Date(vence(segundos)).toISOString() }),
     tamano: async (clave) => {

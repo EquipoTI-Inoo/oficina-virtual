@@ -4494,6 +4494,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/{clienteId}/carpetas/sugeridas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        /** Carpetas de Drive con el nombre del cliente que todavía no están vinculadas (25 nov). Solo lectura; solo equipo */
+        get: operations["carpetasSugeridas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clientes/{clienteId}/carpetas/{carpetaId}": {
         parameters: {
             query?: never;
@@ -19585,6 +19604,39 @@ export interface operations {
             };
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+        };
+    };
+    carpetasSugeridas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description false si el portal no tiene Drive conectado */
+                        conectado: boolean;
+                        datos: {
+                            driveId: string;
+                            url: string;
+                            nombre: string;
+                            /** @description La carpeta que la contiene (el servicio, en el Drive del equipo) */
+                            padre: string | null;
+                        }[];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
         };
     };
     desvincularCarpeta: {

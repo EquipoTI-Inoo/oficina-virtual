@@ -456,6 +456,18 @@ export function CarpetasDelCliente({ clienteId, clienteNombre, principal, princi
     }
   };
   const xs = q.datos?.datos ?? [];
+  type Sugeridas = { conectado: boolean; datos: { driveId: string; url: string; nombre: string; padre: string | null }[] };
+  // 25 nov: lo que el portal encuentra en Drive con el nombre del cliente (las carpetas de planning@ compartidas).
+  const sug = useConsulta<Sugeridas>(`/clientes/${clienteId}/carpetas/sugeridas`);
+  const vincularSugerida = async (x: Sugeridas["datos"][number]) => {
+    try {
+      await api(`/clientes/${clienteId}/carpetas`, { metodo: "POST", cuerpo: { url: x.url, nombre: x.nombre, ...(x.padre ? { servicio: x.padre.slice(0, 40) } : {}) } });
+      void q.recargar();
+      void sug.recargar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo vincular", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
+    }
+  };
   return (
     <section className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 10 }}>
       <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Carpetas de Drive</h3>
@@ -473,6 +485,17 @@ export function CarpetasDelCliente({ clienteId, clienteNombre, principal, princi
           <button type="button" className="boton-icono" aria-label={`Quitar el vínculo a ${x.nombre}`} onClick={() => void quitar(x)}><LuX size={13} /></button>
         </div>
       ))}
+      {(sug.datos?.datos ?? []).length > 0 && (
+        <div className="pila" style={{ gap: 6, paddingTop: 8, borderTop: "1px dashed var(--c-borde)" }}>
+          <span className="texto-xs texto-muted">Encontradas en Drive</span>
+          {sug.datos!.datos.map((x) => (
+            <div key={x.driveId} className="fila entre" style={{ gap: 6 }}>
+              <a className="fila-carpeta" href={x.url} target="_blank" rel="noreferrer"><LuFolder size={15} aria-hidden="true" /><span>{x.padre ? <><span className="negrita">{x.padre}</span> › </> : null}{x.nombre}</span></a>
+              <button type="button" className="boton boton--chico" onClick={() => void vincularSugerida(x)}>Vincular</button>
+            </div>
+          ))}
+        </div>
+      )}
       {vinculando
         ? <VincularCarpeta clienteId={clienteId} nombreInicial={clienteNombre} conServicio alVincular={() => { setVinculando(false); void q.recargar(); }} alCancelar={() => setVinculando(false)} />
         : <button type="button" className="boton-texto texto-xs" style={{ justifySelf: "start" }} onClick={() => setVinculando(true)}><LuPlus size={12} /> Vincular otra carpeta (por servicio)</button>}
