@@ -575,5 +575,30 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
         }
       }
     });
+
+    test("25 nov: plantillas de tableros, predeterminadas y del equipo", async () => {
+      await reiniciar();
+      const lista = (await llamar("GET", "/plantillas-tablero", DIEGO)).json.datos;
+      assert.deepEqual(lista.filter((x: any) => x.predeterminada).map((x: any) => x.id), ["web", "branding", "social", "crm", "audiovisual"]);
+      assert.equal((await llamar("GET", "/plantillas-tablero", VALERIA)).status, 403, "el cliente no las ve");
+
+      const web = (await llamar("POST", "/tableros", DIEGO, { nombre: "Web 2027", cliente: "Casa Oliva", plantillaId: "web" })).json;
+      assert.deepEqual(web.grupos.map((g: any) => g.nombre), ["Descubrimiento", "Diseño", "Desarrollo", "Contenido", "Pruebas y lanzamiento"]);
+      assert.ok(web.columnas.some((c: any) => c.nombre === "Archivos" && c.tipo === "file"));
+      assert.equal(web.items.length, 14);
+      assert.ok(web.items.every((i: any) => !i.fecha && !i.responsable), "sin fechas ni responsables");
+
+      assert.equal((await llamar("POST", "/plantillas-tablero", DIEGO, { tableroId: web.id, nombre: "x" })).status, 422);
+      const propia = await llamar("POST", "/plantillas-tablero", DIEGO, { tableroId: web.id, nombre: "Web con QA", conItems: true });
+      assert.equal(propia.status, 201);
+      assert.deepEqual([propia.json.grupos, propia.json.items, propia.json.predeterminada], [5, 14, false]);
+      const copia = (await llamar("POST", "/tableros", DIEGO, { nombre: "Otra web", cliente: "Casa Oliva", plantillaId: propia.json.id })).json;
+      assert.equal(copia.items.length, 14);
+      assert.equal((await llamar("POST", "/tableros", DIEGO, { nombre: "Mal", cliente: "Casa Oliva", plantillaId: "no-existe" })).status, 422);
+
+      assert.equal((await llamar("DELETE", "/plantillas-tablero/web", DIEGO)).status, 403, "las predeterminadas no se borran");
+      assert.equal((await llamar("DELETE", `/plantillas-tablero/${propia.json.id}`, CAMILA)).status, 403, "solo quien la creó o un ADMIN");
+      assert.equal((await llamar("DELETE", `/plantillas-tablero/${propia.json.id}`, DIEGO)).status, 204);
+    });
   });
 }

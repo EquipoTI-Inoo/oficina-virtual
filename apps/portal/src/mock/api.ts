@@ -58,6 +58,7 @@ import * as DP from "../servidor/dos-pasos";
 import { itemsDesdeTexto, resumirTablero } from "../servidor/ia-tableros";
 import { resumenParaCliente, TOPE_RESUMENES_MES } from "../servidor/resumen-cliente";
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero } from "../dominio/tableros";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -120,6 +121,8 @@ interface Estado {
   };
   referencias: { id: string; tipo: string; titulo: string; url: string | null; notas: string | null; paleta: string[]; briefPeriodo: string | null }[];
   requerimientos: D.RequerimientoDemo[];
+  /** 25 nov: plantillas de tableros que guardó el equipo. */
+  plantillasTablero: { id: string; nombre: string; descripcion: string | null; estructura: EstructuraTablero; creadoPor: string }[];
   /** 25 nov: comentarios sobre una respuesta puntual de un formulario. */
   comentariosRespuesta: { id: string; requerimientoId: string; campo: string; texto: string; creadoEn: string; autorId: string }[];
   notificacionesLeidas: Set<string>;
@@ -266,6 +269,7 @@ function estadoInicial(): Estado {
     referencias: structuredClone(D.REFERENCIAS_INICIALES),
     requerimientos: structuredClone(D.REQUERIMIENTOS_INICIALES),
     comentariosRespuesta: [],
+    plantillasTablero: [],
     notificacionesLeidas: new Set(),
     idempotencia: new Map(),
     secuencia: 1,
@@ -1822,13 +1826,59 @@ ruta("POST", "/tableros", async (ctx, _p, _q, req) => {
   const u = ctx.usuario;
   const b = await cuerpo<Record<string, unknown>>(req);
   b.cliente = asegurarClienteMock(ctx, b.cliente);
+  // 25 nov: «Nuevo proyecto» desde una plantilla (predeterminada o del equipo).
+  const estructura = b.plantillaId !== undefined && b.plantillaId !== null ? estructuraDePlantillaMock(b.plantillaId) : undefined;
+  delete b.plantillaId;
   const t = await TABLEROS.crear(yoTablero(ctx), b, {
+    estructura,
     lider: u.inooworkEmpleadoId ? { id: u.inooworkEmpleadoId, nombre: u.nombre } : null,
     departamento: departamentoDe({ area: u.area ?? null, rolEquipo: u.rolEquipo ?? null }),
     miembros: async (ids) => equipoInooWork().filter((x) => ids.includes(x.id)).map((x) => ({ id: x.inooworkEmpleadoId!, nombre: x.nombre })),
   });
   avisarProyectoNuevoMock(ctx, Array.isArray(b.miembros) ? (b.miembros as unknown[]).filter((x): x is string => typeof x === "string") : [], t as { id?: string; nombre?: string });
   return t;
+});
+
+const plantillaTableroMock = (ctx: Ctx, x: Estado["plantillasTablero"][number]): S<"PlantillaTablero"> => ({
+  id: x.id, nombre: x.nombre, descripcion: x.descripcion, predeterminada: false, grupos: x.estructura.grupos.length, columnas: x.estructura.columnas.length, items: x.estructura.items.length,
+  creadoPor: E.usuarios.find((u) => u.id === x.creadoPor)?.nombre ?? null, puedeBorrar: x.creadoPor === ctx.usuario.id || esNivelAdmin(ctx),
+});
+function estructuraDePlantillaMock(id: unknown): EstructuraTablero {
+  const fija = PLANTILLAS_TABLERO.find((x) => x.id === id);
+  if (fija) return structuredClone(fija.estructura);
+  const x = E.plantillasTablero.find((y) => y.id === id);
+  if (!x) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "plantillaId", mensaje: "No encontramos esa plantilla" }]);
+  return validarEstructura(x.estructura).estructura;
+}
+ruta("GET", "/plantillas-tablero", (ctx) => {
+  soloEquipo(ctx);
+  return { datos: [
+    ...PLANTILLAS_TABLERO.map((x) => ({ id: x.id, nombre: x.nombre, descripcion: x.descripcion, predeterminada: true, grupos: x.estructura.grupos.length, columnas: x.estructura.columnas.length, items: x.estructura.items.length, creadoPor: null, puedeBorrar: false })),
+    ...[...E.plantillasTablero].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((x) => plantillaTableroMock(ctx, x)),
+  ] };
+});
+ruta("POST", "/plantillas-tablero", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  const b = await cuerpo<{ tableroId?: unknown; nombre?: unknown; descripcion?: unknown; conItems?: unknown }>(req);
+  const nombre = typeof b.nombre === "string" ? b.nombre.trim() : "";
+  const descripcion = typeof b.descripcion === "string" && b.descripcion.trim() ? b.descripcion.trim() : null;
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (nombre.length < 2 || nombre.length > 80) errores.push({ campo: "nombre", mensaje: "Ponle un nombre (de 2 a 80 caracteres)" });
+  if (descripcion && descripcion.length > 300) errores.push({ campo: "descripcion", mensaje: "La descripción va hasta 300 caracteres" });
+  if (typeof b.tableroId !== "string") errores.push({ campo: "tableroId", mensaje: "Elige el tablero" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const x = { id: nuevoId(74), nombre, descripcion, estructura: await TABLEROS.estructura(b.tableroId as string, yoTablero(ctx), b.conItems === true), creadoPor: ctx.usuario.id };
+  E.plantillasTablero.push(x);
+  return { __status: 201, ...plantillaTableroMock(ctx, x) };
+});
+ruta("DELETE", "/plantillas-tablero/:id", (ctx, p) => {
+  soloEquipo(ctx);
+  if (PLANTILLAS_TABLERO.some((x) => x.id === p.id)) throw new ErrorApi(403, "SIN_PERMISO", "Las plantillas predeterminadas no se borran");
+  const x = E.plantillasTablero.find((y) => y.id === p.id);
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa plantilla");
+  if (!plantillaTableroMock(ctx, x).puedeBorrar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien la creó o un ADMIN la puede borrar");
+  E.plantillasTablero = E.plantillasTablero.filter((y) => y !== x);
+  return null;
 });
 ruta("GET", "/tableros/:id", async (ctx, p) => {
   equipoOInvitado(ctx);

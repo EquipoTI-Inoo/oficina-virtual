@@ -12,7 +12,7 @@
 import { esNuevo } from "../dominio/novedades";
 import {
   aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
-  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo, fechasDelProyecto } from "../dominio/tableros";
+  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo, fechasDelProyecto, aplicarEstructura, estructuraDe, type EstructuraTablero } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
 import { enlacesDe, esIdInvitado, esPermiso, esPrivado, fijarInvitado, fijarPermiso, invitadosDe, mayorPermiso, nuevoEnlace, ocultoPara, permisoEn, quitarInvitado, type PermisoTablero } from "../dominio/compartir-tablero";
 import { leerToken, tokenDe } from "./firma-enlace";
@@ -138,6 +138,8 @@ export interface Yo { empleadoId: string | null; esAdmin: boolean; prueba?: bool
 const quienDe = (yo: Yo): Quien => ({ id: yo.usuarioId ?? yo.empleadoId, nombre: yo.nombre ?? null });
 /** Para crear (6 nov): quién lo crea, su departamento en InooWork y cómo pasar ids del portal a fichas de InooWork. */
 export interface DatosCreacion {
+  /** 25 nov: los grupos, columnas e ítems de una plantilla. */
+  estructura?: EstructuraTablero;
   lider: PersonaIW | null;
   departamento: string | null;
   /** Ids de usuario del portal → personas de InooWork; los que no tienen ficha no vuelven. */
@@ -406,9 +408,12 @@ export function crearTableros(fallar: Fallar) {
       // 6 nov: ningún proyecto sin una persona de Inoo (quien lo crea sin ficha tiene que sumar a alguien).
       if (!yo.empleadoId && !miembros.length) validar([{ campo: "miembros", mensaje: "Agrega al menos a una persona de Inoo" }]);
       const p = nuevoProyecto(b, yo.empleadoId ? datos.lider : null, miembros, datos.departamento);
+      if (datos.estructura) aplicarEstructura(p, datos.estructura);
       await crearIW(p, yo.prueba);
       return tableroVista(p, yo);
     }),
+    /** 25 nov: lo que se guarda al hacer «Guardar como plantilla» (quien lo ve puede copiar su estructura). */
+    estructura: (id: string, yo: Yo, conItems: boolean) => protegido(async () => estructuraDe(await visible(id, yo), conItems)),
     ver: (id: string, yo: Yo) => protegido(async () => {
       const p = await visible(id, yo);
       return tableroVista(p, yo, await conectadosDe(p, yo));

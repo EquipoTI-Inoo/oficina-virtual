@@ -294,6 +294,10 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
   const [miembros, setMiembros] = useState<string[]>([]);
   // 25 nov (fusión): recurrente = un solo tablero con un grupo por mes; compartir = se crea también su parte del cliente.
   const [recurrente, setRecurrente] = useState(false);
+  // 25 nov: arrancar desde una plantilla (predeterminada o del equipo).
+  const plantillas = useConsulta<{ datos: S<"PlantillaTablero">[] }>("/plantillas-tablero");
+  const [plantilla, setPlantilla] = useState("");
+  const elegida = (plantillas.datos?.datos ?? []).find((x) => x.id === plantilla);
   const [compartir, setCompartir] = useState(false);
   const esInterno = !cliente.trim() || esClienteInterno(cliente) || cliente === INOO_INTERNO;
   const [err, setErr] = useState<Record<string, string>>({});
@@ -304,12 +308,12 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
     setErr({});
     setEnviando(true);
     try {
-      const t = await api<S<"TableroInooWork">>("/tableros", { metodo: "POST", cuerpo: { nombre, cliente, ...(descripcion.trim() ? { descripcion } : {}), color, miembros } });
+      const t = await api<S<"TableroInooWork">>("/tableros", { metodo: "POST", cuerpo: { nombre, cliente, ...(descripcion.trim() ? { descripcion } : {}), color, miembros, ...(plantilla ? { plantillaId: plantilla } : {}) } });
       if (servicio) await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: { etiquetas: [servicio] } }).catch(() => undefined);
       if (destino && (destino.carpetaId || destino.marcaId)) {
         await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: destino.carpetaId ? { carpetaId: destino.carpetaId } : { marcaId: destino.marcaId } }).catch(() => undefined);
       }
-      if (recurrente && t.grupos[0]) {
+      if (recurrente && !plantilla && t.grupos[0]) {
         await api(`/tableros/${t.id}/grupos/${t.grupos[0].id}`, { metodo: "PATCH", cuerpo: { nombre: fMesAnio(new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 7)) } }).catch(() => undefined);
       }
       avisar({ titulo: "Proyecto creado", texto: compartir && !esInterno ? "Ahora elige qué servicio ve el cliente." : "Ya está también en InooWork." });
@@ -319,6 +323,16 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
       else avisar({ titulo: "No pudimos crear el proyecto", texto: x instanceof ProblemaApi ? x.detalle ?? x.titulo : undefined });
     } finally {
       setEnviando(false);
+    }
+  };
+  const borrarPlantilla = async (x: S<"PlantillaTablero">) => {
+    if (!(await confirmar(`¿Borrar la plantilla «${x.nombre}»? Los proyectos que ya se crearon con ella no cambian.`))) return;
+    try {
+      await api(`/plantillas-tablero/${x.id}`, { metodo: "DELETE" });
+      setPlantilla("");
+      void plantillas.recargar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo borrar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
     }
   };
   const error = (c: string) => err[c] && <p className="texto-xs" style={{ color: "var(--c-alerta)" }}>{err[c]}</p>;
@@ -350,6 +364,26 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
         </div>
         )}
         {clienteFijo && error("cliente")}
+        <div className="campo">
+          <label htmlFor="tab-plantilla">Plantilla</label>
+          <select id="tab-plantilla" className="input" value={plantilla} onChange={(e) => setPlantilla(e.target.value)}>
+            <option value="">En blanco</option>
+            <optgroup label="Predeterminadas">
+              {(plantillas.datos?.datos ?? []).filter((x) => x.predeterminada).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+            </optgroup>
+            {(plantillas.datos?.datos ?? []).some((x) => !x.predeterminada) && (
+              <optgroup label="Del equipo">
+                {(plantillas.datos?.datos ?? []).filter((x) => !x.predeterminada).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+              </optgroup>
+            )}
+          </select>
+          <p className="texto-xs texto-muted">
+            {elegida
+              ? `${elegida.descripcion ?? ""} ${elegida.grupos} grupos · ${elegida.columnas} columnas propias · ${elegida.items} ítems de ejemplo${elegida.creadoPor ? ` · de ${elegida.creadoPor}` : ""}.`
+              : "Un grupo «To-Do» y las columnas de siempre. Cualquier tablero se guarda como plantilla desde su menú «⋯»."}
+            {elegida?.puedeBorrar && <> <button type="button" className="enlace texto-xs" onClick={() => void borrarPlantilla(elegida)}>Borrar esta plantilla</button></>}
+          </p>
+        </div>
         <fieldset className="campo" style={{ border: 0, padding: 0 }}>
           <legend>Tipo</legend>
           <div className="chips" role="radiogroup" aria-label="Tipo de proyecto">
@@ -370,7 +404,7 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
             <option value="">Sin etiqueta</option>
             {SERVICIOS_TABLERO.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
-          <p className="texto-xs texto-muted">Se crea vacío, sin la plantilla del servicio: armas tus grupos y columnas.</p>
+          <p className="texto-xs texto-muted">Solo para ordenar y filtrar en Proyectos.</p>
         </div>
         <div className="campo">
           <label htmlFor="tab-descripcion">Descripción <span className="texto-muted">(opcional)</span></label>

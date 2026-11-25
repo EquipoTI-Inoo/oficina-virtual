@@ -68,6 +68,7 @@ import { crearImportadorMonday, type FilaHistorial, type RepoMonday } from "./mo
 import { crearArchivosTablero, type RepoArchivosTablero } from "./archivos-tablero";
 import { crearActualizaciones, type RepoActualizaciones } from "./actualizaciones-tablero";
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
+import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero, type PlantillaTableroFija } from "../dominio/tableros";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type CuerpoSolicitud, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -6434,10 +6435,63 @@ ruta("POST", "/tableros", async (ctx, _p, _q, cuerpo) => {
   soloEquipo(ctx);
   const yo = await yoTablero(ctx);
   const b = (await cuerpo()) as Record<string, unknown>;
+  // 25 nov: «Nuevo proyecto» desde una plantilla (predeterminada o del equipo).
+  const estructura = b.plantillaId !== undefined && b.plantillaId !== null ? await estructuraDePlantillaDb(ctx, b.plantillaId) : undefined;
+  delete b.plantillaId;
   b.cliente = await asegurarClienteDb(ctx, b.cliente);
-  const t = await TABLEROS.crear(yo, b, datosCreacionTablero(ctx, yo));
+  const t = await TABLEROS.crear(yo, b, { ...datosCreacionTablero(ctx, yo), estructura });
   await avisarProyectoNuevo(ctx, Array.isArray(b.miembros) ? (b.miembros as unknown[]).filter((x): x is string => typeof x === "string") : [], t as { id?: string; nombre?: string });
   return t;
+});
+
+// ───────────────────────────── plantillas de tableros (25 nov)
+type FilaPlantillaTablero = { id: string; nombre: string; descripcion: string | null; estructura: EstructuraTablero; creado_por: string | null; autor: string | null; creado_en: Date };
+const plantillaTableroVista = (ctx: Ctx, x: FilaPlantillaTablero): S<"PlantillaTablero"> => ({
+  id: x.id, nombre: x.nombre, descripcion: x.descripcion, predeterminada: false,
+  grupos: x.estructura.grupos?.length ?? 0, columnas: x.estructura.columnas?.length ?? 0, items: x.estructura.items?.length ?? 0,
+  creadoPor: x.autor, puedeBorrar: x.creado_por === ctx.u.usuarioId || ctx.u.nivelAcceso === "ADMIN",
+});
+const plantillaFijaVista = (x: PlantillaTableroFija): S<"PlantillaTablero"> => ({
+  id: x.id, nombre: x.nombre, descripcion: x.descripcion, predeterminada: true,
+  grupos: x.estructura.grupos.length, columnas: x.estructura.columnas.length, items: x.estructura.items.length, creadoPor: null, puedeBorrar: false,
+});
+const SELECT_PLANTILLA_TABLERO = "SELECT p.id, p.nombre, p.descripcion, p.estructura, p.creado_por, u.nombre AS autor, p.creado_en FROM plantilla_tablero p LEFT JOIN usuario u ON u.id = p.creado_por";
+async function estructuraDePlantillaDb(ctx: Ctx, id: unknown): Promise<EstructuraTablero> {
+  const fija = PLANTILLAS_TABLERO.find((x) => x.id === id);
+  if (fija) return structuredClone(fija.estructura);
+  const x = typeof id === "string" && esUuid(id) ? (await ctx.c.query<FilaPlantillaTablero>(`${SELECT_PLANTILLA_TABLERO} WHERE p.id = $1`, [id])).rows[0] : undefined;
+  if (!x) validacion([{ campo: "plantillaId", mensaje: "No encontramos esa plantilla" }]);
+  const r = validarEstructura(x!.estructura);
+  validacion(r.errores);
+  return r.estructura;
+}
+ruta("GET", "/plantillas-tablero", async (ctx) => {
+  soloEquipo(ctx);
+  const propias = (await ctx.c.query<FilaPlantillaTablero>(`${SELECT_PLANTILLA_TABLERO} ORDER BY lower(p.nombre)`)).rows;
+  return { datos: [...PLANTILLAS_TABLERO.map(plantillaFijaVista), ...propias.map((x) => plantillaTableroVista(ctx, x))] };
+});
+ruta("POST", "/plantillas-tablero", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const b = (await cuerpo()) as { tableroId?: unknown; nombre?: unknown; descripcion?: unknown; conItems?: unknown };
+  const nombre = typeof b.nombre === "string" ? b.nombre.trim() : "";
+  const descripcion = typeof b.descripcion === "string" && b.descripcion.trim() ? b.descripcion.trim() : null;
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (nombre.length < 2 || nombre.length > 80) errores.push({ campo: "nombre", mensaje: "Ponle un nombre (de 2 a 80 caracteres)" });
+  if (descripcion && descripcion.length > 300) errores.push({ campo: "descripcion", mensaje: "La descripción va hasta 300 caracteres" });
+  if (typeof b.tableroId !== "string") errores.push({ campo: "tableroId", mensaje: "Elige el tablero" });
+  validacion(errores);
+  const estructura = await TABLEROS.estructura(b.tableroId as string, await yoTablero(ctx), b.conItems === true);
+  const id = (await ctx.c.query<{ id: string }>("INSERT INTO plantilla_tablero (nombre, descripcion, estructura, creado_por) VALUES ($1, $2, $3, $4) RETURNING id", [nombre, descripcion, JSON.stringify(estructura), ctx.u.usuarioId])).rows[0].id;
+  return { __status: 201, ...plantillaTableroVista(ctx, (await ctx.c.query<FilaPlantillaTablero>(`${SELECT_PLANTILLA_TABLERO} WHERE p.id = $1`, [id])).rows[0]) };
+});
+ruta("DELETE", "/plantillas-tablero/:id", async (ctx, p) => {
+  soloEquipo(ctx);
+  if (PLANTILLAS_TABLERO.some((x) => x.id === p.id)) throw new ErrorApi(403, "SIN_PERMISO", "Las plantillas predeterminadas no se borran");
+  const x = esUuid(p.id) ? (await ctx.c.query<FilaPlantillaTablero>(`${SELECT_PLANTILLA_TABLERO} WHERE p.id = $1`, [p.id])).rows[0] : undefined;
+  if (!x) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa plantilla");
+  if (!plantillaTableroVista(ctx, x).puedeBorrar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien la creó o un ADMIN la puede borrar");
+  await ctx.c.query("DELETE FROM plantilla_tablero WHERE id = $1", [x.id]);
+  return null;
 });
 /** 24 nov: a quien suman a un proyecto le llega el aviso en «Mi panel» (no a quien lo hace). */
 async function avisarProyectoNuevo(ctx: Ctx, usuarioIds: string[], t: { id?: string; nombre?: string }) {

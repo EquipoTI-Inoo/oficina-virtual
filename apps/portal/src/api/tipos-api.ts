@@ -4474,6 +4474,43 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/plantillas-tablero": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plantillas de tableros (25 nov): las predeterminadas y las que guardó el equipo */
+        get: operations["listarPlantillasTablero"];
+        put?: never;
+        /** Guarda la estructura de un tablero como plantilla del equipo (grupos, columnas y, si se pide, sus ítems sin responsables ni fechas) */
+        post: operations["guardarPlantillaTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plantillas-tablero/{plantillaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plantillaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Borra una plantilla del equipo: quien la creó o un ADMIN. Las predeterminadas no se borran */
+        delete: operations["borrarPlantillaTablero"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/archivar": {
         parameters: {
             query?: never;
@@ -8366,6 +8403,19 @@ export interface components {
                 campo: string;
                 valores: string[];
             };
+        };
+        /** @description Una plantilla de tablero (25 nov) */
+        PlantillaTablero: {
+            /** @description Las predeterminadas tienen un id corto (web, branding…); las del equipo, uuid */
+            id: string;
+            nombre: string;
+            descripcion: string | null;
+            predeterminada: boolean;
+            grupos: number;
+            columnas: number;
+            items: number;
+            creadoPor: string | null;
+            puedeBorrar: boolean;
         };
         /** @description Un comentario sobre una respuesta del formulario (25 nov) */
         ComentarioRespuesta: {
@@ -19423,6 +19473,82 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listarPlantillasTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["PlantillaTablero"][];
+                    };
+                };
+            };
+        };
+    };
+    guardarPlantillaTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tableroId: string;
+                    nombre: string;
+                    descripcion?: string | null;
+                    /** @description Incluir los ítems y subítems (solo sus nombres) */
+                    conItems?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaTablero"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    borrarPlantillaTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plantillaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Borrada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
         };
     };
     archivarTablero: {

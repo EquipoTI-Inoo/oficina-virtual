@@ -5,7 +5,7 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { LuArrowDown, LuArrowLeft, LuArrowRight, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
+import { LuArrowDown, LuArrowLeft, LuArrowRight, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuCopy, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { NuevoServicio, ProyectoEquipo } from "./proyecto-equipo";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
@@ -297,7 +297,7 @@ function DatosDelProyecto({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, 
 }
 
 /** Acciones poco usadas o peligrosas, fuera de la fila principal (23 nov). */
-function MasAcciones({ borrar }: { borrar: () => void }) {
+function MasAcciones({ borrar, guardarPlantilla }: { borrar?: () => void; guardarPlantilla: () => void }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   useEffect(() => {
     if (!pos) return;
@@ -315,7 +315,8 @@ function MasAcciones({ borrar }: { borrar: () => void }) {
       </button>
       {pos && (
         <span className="arbol-menu-caja" role="menu" style={pos}>
-          <button type="button" role="menuitem" className="peligro" onClick={() => { setPos(null); borrar(); }}><LuTrash2 size={14} /> Borrar proyecto</button>
+          <button type="button" role="menuitem" onClick={() => { setPos(null); guardarPlantilla(); }}><LuCopy size={14} /> Guardar como plantilla</button>
+          {borrar && <button type="button" role="menuitem" className="peligro" onClick={() => { setPos(null); borrar(); }}><LuTrash2 size={14} /> Borrar proyecto</button>}
         </span>
       )}
     </span>
@@ -353,6 +354,7 @@ function EstadoDelTablero({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, 
 }
 
 function TableroProyecto() {
+  const [guardandoPlantilla, setGuardandoPlantilla] = useState(false);
   const [parte, setParte] = useState<"TABLERO" | "CLIENTE">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("parte") === "cliente" ? "CLIENTE" : "TABLERO"));
   const { params, ir } = useNavegacion();
   const r = useConsulta<Tablero>(`/tableros/${params.id}`);
@@ -443,7 +445,7 @@ function TableroProyecto() {
             {!t.soyInvitado && <BotonPersonas t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonIaTablero t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
-            {t.puedeBorrar && <MasAcciones borrar={() => void borrarProyecto()} />}
+            {!t.soyInvitado && (t.puedeBorrar || t.puedeEditar) && <MasAcciones borrar={t.puedeBorrar ? () => void borrarProyecto() : undefined} guardarPlantilla={() => setGuardandoPlantilla(true)} />}
           </span>
         }
       />
@@ -459,6 +461,7 @@ function TableroProyecto() {
       {parte === "CLIENTE" && !t.soyInvitado ? <ParaElCliente t={t} cambiar={cambiar} /> : (
       <>
         {editandoDatos && <EditarDatos t={t} cambiar={cambiar} cerrar={() => setEditandoDatos(false)} />}
+      {guardandoPlantilla && <GuardarPlantilla t={t} cerrar={() => setGuardandoPlantilla(false)} />}
         {t.archivado && (
           <div className="aviso-archivado" role="status">
             <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${fCorta(t.archivadoEn)}` : ""}. Está en solo lectura.</span>
@@ -1190,6 +1193,54 @@ function Barras({ titulo, filas }: { titulo: string; filas: { nombre: string; n:
         ))}
       </div>
     </section>
+  );
+}
+
+/** 25 nov: guarda la estructura de este tablero como plantilla del equipo. */
+function GuardarPlantilla({ t, cerrar }: { t: Tablero; cerrar: () => void }) {
+  const avisar = useAviso();
+  const [nombre, setNombre] = useState(t.nombre);
+  const [descripcion, setDescripcion] = useState("");
+  const [conItems, setConItems] = useState(false);
+  const [err, setErr] = useState<Record<string, string>>({});
+  const [ocupado, setOcupado] = useState(false);
+  const guardar = async () => {
+    setErr({});
+    setOcupado(true);
+    try {
+      await api("/plantillas-tablero", { metodo: "POST", cuerpo: { tableroId: t.id, nombre, descripcion: descripcion || null, conItems } });
+      avisar({ titulo: "Plantilla guardada", texto: "Ya aparece en «Nuevo proyecto» para todo el equipo." });
+      cerrar();
+    } catch (e) {
+      if (e instanceof ProblemaApi && e.errores.length) setErr(Object.fromEntries(e.errores.map((x) => [x.campo, x.mensaje])));
+      else avisar({ titulo: "No se pudo guardar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    } finally {
+      setOcupado(false);
+    }
+  };
+  return (
+    <Modal abierto alCerrar={cerrar} etiqueta="Guardar como plantilla" ancho={480}>
+      <div className="pila" style={{ gap: 12 }}>
+        <h2 className="modal-titulo">Guardar como plantilla</h2>
+        <p className="texto-sm texto-muted">Se guardan sus {t.grupos.length} grupos y sus columnas propias. Los proyectos nuevos pueden arrancar desde ella.</p>
+        <div className="campo">
+          <label htmlFor="pl-nombre">Nombre</label>
+          <div className="entrada"><input id="pl-nombre" value={nombre} maxLength={80} onChange={(e) => setNombre(e.target.value)} /></div>
+          {err.nombre && <p className="texto-xs texto-alerta">{err.nombre}</p>}
+        </div>
+        <div className="campo">
+          <label htmlFor="pl-desc">Para qué sirve <span className="texto-muted">(opcional)</span></label>
+          <textarea id="pl-desc" className="input" rows={2} maxLength={300} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+        </div>
+        <label className="fila texto-sm" style={{ gap: 8 }}>
+          <input type="checkbox" checked={conItems} onChange={(e) => setConItems(e.target.checked)} /> Incluir sus {t.items.length} ítems como ejemplo (solo los nombres, sin responsables ni fechas)
+        </label>
+        <div className="fila" style={{ gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="boton" onClick={cerrar}>Cancelar</button>
+          <button type="button" className="boton boton--primario" disabled={ocupado} onClick={() => void guardar()}>{ocupado ? "Guardando…" : "Guardar plantilla"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

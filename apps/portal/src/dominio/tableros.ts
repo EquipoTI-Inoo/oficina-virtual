@@ -486,3 +486,125 @@ export function fechasDelProyecto(p: ProyectoIW): { inicio: string | null; fin: 
   const fin = limites.at(-1) ?? null;
   return { inicio: inicio && fin && fin < inicio ? fin : inicio, fin };
 }
+
+// ───────────────────────────── plantillas de tableros (25 nov, idea del usuario)
+
+/**
+ * La estructura de un tablero que se puede reutilizar: sus grupos, sus columnas propias (con su configuración) y, si
+ * se quiere, sus ítems y subítems de ejemplo, sin responsables, fechas ni valores.
+ */
+export interface EstructuraTablero {
+  grupos: { nombre: string; color: string }[];
+  columnas: { nombre: string; tipo: string; config?: unknown }[];
+  items: { nombre: string; grupo: number; subitems?: string[] }[];
+}
+export interface PlantillaTableroFija { id: string; nombre: string; descripcion: string; estructura: EstructuraTablero }
+
+const g = (nombres: string[]) => nombres.map((nombre, i) => ({ nombre, color: COLORES_GRUPO[i % COLORES_GRUPO.length] }));
+const its = (porGrupo: string[][]) => porGrupo.flatMap((xs, grupo) => xs.map((nombre) => ({ nombre, grupo })));
+const ARCHIVOS = { nombre: "Archivos", tipo: "file" };
+const ENLACE = { nombre: "Enlace", tipo: "link" };
+
+/** Las que vienen con el portal: los servicios de Inoo. Se usan tal cual o como punto de partida. */
+export const PLANTILLAS_TABLERO: readonly PlantillaTableroFija[] = [
+  {
+    id: "web", nombre: "Desarrollo web", descripcion: "Del brief a la publicación: descubrimiento, diseño, desarrollo, contenido y lanzamiento.",
+    estructura: {
+      grupos: g(["Descubrimiento", "Diseño", "Desarrollo", "Contenido", "Pruebas y lanzamiento"]),
+      columnas: [ENLACE, ARCHIVOS],
+      items: its([
+        ["Brief del cliente", "Benchmark de referencias", "Mapa del sitio"],
+        ["Flujograma", "Diseño del inicio", "Diseño de páginas internas"],
+        ["Maquetación", "Formularios y correos", "Versión para celular"],
+        ["Textos", "Imágenes"],
+        ["Revisión con el cliente", "Dominio y hosting", "Publicación"],
+      ]),
+    },
+  },
+  {
+    id: "branding", nombre: "Branding", descripcion: "Investigación, concepto, diseño de la identidad y entrega del manual.",
+    estructura: {
+      grupos: g(["Investigación", "Concepto", "Diseño", "Entrega"]),
+      columnas: [ARCHIVOS],
+      items: its([
+        ["Brief de marca", "Análisis de la competencia"],
+        ["Moodboard", "Propuestas de concepto"],
+        ["Propuestas de logo", "Paleta y tipografías", "Aplicaciones"],
+        ["Manual de marca", "Entrega de archivos"],
+      ]),
+    },
+  },
+  {
+    id: "social", nombre: "Social Media mensual", descripcion: "Recurrente: un grupo por semana, con el canal, la fecha de publicación y la pieza.",
+    estructura: {
+      grupos: g(["Semana 1", "Semana 2", "Semana 3", "Semana 4"]),
+      columnas: [
+        { nombre: "Canal", tipo: "etiqueta", config: { etiquetas: [
+          { texto: "Instagram", color: "#e2445c" }, { texto: "Facebook", color: "#0086c0" }, { texto: "TikTok", color: "#333333" }, { texto: "LinkedIn", color: "#1f76c2" },
+        ] } },
+        { nombre: "Publicación", tipo: "date" },
+        { nombre: "Pieza", tipo: "file" },
+      ],
+      items: its([["Calendario del mes", "Aprobación del cliente"]]),
+    },
+  },
+  {
+    id: "crm", nombre: "Implementación de CRM", descripcion: "Diagnóstico, configuración, integraciones, capacitación y acompañamiento.",
+    estructura: {
+      grupos: g(["Diagnóstico", "Configuración", "Integraciones", "Capacitación", "Acompañamiento"]),
+      columnas: [ARCHIVOS],
+      items: its([
+        ["Levantamiento de procesos", "Mapa del pipeline"],
+        ["Usuarios y permisos", "Campos y etapas", "Importación de contactos"],
+        ["Integración con la web"],
+        ["Capacitación 1", "Capacitación 2"],
+        ["Seguimiento del primer mes"],
+      ]),
+    },
+  },
+  {
+    id: "audiovisual", nombre: "Audiovisual", descripcion: "Preproducción, rodaje, edición y entrega.",
+    estructura: {
+      grupos: g(["Preproducción", "Rodaje", "Edición", "Entrega"]),
+      columnas: [ENLACE, ARCHIVOS],
+      items: its([
+        ["Guion", "Shotlist", "Locación y permisos"],
+        ["Rodaje"],
+        ["Primer corte", "Color y audio"],
+        ["Entrega final"],
+      ]),
+    },
+  },
+];
+
+/** La estructura de un tablero existente, para guardarla como plantilla. */
+export function estructuraDe(p: ProyectoIW, conItems: boolean): EstructuraTablero {
+  const grupos = (p.groups ?? []).map((x) => ({ nombre: x.name, color: x.color }));
+  const indice = new Map((p.groups ?? []).map((x, i) => [x.id, i]));
+  return {
+    grupos,
+    columnas: columnasPersonalizadas(p).filter((c) => !!info(c.type)).map((c) => ({ nombre: c.label, tipo: c.type, ...(c.config ? { config: structuredClone(c.config) } : {}) })),
+    items: conItems ? (p.items ?? []).filter((x) => indice.has(x.groupId)).map((x) => ({ nombre: x.name, grupo: indice.get(x.groupId)!, ...((x.subitems ?? []).length ? { subitems: x.subitems!.map((s) => s.name) } : {}) })) : [],
+  };
+}
+
+/** Revisa una estructura que llega de afuera (una plantilla guardada) antes de aplicarla. */
+export function validarEstructura(v: unknown): { estructura: EstructuraTablero; errores: Errores } {
+  const e = (v && typeof v === "object" ? v : {}) as Partial<EstructuraTablero>;
+  const grupos = Array.isArray(e.grupos) ? e.grupos.filter((x) => typeof x?.nombre === "string" && x.nombre.trim()).slice(0, 30).map((x) => ({ nombre: x.nombre.trim().slice(0, 80), color: /^#[0-9a-f]{6}$/i.test(String(x.color)) ? x.color : COLORES_GRUPO[0] })) : [];
+  const columnas = Array.isArray(e.columnas) ? e.columnas.filter((x) => typeof x?.nombre === "string" && typeof x?.tipo === "string" && !!info(x.tipo)).slice(0, 60) : [];
+  const items = Array.isArray(e.items) ? e.items.filter((x) => typeof x?.nombre === "string" && x.nombre.trim() && Number.isInteger(x.grupo) && x.grupo >= 0 && x.grupo < grupos.length).slice(0, 300) : [];
+  const errores: Errores = grupos.length ? [] : [{ campo: "plantilla", mensaje: "La plantilla no tiene grupos" }];
+  return { estructura: { grupos, columnas, items }, errores };
+}
+
+/** Pone la estructura en un tablero recién creado (vacío): sus grupos, columnas e ítems de ejemplo. */
+export function aplicarEstructura(p: ProyectoIW, e: EstructuraTablero) {
+  const ids = e.grupos.map(() => nuevoId("g"));
+  p.groups = e.grupos.map((x, i) => ({ id: ids[i], name: x.nombre, color: x.color, collapsed: false }));
+  for (const c of e.columnas) agregarColumna(p, { nombre: c.nombre, tipo: c.tipo, config: c.config });
+  p.items = e.items.map((x) => ({
+    id: nuevoId("item"), name: x.nombre.trim().slice(0, 300), status: "Sin Iniciar", assignee: "", assigneeName: "", assigneeAvatar: "", dueDate: "", priority: "Media", notes: "", createdAt: hoy(), groupId: ids[x.grupo],
+    subitems: (x.subitems ?? []).filter((s) => typeof s === "string" && s.trim()).slice(0, 50).map((s) => ({ id: nuevoId("sub"), name: s.trim().slice(0, 300), status: "Sin Iniciar", assignee: "", assigneeName: "", assigneeAvatar: "", dueDate: "", createdAt: hoy() })),
+  }));
+}
