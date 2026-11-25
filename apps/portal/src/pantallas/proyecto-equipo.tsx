@@ -75,6 +75,8 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
     if (k === "AVANCE") u.searchParams.delete("pestana"); else u.searchParams.set("pestana", k.toLowerCase());
     window.history.replaceState(window.history.state, "", u);
   };
+  // Los hooks van antes de cualquier return (25 nov: el de arrastrar etapas estaba después y rompía la página).
+  const [arrastrando, setArrastrando] = useState<string | null>(null);
   const d = perfil.datos;
   if (perfil.error) return <ErrorCarga error={perfil.error} reintentar={perfil.recargar} />;
   if (!d) return <Cargando />;
@@ -109,7 +111,6 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
     }
   };
   // 25 nov (Ernesto): las etapas se reordenan arrastrando la fila (o con subir y bajar).
-  const [arrastrando, setArrastrando] = useState<string | null>(null);
   const reordenar = async (etapaId: string, antesDe: string | null) => {
     try {
       const av = await api<S<"AvanceServicio">>(`/servicios-contratados/${d.servicioContratadoId}/etapas/${etapaId}/mover`, { metodo: "POST", cuerpo: { antesDe } });
