@@ -664,7 +664,7 @@ function EdicionRequerimiento({ r, alCambiar }: { r: Req; alCambiar: (r: Req) =>
         <button className="boton boton--chico" onClick={() => setAbierto(true)}>Editar</button>
         {r.estado === "PENDIENTE" && <button className="boton boton--chico boton--peligro" onClick={() => void anular()}>Anular</button>}
       </div>
-      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Editar requerimiento" ancho={640}>
+      <Modal abierto={abierto} alCerrar={() => setAbierto(false)} etiqueta="Editar requerimiento" ancho={720}>
         <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Editar requerimiento</h2>
         <div className="campo">
           <label htmlFor="er-titulo">Nombre</label>
@@ -827,7 +827,7 @@ function NuevoFormulario({ abierto, clienteId, servicioContratadoId, codigoServi
     }
   };
   return (
-    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo formulario" ancho={640}>
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Nuevo formulario" ancho={720}>
       <div className="pila" style={{ gap: 14 }}>
         <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuLink size={18} /> Nuevo formulario</h2>
         {url ? (
@@ -887,58 +887,152 @@ function usePreguntas(base: Pregunta[] | undefined) {
  * 20 nov (Alonso): editar las preguntas antes de enviar el formulario. Se parte de las de la plantilla; lo que se deje
  * es exactamente lo que verá ese cliente. La plantilla no cambia.
  */
+const conOpciones = (p: Pregunta) => p.tipo === "OPCION" || p.tipo === "OPCIONES";
+
+/**
+ * Deja las condiciones coherentes después de un cambio: solo pueden depender de una pregunta anterior de opción, y
+ * con valores que siguen siendo opciones de esa pregunta (lo mismo que hace el servidor, para verlo al editar).
+ */
+function ordenarCondiciones(xs: Pregunta[]): Pregunta[] {
+  const antes = new Map<string, Pregunta>();
+  return xs.map((p) => {
+    let q = p;
+    if (p.mostrarSi) {
+      const ref = antes.get(p.mostrarSi.campo);
+      if (!ref || !conOpciones(ref)) { const { mostrarSi: _, ...resto } = p; q = resto; }
+      else q = { ...p, mostrarSi: { campo: ref.clave, valores: p.mostrarSi.valores.filter((v) => (ref.opciones ?? []).includes(v)) } };
+    }
+    antes.set(q.clave, q);
+    return q;
+  });
+}
+
+/**
+ * Editar las preguntas antes de enviar el formulario (20 nov, Alonso). Lo que se deje es exactamente lo que verá ese
+ * cliente; la plantilla no cambia. 25 nov (Ernesto): más claro y con condiciones editables («se muestra solo si…»).
+ */
 function EditorPreguntas({ preguntas, cambiar, cambiadas, reiniciar, textoReiniciar = "Volver a las preguntas estándar" }: { preguntas: Pregunta[]; cambiar: (p: Pregunta[]) => void; cambiadas: boolean; reiniciar: () => void; textoReiniciar?: string }) {
-  const poner = (i: number, c: Partial<Pregunta>) => cambiar(preguntas.map((x, j) => (j === i ? { ...x, ...c } : x)));
+  const fijar = (xs: Pregunta[]) => cambiar(ordenarCondiciones(xs));
+  const poner = (i: number, c: Partial<Pregunta>) => fijar(preguntas.map((x, j) => (j === i ? { ...x, ...c } : x)));
+  const quitarCampo = (i: number, k: "ayuda" | "seccion" | "mostrarSi") => fijar(preguntas.map((x, j) => { if (j !== i) return x; const y = { ...x }; delete y[k]; return y; }));
   const mover = (i: number, d: -1 | 1) => {
     const j = i + d;
     if (j < 0 || j >= preguntas.length) return;
     const xs = [...preguntas];
     [xs[i], xs[j]] = [xs[j], xs[i]];
-    cambiar(xs);
+    fijar(xs);
   };
-  const agregar = () => cambiar([...preguntas, { clave: `p${Date.now().toString(36)}`, etiqueta: "", tipo: "TEXTO_LARGO", obligatorio: false }]);
+  const agregar = () => fijar([...preguntas, { clave: `p${Date.now().toString(36)}`, etiqueta: "", tipo: "TEXTO_LARGO", obligatorio: false }]);
+  const dependen = (clave: string) => preguntas.filter((x) => x.mostrarSi?.campo === clave).length;
   return (
-    <div className="tarjeta" style={{ padding: "14px 16px", display: "grid", gap: 10, boxShadow: "none" }} aria-label="Preguntas del formulario">
+    <div className="editor-preguntas" aria-label="Preguntas del formulario">
       <div className="fila entre" style={{ flexWrap: "wrap", gap: 8 }}>
         <span className="etiqueta-direccion">Así le llega al cliente · puedes editarlo</span>
         {cambiadas && <button type="button" className="enlace texto-xs" onClick={reiniciar}>{textoReiniciar}</button>}
       </div>
-      {preguntas.map((c, i) => (
-        <div key={c.clave} className="fila-suave" style={{ display: "grid", gap: 6, padding: "10px 12px" }}>
-          <div className="fila" style={{ gap: 6 }}>
-            <span className="texto-xs texto-muted" style={{ minWidth: 18 }}>{i + 1}.</span>
-            <input className="input" style={{ flex: 1, height: 34 }} aria-label={`Pregunta ${i + 1}`} value={c.etiqueta} maxLength={300} placeholder="Escribe la pregunta"
-              onChange={(e) => poner(i, { etiqueta: e.target.value })} />
-            <button type="button" className="boton-icono" aria-label={`Subir la pregunta ${i + 1}`} disabled={i === 0} onClick={() => mover(i, -1)}><LuArrowUp size={14} /></button>
-            <button type="button" className="boton-icono" aria-label={`Bajar la pregunta ${i + 1}`} disabled={i === preguntas.length - 1} onClick={() => mover(i, 1)}><LuArrowDown size={14} /></button>
-            <button type="button" className="boton-icono" aria-label={`Quitar la pregunta ${i + 1}`} disabled={preguntas.length === 1} onClick={() => cambiar(preguntas.filter((_, j) => j !== i))}><LuX size={14} /></button>
+      {preguntas.map((c, i) => {
+        const posibles = preguntas.slice(0, i).filter((x) => conOpciones(x) && (x.opciones ?? []).some((o) => o.trim()));
+        const ref = c.mostrarSi ? preguntas.find((x) => x.clave === c.mostrarSi!.campo) : undefined;
+        const n = dependen(c.clave);
+        return (
+          <div key={c.clave} className="pregunta-editable">
+            {c.seccion !== undefined && (
+              <div className="fila" style={{ gap: 6 }}>
+                <input className="input pregunta-seccion" aria-label={`Título de la sección que empieza en la pregunta ${i + 1}`} value={c.seccion} maxLength={120} placeholder="Título de la sección…"
+                  onChange={(e) => poner(i, { seccion: e.target.value })} />
+                <button type="button" className="boton-icono" aria-label={`Quitar la sección de la pregunta ${i + 1}`} onClick={() => quitarCampo(i, "seccion")}><LuX size={14} /></button>
+              </div>
+            )}
+            <div className="fila" style={{ gap: 6 }}>
+              <span className="pregunta-numero" aria-hidden="true">{i + 1}</span>
+              <input className="input" style={{ flex: 1, height: 38 }} aria-label={`Pregunta ${i + 1}`} value={c.etiqueta} maxLength={300} placeholder="Escribe la pregunta…"
+                onChange={(e) => poner(i, { etiqueta: e.target.value })} />
+              <button type="button" className="boton-icono" aria-label={`Subir la pregunta ${i + 1}`} disabled={i === 0} onClick={() => mover(i, -1)}><LuArrowUp size={14} /></button>
+              <button type="button" className="boton-icono" aria-label={`Bajar la pregunta ${i + 1}`} disabled={i === preguntas.length - 1} onClick={() => mover(i, 1)}><LuArrowDown size={14} /></button>
+              <button type="button" className="boton-icono" aria-label={`Quitar la pregunta ${i + 1}`} disabled={preguntas.length === 1} title={n ? `${n} pregunta${n === 1 ? "" : "s"} dependen de esta: se mostrarán siempre` : undefined}
+                onClick={() => fijar(preguntas.filter((_, j) => j !== i))}><LuX size={14} /></button>
+            </div>
+            <div className="pregunta-detalle">
+              <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
+                <select className="input" style={{ width: "auto", height: 34 }} aria-label={`Tipo de respuesta de la pregunta ${i + 1}`} value={c.tipo}
+                  onChange={(e) => {
+                    const tipo = e.target.value as Pregunta["tipo"];
+                    poner(i, { tipo, opciones: tipo === "OPCION" || tipo === "OPCIONES" ? (c.opciones?.length ? c.opciones : ["", ""]) : undefined });
+                  }}>
+                  {Object.entries(TIPO_CAMPO).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+                </select>
+                <label className="fila texto-sm" style={{ gap: 6 }}>
+                  <input type="checkbox" checked={c.obligatorio} onChange={(e) => poner(i, { obligatorio: e.target.checked })} /> Obligatoria
+                </label>
+                {c.ayuda === undefined && <button type="button" className="boton-texto texto-xs" onClick={() => poner(i, { ayuda: "" })}><LuPlus size={12} /> Ayuda</button>}
+                {c.seccion === undefined && <button type="button" className="boton-texto texto-xs" onClick={() => poner(i, { seccion: "" })}><LuPlus size={12} /> Sección</button>}
+              </div>
+              {c.ayuda !== undefined && (
+                <div className="fila" style={{ gap: 6 }}>
+                  <input className="input" style={{ flex: 1, height: 34 }} aria-label={`Ayuda de la pregunta ${i + 1}`} value={c.ayuda ?? ""} maxLength={500} placeholder="Un ejemplo o una aclaración para el cliente…"
+                    onChange={(e) => poner(i, { ayuda: e.target.value })} />
+                  <button type="button" className="boton-icono" aria-label={`Quitar la ayuda de la pregunta ${i + 1}`} onClick={() => quitarCampo(i, "ayuda")}><LuX size={14} /></button>
+                </div>
+              )}
+              {conOpciones(c) && (
+                <div className="pila" style={{ gap: 6 }} aria-label={`Opciones de la pregunta ${i + 1}`}>
+                  {(c.opciones ?? []).map((o, k) => (
+                    <div key={k} className="fila" style={{ gap: 6 }}>
+                      <span className={c.tipo === "OPCION" ? "marca-opcion" : "marca-opcion marca-opcion--varias"} aria-hidden="true" />
+                      <input className="input" style={{ flex: 1, height: 34 }} aria-label={`Opción ${k + 1} de la pregunta ${i + 1}`} value={o} maxLength={120} placeholder={`Opción ${k + 1}`}
+                        onChange={(e) => poner(i, { opciones: (c.opciones ?? []).map((x, m) => (m === k ? e.target.value : x)) })}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); poner(i, { opciones: [...(c.opciones ?? []), ""] }); } }} />
+                      <button type="button" className="boton-icono" aria-label={`Quitar la opción ${k + 1} de la pregunta ${i + 1}`} disabled={(c.opciones ?? []).length <= 2}
+                        onClick={() => poner(i, { opciones: (c.opciones ?? []).filter((_, m) => m !== k) })}><LuX size={14} /></button>
+                    </div>
+                  ))}
+                  <button type="button" className="boton-texto texto-xs" style={{ justifySelf: "start" }} disabled={(c.opciones ?? []).length >= 30} onClick={() => poner(i, { opciones: [...(c.opciones ?? []), ""] })}><LuPlus size={12} /> Agregar opción</button>
+                </div>
+              )}
+              {i > 0 && (posibles.length > 0 || !!c.mostrarSi) && (
+                <div className="pregunta-condicion">
+                  <label className="fila texto-sm" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <span className="texto-muted">Se muestra</span>
+                    <select className="input" style={{ width: "auto", height: 32 }} aria-label={`Cuándo se muestra la pregunta ${i + 1}`}
+                      value={c.mostrarSi?.campo ?? ""}
+                      onChange={(e) => (e.target.value ? poner(i, { mostrarSi: { campo: e.target.value, valores: [] } }) : quitarCampo(i, "mostrarSi"))}>
+                      <option value="">siempre</option>
+                      {posibles.map((x) => <option key={x.clave} value={x.clave}>solo si «{x.etiqueta.slice(0, 60) || "pregunta sin texto"}» es…</option>)}
+                    </select>
+                  </label>
+                  {ref && (
+                    <div className="chips" role="group" aria-label={`Respuestas que muestran la pregunta ${i + 1}`}>
+                      {(ref.opciones ?? []).filter((o) => o.trim()).map((o) => {
+                        const activo = c.mostrarSi!.valores.includes(o);
+                        return (
+                          <button key={o} type="button" className="chip" aria-pressed={activo}
+                            onClick={() => poner(i, { mostrarSi: { campo: ref.clave, valores: activo ? c.mostrarSi!.valores.filter((v) => v !== o) : [...c.mostrarSi!.valores, o] } })}>{o}</button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {ref && !c.mostrarSi!.valores.length && <span className="texto-xs texto-alerta" role="status">Elige al menos una respuesta; si no, se mostrará siempre.</span>}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="fila" style={{ gap: 10, flexWrap: "wrap", paddingLeft: 24 }}>
-            <select className="input" style={{ width: "auto", height: 32 }} aria-label={`Tipo de respuesta de la pregunta ${i + 1}`} value={c.tipo}
-              onChange={(e) => {
-                const tipo = e.target.value as Pregunta["tipo"];
-                poner(i, { tipo, opciones: tipo === "OPCION" || tipo === "OPCIONES" ? (c.opciones?.length ? c.opciones : ["", ""]) : undefined });
-              }}>
-              {Object.entries(TIPO_CAMPO).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
-            </select>
-            <label className="fila texto-xs" style={{ gap: 4 }}>
-              <input type="checkbox" checked={c.obligatorio} onChange={(e) => poner(i, { obligatorio: e.target.checked })} /> Obligatoria
-            </label>
-            {c.mostrarSi && <span className="texto-xs texto-muted">Solo si «{preguntas.find((x) => x.clave === c.mostrarSi!.campo)?.etiqueta ?? "otra pregunta"}» es {c.mostrarSi.valores.join(" o ")}</span>}
-          </div>
-          {(c.tipo === "OPCION" || c.tipo === "OPCIONES") && (
-            <textarea className="input" rows={3} style={{ marginLeft: 24 }} aria-label={`Opciones de la pregunta ${i + 1}, una por línea`} placeholder="Una opción por línea"
-              value={(c.opciones ?? []).join("\n")} onChange={(e) => poner(i, { opciones: e.target.value.split("\n") })} />
-          )}
-        </div>
-      ))}
+        );
+      })}
       <button type="button" className="boton boton--chico" style={{ justifySelf: "start" }} onClick={agregar}><LuPlus size={14} /> Agregar pregunta</button>
     </div>
   );
 }
 /** Lo que se manda: las preguntas solo si cambiaron (sin líneas vacías en las opciones). */
 const preguntasParaEnviar = (p: Pregunta[], cambiadas: boolean) =>
-  cambiadas ? { campos: p.map((c) => (c.opciones ? { ...c, opciones: c.opciones.map((o) => o.trim()).filter(Boolean) } : c)) } : {};
+  cambiadas ? {
+    campos: p.map((c) => {
+      const y = { ...c, ...(c.opciones ? { opciones: c.opciones.map((o) => o.trim()).filter(Boolean) } : {}) };
+      if (!y.ayuda?.trim()) delete y.ayuda;
+      if (!y.seccion?.trim()) delete y.seccion;
+      if (y.mostrarSi && !y.mostrarSi.valores.length) delete y.mostrarSi;
+      return y;
+    }),
+  } : {};
 
 /**
  * Pedir un requerimiento (reunión 15 oct): primero el servicio, luego solo las plantillas que aplican a
@@ -983,7 +1077,7 @@ function PedirRequerimiento({ clienteId, abierto, alCerrar, alCrear }: { cliente
       </span>
     ) : null;
   return (
-    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Pedir requerimiento">
+    <Modal abierto={abierto} alCerrar={alCerrar} etiqueta="Pedir requerimiento" ancho={720}>
       <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Pedir requerimiento</h2>
       <div className="campo">
         <label htmlFor="req-servicio">¿Para qué servicio?</label>

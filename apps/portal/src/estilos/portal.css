@@ -3128,3 +3128,16 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .celda-texto::placeholder { color: var(--c-muted); opacity: 1; }
 /* 25 nov (fusión): una fila por proyecto en la ficha del cliente. */
 .fila-proyecto-cliente { display: flex; align-items: center; gap: 12px; padding: 14px; flex-wrap: wrap; }
+
+/* 25 nov (Ernesto): editor de preguntas de los formularios, con condiciones editables. */
+.editor-preguntas { display: grid; gap: 10px; }
+.pregunta-editable { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--c-borde); border-radius: var(--r-md); background: var(--c-blanco); }
+.pregunta-editable:focus-within { border-color: var(--c-primario-borde); }
+.pregunta-numero { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--c-neutro-suave); font-size: var(--t-xs); font-weight: 600; color: var(--c-muted); }
+.pregunta-detalle { display: grid; gap: 8px; padding-left: 30px; }
+.pregunta-seccion { flex: 1; height: 34px; font-weight: 600; }
+.pregunta-condicion { display: grid; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--c-borde); }
+.marca-opcion { flex: none; width: 14px; height: 14px; border: 1.5px solid var(--c-borde-medio, var(--c-borde)); border-radius: 50%; }
+.marca-opcion--varias { border-radius: 3px; }
+@media (max-width: 600px) { .pregunta-detalle { padding-left: 0; } }
+.pregunta-editable .input, .pregunta-editable .fila { min-width: 0; }

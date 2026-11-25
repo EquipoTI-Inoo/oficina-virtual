@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { diasNoLaborables, FERIADOS_PERU_2026 } from "../../src/dominio/calendario";
 import { CAMPOS_BRIEF_BRANDING, CAMPOS_BRIEF_WEB, CAMPOS_INGRESO } from "../../src/dominio/briefs";
-import { camposVisibles, diasParaVencer, semaforoRequerimiento, validarRespuestas } from "../../src/dominio/requerimientos";
+import { camposVisibles, diasParaVencer, prepararPreguntas, semaforoRequerimiento, validarRespuestas } from "../../src/dominio/requerimientos";
 import { diasAtrasoRevision, revisionVence } from "../../src/dominio/revision";
 import { plantillaAplica, rastroIa } from "../../src/dominio/ia";
 
@@ -80,5 +80,26 @@ describe("búsqueda global (src/dominio/busqueda.ts)", () => {
     assert.deepEqual(buscar([c("PROYECTO", "Branding", "Casa Oliva")], "oliva branding").map((x) => x.titulo), ["Branding"], "también en el extra");
     assert.ok(!("extra" in buscar([c("PROYECTO", "Branding", "Casa Oliva")], "branding")[0]), "el extra no sale");
     assert.equal(buscar(Array.from({ length: 9 }, (_, i) => c("TICKET", `Ticket ${i}`)), "ticket").length, 5);
+  });
+});
+
+describe("Condiciones editables de los formularios (25 nov)", () => {
+  const tipo = (q: string, opciones?: string[]) => ({ clave: q, etiqueta: `Pregunta ${q}`, tipo: opciones ? "OPCION" : "TEXTO", obligatorio: false, ...(opciones ? { opciones } : {}) });
+  test("una condición vale si apunta a una pregunta anterior de opción, con valores que son sus opciones", () => {
+    const { campos, errores } = prepararPreguntas([
+      tipo("a", ["Sí", "No"]),
+      { ...tipo("b"), mostrarSi: { campo: "a", valores: ["Sí", "Quizás"] } },
+    ]);
+    assert.deepEqual(errores, []);
+    assert.deepEqual(campos[1].mostrarSi, { campo: "a", valores: ["Sí"] }, "«Quizás» ya no es una opción");
+  });
+  test("se descarta si depende de una pregunta posterior, de texto, o se quedó sin valores", () => {
+    const { campos } = prepararPreguntas([
+      { ...tipo("a"), mostrarSi: { campo: "c", valores: ["Sí"] } },
+      { ...tipo("b"), mostrarSi: { campo: "a", valores: ["x"] } },
+      tipo("c", ["Sí", "No"]),
+      { ...tipo("d"), mostrarSi: { campo: "c", valores: ["Tal vez"] } },
+    ]);
+    assert.deepEqual(campos.map((c) => c.mostrarSi ?? null), [null, null, null, null]);
   });
 });

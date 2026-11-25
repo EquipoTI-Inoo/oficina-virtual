@@ -248,11 +248,17 @@ export function prepararPreguntas(v: unknown): { campos: Campo[]; errores: { cam
       ...(m && typeof m.campo === "string" && Array.isArray(m.valores) && m.valores.length ? { mostrarSi: { campo: m.campo, valores: m.valores.filter((x): x is string => typeof x === "string") } } : {}),
     });
   });
-  // Una condición solo vale si apunta a una pregunta anterior que sigue estando.
-  const anteriores = new Set<string>();
+  // Una condición solo vale si apunta a una pregunta anterior de opción que sigue estando, y con valores que son
+  // opciones de esa pregunta (25 nov: condiciones editables; si se cambian las opciones, no quedan colgando).
+  const anteriores = new Map<string, Campo>();
   for (const c of campos) {
-    if (c.mostrarSi && !anteriores.has(c.mostrarSi.campo)) delete c.mostrarSi;
-    anteriores.add(c.clave);
+    const ref = c.mostrarSi ? anteriores.get(c.mostrarSi.campo) : undefined;
+    if (c.mostrarSi) {
+      const valores = ref && (ref.tipo === "OPCION" || ref.tipo === "OPCIONES") ? c.mostrarSi.valores.filter((x) => (ref.opciones ?? []).includes(x)) : [];
+      if (valores.length) c.mostrarSi = { campo: c.mostrarSi.campo, valores };
+      else delete c.mostrarSi;
+    }
+    anteriores.set(c.clave, c);
   }
   return { campos, errores };
 }
