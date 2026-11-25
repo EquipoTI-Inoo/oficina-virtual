@@ -3,8 +3,8 @@
  * Accesos del equipo (2 nov 2026): quién trabaja en una cuenta o un proyecto, y asignar o quitar gente.
  * Asigna el nivel ADMIN a cualquiera o un lead a la gente de su área (las mismas reglas de la API).
  */
-import { useState, type FormEvent } from "react";
-import { LuArchive, LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { LuArchive, LuExternalLink, LuFolder, LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Barra, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
@@ -393,6 +393,89 @@ export function EquipoAsignado({ ruta, titulo, ayuda, soloNivelCuenta }: { ruta:
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+// ───────────────────────────── carpetas de Drive vinculadas (25 nov)
+
+export const SERVICIOS_CARPETA = ["Branding", "Web", "Social Media", "CRM", "Audiovisual", "SEO", "Marketing", "Paid Media"] as const;
+
+/** Pegar el enlace de una carpeta que ya existe en Drive. */
+export function VincularCarpeta({ clienteId, nombreInicial, conServicio, tableroId, alVincular, alCancelar }: {
+  clienteId: string; nombreInicial: string; conServicio?: boolean; tableroId?: string; alVincular: () => void; alCancelar: () => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [nombre, setNombre] = useState(nombreInicial);
+  const [servicio, setServicio] = useState("");
+  const [err, setErr] = useState<Record<string, string>>({});
+  const guardar = async () => {
+    setErr({});
+    try {
+      await api(`/clientes/${clienteId}/carpetas`, { metodo: "POST", cuerpo: { url, nombre, ...(servicio ? { servicio } : {}), ...(tableroId ? { tableroId } : {}) } });
+      alVincular();
+    } catch (e) {
+      setErr(e instanceof ProblemaApi && e.errores.length ? Object.fromEntries(e.errores.map((x) => [x.campo, x.mensaje])) : { url: "No se pudo vincular" });
+    }
+  };
+  return (
+    <div className="pila" style={{ gap: 6 }}>
+      <input className="input" aria-label="Enlace de la carpeta de Drive" placeholder="https://drive.google.com/drive/folders/…" value={url} onChange={(e) => setUrl(e.target.value)} />
+      {err.url && <span className="texto-xs texto-alerta">{err.url}</span>}
+      <input className="input" aria-label="Nombre de la carpeta" placeholder="Nombre" value={nombre} maxLength={80} onChange={(e) => setNombre(e.target.value)} />
+      {err.nombre && <span className="texto-xs texto-alerta">{err.nombre}</span>}
+      {conServicio && (
+        <select className="input" aria-label="Servicio de la carpeta" value={servicio} onChange={(e) => setServicio(e.target.value)}>
+          <option value="">Sin servicio (general)</option>
+          {SERVICIOS_CARPETA.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select>
+      )}
+      <div className="fila" style={{ gap: 6 }}>
+        <button type="button" className="boton boton--chico boton--primario" disabled={!url.trim()} onClick={() => void guardar()}>Vincular</button>
+        <button type="button" className="boton boton--chico" onClick={alCancelar}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * La ficha del cliente: su carpeta principal (la de siempre) y las que vinculó el equipo, por servicio o por proyecto.
+ * El Drive del equipo ya está ordenado por Servicio > Cliente: aquí solo se enlaza, no se crea ni se mueve nada.
+ */
+export function CarpetasDelCliente({ clienteId, clienteNombre, principal, principalEditor }: { clienteId: string; clienteNombre: string; principal: string | null; principalEditor: ReactNode }) {
+  const avisar = useAviso();
+  const q = useConsulta<{ datos: S<"CarpetaVinculada">[] }>(`/clientes/${clienteId}/carpetas`);
+  const [vinculando, setVinculando] = useState(false);
+  const quitar = async (x: S<"CarpetaVinculada">) => {
+    if (!(await confirmar(`¿Quitar el vínculo a «${x.nombre}»? La carpeta en Drive no se toca.`))) return;
+    try {
+      await api(`/clientes/${clienteId}/carpetas/${x.id}`, { metodo: "DELETE" });
+      void q.recargar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo quitar", texto: e instanceof ProblemaApi ? e.titulo : undefined });
+    }
+  };
+  const xs = q.datos?.datos ?? [];
+  return (
+    <section className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 10 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Carpetas de Drive</h3>
+      {principal
+        ? <a className="fila-carpeta" href={principal} target="_blank" rel="noreferrer"><LuFolder size={15} aria-hidden="true" /><span className="negrita">Principal</span><LuExternalLink size={13} aria-hidden="true" /></a>
+        : <p className="texto-xs texto-muted">Sin carpeta principal.</p>}
+      {principalEditor}
+      {xs.map((x) => (
+        <div key={x.id} className="fila entre" style={{ gap: 6 }}>
+          <a className="fila-carpeta" href={x.url} target="_blank" rel="noreferrer" title={x.creadoPor ? `Vinculada por ${x.creadoPor}` : undefined}>
+            <LuFolder size={15} aria-hidden="true" />
+            <span><span className="negrita">{x.servicio ?? (x.tableroId ? "Proyecto" : "Carpeta")}</span> · {x.nombre}</span>
+            <LuExternalLink size={13} aria-hidden="true" />
+          </a>
+          <button type="button" className="boton-icono" aria-label={`Quitar el vínculo a ${x.nombre}`} onClick={() => void quitar(x)}><LuX size={13} /></button>
+        </div>
+      ))}
+      {vinculando
+        ? <VincularCarpeta clienteId={clienteId} nombreInicial={clienteNombre} conServicio alVincular={() => { setVinculando(false); void q.recargar(); }} alCancelar={() => setVinculando(false)} />
+        : <button type="button" className="boton-texto texto-xs" style={{ justifySelf: "start" }} onClick={() => setVinculando(true)}><LuPlus size={12} /> Vincular otra carpeta (por servicio)</button>}
     </section>
   );
 }

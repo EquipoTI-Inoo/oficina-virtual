@@ -143,5 +143,21 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("POST", `/tableros/${t.id}/archivar`, DIEGO)).status, 409, "ya está archivado");
       assert.equal((await llamar("POST", `/tableros/${t.id}/desarchivar`, DIEGO)).json.archivado, false);
     });
+
+    test("25 nov: carpetas de Drive vinculadas al cliente (por servicio) y a un proyecto", async () => {
+      await reiniciar();
+      const base = `/clientes/${CASA_OLIVA}/carpetas`;
+      assert.equal((await llamar("POST", base, DIEGO, { url: "https://example.com", nombre: "X" })).status, 422);
+      const branding = await llamar("POST", base, DIEGO, { url: "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMn?usp=sharing", nombre: "Casa Oliva", servicio: "Branding" });
+      assert.equal(branding.status, 201);
+      assert.equal(branding.json.url, "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMn");
+      await llamar("POST", base, DIEGO, { url: "https://drive.google.com/drive/folders/1ProyectoUnoXyz", nombre: "Web 2027", tableroId: "PROJ-DIS01" });
+      await llamar("POST", base, DIEGO, { url: "https://drive.google.com/drive/folders/1ProyectoDosXyz", nombre: "Web 2027 (nueva)", tableroId: "PROJ-DIS01" });
+      const lista = (await llamar("GET", base, DIEGO)).json.datos;
+      assert.deepEqual(lista.map((x: any) => [x.nombre, x.servicio, x.tableroId]), [["Casa Oliva", "Branding", null], ["Web 2027 (nueva)", null, "PROJ-DIS01"]], "un proyecto tiene una sola carpeta");
+      assert.equal((await llamar("GET", base, VALERIA)).status, 403, "solo el equipo");
+      assert.equal((await llamar("DELETE", `${base}/${branding.json.id}`, DIEGO)).status, 204);
+      assert.equal((await llamar("GET", base, DIEGO)).json.datos.length, 1);
+    });
   });
 }

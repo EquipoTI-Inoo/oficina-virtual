@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { LuArrowDown, LuArrowLeft, LuArrowRight, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuCopy, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { NuevoServicio, ProyectoEquipo } from "./proyecto-equipo";
+import { VincularCarpeta } from "./accesos";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
 import { BotonPersonas } from "./personas-tablero";
 import { BotonIaTablero } from "./ia-tablero";
@@ -290,9 +291,35 @@ function DatosDelProyecto({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, 
           {t.puedeEditar && <ClienteDelTablero actual={t.cliente ?? null} cambiar={cambiar} />}
           {t.puedeEditar && <EstadoDelTablero t={t} cambiar={cambiar} />}
           {t.cliente && <VinculosDelTablero t={t} cambiar={cambiar} editable={t.puedeEditar} />}
+          {t.cliente && !esClienteInterno(t.cliente) && <CarpetaDelProyecto t={t} />}
         </div>
       )}
     </section>
+  );
+}
+
+/** 25 nov: la carpeta de Drive de este proyecto (una que ya existe en el Drive del equipo). */
+function CarpetaDelProyecto({ t }: { t: Tablero }) {
+  const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes?limite=100");
+  const ficha = (clientes.datos?.datos ?? []).find((c) => claveCliente(c.nombre) === claveCliente(t.cliente ?? ""));
+  const q = useConsulta<{ datos: S<"CarpetaVinculada">[] }>(ficha ? `/clientes/${ficha.id}/carpetas` : null);
+  const [cambiando, setCambiando] = useState(false);
+  if (!ficha) return null;
+  const suya = (q.datos?.datos ?? []).find((x) => x.tableroId === t.id);
+  return (
+    <div className="fila texto-sm" style={{ gap: 10, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 14 }}>
+      <span className="negrita">Carpeta de Drive</span>
+      {cambiando ? (
+        <span style={{ flex: "1 1 280px", maxWidth: 420 }}>
+          <VincularCarpeta clienteId={ficha.id} nombreInicial={t.nombre} tableroId={t.id} alVincular={() => { setCambiando(false); void q.recargar(); }} alCancelar={() => setCambiando(false)} />
+        </span>
+      ) : (
+        <>
+          {suya ? <a className="enlace" href={suya.url} target="_blank" rel="noreferrer">{suya.nombre} ↗</a> : <span className="texto-muted">Sin carpeta</span>}
+          {t.puedeEditar && <button type="button" className="boton-texto texto-sm" onClick={() => setCambiando(true)}>{suya ? "Cambiar" : "Vincular una que ya existe"}</button>}
+        </>
+      )}
+    </div>
   );
 }
 

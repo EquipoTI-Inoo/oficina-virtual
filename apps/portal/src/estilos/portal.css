@@ -3171,3 +3171,8 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .linea-proyectos-barra { position: absolute; top: 8px; height: 18px; border-radius: 6px; background: color-mix(in srgb, var(--color) 28%, var(--c-blanco)); border: 1px solid color-mix(in srgb, var(--color) 60%, transparent); overflow: hidden; }
 .linea-proyectos-avance { display: block; height: 100%; background: color-mix(in srgb, var(--color) 70%, transparent); }
 .linea-proyectos-hoy { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--c-semaforo-rojo); opacity: 0.6; }
+
+/* 25 nov: carpetas de Drive vinculadas. */
+.fila-carpeta { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--t-sm); color: var(--c-texto); text-decoration: none; }
+.fila-carpeta:hover { color: var(--c-primario); }
+.fila-carpeta svg { flex: none; color: var(--c-primario); }

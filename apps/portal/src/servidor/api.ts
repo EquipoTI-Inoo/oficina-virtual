@@ -70,7 +70,7 @@ import { crearActualizaciones, type RepoActualizaciones } from "./actualizacione
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero, type PlantillaTableroFija } from "../dominio/tableros";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type CuerpoSolicitud, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
-import { carpetaDeDrive } from "../dominio/carpeta-drive";
+import { carpetaDeDrive, validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -6465,6 +6465,37 @@ async function estructuraDePlantillaDb(ctx: Ctx, id: unknown): Promise<Estructur
   validacion(r.errores);
   return r.estructura;
 }
+// ───────────────────────────── carpetas de Drive vinculadas (25 nov)
+type FilaCarpetaVinculada = { id: string; tablero_id: string | null; servicio: string | null; nombre: string; url: string; autor: string | null; creado_en: Date };
+const carpetaVinculadaVista = (x: FilaCarpetaVinculada): S<"CarpetaVinculada"> => ({ id: x.id, tableroId: x.tablero_id, servicio: x.servicio, nombre: x.nombre, url: x.url, creadoPor: x.autor, creadoEn: x.creado_en.toISOString() });
+const SELECT_CARPETA_VINCULADA = "SELECT c.id, c.tablero_id, c.servicio, c.nombre, c.url, u.nombre AS autor, c.creado_en FROM carpeta_vinculada c LEFT JOIN usuario u ON u.id = c.creado_por";
+ruta("GET", "/clientes/:id/carpetas", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const filas = (await ctx.c.query<FilaCarpetaVinculada>(`${SELECT_CARPETA_VINCULADA} WHERE c.cliente_id = $1 ORDER BY c.tablero_id NULLS FIRST, lower(coalesce(c.servicio, '')), lower(c.nombre)`, [p.id])).rows;
+  return { datos: filas.map(carpetaVinculadaVista) };
+});
+ruta("POST", "/clientes/:id/carpetas", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const { datos: d, errores } = validarCarpetaVinculada((await cuerpo()) as Record<string, unknown>);
+  validacion(errores);
+  // Un proyecto tiene una sola carpeta: la nueva reemplaza a la anterior.
+  if (d.tableroId) await ctx.c.query("DELETE FROM carpeta_vinculada WHERE tablero_id = $1", [d.tableroId]);
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO carpeta_vinculada (cliente_id, tablero_id, servicio, nombre, url, drive_id, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+    [p.id, d.tableroId, d.servicio, d.nombre, d.url, d.driveId, ctx.u.usuarioId],
+  )).rows[0].id;
+  return { __status: 201, ...carpetaVinculadaVista((await ctx.c.query<FilaCarpetaVinculada>(`${SELECT_CARPETA_VINCULADA} WHERE c.id = $1`, [id])).rows[0]) };
+});
+ruta("DELETE", "/clientes/:id/carpetas/:carpeta", async (ctx, p) => {
+  soloEquipo(ctx);
+  await accesoCliente(ctx, p.id);
+  const borradas = esUuid(p.carpeta) ? (await ctx.c.query("DELETE FROM carpeta_vinculada WHERE id = $1 AND cliente_id = $2 RETURNING id", [p.carpeta, p.id])).rows.length : 0;
+  if (!borradas) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa carpeta");
+  return null;
+});
+
 ruta("GET", "/plantillas-tablero", async (ctx) => {
   soloEquipo(ctx);
   const propias = (await ctx.c.query<FilaPlantillaTablero>(`${SELECT_PLANTILLA_TABLERO} ORDER BY lower(p.nombre)`)).rows;

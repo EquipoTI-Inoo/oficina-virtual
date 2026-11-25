@@ -6057,6 +6057,51 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /clientes/{clienteId}/carpetas:
+    parameters:
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Clientes]
+      operationId: listarCarpetasVinculadas
+      summary: 'Carpetas de Drive vinculadas al cliente (por servicio) o a sus proyectos (25 nov). Solo equipo'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/CarpetaVinculada' } } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Clientes]
+      operationId: vincularCarpeta
+      summary: 'Vincula una carpeta de Drive que ya existe. Con tableroId es la del proyecto y reemplaza a la anterior'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, nombre]
+              properties:
+                url: { type: string, description: 'Enlace de la carpeta (drive.google.com/drive/folders/…)' }
+                nombre: { type: string, maxLength: 80 }
+                servicio: { type: [string, 'null'], maxLength: 40 }
+                tableroId: { type: [string, 'null'] }
+      responses:
+        '201': { description: Vinculada, content: { application/json: { schema: { $ref: '#/components/schemas/CarpetaVinculada' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+  /clientes/{clienteId}/carpetas/{carpetaId}:
+    parameters:
+      - { name: clienteId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: carpetaId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Clientes]
+      operationId: desvincularCarpeta
+      summary: 'Quita el vínculo (la carpeta en Drive no se toca)'
+      x-roles: [EQUIPO]
+      responses:
+        '204': { description: Quitada }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
   /plantillas-tablero:
     get:
       tags: [Tableros]
@@ -10113,6 +10158,18 @@ components:
           properties:
             campo: { type: string }
             valores: { type: array, minItems: 1, items: { type: string } }
+    CarpetaVinculada:
+      type: object
+      description: 'Una carpeta de Drive vinculada (25 nov)'
+      required: [id, tableroId, servicio, nombre, url, creadoPor, creadoEn]
+      properties:
+        id: { type: string }
+        tableroId: { type: [string, 'null'], description: 'Si es la carpeta de un proyecto' }
+        servicio: { type: [string, 'null'], description: 'Branding, Web…' }
+        nombre: { type: string }
+        url: { type: string }
+        creadoPor: { type: [string, 'null'] }
+        creadoEn: { type: string, format: date-time }
     PlantillaTablero:
       type: object
       description: 'Una plantilla de tablero (25 nov)'

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   LuBell, LuCalendarDays, LuCheck, LuChevronDown, LuChevronRight, LuCircleCheck, LuClock, LuDownload,
-  LuExternalLink, LuFile, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
+  LuFile, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
   LuX, LuCheckCheck,
 } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, cuentaActiva } from "../base";
@@ -14,7 +14,7 @@ import { EstadoPagoDelCliente } from "./proyecto-equipo";
 import { NuevoProyectoDeCliente } from "./pipeline";
 import { esGestion } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
-import { AccesoDelCliente, EquipoAsignado, GestionCuenta, ProyectosDelCliente, ResponsablesCuenta } from "./accesos";
+import { AccesoDelCliente, CarpetasDelCliente, EquipoAsignado, GestionCuenta, ProyectosDelCliente, ResponsablesCuenta } from "./accesos";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -784,15 +784,8 @@ function Ficha() {
           {gestion ? <GestionCuenta cliente={d} alGuardar={() => void c.recargar()} /> : <ResponsablesCuenta cliente={d} />}
           {gestion && <AccesoDelCliente clienteId={id} nombreCliente={d.nombre} />}
           <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />
-          <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Carpeta de Drive</h3>
-            {d.driveUrl ? (
-              <a className="boton boton--chico" href={d.driveUrl} target="_blank" rel="noreferrer">
-                <LuExternalLink size={16} /> Abrir carpeta en Drive
-              </a>
-            ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
-            <CarpetaManual clienteId={d.id} actual={d.driveUrl ?? null} alCambiar={() => void c.recargar()} />
-          </div>
+          <CarpetasDelCliente clienteId={d.id} clienteNombre={d.nombre} principal={d.driveUrl ?? null}
+            principalEditor={<CarpetaManual clienteId={d.id} actual={d.driveUrl ?? null} alCambiar={() => void c.recargar()} />} />
           {ref && (
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)", paddingLeft: 4 }}>Referencias de marca</h3>

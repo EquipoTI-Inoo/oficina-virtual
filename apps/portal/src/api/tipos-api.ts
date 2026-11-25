@@ -4474,6 +4474,46 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/clientes/{clienteId}/carpetas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        /** Carpetas de Drive vinculadas al cliente (por servicio) o a sus proyectos (25 nov). Solo equipo */
+        get: operations["listarCarpetasVinculadas"];
+        put?: never;
+        /** Vincula una carpeta de Drive que ya existe. Con tableroId es la del proyecto y reemplaza a la anterior */
+        post: operations["vincularCarpeta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clientes/{clienteId}/carpetas/{carpetaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+                carpetaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Quita el vínculo (la carpeta en Drive no se toca) */
+        delete: operations["desvincularCarpeta"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plantillas-tablero": {
         parameters: {
             query?: never;
@@ -8403,6 +8443,19 @@ export interface components {
                 campo: string;
                 valores: string[];
             };
+        };
+        /** @description Una carpeta de Drive vinculada (25 nov) */
+        CarpetaVinculada: {
+            id: string;
+            /** @description Si es la carpeta de un proyecto */
+            tableroId: string | null;
+            /** @description Branding, Web… */
+            servicio: string | null;
+            nombre: string;
+            url: string;
+            creadoPor: string | null;
+            /** Format: date-time */
+            creadoEn: string;
         };
         /** @description Una plantilla de tablero (25 nov) */
         PlantillaTablero: {
@@ -19473,6 +19526,87 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listarCarpetasVinculadas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["CarpetaVinculada"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    vincularCarpeta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Enlace de la carpeta (drive.google.com/drive/folders/…) */
+                    url: string;
+                    nombre: string;
+                    servicio?: string | null;
+                    tableroId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Vinculada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarpetaVinculada"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    desvincularCarpeta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clienteId: string;
+                carpetaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quitada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NoEncontrado"];
         };
     };
     listarPlantillasTablero: {

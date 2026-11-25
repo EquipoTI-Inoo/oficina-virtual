@@ -59,6 +59,7 @@ import { itemsDesdeTexto, resumirTablero } from "../servidor/ia-tableros";
 import { resumenParaCliente, TOPE_RESUMENES_MES } from "../servidor/resumen-cliente";
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero } from "../dominio/tableros";
+import { validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -121,6 +122,8 @@ interface Estado {
   };
   referencias: { id: string; tipo: string; titulo: string; url: string | null; notas: string | null; paleta: string[]; briefPeriodo: string | null }[];
   requerimientos: D.RequerimientoDemo[];
+  /** 25 nov: carpetas de Drive vinculadas a un cliente (por servicio) o a un proyecto. */
+  carpetasVinculadas: { id: string; clienteId: string; tableroId: string | null; servicio: string | null; nombre: string; url: string; creadoPor: string; creadoEn: string }[];
   /** 25 nov: plantillas de tableros que guardó el equipo. */
   plantillasTablero: { id: string; nombre: string; descripcion: string | null; estructura: EstructuraTablero; creadoPor: string }[];
   /** 25 nov: comentarios sobre una respuesta puntual de un formulario. */
@@ -270,6 +273,7 @@ function estadoInicial(): Estado {
     requerimientos: structuredClone(D.REQUERIMIENTOS_INICIALES),
     comentariosRespuesta: [],
     plantillasTablero: [],
+    carpetasVinculadas: [],
     notificacionesLeidas: new Set(),
     idempotencia: new Map(),
     secuencia: 1,
@@ -1850,6 +1854,34 @@ function estructuraDePlantillaMock(id: unknown): EstructuraTablero {
   if (!x) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "plantillaId", mensaje: "No encontramos esa plantilla" }]);
   return validarEstructura(x.estructura).estructura;
 }
+const carpetaVinculadaMock = (x: Estado["carpetasVinculadas"][number]): S<"CarpetaVinculada"> => ({
+  id: x.id, tableroId: x.tableroId, servicio: x.servicio, nombre: x.nombre, url: x.url, creadoPor: E.usuarios.find((u) => u.id === x.creadoPor)?.nombre ?? null, creadoEn: x.creadoEn,
+});
+ruta("GET", "/clientes/:id/carpetas", (ctx, p) => {
+  soloEquipo(ctx);
+  accesoCliente(ctx, p.id);
+  const xs = E.carpetasVinculadas.filter((x) => x.clienteId === p.id)
+    .sort((a, b) => Number(!!a.tableroId) - Number(!!b.tableroId) || (a.servicio ?? "").localeCompare(b.servicio ?? "", "es") || a.nombre.localeCompare(b.nombre, "es"));
+  return { datos: xs.map(carpetaVinculadaMock) };
+});
+ruta("POST", "/clientes/:id/carpetas", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  accesoCliente(ctx, p.id);
+  const { datos: d, errores } = validarCarpetaVinculada(await cuerpo<Record<string, unknown>>(req));
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (d.tableroId) E.carpetasVinculadas = E.carpetasVinculadas.filter((x) => x.tableroId !== d.tableroId);
+  const x = { id: nuevoId(75), clienteId: p.id, tableroId: d.tableroId, servicio: d.servicio, nombre: d.nombre, url: d.url, creadoPor: ctx.usuario.id, creadoEn: new Date().toISOString() };
+  E.carpetasVinculadas.push(x);
+  return { __status: 201, ...carpetaVinculadaMock(x) };
+});
+ruta("DELETE", "/clientes/:id/carpetas/:carpeta", (ctx, p) => {
+  soloEquipo(ctx);
+  accesoCliente(ctx, p.id);
+  if (!E.carpetasVinculadas.some((x) => x.id === p.carpeta && x.clienteId === p.id)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa carpeta");
+  E.carpetasVinculadas = E.carpetasVinculadas.filter((x) => x.id !== p.carpeta);
+  return null;
+});
+
 ruta("GET", "/plantillas-tablero", (ctx) => {
   soloEquipo(ctx);
   return { datos: [
