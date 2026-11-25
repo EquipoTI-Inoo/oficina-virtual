@@ -376,6 +376,15 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("PATCH", `/tableros/${T}/columnas/${id("A")}`, DIEGO, { antesDe: "no-existe" })).status, 422);
       assert.equal((await llamar("PATCH", `/tableros/${T}/columnas/${id("A")}`, DIEGO, { antesDe: id("A") })).status, 422, "no antes de sí misma");
     });
+    test("25 nov (Ernesto): el subítem nuevo hereda el responsable y la fecha de su ítem", async () => {
+      await reiniciar();
+      const t = (await llamar("POST", `/tableros/${T}/items/item-mkt-1/subitems`, DIEGO, { nombre: "Heredado" })).json;
+      const padre = it(t);
+      const sub = padre.subitems.find((x: any) => x.nombre === "Heredado");
+      assert.equal(sub.responsable?.nombre ?? sub.responsableNombre, padre.responsable?.nombre ?? padre.responsableNombre);
+      assert.equal(sub.fecha, padre.fecha);
+      assert.ok(sub.fecha, "el ítem de prueba tiene fecha");
+    });
   });
 }
 

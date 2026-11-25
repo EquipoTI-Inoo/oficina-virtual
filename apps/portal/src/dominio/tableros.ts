@@ -353,7 +353,8 @@ export function aplicarSubitem(p: ProyectoIW, item: ItemIW, b: CambioItem, subId
   item.subitems ??= [];
   let s = subId ? item.subitems.find((x) => x.id === subId) : undefined;
   if (!s) {
-    s = { id: nuevoId("sub"), name: "", status: "Sin Iniciar", assignee: "", assigneeName: "", assigneeAvatar: "", dueDate: "", createdAt: hoy() };
+    // 25 nov (Ernesto: «subítems con herencia»): el subítem nuevo hereda el responsable y la fecha de su ítem; se cambian igual.
+    s = { id: nuevoId("sub"), name: "", status: "Sin Iniciar", assignee: item.assignee ?? "", assigneeName: item.assigneeName ?? "", assigneeAvatar: item.assigneeAvatar ?? "", dueDate: item.dueDate ?? "", createdAt: hoy() };
     item.subitems.push(s);
   }
   if (typeof b.nombre === "string") s.name = b.nombre.trim();
