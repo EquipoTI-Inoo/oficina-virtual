@@ -559,6 +559,13 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
         assert.equal(put.llave, "llave-de-prueba");
         assert.equal(put.cuerpo.extra, "se conserva", "no se pierde nada del proyecto");
         assert.equal(put.cuerpo.items[0].name, "Primer ítem");
+        // 25 nov (velocidad): la lista se baja una vez cada 15 s y lo que guarda el portal se ve sin volver a bajarla.
+        const descargas = () => guardados.filter((g) => g.metodo === "GET").length;
+        const n = descargas();
+        await llamar("GET", "/tableros", DIEGO);
+        const t = (await llamar("GET", "/tableros/PROJ-X", DIEGO)).json;
+        assert.equal(descargas(), n, "sin descargas nuevas");
+        assert.ok(t.items.some((i: any) => i.nombre === "Primer ítem"), "con el cambio recién guardado");
         await llamar("POST", "/tableros", DIEGO, { nombre: "Nuevo", cliente: "Inoo" });
         const post = guardados.find((g) => g.metodo === "POST")!;
         assert.deepEqual([post.url, post.llave, post.cuerpo.leaderId, post.cuerpo.clientName], ["http://inoowork.falso/api/projects", "llave-de-prueba", "EMP-002", "Inoo"]);

@@ -38,6 +38,7 @@ let enviar: typeof fetch = (...a) => fetch(...a);
 /** Solo pruebas: reemplaza fetch para simular a InooWork. */
 export function usarFetchTableros(f: typeof fetch | null) {
   enviar = f ?? ((...a) => fetch(...a));
+  copiaIW = null; // otra conexión: la copia en memoria ya no vale
 }
 
 class SinInooWork extends Error {}
@@ -61,14 +62,38 @@ async function llamar(metodo: string, ruta: string, cuerpo?: unknown) {
 /** En el entorno de pruebas (6 nov) siempre el set de demo, nunca el InooWork real. */
 const demo = (prueba?: boolean) => !tablerosConectados() || !!prueba;
 
+/**
+ * 25 nov (velocidad): InooWork solo entrega todos los proyectos juntos (~21 MB, ~0,8 s). Se guardan 15 s en memoria y
+ * las solicitudes de esos segundos comparten una sola descarga. Lo que guarda el portal se actualiza al momento en la
+ * copia; lo que se cambia desde InooWork directo aparece en 15 s como mucho.
+ */
+const VIGENCIA_IW = 15_000;
+let copiaIW: { hasta: number; datos: Promise<ProyectoIW[]> } | null = null;
+/** Para las pruebas: que la próxima lectura vaya a InooWork. */
+export function olvidarCopiaInooWork() { copiaIW = null; }
+
 async function listarIW(prueba?: boolean): Promise<ProyectoIW[]> {
   // Copia: un cambio que falla a medias no toca los datos guardados.
   if (demo(prueba)) return structuredClone(simulados());
-  const xs = await llamar("GET", "/api/projects");
-  return Array.isArray(xs) ? (xs as ProyectoIW[]) : [];
+  if (!copiaIW || copiaIW.hasta < Date.now()) {
+    const datos = llamar("GET", "/api/projects").then((xs) => (Array.isArray(xs) ? (xs as ProyectoIW[]) : []));
+    copiaIW = { hasta: Date.now() + VIGENCIA_IW, datos };
+    datos.catch(() => { if (copiaIW?.datos === datos) copiaIW = null; });
+  }
+  return copiaIW.datos;
 }
+/** Un proyecto para cambiarlo: es una copia, así un cambio que falla no ensucia la lista guardada. */
 async function obtenerIW(id: string, prueba?: boolean): Promise<ProyectoIW | null> {
-  return (await listarIW(prueba)).find((p) => p.id === id) ?? null;
+  const p = (await listarIW(prueba)).find((x) => x.id === id);
+  return p ? structuredClone(p) : null;
+}
+/** Después de guardar o crear en InooWork, la copia en memoria queda igual que InooWork. */
+async function anotarEnCopia(p: ProyectoIW) {
+  const xs = copiaIW ? await copiaIW.datos.catch(() => null) : null;
+  if (!xs) return;
+  const i = xs.findIndex((x) => x.id === p.id);
+  if (i >= 0) xs[i] = structuredClone(p);
+  else xs.push(structuredClone(p));
 }
 async function guardarIW(p: ProyectoIW, prueba?: boolean) {
   if (demo(prueba)) {
@@ -78,6 +103,7 @@ async function guardarIW(p: ProyectoIW, prueba?: boolean) {
     return;
   }
   await llamar("PUT", `/api/projects/${encodeURIComponent(p.id)}`, p);
+  await anotarEnCopia(p);
 }
 async function crearIW(p: ProyectoIW, prueba?: boolean) {
   if (demo(prueba)) {
@@ -85,6 +111,7 @@ async function crearIW(p: ProyectoIW, prueba?: boolean) {
     return;
   }
   await llamar("POST", "/api/projects", p);
+  await anotarEnCopia(p);
 }
 
 // ───────────────────────────── lo pendiente de una persona en los tableros (Mi trabajo, Mi panel, calendario)
@@ -459,7 +486,7 @@ export function crearTableros(fallar: Fallar) {
      * `asegurar` da el nombre del cliente en el portal (y crea la ficha si hace falta). Sin `aplicar`, solo la vista previa.
      */
     clientesDeMonday: (o: { aplicar: boolean; prueba?: boolean; asegurar: (nombre: string, conFicha: boolean) => Promise<string> }) => protegido(async () => {
-      const todos = (await listarIW(o.prueba)).filter((p) => p.mondayId && !p.deleted && !p.clientName?.trim());
+      const todos = structuredClone((await listarIW(o.prueba)).filter((p) => p.mondayId && !p.deleted && !p.clientName?.trim()));
       const mapa = clientesDeTableros(todos.map((p) => p.name));
       const activos = new Set(todos.filter((p) => !p.archived).map((p) => mapa.get(p.name)).filter((c): c is { tipo: "CLIENTE"; nombre: string } => c?.tipo === "CLIENTE").map((c) => c.nombre));
       const lista: { tableroId: string; tablero: string; archivado: boolean; cliente: string | null; conFicha: boolean }[] = [];
@@ -535,7 +562,7 @@ export function crearTableros(fallar: Fallar) {
     archivarCulminados: (hoy: string) => protegido(async () => {
       let fechados = 0;
       let archivados = 0;
-      for (const p of await listarIW()) {
+      for (const p of structuredClone(await listarIW())) {
         if (p.archived || p.deleted || p.status !== "Completado") continue;
         if (!p.completadoEn) {
           p.completadoEn = hoy;
