@@ -7,8 +7,9 @@
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
-import { api, Enlace, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
+import { api, Enlace, fMesAnio, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
+import { esClienteInterno } from "../dominio/clientes-tablero";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { NuevoServicio } from "./proyecto-equipo";
 import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
@@ -40,6 +41,11 @@ export function PantallaPipeline() {
 const iniciales = (nombre: string) => nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
 /** Encabezado común de los dos formularios de «Nuevo proyecto», con el cambio de tipo. */
+/** 25 nov (fusión): un solo «Nuevo proyecto» (el tablero), que se comparte con el cliente si hace falta. */
+export function TituloNuevoProyecto() {
+  return <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>;
+}
+
 export function CabeceraNuevo({ tipo, cambiar, tablero }: { tipo: TipoNuevo; cambiar: (t: TipoNuevo) => void; tablero: boolean }) {
   return (
     <div className="pila" style={{ gap: 10 }}>
@@ -113,11 +119,14 @@ function PipelineProyectos() {
   const listaMarcas = marcas.datos?.datos ?? [];
   const lugarServ: Lugar = { ...lugar, carpeta: null };
   const tableros = tablerosTodos.filter((t) => estaEn(ubicar(t, carpetas), lugar) && pasaFiltros(t, filtros) && (!etiqueta || t.etiquetas.includes(etiqueta)));
-  const servicios = (d?.datos ?? []).filter((p) => estaEn(ubicar({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null }, []), lugarServ));
+  // 25 nov (fusión): un servicio con tablero ya está dentro de su proyecto; aquí quedan solo los sueltos, para vincularlos.
+  const vinculados = new Set((r.datos?.datos ?? []).map((t) => t.servicioId).filter(Boolean));
+  const sueltos = (d?.datos ?? []).filter((p) => !vinculados.has(p.servicioContratadoId));
+  const servicios = sueltos.filter((p) => estaEn(ubicar({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null }, []), lugarServ));
   const etiquetas = [...new Set(tablerosTodos.filter((t) => estaEn(ubicar(t, carpetas), lugar)).flatMap((t) => t.etiquetas))].sort((a, b) => a.localeCompare(b, "es"));
   const arbol = pestana === "PROYECTOS"
     ? construirArbol(tablerosTodos.filter((t) => pasaFiltros(t, filtros)), listaMarcas, carpetas, true)
-    : construirArbol((d?.datos ?? []).map((p) => ({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null })), listaMarcas, carpetas, false);
+    : construirArbol(sueltos.map((p) => ({ cliente: p.clienteNombre, marcaId: p.marcaId ?? null })), listaMarcas, carpetas, false);
   const enCarpetas = pestana === "PROYECTOS" && vista === "CARPETAS";
   const empresa = arbol.find((e) => e.clave === lugar.empresa);
   const esAdmin = sesion?.usuario.nivelAcceso === "ADMIN";
@@ -171,7 +180,7 @@ function PipelineProyectos() {
   };
   return (
     <>
-      <Cabecera titulo="Proyectos" bajada="Proyectos son los tableros de trabajo (los mismos de InooWork); Servicios, lo que cada cliente contrató. Ordénalos en carpetas por empresa y marca, y fíltralos a la izquierda." />
+      <Cabecera titulo="Proyectos" bajada="Cada proyecto es su tablero de trabajo; lo que ve el cliente está en su pestaña «Para el cliente»." />
       <div className="fila" style={{ gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         {/* Solo si ves más proyectos de los que llevas (ADMIN, leads, por cuenta): si no, los dos dan lo mismo (6 nov). */}
         {(veMas || mios) && <div className="chips" role="group" aria-label="Qué proyectos ver">
@@ -191,7 +200,7 @@ function PipelineProyectos() {
         <button type="button" className="chip" aria-pressed={archivados} onClick={() => setArchivados(!archivados)}>
           <LuArchive size={14} /> Archivados
         </button>
-        <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando("CATALOGO")}>
+        <button type="button" className="boton boton--primario" style={{ marginLeft: "auto" }} onClick={() => setCreando(r.error ? "CATALOGO" : "TABLERO")}>
           <LuPlus size={16} /> Nuevo proyecto
         </button>
       </div>
@@ -199,12 +208,12 @@ function PipelineProyectos() {
         <NuevoServicio abierto clientes={delPortal} cabecera={<CabeceraNuevo tipo="CATALOGO" cambiar={setCreando} tablero={!!r.datos} />}
           alCerrar={() => setCreando(null)} alCrear={(s) => { void recargar(); if (s.servicioContratadoId) irA(`/equipo/proyectos/${s.servicioContratadoId}`); }} />
       )}
-      {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} destino={destino} cabecera={<CabeceraNuevo tipo="TABLERO" cambiar={setCreando} tablero />} alCerrar={() => { setCreando(null); setDestino(null); }} />}
+      {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} destino={destino} cabecera={<TituloNuevoProyecto />} alCerrar={() => { setCreando(null); setDestino(null); }} />}
       {r.error && <p className="texto-xs texto-muted" style={{ marginBottom: 12 }}>InooWork no respondió: por ahora no se ven sus tableros.</p>}
-      {!archivados && (
+      {!archivados && (sueltos.length > 0 || pestana === "SERVICIOS") && (
         <div className="segmentado" role="tablist" aria-label="Qué ver" style={{ marginBottom: 14 }}>
           <button role="tab" aria-selected={pestana === "PROYECTOS"} className={pestana === "PROYECTOS" ? "activo" : undefined} onClick={() => setPestana("PROYECTOS")}>Proyectos ({tablerosTodos.length})</button>
-          <button role="tab" aria-selected={pestana === "SERVICIOS"} className={pestana === "SERVICIOS" ? "activo" : undefined} onClick={() => setPestana("SERVICIOS")}>Servicios ({d?.datos.length ?? 0})</button>
+          <button role="tab" aria-selected={pestana === "SERVICIOS"} className={pestana === "SERVICIOS" ? "activo" : undefined} onClick={() => setPestana("SERVICIOS")} title="Servicios contratados que todavía no están dentro de un proyecto">Servicios sin proyecto ({sueltos.length})</button>
         </div>
       )}
       {archivados ? <Archivados texto={q} /> : error ? (
@@ -298,6 +307,10 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
   const [descripcion, setDescripcion] = useState("");
   const [color, setColor] = useState<string>(COLORES_GRUPO[0]);
   const [miembros, setMiembros] = useState<string[]>([]);
+  // 25 nov (fusión): recurrente = un solo tablero con un grupo por mes; compartir = se crea también su parte del cliente.
+  const [recurrente, setRecurrente] = useState(false);
+  const [compartir, setCompartir] = useState(false);
+  const esInterno = !cliente.trim() || esClienteInterno(cliente) || cliente === INOO_INTERNO;
   const [err, setErr] = useState<Record<string, string>>({});
   const [enviando, setEnviando] = useState(false);
   const companeros = equipo.filter((p) => p.id !== yo);
@@ -311,8 +324,11 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
       if (destino && (destino.carpetaId || destino.marcaId)) {
         await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: destino.carpetaId ? { carpetaId: destino.carpetaId } : { marcaId: destino.marcaId } }).catch(() => undefined);
       }
-      avisar({ titulo: "Proyecto creado", texto: "Ya está también en InooWork." });
-      ir(`/equipo/proyectos/tableros/${t.id}`);
+      if (recurrente && t.grupos[0]) {
+        await api(`/tableros/${t.id}/grupos/${t.grupos[0].id}`, { metodo: "PATCH", cuerpo: { nombre: fMesAnio(new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 7)) } }).catch(() => undefined);
+      }
+      avisar({ titulo: "Proyecto creado", texto: compartir && !esInterno ? "Ahora elige qué servicio ve el cliente." : "Ya está también en InooWork." });
+      ir(compartir && !esInterno ? `/equipo/proyectos/tableros/${t.id}?parte=cliente&compartir=1` : `/equipo/proyectos/tableros/${t.id}`);
     } catch (x) {
       if (x instanceof ProblemaApi && x.errores.length) setErr(Object.fromEntries(x.errores.map((y) => [y.campo, y.mensaje])));
       else avisar({ titulo: "No pudimos crear el proyecto", texto: x instanceof ProblemaApi ? x.detalle ?? x.titulo : undefined });
@@ -349,6 +365,20 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
         </div>
         )}
         {clienteFijo && error("cliente")}
+        <fieldset className="campo" style={{ border: 0, padding: 0 }}>
+          <legend>Tipo</legend>
+          <div className="chips" role="radiogroup" aria-label="Tipo de proyecto">
+            <button type="button" role="radio" className="chip" aria-checked={!recurrente} aria-pressed={!recurrente} onClick={() => setRecurrente(false)}>Puntual</button>
+            <button type="button" role="radio" className="chip" aria-checked={recurrente} aria-pressed={recurrente} onClick={() => setRecurrente(true)}>Recurrente</button>
+          </div>
+          <p className="texto-xs texto-muted">{recurrente ? "Un solo tablero con un grupo por mes; empieza con el de este mes." : "Tiene inicio y fin (una web, un branding, una implementación)."}</p>
+        </fieldset>
+        {!esInterno && (
+          <label className="fila texto-sm" style={{ gap: 8, alignItems: "flex-start" }}>
+            <input type="checkbox" checked={compartir} onChange={(e) => setCompartir(e.target.checked)} style={{ marginTop: 3 }} />
+            <span><strong>El cliente lo sigue en su portal.</strong> Después de crearlo eliges el servicio (etapas, formularios y entregables). Si no, el cliente no ve nada del proyecto.</span>
+          </label>
+        )}
         <div className="campo">
           <label htmlFor="tab-servicio">Servicio <span className="texto-muted">(opcional)</span></label>
           <select id="tab-servicio" className="input" value={servicio} onChange={(e) => setServicio(e.target.value)}>
@@ -401,13 +431,12 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
  * del catálogo con su plantilla) o personalizado (tablero libre), ya vinculado al cliente.
  */
 export function NuevoProyectoDeCliente({ clienteId, clienteNombre, abierto, alCerrar, alCrear }: { clienteId: string; clienteNombre: string; abierto: boolean; alCerrar: () => void; alCrear: () => void }) {
-  const [tipo, setTipo] = useState<TipoNuevo>("CATALOGO");
   const r = useConsulta<{ datos: S<"TableroResumen">[]; equipo: { id: string; nombre: string; area: string | null; empleadoId: string }[] }>(abierto ? "/tableros" : null);
   if (!abierto) return null;
-  const cabecera = <CabeceraNuevo tipo={tipo} cambiar={setTipo} tablero={!!r.datos} />;
-  return tipo === "CATALOGO"
-    ? <NuevoServicio clienteId={clienteId} abierto cabecera={cabecera} alCerrar={() => { setTipo("CATALOGO"); alCerrar(); }} alCrear={() => alCrear()} />
-    : <NuevoTablero equipo={r.datos?.equipo ?? []} clientes={[]} clienteFijo={clienteNombre} cabecera={cabecera} alCerrar={() => { setTipo("CATALOGO"); alCerrar(); }} />;
+  // 25 nov (fusión): el proyecto es el tablero. Solo si InooWork no responde se crea el servicio del catálogo directo.
+  if (r.error) return <NuevoServicio clienteId={clienteId} abierto cabecera={<TituloNuevoProyecto />} alCerrar={alCerrar} alCrear={() => alCrear()} />;
+  if (!r.datos) return null;
+  return <NuevoTablero equipo={r.datos.equipo} clientes={[]} clienteFijo={clienteNombre} cabecera={<TituloNuevoProyecto />} alCerrar={alCerrar} />;
 }
 
 function TarjetaTablero({ t, marca }: { t: S<"TableroResumen">; marca?: string }) {

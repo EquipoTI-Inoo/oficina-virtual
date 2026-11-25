@@ -8,7 +8,7 @@
 import { CeldasColumnasEtapa, EncabezadosColumnasEtapa } from "./columnas-etapas";
 import { EquipoAsignado } from "./accesos";
 import { useState, type ReactNode } from "react";
-import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet, LuSquareKanban } from "react-icons/lu";
 import { FormulariosDelProyecto } from "./requerimientos";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { entrarComoCliente } from "../base";
@@ -46,13 +46,18 @@ export function PantallaProyectoEquipo() {
 type Pestana = "AVANCE" | "TAREAS" | "ENTREGABLES" | "COMENTARIOS";
 const PESTANAS: [Pestana, string][] = [["AVANCE", "Avance"], ["TAREAS", "Tareas"], ["ENTREGABLES", "Entregables"], ["COMENTARIOS", "Comentarios"]];
 
-function ProyectoEquipo() {
+/**
+ * 25 nov (fusión): la parte del cliente de un proyecto. Sola (en /equipo/proyectos/:id) o dentro del tablero, en su
+ * pestaña «Para el cliente» (`incrustado`: sin el «volver»).
+ */
+export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: boolean } = {}) {
   const { params } = useNavegacion();
   const portalVolver = usePortal();
   const avisar = useAviso();
-  const perfil = useConsulta<Perfil>(`/servicios-contratados/${params.id}`);
+  const servicioId = id ?? params.id;
+  const perfil = useConsulta<Perfil>(`/servicios-contratados/${servicioId}`);
   // El perfil calcula el estado por etapas; si ya se cerró (FINALIZADO) lo dice el cierre.
-  const cierre = useConsulta<S<"CierreProyecto">>(`/servicios-contratados/${params.id}/cierre`);
+  const cierre = useConsulta<S<"CierreProyecto">>(`/servicios-contratados/${servicioId}/cierre`);
   const cerrado = !!cierre.datos?.cerrado;
   const [paso, setPaso] = useState<string | null>(null);
   const [vista, setVista] = useState<VistaCronograma>("TABLA");
@@ -130,9 +135,19 @@ function ProyectoEquipo() {
   return (
     <>
       {/* 13 nov (auditoría): quien trabaja por proyecto no ve la ficha del cliente (le daba error); vuelve a Proyectos. */}
-      {portalVolver?.sesion?.usuario.nivelAcceso === "PROYECTO"
+      {!incrustado && (portalVolver?.sesion?.usuario.nivelAcceso === "PROYECTO"
         ? <Enlace a="/equipo/proyectos" className="volver">← Proyectos</Enlace>
-        : <Enlace a={`/equipo/clientes/${d.clienteId}`} className="volver">← Ficha del cliente</Enlace>}
+        : <Enlace a={`/equipo/clientes/${d.clienteId}`} className="volver">← Ficha del cliente</Enlace>)}
+      {/* 25 nov (fusión): el servicio es la parte «Para el cliente» de un proyecto; el trabajo del equipo está en su tablero. */}
+      {!incrustado && d.tableroId && (
+        <div className="aviso" role="status" style={{ marginBottom: 16 }}>
+          <LuSquareKanban size={18} />
+          <div>
+            <strong>Es la parte del cliente de un proyecto.</strong> El tablero con el trabajo del equipo está en el proyecto.{" "}
+            <Enlace a={`/equipo/proyectos/tableros/${d.tableroId}?parte=cliente`} className="enlace">Abrir el proyecto</Enlace>
+          </div>
+        </div>
+      )}
       {cerrando && (
         <CerrarProyecto
           servicioId={d.servicioContratadoId}
@@ -953,8 +968,10 @@ function ComentariosEquipo({ servicioId }: { servicioId: string }) {
  * Contrata un servicio del catálogo (proyecto predeterminado, con las etapas de su plantilla). Desde la ficha del
  * cliente llega `clienteId`; desde «Proyectos → Nuevo proyecto» (8 nov) llega `clientes` y se elige de la lista.
  */
-export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar, alCrear }: {
+export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar, alCrear, tableroId }: {
   clienteId?: string; clientes?: { id: string; nombre: string }[]; cabecera?: ReactNode; abierto: boolean; alCerrar: () => void; alCrear: (s: S<"ServicioCliente">) => void;
+  /** 25 nov (fusión): el proyecto (tablero) del que este servicio es la parte del cliente. */
+  tableroId?: string;
 }) {
   const avisar = useAviso();
   const [cid, setCid] = useState(clienteId ?? "");
@@ -991,9 +1008,10 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
           responsableId: f.responsableId || null, alcance: f.alcance || null,
           etapas: personalizado ? etapas.map((e) => ({ nombre: e.nombre, avancePct: Number(e.avancePct), diasHabiles: Number(e.diasHabiles), reunionClave: e.reunionClave || null })) : undefined,
           entregables: f.servicio === "SOCIAL_MEDIA_PRO" && f.piezas ? [{ tipoPieza: "COPY", cantidadMensual: Number(f.piezas) }] : undefined,
+          ...(tableroId ? { inooworkProyectoId: tableroId } : {}),
         },
       });
-      avisar({ titulo: "Servicio contratado", texto: aPedir.length ? `Se le pidió al cliente: ${aPedir.join(", ")}.` : "El cliente ya lo ve en su portal." });
+      avisar({ titulo: tableroId ? "Compartido con el cliente" : "Servicio contratado", texto: aPedir.length ? `Se le pidió al cliente: ${aPedir.join(", ")}.` : "El cliente ya lo ve en su portal." });
       setF(vacio);
       setPersonalizado(false);
       alCrear(creado);
@@ -1144,7 +1162,7 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
         </p>
       )}
       <button className="boton boton--primario boton--bloque" onClick={() => void contratar()}>
-        <LuPlus size={16} /> Contratar
+        <LuPlus size={16} /> {tableroId ? "Compartir con el cliente" : "Contratar"}
       </button>
     </Modal>
   );

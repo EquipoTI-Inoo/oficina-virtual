@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
+import { NuevoServicio, ProyectoEquipo } from "./proyecto-equipo";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
 import { BotonPersonas } from "./personas-tablero";
 import { BotonIaTablero } from "./ia-tablero";
@@ -353,6 +354,7 @@ function EstadoDelTablero({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, 
 }
 
 function TableroProyecto() {
+  const [parte, setParte] = useState<"TABLERO" | "CLIENTE">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("parte") === "cliente" ? "CLIENTE" : "TABLERO"));
   const { params, ir } = useNavegacion();
   const r = useConsulta<Tablero>(`/tableros/${params.id}`);
   const avisar = useAviso();
@@ -408,6 +410,13 @@ function TableroProyecto() {
     }
   };
   const puedeDatos = t.puedeEditar && !t.soyInvitado;
+  // 25 nov (fusión): ?parte=cliente abre la pestaña «Para el cliente» (enlaces desde el servicio y desde «Nuevo proyecto»).
+  const elegirParte = (x: "TABLERO" | "CLIENTE") => {
+    setParte(x);
+    const u = new URL(window.location.href);
+    if (x === "CLIENTE") u.searchParams.set("parte", "cliente"); else { u.searchParams.delete("parte"); u.searchParams.delete("compartir"); u.searchParams.delete("pestana"); }
+    window.history.replaceState(window.history.state, "", u);
+  };
   const vistas: Vista[] = [...new Set<Vista>(["TABLA", ...t.vistas.map((v) => v.tipo), "GRAFICO", "CARGA"])];
   const ultimas = conteo.datos?.ultimas ?? {};
   // 16 nov (Ernesto): hay algo nuevo si la última actualización es de otra persona y es posterior a la última vez que abriste el ítem.
@@ -439,42 +448,55 @@ function TableroProyecto() {
           </span>
         }
       />
-      {editandoDatos && <EditarDatos t={t} cambiar={cambiar} cerrar={() => setEditandoDatos(false)} />}
-      {t.archivado && (
-        <div className="aviso-archivado" role="status">
-          <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${fCorta(t.archivadoEn)}` : ""}. Está en solo lectura.</span>
-          {t.puedeDesarchivar && <button className="boton boton--chico boton--primario" onClick={() => void desarchivar()}>Desarchivar</button>}
+      {/* 25 nov (fusión): el proyecto es el tablero; lo que ve el cliente (etapas, formularios, entregables) va en su pestaña. */}
+      {!t.soyInvitado && (
+        <div className="segmentado" role="tablist" aria-label="Partes del proyecto" style={{ marginBottom: 16 }}>
+          <button role="tab" aria-selected={parte === "TABLERO"} className={parte === "TABLERO" ? "activo" : undefined} onClick={() => elegirParte("TABLERO")}>Tablero</button>
+          <button role="tab" aria-selected={parte === "CLIENTE"} className={parte === "CLIENTE" ? "activo" : undefined} onClick={() => elegirParte("CLIENTE")}>
+            Para el cliente{!t.servicioId && <span className="texto-muted"> · sin compartir</span>}
+          </button>
         </div>
       )}
-      <ProgresoTablero t={t} />
-      {!t.soyInvitado && <DatosDelProyecto t={t} cambiar={cambiar} />}
-      <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-        <div className="segmentado" role="tablist" aria-label="Vista del tablero">
-          {vistas.map((v) => (
-            <button key={v} role="tab" aria-selected={vista === v} className={vista === v ? "activo" : undefined} onClick={() => setVista(v)}>{NOMBRE_VISTA[v]}</button>
-          ))}
-        </div>
-        <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
-          <div className="entrada" style={{ width: 200 }}>
-            <input aria-label="Buscar ítem" placeholder="Buscar ítem" value={texto} onChange={(e) => setTexto(e.target.value)} />
+      {parte === "CLIENTE" && !t.soyInvitado ? <ParaElCliente t={t} cambiar={cambiar} /> : (
+      <>
+        {editandoDatos && <EditarDatos t={t} cambiar={cambiar} cerrar={() => setEditandoDatos(false)} />}
+        {t.archivado && (
+          <div className="aviso-archivado" role="status">
+            <span><strong>Proyecto archivado</strong>{t.archivadoEn ? ` el ${fCorta(t.archivadoEn)}` : ""}. Está en solo lectura.</span>
+            {t.puedeDesarchivar && <button className="boton boton--chico boton--primario" onClick={() => void desarchivar()}>Desarchivar</button>}
           </div>
-          <select className="input" style={{ width: 170 }} aria-label="Filtrar por persona" value={responsable} onChange={(e) => setResponsable(e.target.value)}>
-            <option value="">Todas las personas</option>
-            {t.personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-          </select>
-          <select className="input" style={{ width: 160 }} aria-label="Filtrar por estado" value={estado} onChange={(e) => setEstado(e.target.value)}>
-            <option value="">Todos los estados</option>
-            {ESTADOS_ITEM.map((x) => <option key={x}>{x}</option>)}
-          </select>
+        )}
+        <ProgresoTablero t={t} />
+        {!t.soyInvitado && <DatosDelProyecto t={t} cambiar={cambiar} />}
+        <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <div className="segmentado" role="tablist" aria-label="Vista del tablero">
+            {vistas.map((v) => (
+              <button key={v} role="tab" aria-selected={vista === v} className={vista === v ? "activo" : undefined} onClick={() => setVista(v)}>{NOMBRE_VISTA[v]}</button>
+            ))}
+          </div>
+          <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+            <div className="entrada" style={{ width: 200 }}>
+              <input aria-label="Buscar ítem" placeholder="Buscar ítem" value={texto} onChange={(e) => setTexto(e.target.value)} />
+            </div>
+            <select className="input" style={{ width: 170 }} aria-label="Filtrar por persona" value={responsable} onChange={(e) => setResponsable(e.target.value)}>
+              <option value="">Todas las personas</option>
+              {t.personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+            <select className="input" style={{ width: 160 }} aria-label="Filtrar por estado" value={estado} onChange={(e) => setEstado(e.target.value)}>
+              <option value="">Todos los estados</option>
+              {ESTADOS_ITEM.map((x) => <option key={x}>{x}</option>)}
+            </select>
+          </div>
         </div>
-      </div>
-      {vista === "TABLA" && <VistaTabla {...ctx} />}
-      {vista === "KANBAN" && <VistaKanban {...ctx} />}
-      {vista === "CALENDARIO" && <VistaCalendario items={items} />}
-      {vista === "LINEA_TIEMPO" && <VistaLinea t={t} items={items} />}
-      {vista === "GRAFICO" && <VistaGrafico items={items} />}
-      {vista === "CARGA" && <VistaCarga t={t} items={items} />}
-      {enPanel && <PanelItem t={t} item={enPanel} cambiar={cambiar} cerrar={() => setPanel(null)} alActualizar={() => void conteo.recargar()} />}
+        {vista === "TABLA" && <VistaTabla {...ctx} />}
+        {vista === "KANBAN" && <VistaKanban {...ctx} />}
+        {vista === "CALENDARIO" && <VistaCalendario items={items} />}
+        {vista === "LINEA_TIEMPO" && <VistaLinea t={t} items={items} />}
+        {vista === "GRAFICO" && <VistaGrafico items={items} />}
+        {vista === "CARGA" && <VistaCarga t={t} items={items} />}
+        {enPanel && <PanelItem t={t} item={enPanel} cambiar={cambiar} cerrar={() => setPanel(null)} alActualizar={() => void conteo.recargar()} />}
+      </>
+      )}
     </>
   );
 }
@@ -1152,6 +1174,47 @@ function Barras({ titulo, filas }: { titulo: string; filas: { nombre: string; n:
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+// ───────────────────────────── «Para el cliente» (25 nov, fusión de proyectos y servicios)
+
+/**
+ * La parte del cliente de un proyecto: si ya se compartió, el servicio con sus etapas, formularios y entregables; si no,
+ * el botón para compartirlo (se elige el tipo de servicio y se crea ya vinculado al tablero). El cliente no ve nada del
+ * proyecto hasta que se comparte.
+ */
+function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+  const [compartiendo, setCompartiendo] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("compartir") === "1");
+  const interno = !t.cliente || esClienteInterno(t.cliente);
+  const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>(!t.servicioId && !interno ? "/clientes?limite=100" : null);
+  if (t.servicioId) return <ProyectoEquipo id={t.servicioId} incrustado />;
+  const ficha = (clientes.datos?.datos ?? []).find((c) => claveCliente(c.nombre) === claveCliente(t.cliente ?? ""));
+  return (
+    <section className="tarjeta vacio" style={{ display: "grid", gap: 10, justifyItems: "start", textAlign: "left" }}>
+      {interno ? (
+        <>
+          <p className="negrita">{t.cliente ? "Es un proyecto interno de Inoo" : "Este proyecto no tiene cliente"}</p>
+          <p className="texto-sm texto-muted">{t.cliente ? "No tiene parte para el cliente." : "Ponle un cliente en «Datos del proyecto» para poder compartirlo con él."}</p>
+        </>
+      ) : (
+        <>
+          <p className="negrita">{t.cliente} todavía no ve este proyecto</p>
+          <p className="texto-sm texto-muted" style={{ maxWidth: 620 }}>
+            Al compartirlo eliges el tipo de servicio (Branding, Web, CRM…). El cliente ve en su portal las etapas, los entregables y lo que le
+            pedimos, y le llegan los formularios del servicio. El tablero sigue siendo solo del equipo.
+          </p>
+          {clientes.datos && !ficha && <p className="texto-sm">«{t.cliente}» no tiene ficha de cliente en el portal: créala en Clientes para poder compartirlo.</p>}
+          {t.puedeEditar && ficha && <button type="button" className="boton boton--primario" onClick={() => setCompartiendo(true)}>Compartir con el cliente</button>}
+        </>
+      )}
+      {compartiendo && ficha && (
+        <NuevoServicio clienteId={ficha.id} tableroId={t.id} abierto
+          cabecera={<h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Compartir «{t.nombre}» con {ficha.nombre}</h2>}
+          alCerrar={() => setCompartiendo(false)}
+          alCrear={(s) => { if (s.servicioContratadoId) void cambiar("", "PATCH", { servicioId: s.servicioContratadoId }); }} />
+      )}
     </section>
   );
 }

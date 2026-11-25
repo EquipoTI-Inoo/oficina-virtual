@@ -8834,6 +8834,8 @@ export interface components {
         };
         /** @description Perfil del proyecto (un servicio contratado): todo lo de AvanceServicio más métricas, reuniones y lo que espera revisión */
         PerfilProyecto: components["schemas"]["AvanceServicio"] & {
+            /** @description 25 nov (fusión): el proyecto (tablero) que lleva este servicio como su parte «Para el cliente». Solo para el equipo */
+            tableroId?: string | null;
             /** Format: uuid */
             clienteId: string;
             descripcion?: string | null;

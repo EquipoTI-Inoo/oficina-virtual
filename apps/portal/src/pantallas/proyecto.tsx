@@ -30,7 +30,7 @@ const ESTADO_AVANCE: Record<string, [string, "verde" | "azul" | "gris"]> = {
 
 export function PantallaProyecto() {
   return (
-    <Estructura espacio="cliente" migas="Mis servicios">
+    <Estructura espacio="cliente" migas="Mis proyectos">
       <Proyecto />
     </Estructura>
   );
@@ -46,7 +46,7 @@ function Proyecto() {
   return (
     <>
       <Enlace a="/servicios" className="volver">
-        ← Mis servicios
+        ← Mis proyectos
       </Enlace>
       <Cabecera
         antetitulo={linea ? linea : undefined}

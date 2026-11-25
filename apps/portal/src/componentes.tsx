@@ -428,7 +428,7 @@ export async function verNovedades(modulo: "PANEL" | "TRABAJO") {
 
 const NAV_CLIENTE = [
   { a: "/inicio", texto: "Inicio", icono: <LuHouse /> },
-  { a: "/servicios", texto: "Mis servicios", icono: <LuLayers /> },
+  { a: "/servicios", texto: "Mis proyectos", icono: <LuLayers /> },
   { a: "/entregables", texto: "Entregables por revisar", icono: <LuCircleCheck />, contador: "porAprobar" },
   { a: "/requerimientos", texto: "Requerimientos", icono: <LuClipboardList />, contador: "requerimientos" },
 ];

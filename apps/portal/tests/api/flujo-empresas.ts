@@ -110,5 +110,26 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("GET", `/clientes/${MAREA}`, CAMILA)).status, 404, "la ficha comercial sigue cerrada");
       assert.equal((await llamar("GET", `/clientes/${MAREA}/marca`, DIEGO)).json.tableros.length >= 1, true);
     });
+
+    test("25 nov (fusión): el servicio es la parte del cliente de un solo proyecto y sabe cuál es", async () => {
+      await reiniciar();
+      const t1 = (await llamar("POST", "/tableros", DIEGO, { nombre: "Campaña de verano", cliente: "Casa Oliva" })).json;
+      const t2 = (await llamar("POST", "/tableros", DIEGO, { nombre: "Otro de Casa Oliva", cliente: "Casa Oliva" })).json;
+      const s = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, DIEGO, { servicioCodigo: "PAID_MEDIA", fechaInicio: "2026-10-19", responsableId: CAMILA_ID, inooworkProyectoId: t1.id });
+      assert.equal(s.status, 201);
+      const sid = s.json.servicioContratadoId;
+      assert.equal((await llamar("PATCH", `/tableros/${t1.id}`, DIEGO, { servicioId: sid })).json.servicioId, sid);
+      assert.equal((await llamar("GET", `/servicios-contratados/${sid}`, DIEGO)).json.tableroId, t1.id, "el servicio sabe cuál es su proyecto");
+
+      const otro = await llamar("PATCH", `/tableros/${t2.id}`, DIEGO, { servicioId: sid });
+      assert.equal(otro.status, 422);
+      assert.match(otro.json.errores[0].mensaje, /ya está en otro proyecto/);
+
+      assert.equal((await llamar("GET", `/servicios-contratados/${sid}`, VALERIA)).json.tableroId, null, "el cliente no ve el tablero");
+
+      await llamar("PATCH", `/tableros/${t1.id}`, DIEGO, { servicioId: null });
+      assert.equal((await llamar("GET", `/servicios-contratados/${sid}`, DIEGO)).json.tableroId, null, "al desvincularlo se suelta");
+      assert.equal((await llamar("PATCH", `/tableros/${t2.id}`, DIEGO, { servicioId: sid })).status, 200, "ya se puede poner en otro");
+    });
   });
 }

@@ -655,7 +655,7 @@ export function NuevoCliente({ abierto, alCerrar, alCrear }: { abierto: boolean;
               <button type="button" role="radio" className="chip" aria-checked={!personalizados} aria-pressed={!personalizados} onClick={() => setPersonalizados(false)}>Predeterminado</button>
               <button type="button" role="radio" className="chip" aria-checked={personalizados} aria-pressed={personalizados} onClick={() => setPersonalizados(true)}>Personalizado</button>
             </div>
-            <Ayuda texto={personalizados ? "Tableros vacíos, sin la plantilla del servicio: armas tus grupos y columnas. No aparecen en «Mis servicios» del cliente." : "Con las etapas de la plantilla de cada servicio. El cliente los ve en su portal y se le piden los requerimientos."} />
+            <Ayuda texto={personalizados ? "Tableros vacíos, sin la plantilla del servicio: armas tus grupos y columnas. No aparecen en «Mis proyectos» del cliente." : "Con las etapas de la plantilla de cada servicio. El cliente los ve en su portal y se le piden los requerimientos."} />
           </div>
         )}
         {motivos.length > 0 && (

@@ -10426,6 +10426,7 @@ components:
         - type: object
           required: [clienteId, modalidad, metricas, reuniones, porRevisar]
           properties:
+            tableroId: { type: [string, 'null'], description: '25 nov (fusión): el proyecto (tablero) que lleva este servicio como su parte «Para el cliente». Solo para el equipo' }
             clienteId: { type: string, format: uuid }
             descripcion: { type: [string, 'null'] }
             modalidad: { $ref: '#/components/schemas/ModalidadServicio' }

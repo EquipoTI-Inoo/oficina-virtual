@@ -1562,6 +1562,8 @@ const fechaIso = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 1
 
 interface FilaServicio {
   id: string;
+  /** 25 nov (fusión): el tablero de Proyectos que lleva este servicio (su parte «Para el cliente»). */
+  inoowork_proyecto_id?: string | null;
   /** 16 nov (0058): la ficha de la marca; `marca` sigue con su nombre. */
   marca_id?: string | null;
   culminado_en?: Date | null;
@@ -5610,6 +5612,7 @@ async function perfilVista(ctx: Ctx, s: FilaServicio, periodo: string): Promise<
     reuniones: [...reuniones.filter((x) => x.estado === "PROGRAMADA"), ...reuniones.filter((x) => x.estado === "REALIZADA").reverse()].slice(0, 6).map(vista),
     porRevisar: piezas.map((x) => resumenPieza(ctx, x)),
     entregables: ordenarEntregables((await ctx.c.query<FilaEntregable>(`${SELECT_ENTREGABLE} WHERE e.servicio_contratado_id = $1`, [s.id])).rows.map((e) => entregableVistaDb(ctx, e))),
+    tableroId: ctx.esEquipo ? s.inoowork_proyecto_id ?? null : null,
   };
   return r;
 }
@@ -6564,13 +6567,22 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
       vinculos.marcaId = m?.id ?? null;
     }
     if (b.servicioId !== undefined) {
-      const s = typeof b.servicioId === "string" && esUuid(b.servicioId) ? (await ctx.c.query<{ id: string; cliente: string }>("SELECT sc.id, c.nombre AS cliente FROM servicio_contratado sc JOIN cliente c ON c.id = sc.cliente_id WHERE sc.id = $1", [b.servicioId])).rows[0] : null;
+      const s = typeof b.servicioId === "string" && esUuid(b.servicioId) ? (await ctx.c.query<{ id: string; cliente: string; tablero: string | null }>("SELECT sc.id, c.nombre AS cliente, sc.inoowork_proyecto_id AS tablero FROM servicio_contratado sc JOIN cliente c ON c.id = sc.cliente_id WHERE sc.id = $1", [b.servicioId])).rows[0] : null;
       if (b.servicioId !== null && !(s && mismo(s.cliente))) errores.push({ campo: "servicioId", mensaje: "Ese servicio no es del cliente del proyecto" });
+      // 25 nov (fusión): un servicio es la parte del cliente de un solo proyecto.
+      else if (s?.tablero && s.tablero !== p.id) errores.push({ campo: "servicioId", mensaje: "Ese servicio ya está en otro proyecto" });
       vinculos.servicioId = s?.id ?? null;
     }
     validacion(errores);
   }
-  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, columnasSubitems: b.columnasSubitems, ...vinculos, ...carpeta });
+  const r = await TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, columnasSubitems: b.columnasSubitems, ...vinculos, ...carpeta });
+  // 25 nov (fusión): el servicio también sabe cuál es su tablero. Cambiar el cliente sin decir el servicio lo desvincula.
+  if (vinculos.servicioId !== undefined || b.cliente !== undefined) {
+    const nuevo = vinculos.servicioId !== undefined ? vinculos.servicioId : null;
+    await ctx.c.query("UPDATE servicio_contratado SET inoowork_proyecto_id = NULL WHERE inoowork_proyecto_id = $1 AND id IS DISTINCT FROM $2::uuid", [p.id, nuevo]);
+    if (nuevo) await ctx.c.query("UPDATE servicio_contratado SET inoowork_proyecto_id = $1 WHERE id = $2", [p.id, nuevo]);
+  }
+  return r;
 });
 /** 13 nov: los avisos que piden las automatizaciones del tablero (asignar o avisar a alguien). */
 async function avisosAutomatizacionDb<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {

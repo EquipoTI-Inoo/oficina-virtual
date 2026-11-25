@@ -638,7 +638,7 @@ export function TodoAlDia() {
 
 export function PantallaServicios() {
   return (
-    <Estructura espacio="cliente" migas="Mis servicios">
+    <Estructura espacio="cliente" migas="Mis proyectos">
       <Servicios />
     </Estructura>
   );
@@ -656,7 +656,7 @@ function Servicios() {
     <>
       <Cabecera
         antetitulo={[cuenta, fMesAnio(PERIODO_PORTAL)].filter(Boolean).join(" · ")}
-        titulo="Mis servicios"
+        titulo="Mis proyectos"
         bajada="Lo que tienes contratado y en qué etapa está cada servicio."
       />
       <div className="tarjeta" style={{ padding: "24px 24px 20px" }}>

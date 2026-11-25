@@ -95,6 +95,8 @@ const ETIQUETA_TIPO: Record<string, string> = {
 };
 
 interface Estado {
+  /** 25 nov (fusión): servicio → su tablero de Proyectos (la columna inoowork_proyecto_id del backend real). */
+  tableroDeServicio: Record<string, string>;
   piezas: D.PiezaDemo[];
   comentarios: (typeof D.COMENTARIOS_INICIALES)[number][];
   ideas: { id: string; titulo: string; palabraClave: string; angulo: string; estado: "PROPUESTA" | "ELEGIDA" | "DESCARTADA" }[];
@@ -253,6 +255,7 @@ const PROYECTO_INOOWORK: Record<string, string> = {
 
 function estadoInicial(): Estado {
   return {
+    tableroDeServicio: { ...PROYECTO_INOOWORK },
     piezas: D.piezasIniciales(),
     comentarios: structuredClone(D.COMENTARIOS_INICIALES),
     ideas: structuredClone(D.IDEAS_INICIALES),
@@ -1879,12 +1882,20 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
     }
     if (b.servicioId !== undefined) {
       const s = E.servicios.find((x) => x.id === b.servicioId);
+      const suTablero = s ? E.tableroDeServicio[s.id] : undefined;
       if (b.servicioId !== null && !(s && mismo(s.clienteId))) errores.push({ campo: "servicioId", mensaje: "Ese servicio no es del cliente del proyecto" });
+      else if (suTablero && suTablero !== p.id) errores.push({ campo: "servicioId", mensaje: "Ese servicio ya está en otro proyecto" });
       vinculos.servicioId = s?.id ?? null;
     }
     if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   }
-  return TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, columnasSubitems: b.columnasSubitems, ...vinculos, ...carpeta });
+  const r = await TABLEROS.cambiarProyecto(p.id, yo, { cliente: b.cliente, estado: b.estado, privado: b.privado, etiquetas: b.etiquetas, nombre: b.nombre, descripcion: b.descripcion, columnasSubitems: b.columnasSubitems, ...vinculos, ...carpeta });
+  if (vinculos.servicioId !== undefined || b.cliente !== undefined) {
+    const nuevo = vinculos.servicioId !== undefined ? vinculos.servicioId : null;
+    for (const [sid, tid] of Object.entries(E.tableroDeServicio)) if (tid === p.id && sid !== nuevo) delete E.tableroDeServicio[sid];
+    if (nuevo) E.tableroDeServicio[nuevo] = p.id;
+  }
+  return r;
 });
 
 // ───────────────────────────── Carpetas de Proyectos (17 nov)
@@ -3097,7 +3108,7 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
     const pl = plantillaRequerimiento(codigo);
     if (pl && plantillaAplica(pl.servicios, sc.codigo)) pedirAlCliente(ctx, sc, codigo);
   }
-  if (b.inooworkProyectoId) PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId;
+  if (b.inooworkProyectoId) { PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId; E.tableroDeServicio[sc.id] = b.inooworkProyectoId; }
   emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, responsableId: sc.responsableId, usuarioId: ctx.usuario.id });
   return { __status: 201, ...servicioVista(sc) };
 });
@@ -3938,6 +3949,7 @@ function perfilVista(ctx: Ctx, s: D.ServicioContratadoDemo, periodo: string): S<
   const ticketsResueltos = E.tickets.filter((t) => t.servicioContratadoId === s.id && ["RESUELTO", "CERRADO"].includes(t.estado) && t.actualizadoEn.startsWith(periodo)).length;
   const r: S<"PerfilProyecto"> = {
     ...av,
+    tableroId: ctx.esEquipo ? E.tableroDeServicio[s.id] ?? null : null,
     clienteId: s.clienteId,
     descripcion: cat.descripcion,
     modalidad: cat.modalidad,

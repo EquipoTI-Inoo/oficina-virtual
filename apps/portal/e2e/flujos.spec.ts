@@ -94,7 +94,7 @@ test("el cliente ya no ve Blog, Plan del mes ni Brief en su menú", async ({ pag
   await entrarComo(page, "cliente");
   await page.goto("/inicio");
   const menu = page.getByRole("complementary", { name: "Menú principal" }).first();
-  await expect(menu.getByText("Mis servicios")).toBeVisible();
+  await expect(menu.getByText("Mis proyectos")).toBeVisible();
   for (const fuera of ["Blog", "Plan del mes", "Brief y requerimientos", "Soporte", "Biblioteca", "Avance de proyectos", "Usuarios y avisos"]) {
     await expect(menu.getByText(fuera, { exact: true })).toHaveCount(0);
   }
@@ -993,8 +993,7 @@ test("tableros: Diego crea un proyecto con Camila desde el portal y entra a su t
   await entrarComo(page, "equipo");
   await page.goto("/equipo/proyectos");
   await page.getByRole("button", { name: "Nuevo proyecto" }).click({ timeout: 30_000 });
-  // 8 nov: se elige entre predeterminado (catálogo) y personalizado (tablero); el cliente sale de una lista.
-  await page.getByRole("radio", { name: "Personalizado" }).click();
+  // 25 nov (fusión): un solo «Nuevo proyecto», que crea el tablero; el cliente sale de una lista.
   await page.getByRole("button", { name: "Crear proyecto" }).click();
   await expect(page.getByText("Escribe el nombre del cliente")).toBeVisible();
   await page.getByLabel("Nombre del proyecto").fill("Web institucional 2027");

@@ -6,7 +6,7 @@ test("móvil: menú lateral y proyectos en una columna", async ({ page, request 
   await entrarComo(page, "cliente");
   await page.goto("/inicio");
   await page.getByRole("button", { name: "Abrir menú" }).click();
-  await expect(page.locator(".cajon").getByText("Mis servicios")).toBeVisible();
+  await expect(page.locator(".cajon").getByText("Mis proyectos")).toBeVisible();
   await page.getByRole("button", { name: "Cerrar menú" }).click();
   // 2 nov: el inicio se centra en el avance; en celular, una tarjeta de proyecto debajo de otra.
   const proyectos = page.locator(".proyecto-cliente");
