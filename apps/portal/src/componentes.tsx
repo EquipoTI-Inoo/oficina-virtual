@@ -275,15 +275,22 @@ export function ProveedorAvisos({ children }: { children: ReactNode }) {
 }
 
 export function Modal({ abierto, alCerrar, children, etiqueta, ancho }: { abierto: boolean; alCerrar: () => void; children: ReactNode; etiqueta: string; ancho?: number }) {
+  const velo = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!abierto) return;
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && alCerrar();
+    // 25 nov: con dos modales abiertos (una confirmación encima de otro), Escape cierra solo el de arriba.
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const todos = document.querySelectorAll(".velo");
+      if (todos.length && todos[todos.length - 1] !== velo.current) return;
+      alCerrar();
+    };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [abierto, alCerrar]);
   if (!abierto) return null;
   return (
-    <div className="velo" onClick={alCerrar}>
+    <div className="velo" ref={velo} onClick={alCerrar}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={etiqueta} onClick={(e) => e.stopPropagation()} style={ancho ? { width: `min(${ancho}px, 100%)` } : undefined}>
         <button className="modal-cerrar" aria-label="Cerrar" onClick={alCerrar}>
           <LuX size={18} />

@@ -161,38 +161,43 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
           }}
         />
       )}
-      <Cabecera
-        antetitulo={detalleServicio({ ...d, cantidadMensual: d.progreso?.totales ?? 0, unidad: "piezas" }) || undefined}
-        titulo={d.titulo}
-        accion={
-          <span className="fila" style={{ gap: 10 }}>
-            {/* 13 nov (auditoría): «Finalizado» y «Cerrar proyecto» eran dos caminos distintos; ahora finalizar es cerrar (con mensaje y encuesta). */}
-            <select className="input" aria-label="Estado del servicio" value={cerrado ? "FINALIZADO" : d.estado === "COMPLETADO" || d.estado === "EN_CURSO" || d.estado === "SIN_INICIAR" ? "ACTIVO" : d.estado}
-              onChange={(e) => (e.target.value === "FINALIZADO" ? setCerrando(true) : void actualizar({ estado: e.target.value }, "Estado actualizado"))} style={{ width: 150 }}>
-              <option value="ACTIVO">Activo</option>
-              <option value="PAUSADO">En pausa</option>
-              <option value="STANDBY">Standby</option>
-              <option value="FINALIZADO">Finalizado</option>
-            </select>
-            <button className="boton boton--chico" onClick={() => void descargarReporte()}>
-              <LuFileSpreadsheet size={14} /> Reporte en Excel
-            </button>
-            {d.codigo === "WEB" && (
-              <Enlace a={`/equipo/proyectos/${d.servicioContratadoId}/taller-web`} className="boton boton--chico boton--primario">
-                <LuSparkles size={14} /> Taller web
-              </Enlace>
-            )}
-            <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico" onClick={() => entrarComoCliente(d.clienteId)}>
-              <LuExternalLink size={14} /> Ver como cliente
-            </Enlace>
-            {!cerrado && (
-              <button className="boton boton--chico" onClick={() => setCerrando(true)}>
-                <LuFlagTriangleRight size={14} /> Cerrar proyecto
+      {(() => {
+        const acciones = (
+            <span className="fila" style={{ gap: 10 }}>
+              {/* 13 nov (auditoría): «Finalizado» y «Cerrar proyecto» eran dos caminos distintos; ahora finalizar es cerrar (con mensaje y encuesta). */}
+              <select className="input" aria-label="Estado del servicio" value={cerrado ? "FINALIZADO" : d.estado === "COMPLETADO" || d.estado === "EN_CURSO" || d.estado === "SIN_INICIAR" ? "ACTIVO" : d.estado}
+                onChange={(e) => (e.target.value === "FINALIZADO" ? setCerrando(true) : void actualizar({ estado: e.target.value }, "Estado actualizado"))} style={{ width: 150 }}>
+                <option value="ACTIVO">Activo</option>
+                <option value="PAUSADO">En pausa</option>
+                <option value="STANDBY">Standby</option>
+                <option value="FINALIZADO">Finalizado</option>
+              </select>
+              <button className="boton boton--chico" onClick={() => void descargarReporte()}>
+                <LuFileSpreadsheet size={14} /> Reporte en Excel
               </button>
-            )}
-          </span>
-        }
-      />
+              {d.codigo === "WEB" && (
+                <Enlace a={`/equipo/proyectos/${d.servicioContratadoId}/taller-web`} className="boton boton--chico boton--primario">
+                  <LuSparkles size={14} /> Taller web
+                </Enlace>
+              )}
+              <Enlace a={`/servicios/${d.servicioContratadoId}`} className="boton boton--chico" onClick={() => entrarComoCliente(d.clienteId)}>
+                <LuExternalLink size={14} /> Ver como cliente
+              </Enlace>
+              {!cerrado && (
+                <button className="boton boton--chico" onClick={() => setCerrando(true)}>
+                  <LuFlagTriangleRight size={14} /> Cerrar proyecto
+                </button>
+              )}
+            </span>
+        );
+        // 25 nov (fusión): dentro del tablero va como subtítulo; la página ya tiene el nombre del proyecto.
+        return incrustado ? (
+          <div className="fila entre" style={{ gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+            <h2 className="tarjeta-titulo">{d.titulo}</h2>
+            {acciones}
+          </div>
+        ) : <Cabecera antetitulo={detalleServicio({ ...d, cantidadMensual: d.progreso?.totales ?? 0, unidad: "piezas" }) || undefined} titulo={d.titulo} accion={acciones} />;
+      })()}
       <div className="con-lateral">
         <div className="pila">
           <div className="segmentado" role="tablist" aria-label="Secciones del proyecto" style={{ justifySelf: "start" }}>

@@ -40,27 +40,9 @@ export function PantallaPipeline() {
 
 const iniciales = (nombre: string) => nombre.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
-/** Encabezado común de los dos formularios de «Nuevo proyecto», con el cambio de tipo. */
 /** 25 nov (fusión): un solo «Nuevo proyecto» (el tablero), que se comparte con el cliente si hace falta. */
 export function TituloNuevoProyecto() {
   return <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>;
-}
-
-export function CabeceraNuevo({ tipo, cambiar, tablero }: { tipo: TipoNuevo; cambiar: (t: TipoNuevo) => void; tablero: boolean }) {
-  return (
-    <div className="pila" style={{ gap: 10 }}>
-      <h2 className="fila" style={{ fontSize: "var(--t-xl)", fontWeight: 600, gap: 8 }}><LuSquareKanban size={20} /> Nuevo proyecto</h2>
-      <div className="chips" role="radiogroup" aria-label="Tipo de proyecto">
-        <button type="button" role="radio" className="chip" aria-checked={tipo === "CATALOGO"} aria-pressed={tipo === "CATALOGO"} onClick={() => cambiar("CATALOGO")}>Predeterminado</button>
-        {tablero && <button type="button" role="radio" className="chip" aria-checked={tipo === "TABLERO"} aria-pressed={tipo === "TABLERO"} onClick={() => cambiar("TABLERO")}>Personalizado</button>}
-      </div>
-      <p className="texto-sm texto-muted">
-        {tipo === "CATALOGO"
-          ? "Un servicio del catálogo con las etapas de su plantilla. El cliente lo ve en su portal y se le piden los requerimientos."
-          : "Un tablero libre en InooWork (tabla, línea de tiempo y kanban). Tú quedas como líder."}
-      </p>
-    </div>
-  );
 }
 
 function PipelineProyectos() {
@@ -205,7 +187,7 @@ function PipelineProyectos() {
         </button>
       </div>
       {creando === "CATALOGO" && (
-        <NuevoServicio abierto clientes={delPortal} cabecera={<CabeceraNuevo tipo="CATALOGO" cambiar={setCreando} tablero={!!r.datos} />}
+        <NuevoServicio abierto clientes={delPortal} cabecera={<TituloNuevoProyecto />}
           alCerrar={() => setCreando(null)} alCrear={(s) => { void recargar(); if (s.servicioContratadoId) irA(`/equipo/proyectos/${s.servicioContratadoId}`); }} />
       )}
       {creando === "TABLERO" && r.datos && <NuevoTablero equipo={r.datos.equipo} clientes={clientes} destino={destino} cabecera={<TituloNuevoProyecto />} alCerrar={() => { setCreando(null); setDestino(null); }} />}
@@ -380,9 +362,9 @@ export function NuevoTablero({ equipo, clientes, cabecera, alCerrar, destino, cl
           </label>
         )}
         <div className="campo">
-          <label htmlFor="tab-servicio">Servicio <span className="texto-muted">(opcional)</span></label>
+          <label htmlFor="tab-servicio">Tipo de trabajo <span className="texto-muted">(opcional, queda como etiqueta)</span></label>
           <select id="tab-servicio" className="input" value={servicio} onChange={(e) => setServicio(e.target.value)}>
-            <option value="">Sin servicio</option>
+            <option value="">Sin etiqueta</option>
             {SERVICIOS_TABLERO.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
           <p className="texto-xs texto-muted">Se crea vacío, sin la plantilla del servicio: armas tus grupos y columnas.</p>

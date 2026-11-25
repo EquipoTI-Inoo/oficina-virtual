@@ -204,13 +204,12 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
         </select>
       </label>
       <label className="fila texto-sm" style={{ gap: 8 }}>
-        <span className="negrita">Servicio</span>
+        <span className="negrita">Servicio del cliente</span>
         <select className="input" style={{ width: 260, height: 36 }} disabled={!editable || !servicios.datos} value={t.servicioId ?? ""}
           onChange={(e) => void cambiar("", "PATCH", { servicioId: e.target.value || null })}>
-          <option value="">Sin servicio vinculado</option>
+          <option value="">Sin compartir</option>
           {susServicios.map((s) => <option key={s.servicioContratadoId} value={s.servicioContratadoId}>{s.titulo}</option>)}
         </select>
-        {t.servicioId && <Enlace a={`/equipo/proyectos/${t.servicioId}`} className="enlace texto-xs">Ver servicio</Enlace>}
       </label>
       <span className="fila texto-sm" style={{ gap: 6, flexWrap: "wrap" }}>
         <span className="negrita">Etiquetas</span>
@@ -275,7 +274,7 @@ function DatosDelProyecto({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, 
   const resumen = [
     t.cliente ?? "Sin cliente",
     t.estado ?? "En Progreso",
-    t.servicioId ? "Con servicio vinculado" : null,
+    t.servicioId ? "Compartido con el cliente" : null,
     t.etiquetas.length ? t.etiquetas.join(", ") : null,
   ].filter(Boolean).join(" · ");
   return (
@@ -400,7 +399,7 @@ function TableroProyecto() {
     }
   };
   const borrarProyecto = async () => {
-    if (!(await confirmar(`¿Borrar el proyecto «${t.nombre}» con todos sus ítems? Desaparece del portal y de InooWork (un admin lo puede recuperar en InooWork).`))) return;
+    if (!(await confirmar(`¿Borrar el proyecto «${t.nombre}» con todos sus ítems? Desaparece del portal y de InooWork (un admin lo puede recuperar en InooWork).${t.servicioId ? " Su parte del cliente queda como servicio sin proyecto." : ""}`))) return;
     try {
       await api(`/tableros/${t.id}`, { metodo: "DELETE" });
       avisar({ titulo: "Proyecto borrado" });
@@ -1186,6 +1185,7 @@ function Barras({ titulo, filas }: { titulo: string; filas: { nombre: string; n:
  * proyecto hasta que se comparte.
  */
 function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+  const avisar = useAviso();
   const [compartiendo, setCompartiendo] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("compartir") === "1");
   const interno = !t.cliente || esClienteInterno(t.cliente);
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>(!t.servicioId && !interno ? "/clientes?limite=100" : null);
@@ -1213,7 +1213,7 @@ function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, met
         <NuevoServicio clienteId={ficha.id} tableroId={t.id} abierto
           cabecera={<h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>Compartir «{t.nombre}» con {ficha.nombre}</h2>}
           alCerrar={() => setCompartiendo(false)}
-          alCrear={(s) => { if (s.servicioContratadoId) void cambiar("", "PATCH", { servicioId: s.servicioContratadoId }); }} />
+          alCrear={(s) => { if (s.servicioContratadoId) void cambiar("", "PATCH", { servicioId: s.servicioContratadoId }).then((ok) => { if (!ok) avisar({ titulo: "Se creó el servicio, pero no se pudo vincular", texto: "Vincúlalo en «Datos del proyecto → Servicio del cliente». No lo crees de nuevo." }); }); }} />
       )}
     </section>
   );

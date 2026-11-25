@@ -8,7 +8,7 @@ import { LuArchive, LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquar
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
 import { Barra, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
-import { mismoCliente } from "../dominio/tableros";
+import { claveCliente } from "../dominio/clientes-tablero";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
 import { bienvenidaCliente, fechaLarga } from "../dominio/correos";
 
@@ -91,12 +91,14 @@ export function ProyectosDelCliente({ cliente, servicios, gestion, alNuevo }: {
   const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
   const [agregando, setAgregando] = useState(false);
   const todos = r.datos?.datos ?? [];
-  const suyos = todos.filter((t) => mismoCliente(t.cliente, cliente.nombre));
+  const delCliente = (t: S<"TableroResumen">) => !!t.cliente && claveCliente(t.cliente) === claveCliente(cliente.nombre);
+  const suyos = todos.filter(delCliente);
   const servicioDe = (id: string | null) => (id ? servicios.find((s) => s.servicioContratadoId === id) : undefined);
   const vinculados = new Set(suyos.map((t) => t.servicioId).filter(Boolean));
   const sueltos = servicios.filter((s) => !vinculados.has(s.servicioContratadoId));
   const archivar = async (t: S<"TableroResumen">) => {
-    if (!(await confirmar(`¿Archivar «${t.nombre}»? Sale de las listas y queda en «Archivados» de Proyectos, de donde se puede desarchivar.`, { accion: "Archivar" }))) return;
+    const compartido = t.servicioId ? " El cliente lo sigue viendo en su portal: para cerrarlo para él, usa «Cerrar proyecto» en «Para el cliente»." : "";
+    if (!(await confirmar(`¿Archivar «${t.nombre}»? Sale de las listas y queda en «Archivados» de Proyectos, de donde se puede desarchivar.${compartido}`, { accion: "Archivar" }))) return;
     try {
       await api(`/tableros/${t.id}/archivar`, { metodo: "POST" });
       avisar({ titulo: "Proyecto archivado" });
@@ -160,7 +162,7 @@ function AgregarProyectoExistente({ cliente, tableros, alCerrar, alAgregar }: { 
   const avisar = useAviso();
   const [q, setQ] = useState("");
   const candidatos = tableros
-    .filter((t) => t.puedeEditar && !mismoCliente(t.cliente, cliente.nombre))
+    .filter((t) => t.puedeEditar && !(t.cliente && claveCliente(t.cliente) === claveCliente(cliente.nombre)))
     .filter((t) => !q.trim() || `${t.nombre} ${t.cliente ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => Number(!!a.cliente) - Number(!!b.cliente) || a.nombre.localeCompare(b.nombre, "es"))
     .slice(0, 60);
@@ -194,24 +196,6 @@ function AgregarProyectoExistente({ cliente, tableros, alCerrar, alAgregar }: { 
         </div>
       </div>
     </Modal>
-  );
-}
-
-/** Los tableros de InooWork de este cliente, según el nombre que tienen allá. */
-export function TablerosDelCliente({ nombre }: { nombre: string }) {
-  const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
-  const suyos = (r.datos?.datos ?? []).filter((t) => mismoCliente(t.cliente, nombre));
-  if (!suyos.length) return null;
-  return (
-    <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
-      <h3 className="tarjeta-titulo fila" style={{ fontSize: "var(--t-md)", gap: 8 }}><LuSquareKanban size={15} /> Tableros de InooWork</h3>
-      {suyos.map((t) => (
-        <Enlace key={t.id} a={`/equipo/proyectos/tableros/${t.id}`} className="fila entre texto-sm boton-lista">
-          <span className="negrita">{t.nombre}</span>
-          <span className="texto-xs texto-muted">{t.items.completados} de {t.items.total}{t.items.vencidos ? ` · ${t.items.vencidos} vencidos` : ""}</span>
-        </Enlace>
-      ))}
-    </section>
   );
 }
 

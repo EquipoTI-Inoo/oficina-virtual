@@ -1995,7 +1995,9 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
 });
 ruta("DELETE", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
-  return TABLEROS.borrar(p.id, yoTablero(ctx));
+  const r = await TABLEROS.borrar(p.id, yoTablero(ctx));
+  for (const [sid, tid] of Object.entries(E.tableroDeServicio)) if (tid === p.id) delete E.tableroDeServicio[sid];
+  return r;
 });
 ruta("POST", "/tableros/:id/archivar", async (ctx, p) => {
   soloEquipo(ctx);
@@ -6160,10 +6162,13 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
       /* InooWork no respondió */
     }
   }
+  // 25 nov (fusión): el servicio que ya está dentro de uno de sus tableros no se repite ni se cuenta dos veces.
+  const enSusTableros = new Set(deInooWork.tableros.map((t) => t.id));
+  const dentro = new Set(activos.filter((s) => enSusTableros.has(E.tableroDeServicio[s.id] ?? "")).map((s) => s.id));
   return {
-    persona: persona(quien)!, miArea, tareas, proyectos, tableros: deInooWork.tableros,
+    persona: persona(quien)!, miArea, tareas, proyectos: proyectos.filter((p) => !dentro.has(p.servicioContratadoId)), tableros: deInooWork.tableros,
     resumen: {
-      tareasAbiertas: tareas.length + items.length, tareasVencidas: tareas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectosActivos: activos.length + deInooWork.activos,
+      tareasAbiertas: tareas.length + items.length, tareasVencidas: tareas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectosActivos: activos.length - dentro.size + deInooWork.activos,
       proyectosCerrados: suyos.length - activos.length,
       rebotes: E.entregables.filter((e) => activos.some((s) => s.id === e.servicioContratadoId)).reduce((t, e) => t + e.rebotes, 0),
       conRetraso: activos.filter((s) => etapasDe(s).some((e) => etapaAtrasada(e, D.HOY))).length,

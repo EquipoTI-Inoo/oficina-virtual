@@ -5349,11 +5349,14 @@ ruta("GET", "/panel/colaborador", async (ctx, _p, q) => {
       /* InooWork no respondió */
     }
   }
+  // 25 nov (fusión): el servicio que ya está dentro de uno de sus tableros no se repite ni se cuenta dos veces.
+  const enSusTableros = new Set(deInooWork.tableros.map((t) => t.id));
+  const dentro = new Set(activos.filter((s) => !!s.inoowork_proyecto_id && enSusTableros.has(s.inoowork_proyecto_id)).map((s) => s.id));
   return {
-    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, miArea, tareas, proyectos, tableros: deInooWork.tableros,
+    persona: { id: persona.id, nombre: persona.nombre, cargo: persona.cargo, email: persona.email }, miArea, tareas, proyectos: proyectos.filter((p) => !dentro.has(p.servicioContratadoId)), tableros: deInooWork.tableros,
     resumen: {
       // 13 nov (auditoría): «Tareas abiertas» suma las de los servicios y los ítems de los tableros.
-      tareasAbiertas: tareas.length + items.length, tareasVencidas: tareas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectosActivos: activos.length + deInooWork.activos,
+      tareasAbiertas: tareas.length + items.length, tareasVencidas: tareas.filter((t) => t.vencida).length + items.filter((x) => x.vencido).length, proyectosActivos: activos.length - dentro.size + deInooWork.activos,
       proyectosCerrados: suyos.length - activos.length, rebotes, conRetraso,
     },
   } satisfies S<"PanelColaborador">;
@@ -6642,7 +6645,10 @@ ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
 });
 ruta("DELETE", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
-  return TABLEROS.borrar(p.id, await yoTablero(ctx));
+  const r = await TABLEROS.borrar(p.id, await yoTablero(ctx));
+  // 25 nov (fusión): su servicio queda como «sin proyecto», sin apuntar a un tablero borrado.
+  await ctx.c.query("UPDATE servicio_contratado SET inoowork_proyecto_id = NULL WHERE inoowork_proyecto_id = $1", [p.id]);
+  return r;
 });
 ruta("POST", "/tableros/:id/archivar", async (ctx, p) => {
   soloEquipo(ctx);
