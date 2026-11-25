@@ -221,7 +221,27 @@ export function marcarCambio(it: ItemIW, quien?: Quien) {
 
 // ───────────────────────────── columnas (11 nov): la biblioteca de Monday
 
-export interface CambioColumna { nombre?: unknown; tipo?: unknown; config?: unknown }
+export interface CambioColumna { nombre?: unknown; tipo?: unknown; config?: unknown; antesDe?: unknown }
+
+/**
+ * 25 nov (Ernesto: columnas con arrastrar y soltar; clic derecho → agregar a los lados): pone la columna antes de
+ * `antesDe` (otra columna del tablero) o al final si es null, en todas las vistas.
+ */
+function colocarColumna(p: ProyectoIW, colId: string, antesDe: string | null) {
+  for (const v of p.views ?? []) {
+    const xs = v.columns ?? [];
+    const col = xs.find((c) => c.id === colId);
+    if (!col) continue;
+    const resto = xs.filter((c) => c.id !== colId);
+    const i = antesDe ? resto.findIndex((c) => c.id === antesDe) : -1;
+    v.columns = i < 0 ? [...resto, col] : [...resto.slice(0, i), col, ...resto.slice(i)];
+  }
+}
+/** `antesDe` válido: undefined (no se mueve), null (al final) o el id de otra columna personalizada. */
+function antesDeValido(p: ProyectoIW, colId: string | null, antesDe: unknown): Errores {
+  if (antesDe === undefined || antesDe === null) return [];
+  return typeof antesDe === "string" && antesDe !== colId && columnasPersonalizadas(p).some((c) => c.id === antesDe) ? [] : [{ campo: "antesDe", mensaje: "Esa columna no está en el tablero" }];
+}
 const FIJAS_IW = new Set(["name", "assignee", "priority", "status", "dueDate", "notes"]);
 const tiposDe = (p: ProyectoIW) => [{ id: "status", tipo: "status" }, ...columnasPersonalizadas(p).map((c) => ({ id: c.id, tipo: c.type }))];
 
@@ -232,12 +252,13 @@ export function agregarColumna(p: ProyectoIW, b: CambioColumna): { id?: string; 
   if (!i) e.push({ campo: "tipo", mensaje: "Elige un tipo de columna de la biblioteca" });
   if (columnasPersonalizadas(p).length >= 60) e.push({ campo: "tipo", mensaje: "Hasta 60 columnas por tablero" });
   const { config, errores } = i ? validarConfig(i.tipo, b.config, tiposDe(p)) : { config: {}, errores: [] };
-  e.push(...errores);
+  e.push(...errores, ...antesDeValido(p, null, b.antesDe));
   if (e.length) return { errores: e };
   const col: ColumnaIW = { id: nuevoId("col"), label: String(b.nombre).trim(), type: i!.tipo, width: 150, config };
   p.views ??= [];
   if (!p.views.length) p.views.push({ id: nuevoId("view"), name: "Tabla Principal", type: "table", isDefault: true, columns: [], filters: [] });
   for (const v of p.views) v.columns = [...(v.columns ?? []), { ...col, config: structuredClone(config) }];
+  if (typeof b.antesDe === "string") colocarColumna(p, col.id, b.antesDe);
   return { id: col.id, errores: [] };
 }
 
@@ -246,6 +267,7 @@ export function cambiarColumna(p: ProyectoIW, colId: string, b: CambioColumna): 
   if (!col) return [{ campo: "columna", mensaje: "No encontramos esa columna" }];
   const e: Errores = [];
   if (b.nombre !== undefined && !(typeof b.nombre === "string" && b.nombre.trim().length >= 1 && b.nombre.trim().length <= 80)) e.push({ campo: "nombre", mensaje: "Ponle un nombre (hasta 80 caracteres)" });
+  e.push(...antesDeValido(p, colId, b.antesDe));
   let config = col.config;
   if (b.config !== undefined) {
     if (!info(col.type)) e.push({ campo: "config", mensaje: "Esta columna de InooWork no tiene configuración" });
@@ -260,6 +282,7 @@ export function cambiarColumna(p: ProyectoIW, colId: string, b: CambioColumna): 
     if (typeof b.nombre === "string") c.label = b.nombre.trim();
     if (config) c.config = structuredClone(config);
   }
+  if (b.antesDe !== undefined) colocarColumna(p, colId, b.antesDe as string | null);
   // Si cambian las etiquetas o las opciones, los valores que ya no existen se vacían.
   if (col.type === "etiqueta" && config?.etiquetas) for (const it of p.items ?? []) if (it[colId] && !config.etiquetas.some((l) => l.texto === it[colId])) it[colId] = "";
   return [];

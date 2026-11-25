@@ -5,7 +5,7 @@
  * (grupos, ítems y subítems, como Monday), kanban, calendario, línea de tiempo y gráfico.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { LuArrowDown, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
+import { LuArrowDown, LuArrowLeft, LuArrowRight, LuArrowUp, LuArrowUpDown, LuChevronDown, LuChevronLeft, LuChevronRight, LuEllipsis, LuGripVertical, LuLock, LuMessageSquare, LuPlus, LuTrash2, LuX, LuPencil } from "react-icons/lu";
 import { PanelItem } from "./panel-item";
 import { NuevoServicio, ProyectoEquipo } from "./proyecto-equipo";
 import { BotonAutomatizaciones } from "./automatizaciones-tablero";
@@ -549,7 +549,11 @@ function Fecha({ valor, guardar, editable, etiqueta, vencido }: { valor: string 
 function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevos }: Ctx) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
-  const [biblioteca, setBiblioteca] = useState(false);
+  // 25 nov (Ernesto): la columna nueva puede ir a un lado de otra (clic derecho); `undefined` = al final.
+  const [biblioteca, setBiblioteca] = useState<false | { antesDe?: string | null }>(false);
+  const [menuCol, setMenuCol] = useState<{ x: number; y: number; col: Tablero["columnas"][number] } | null>(null);
+  const [arrastrandoCol, setArrastrandoCol] = useState<string | null>(null);
+  const [sobreCol, setSobreCol] = useState<string | null>(null);
   const [configurando, setConfigurando] = useState<Tablero["columnas"][number] | null>(null);
   const alternar = (s: Set<string>, id: string) => {
     const n = new Set(s);
@@ -622,6 +626,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
   };
   const Asa = ({ col }: { col: string }) => (
     <span className="th-asa" role="separator" aria-orientation="vertical" aria-label="Cambiar el ancho de la columna" title="Arrastra para cambiar el ancho"
+      draggable={false} onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDoubleClick={() => setAnchos((a) => { const n = { ...a }; delete n[col]; return n; })}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -707,14 +712,23 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                       <Th col="fecha" base={140}>Fecha límite</Th>
                       <th style={ancho("notas", 180)} className="th-redimensionable">Descripción<Asa col="notas" /></th>
                       {enOrden.map((c) => (
-                        <th key={c.id} style={ancho(c.id, c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120)} className="th-redimensionable" title={info(c.tipo)?.nombre ?? c.tipo}>
+                        <th key={c.id} style={ancho(c.id, c.tipo === "long_text" || c.tipo === "doc" || c.tipo === "people" ? 160 : 120)}
+                          className={`th-redimensionable${sobreCol === c.id && arrastrandoCol !== c.id ? " th-soltar" : ""}${arrastrandoCol === c.id ? " th-arrastrando" : ""}`} title={info(c.tipo)?.nombre ?? c.tipo}
+                          draggable={estructura && c.tipo !== "last_updated"}
+                          onDragStart={(e) => { e.dataTransfer.setData("text/plain", c.id); e.dataTransfer.effectAllowed = "move"; setArrastrandoCol(c.id); }}
+                          onDragEnd={() => { setArrastrandoCol(null); setSobreCol(null); }}
+                          onDragOver={(e) => { if (arrastrandoCol && arrastrandoCol !== c.id) { e.preventDefault(); setSobreCol(c.id); } }}
+                          onDrop={(e) => { e.preventDefault(); const id = arrastrandoCol; setArrastrandoCol(null); setSobreCol(null); if (id && id !== c.id) void cambiar(`/columnas/${id}`, "PATCH", { antesDe: c.id }); }}
+                          onContextMenu={estructura ? (e) => { e.preventDefault(); setMenuCol({ x: e.clientX, y: e.clientY, col: c }); } : undefined}>
                           {estructura
                             ? <button type="button" className="boton-texto" style={{ font: "inherit", color: "inherit", textTransform: "inherit", letterSpacing: "inherit" }} aria-label={`Configurar la columna ${c.nombre}`} onClick={() => setConfigurando(c)}>{c.nombre}</button>
                             : c.nombre}
                           <Asa col={c.id} />
                         </th>
                       ))}
-                      {estructura && <th style={{ width: 36 }}><button className="boton-icono" aria-label="Agregar columna" title="Agregar columna" onClick={() => setBiblioteca(true)}><LuPlus size={14} /></button></th>}
+                      {estructura && <th style={{ width: 36 }}><button className="boton-icono" aria-label="Agregar columna" title="Agregar columna" onClick={() => setBiblioteca({})}
+                        onDragOver={(e) => { if (arrastrandoCol) { e.preventDefault(); setSobreCol("__fin"); } }}
+                        onDrop={(e) => { e.preventDefault(); const id = arrastrandoCol; setArrastrandoCol(null); setSobreCol(null); if (id) void cambiar(`/columnas/${id}`, "PATCH", { antesDe: null }); }}><LuPlus size={14} /></button></th>}
                       {estructura && <th style={{ width: 36 }} />}
                     </tr>
                   </thead>
@@ -824,7 +838,9 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
         </button>
       )}
       {elegidos.length > 0 && <BarraLote t={t} ids={elegidos} cambiar={cambiar} limpiar={() => setSel(new Set())} />}
-      {biblioteca && <BibliotecaColumnas t={t} cambiar={cambiar} cerrar={() => setBiblioteca(false)} />}
+      {biblioteca && <BibliotecaColumnas t={t} cambiar={cambiar} antesDe={biblioteca.antesDe} cerrar={() => setBiblioteca(false)} />}
+      {menuCol && <MenuColumna x={menuCol.x} y={menuCol.y} col={menuCol.col} columnas={enOrden} cerrar={() => setMenuCol(null)}
+        configurar={() => setConfigurando(menuCol.col)} agregar={(antesDe) => setBiblioteca({ antesDe })} mover={(antesDe) => void cambiar(`/columnas/${menuCol.col.id}`, "PATCH", { antesDe })} />}
       {configurando && <ConfigurarColumna t={t} col={configurando} cambiar={cambiar} cerrar={() => setConfigurando(null)} />}
     </div>
   );
@@ -1174,6 +1190,42 @@ function Barras({ titulo, filas }: { titulo: string; filas: { nombre: string; n:
         ))}
       </div>
     </section>
+  );
+}
+
+// ───────────────────────────── menú de una columna (25 nov, Ernesto: clic derecho → agregar a los lados)
+
+/**
+ * Clic derecho (o la tecla de menú / Shift+F10) sobre el encabezado de una columna: agregar otra a su izquierda o a su
+ * derecha, moverla un lugar (la alternativa con teclado a arrastrar) o configurarla.
+ */
+function MenuColumna({ x, y, col, columnas, cerrar, configurar, agregar, mover }: {
+  x: number; y: number; col: Tablero["columnas"][number]; columnas: Tablero["columnas"]; cerrar: () => void;
+  configurar: () => void; agregar: (antesDe: string | null) => void; mover: (antesDe: string | null) => void;
+}) {
+  const caja = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const fuera = (e: Event) => { if (!caja.current?.contains(e.target as Node)) cerrar(); };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && cerrar();
+    document.addEventListener("pointerdown", fuera);
+    document.addEventListener("keydown", esc);
+    caja.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => { document.removeEventListener("pointerdown", fuera); document.removeEventListener("keydown", esc); };
+  }, [cerrar]);
+  const movibles = columnas.filter((c) => c.tipo !== "last_updated");
+  const i = movibles.findIndex((c) => c.id === col.id);
+  const siguiente = (n: number) => movibles[n]?.id ?? null;
+  const fija = col.tipo === "last_updated";
+  const hacer = (f: () => void) => () => { cerrar(); f(); };
+  return (
+    <span ref={caja} className="arbol-menu-caja" role="menu" aria-label={`Columna ${col.nombre}`}
+      style={{ top: Math.min(y, window.innerHeight - 220), left: Math.min(x, window.innerWidth - 220) }}>
+      <button type="button" role="menuitem" onClick={hacer(() => agregar(fija ? null : col.id))} disabled={fija}><LuArrowLeft size={14} /> Agregar columna a la izquierda</button>
+      <button type="button" role="menuitem" onClick={hacer(() => agregar(fija ? col.id : siguiente(i + 1)))}><LuArrowRight size={14} /> Agregar columna a la derecha</button>
+      {!fija && <button type="button" role="menuitem" disabled={i <= 0} onClick={hacer(() => mover(siguiente(i - 1)))}><LuChevronLeft size={14} /> Mover a la izquierda</button>}
+      {!fija && <button type="button" role="menuitem" disabled={i >= movibles.length - 1} onClick={hacer(() => mover(siguiente(i + 2)))}><LuChevronRight size={14} /> Mover a la derecha</button>}
+      <button type="button" role="menuitem" onClick={hacer(configurar)}><LuPencil size={14} /> Configurar</button>
+    </span>
   );
 }
 

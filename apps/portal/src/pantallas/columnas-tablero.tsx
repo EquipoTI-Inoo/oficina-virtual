@@ -813,7 +813,7 @@ export function IconoTipoColumna({ tipo, tamano = 28 }: { tipo: string; tamano?:
   );
 }
 
-export function BibliotecaColumnas({ t, cambiar, cerrar }: { t: Tablero; cambiar: Cambiar; cerrar: () => void }) {
+export function BibliotecaColumnas({ t, cambiar, cerrar, antesDe }: { t: Tablero; cambiar: Cambiar; cerrar: () => void; /** 25 nov: dónde va (clic derecho → a un lado). */ antesDe?: string | null }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState<TipoColumna | null>(null);
   const grupos = [...new Set(TIPOS_COLUMNA.map((x) => x.grupo))];
@@ -853,7 +853,7 @@ export function BibliotecaColumnas({ t, cambiar, cerrar }: { t: Tablero; cambiar
         </div>
       ) : (
         <FormColumna t={t} tipo={tipo} volver={() => setTipo(null)}
-          guardar={async (nombre, config) => { if (await cambiar("/columnas", "POST", { nombre, tipo, config })) cerrar(); }} />
+          guardar={async (nombre, config) => { if (await cambiar("/columnas", "POST", { nombre, tipo, config, ...(antesDe ? { antesDe } : {}) })) cerrar(); }} />
       )}
     </Modal>
   );

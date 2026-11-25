@@ -6174,6 +6174,7 @@ paths:
                 nombre: { type: string, maxLength: 80 }
                 tipo: { type: string }
                 config: { $ref: '#/components/schemas/ConfigColumna' }
+                antesDe: { type: [string, 'null'], description: '25 nov: crearla antes de esta columna (clic derecho → a la izquierda o a la derecha). Sin valor, al final' }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
@@ -6199,6 +6200,7 @@ paths:
               properties:
                 nombre: { type: string, maxLength: 80 }
                 config: { $ref: '#/components/schemas/ConfigColumna' }
+                antesDe: { type: [string, 'null'], description: '25 nov: moverla antes de esta columna (arrastrar y soltar); null, al final' }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }

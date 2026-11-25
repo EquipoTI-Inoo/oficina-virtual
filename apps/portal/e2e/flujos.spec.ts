@@ -1031,3 +1031,21 @@ test("ingreso: el equipo también entra con su usuario", async ({ page }) => {
   await page.click("text=Ingresar al portal");
   await expect(page.getByRole("heading", { name: /Diego Castro/ })).toBeVisible({ timeout: 30_000 });
 });
+
+test("tableros (25 nov, Ernesto): clic derecho en una columna para moverla o agregar otra a su lado", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  await reiniciar(request);
+  const h = { authorization: "Bearer demo.00000000-0000-4000-8001-000000000003" };
+  await request.post("/api/v1/tableros/PROJ-MKT01/columnas", { headers: h, data: { nombre: "Presupuesto", tipo: "text" } });
+  await entrarComo(page, "equipo");
+  await page.goto("/equipo/proyectos/tableros/PROJ-MKT01");
+  const tabla = page.locator("table.tabla-tablero").first();
+  const encabezados = async () => (await tabla.locator("thead th").allInnerTexts()).map((x) => x.trim()).filter((x) => ["Canal", "Presupuesto", "Notas"].includes(x));
+  await expect.poll(encabezados, { timeout: 30_000 }).toEqual(["Canal", "Presupuesto"]);
+  await tabla.getByRole("button", { name: "Configurar la columna Presupuesto" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Mover a la izquierda" }).click();
+  await expect.poll(encabezados).toEqual(["Presupuesto", "Canal"]);
+  await tabla.getByRole("button", { name: "Configurar la columna Canal" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Agregar columna a la izquierda" }).click();
+  await expect(page.getByRole("dialog", { name: "Biblioteca de columnas" })).toBeVisible();
+});

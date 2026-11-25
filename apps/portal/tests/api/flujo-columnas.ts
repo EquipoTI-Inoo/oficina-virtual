@@ -361,6 +361,21 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal(it((await llamar("DELETE", `/tableros/${T}/columnas/${con.id}`, ADMIN)).json).valores[con.id], undefined);
       assert.equal((await llamar("DELETE", `/tableros/${T}/columnas/status`, ADMIN)).status, 404, "las fijas no se borran");
     });
+    test("25 nov (Ernesto): las columnas se mueven y se insertan a un lado de otra", async () => {
+      await reiniciar();
+      const nombres = (t: any) => t.columnas.map((c: any) => c.nombre).filter((n: string) => ["A", "B", "C", "D"].includes(n));
+      for (const n of ["A", "B", "C"]) await llamar("POST", `/tableros/${T}/columnas`, DIEGO, { nombre: n, tipo: "text" });
+      let t = (await llamar("GET", `/tableros/${T}`, DIEGO)).json;
+      const id = (n: string) => t.columnas.find((c: any) => c.nombre === n).id;
+      t = (await llamar("POST", `/tableros/${T}/columnas`, DIEGO, { nombre: "D", tipo: "text", antesDe: id("B") })).json;
+      assert.deepEqual(nombres(t), ["A", "D", "B", "C"], "clic derecho → a la izquierda de B");
+      t = (await llamar("PATCH", `/tableros/${T}/columnas/${id("C")}`, DIEGO, { antesDe: id("A") })).json;
+      assert.deepEqual(nombres(t), ["C", "A", "D", "B"], "arrastrar C antes de A");
+      t = (await llamar("PATCH", `/tableros/${T}/columnas/${id("C")}`, DIEGO, { antesDe: null })).json;
+      assert.deepEqual(nombres(t), ["A", "D", "B", "C"], "al final");
+      assert.equal((await llamar("PATCH", `/tableros/${T}/columnas/${id("A")}`, DIEGO, { antesDe: "no-existe" })).status, 422);
+      assert.equal((await llamar("PATCH", `/tableros/${T}/columnas/${id("A")}`, DIEGO, { antesDe: id("A") })).status, 422, "no antes de sí misma");
+    });
   });
 }
 
@@ -402,5 +417,6 @@ describe("Columnas · reglas", () => {
     assert.deepEqual(valorDeColumna({ tipo: "doc" }, "# Acta\nTexto", ctx), { texto: "📄 Acta", dato: { texto: "# Acta\nTexto" } });
     assert.deepEqual(valorDeColumna({ tipo: "tags" }, "seo, web, seo", ctx), { texto: "seo, web", dato: ["seo", "web"] });
     assert.ok("error" in valorDeColumna({ tipo: "formula" }, "1", ctx), "las calculadas no se escriben");
+
   });
 });

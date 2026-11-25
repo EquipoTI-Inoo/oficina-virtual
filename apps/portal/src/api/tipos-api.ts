@@ -19578,6 +19578,8 @@ export interface operations {
                     nombre: string;
                     tipo: string;
                     config?: components["schemas"]["ConfigColumna"];
+                    /** @description 25 nov: crearla antes de esta columna (clic derecho → a la izquierda o a la derecha). Sin valor, al final */
+                    antesDe?: string | null;
                 };
             };
         };
@@ -19650,6 +19652,8 @@ export interface operations {
                 "application/json": {
                     nombre?: string;
                     config?: components["schemas"]["ConfigColumna"];
+                    /** @description 25 nov: moverla antes de esta columna (arrastrar y soltar); null, al final */
+                    antesDe?: string | null;
                 };
             };
         };

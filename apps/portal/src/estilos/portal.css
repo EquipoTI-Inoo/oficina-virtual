@@ -3151,3 +3151,9 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
   .hilo-respuesta--vacio { opacity: 0; transition: opacity 0.15s ease-out; }
   *:hover + .hilo-respuesta--vacio, .hilo-respuesta--vacio:hover, .hilo-respuesta--vacio:focus-within { opacity: 1; }
 }
+
+/* 25 nov (Ernesto): mover columnas arrastrando el encabezado. */
+.tabla-tablero th[draggable="true"] { cursor: grab; }
+.tabla-tablero th.th-arrastrando { opacity: 0.45; }
+.tabla-tablero th.th-soltar { box-shadow: inset 3px 0 0 var(--c-primario); }
+.arbol-menu-caja button:disabled { opacity: 0.45; cursor: default; background: none; }
