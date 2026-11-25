@@ -131,5 +131,17 @@ export function pruebasEmpresas(nombre: string, manejar: Manejador, reiniciar: (
       assert.equal((await llamar("GET", `/servicios-contratados/${sid}`, DIEGO)).json.tableroId, null, "al desvincularlo se suelta");
       assert.equal((await llamar("PATCH", `/tableros/${t2.id}`, DIEGO, { servicioId: sid })).status, 200, "ya se puede poner en otro");
     });
+
+    test("25 nov (fusión): archivar un proyecto a mano lo saca de las listas y se puede desarchivar", async () => {
+      await reiniciar();
+      const t = (await llamar("POST", "/tableros", DIEGO, { nombre: "Para archivar", cliente: "Casa Oliva" })).json;
+      assert.equal((await llamar("POST", `/tableros/${t.id}/archivar`, CAMILA)).status === 200, false, "quien no está en el proyecto no lo archiva");
+      const a = await llamar("POST", `/tableros/${t.id}/archivar`, DIEGO);
+      assert.equal(a.status, 200);
+      assert.equal(a.json.archivado, true);
+      assert.ok(!(await llamar("GET", "/tableros", DIEGO)).json.datos.some((x: any) => x.id === t.id), "sale de la lista");
+      assert.equal((await llamar("POST", `/tableros/${t.id}/archivar`, DIEGO)).status, 409, "ya está archivado");
+      assert.equal((await llamar("POST", `/tableros/${t.id}/desarchivar`, DIEGO)).json.archivado, false);
+    });
   });
 }

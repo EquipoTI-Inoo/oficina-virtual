@@ -4434,6 +4434,25 @@ export interface paths {
         patch: operations["cambiarGrupoTablero"];
         trace?: never;
     };
+    "/tableros/{proyectoId}/archivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archiva un proyecto a mano (25 nov, fusión): sale de las listas. El líder, un miembro editor o un admin */
+        post: operations["archivarTablero"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/desarchivar": {
         parameters: {
             query?: never;
@@ -19245,6 +19264,38 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    archivarTablero: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             /** @description InooWork no respondió */
             502: {
                 headers: {

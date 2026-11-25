@@ -6644,6 +6644,10 @@ ruta("DELETE", "/tableros/:id", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrar(p.id, await yoTablero(ctx));
 });
+ruta("POST", "/tableros/:id/archivar", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.archivar(p.id, await yoTablero(ctx));
+});
 ruta("POST", "/tableros/:id/desarchivar", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.desarchivar(p.id, await yoTablero(ctx));

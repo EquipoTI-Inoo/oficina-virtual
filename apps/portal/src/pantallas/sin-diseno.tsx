@@ -726,7 +726,7 @@ async function subirTraspaso(clienteId: string, archivos: File[], respuestas: Re
 }
 
 /** Ingreso del cliente en su ficha (solo equipo): lo que llenó Comercial en el alta; quien gestiona la cuenta lo corrige. */
-export function IngresoDelCliente({ cliente, editable, alGuardar }: { cliente: S<"Cliente">; editable: boolean; alGuardar: () => void }) {
+export function IngresoDelCliente({ cliente, editable, alGuardar, plano }: { cliente: S<"Cliente">; editable: boolean; alGuardar: () => void; plano?: boolean }) {
   const { datos: formulario } = useConsulta<{ campos: S<"CampoFormulario">[] }>("/formularios/ingreso-cliente");
   const [editando, setEditando] = useState<Record<string, unknown> | null>(null);
   const [err, setErr] = useState<Record<string, string>>({});
@@ -747,7 +747,7 @@ export function IngresoDelCliente({ cliente, editable, alGuardar }: { cliente: S
     }
   };
   return (
-    <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 14 }}>
+    <div className={plano ? undefined : "tarjeta"} style={plano ? { display: "grid", gap: 14, paddingTop: 16, borderTop: "1px solid var(--c-borde)" } : { padding: "22px 16px", display: "grid", gap: 14 }}>
       <div className="fila entre">
         <h3 className="tarjeta-titulo">Ingreso del cliente</h3>
         {editable && !editando && (

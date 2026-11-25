@@ -374,6 +374,16 @@ export function crearTableros(fallar: Fallar) {
       await guardarIW(p, yo.prueba);
       return null;
     }),
+    /** Archivar a mano (25 nov, fusión: «Archivar» en la ficha del cliente). Sale de las listas; se desarchiva igual que uno automático. */
+    archivar: (id: string, yo: Yo) => protegido(async () => {
+      const p = await visible(id, yo);
+      if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder, los miembros o un admin lo pueden archivar");
+      if (p.archived) throw fallar(409, "YA_ARCHIVADO", "Este proyecto ya está archivado");
+      p.archived = true;
+      p.archivedAt = new Date().toISOString();
+      await guardarIW(p, yo.prueba);
+      return tableroVista(p, yo, await conectadosDe(p, yo));
+    }),
     /** Desarchivar (13 nov): vuelve a las listas, en curso (si no, el proceso diario lo archivaría de nuevo). */
     desarchivar: (id: string, yo: Yo) => protegido(async () => {
       const p = await visible(id, yo);

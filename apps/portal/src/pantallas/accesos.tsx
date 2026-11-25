@@ -4,9 +4,9 @@
  * Asigna el nivel ADMIN a cualquiera o un lead a la gente de su área (las mismas reglas de la API).
  */
 import { useState, type FormEvent } from "react";
-import { LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
+import { LuArchive, LuKeyRound, LuLink, LuMail, LuMessageCircle, LuPlus, LuSquareKanban, LuUsers, LuX } from "react-icons/lu";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, type S } from "../base";
-import { Etiqueta, useAviso, usePortal, confirmar } from "../componentes";
+import { Barra, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { puedeAsignar } from "../dominio/accesos";
 import { mismoCliente } from "../dominio/tableros";
 import { NOMBRE_AREA } from "../dominio/ia-equipo";
@@ -52,7 +52,148 @@ export function GestionCuenta({ cliente, alGuardar }: { cliente: S<"Cliente">; a
       <select id="gc-estado" className="input" value={cliente.estado} onChange={(e) => cambiarEstado(e.target.value as S<"Cliente">["estado"])}>
         {(Object.keys(ESTADO_CUENTA) as S<"Cliente">["estado"][]).map((x) => <option key={x} value={x}>{ESTADO_CUENTA[x]}</option>)}
       </select>
+      {/* 25 nov (Ernesto): «Responsables» y «Gestión de la cuenta» se repetían; queda una sola tarjeta. */}
+      {cliente.creadoPor && <p className="texto-xs texto-muted">Creado por {cliente.creadoPor.nombre}{cliente.creadoEn ? ` el ${fCorta(cliente.creadoEn)}` : ""}.</p>}
     </section>
+  );
+}
+
+/** Lo mismo, solo para leer (quien no gestiona la cuenta). */
+export function ResponsablesCuenta({ cliente }: { cliente: S<"Cliente"> }) {
+  return (
+    <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 10 }}>
+      <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Responsables</h3>
+      {([
+        ["Propietario comercial", cliente.accountManager],
+        ["Responsable operativo", cliente.responsableOperativo],
+        ["Creado por", cliente.creadoPor],
+      ] as const).map(([rotulo, persona]) => (
+        <div key={rotulo} style={{ display: "grid", gap: 2 }}>
+          <span className="texto-xs texto-muted">{rotulo}</span>
+          <span className="negrita texto-sm">{persona?.nombre ?? "Sin definir"}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * 25 nov (fusión): los proyectos del cliente son el módulo principal de su ficha. Cada proyecto es su tablero; si ya se
+ * compartió, se ve el avance de su parte del cliente. Se agrega uno que ya existe (le pone este cliente) y se archiva.
+ */
+export function ProyectosDelCliente({ cliente, servicios, gestion, alNuevo }: {
+  cliente: { id: string; nombre: string };
+  servicios: S<"ServiciosCliente">["servicios"];
+  gestion: boolean;
+  alNuevo: () => void;
+}) {
+  const avisar = useAviso();
+  const r = useConsulta<{ datos: S<"TableroResumen">[] }>("/tableros");
+  const [agregando, setAgregando] = useState(false);
+  const todos = r.datos?.datos ?? [];
+  const suyos = todos.filter((t) => mismoCliente(t.cliente, cliente.nombre));
+  const servicioDe = (id: string | null) => (id ? servicios.find((s) => s.servicioContratadoId === id) : undefined);
+  const vinculados = new Set(suyos.map((t) => t.servicioId).filter(Boolean));
+  const sueltos = servicios.filter((s) => !vinculados.has(s.servicioContratadoId));
+  const archivar = async (t: S<"TableroResumen">) => {
+    if (!(await confirmar(`¿Archivar «${t.nombre}»? Sale de las listas y queda en «Archivados» de Proyectos, de donde se puede desarchivar.`, { accion: "Archivar" }))) return;
+    try {
+      await api(`/tableros/${t.id}/archivar`, { metodo: "POST" });
+      avisar({ titulo: "Proyecto archivado" });
+      void r.recargar();
+    } catch (x) {
+      avisar({ titulo: "No se pudo archivar", texto: x instanceof ProblemaApi ? x.titulo : undefined });
+    }
+  };
+  return (
+    <section className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 14 }} aria-label="Proyectos del cliente">
+      <div className="fila entre" style={{ gap: 8, flexWrap: "wrap" }}>
+        <h2 className="tarjeta-titulo fila" style={{ gap: 8 }}><LuSquareKanban size={18} /> Proyectos</h2>
+        <span className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="boton boton--chico" onClick={() => setAgregando(true)} disabled={!r.datos}>Agregar existente</button>
+          {gestion && <button type="button" className="boton boton--chico boton--primario" onClick={alNuevo}><LuPlus size={14} /> Nuevo proyecto</button>}
+        </span>
+      </div>
+      {r.error && <p className="texto-xs texto-muted">InooWork no respondió: por ahora no se ven los tableros.</p>}
+      {r.datos && !suyos.length && !sueltos.length && <p className="texto-sm texto-muted">Todavía no tiene proyectos. Crea uno o agrega uno que ya exista.</p>}
+      <div className="lista-suave">
+        {suyos.map((t) => {
+          const s = servicioDe(t.servicioId);
+          const pct = t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0;
+          return (
+            <div key={t.id} className="fila-suave fila-proyecto-cliente">
+              <span style={{ display: "grid", gap: 4, minWidth: 0, flex: 1 }}>
+                <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="negrita enlace">{t.nombre}</Enlace>
+                <span className="texto-xs texto-muted">
+                  {[t.lider ? `Líder: ${t.lider.nombre}` : null, `${t.items.completados} de ${t.items.total} ítems`, t.items.vencidos ? `${t.items.vencidos} vencidos` : null].filter(Boolean).join(" · ")}
+                </span>
+                <span style={{ maxWidth: 320 }}><Barra pct={s ? s.avance.porcentaje : pct} /></span>
+              </span>
+              <span className="fila" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {s ? (
+                  <Enlace a={`/equipo/proyectos/tableros/${t.id}?parte=cliente`} className="etiqueta etiqueta--verde" title="El cliente lo sigue en su portal">
+                    El cliente lo ve · {s.avance.porcentaje} %
+                  </Enlace>
+                ) : <span className="etiqueta" title="El cliente no ve este proyecto">Solo el equipo</span>}
+                {t.puedeEditar && <button type="button" className="boton-icono" aria-label={`Archivar ${t.nombre}`} title="Archivar" onClick={() => void archivar(t)}><LuArchive size={15} /></button>}
+              </span>
+            </div>
+          );
+        })}
+        {sueltos.map((s) => (
+          <div key={s.servicioContratadoId} className="fila-suave fila-proyecto-cliente">
+            <span style={{ display: "grid", gap: 4, minWidth: 0, flex: 1 }}>
+              <Enlace a={`/equipo/proyectos/${s.servicioContratadoId}`} className="negrita enlace">{s.titulo}</Enlace>
+              <span className="texto-xs texto-muted">Servicio sin tablero · {s.avance.porcentaje} %{s.responsable ? ` · Responsable: ${s.responsable.nombre}` : ""}</span>
+            </span>
+            <span className="etiqueta etiqueta--ambar" title="Todavía no está dentro de un proyecto">Sin proyecto</span>
+          </div>
+        ))}
+      </div>
+      {agregando && <AgregarProyectoExistente cliente={cliente} tableros={todos} alCerrar={() => setAgregando(false)} alAgregar={() => { setAgregando(false); void r.recargar(); }} />}
+    </section>
+  );
+}
+
+/** Elegir un proyecto que ya existe y ponerle este cliente (25 nov: «un proyecto asignado no sale en la ficha»). */
+function AgregarProyectoExistente({ cliente, tableros, alCerrar, alAgregar }: { cliente: { nombre: string }; tableros: S<"TableroResumen">[]; alCerrar: () => void; alAgregar: () => void }) {
+  const avisar = useAviso();
+  const [q, setQ] = useState("");
+  const candidatos = tableros
+    .filter((t) => t.puedeEditar && !mismoCliente(t.cliente, cliente.nombre))
+    .filter((t) => !q.trim() || `${t.nombre} ${t.cliente ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()))
+    .sort((a, b) => Number(!!a.cliente) - Number(!!b.cliente) || a.nombre.localeCompare(b.nombre, "es"))
+    .slice(0, 60);
+  const agregar = async (t: S<"TableroResumen">) => {
+    if (t.cliente && !(await confirmar(`¿Pasar «${t.nombre}» de ${t.cliente} a ${cliente.nombre}?${t.servicioId ? " Deja de estar compartido con el cliente anterior." : ""}`, { accion: "Pasarlo" }))) return;
+    try {
+      await api(`/tableros/${t.id}`, { metodo: "PATCH", cuerpo: { cliente: cliente.nombre } });
+      avisar({ titulo: "Proyecto agregado", texto: `«${t.nombre}» ya es de ${cliente.nombre}.` });
+      alAgregar();
+    } catch (x) {
+      avisar({ titulo: "No se pudo agregar", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta="Agregar un proyecto existente" ancho={560}>
+      <div className="pila" style={{ gap: 12 }}>
+        <h2 className="modal-titulo">Agregar un proyecto a {cliente.nombre}</h2>
+        <p className="texto-sm texto-muted">Primero los que no tienen cliente. Solo salen los proyectos que puedes editar.</p>
+        <div className="entrada"><input aria-label="Buscar proyecto" placeholder="Buscar por nombre o cliente…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="lista-suave" style={{ maxHeight: 380, overflowY: "auto" }}>
+          {candidatos.map((t) => (
+            <button key={t.id} type="button" className="fila-suave fila entre boton-lista" style={{ textAlign: "left", width: "100%", border: 0, cursor: "pointer", font: "inherit" }} onClick={() => void agregar(t)}>
+              <span style={{ display: "grid", gap: 2 }}>
+                <span className="negrita texto-sm">{t.nombre}</span>
+                <span className="texto-xs texto-muted">{t.cliente ?? "Sin cliente"}{t.lider ? ` · ${t.lider.nombre}` : ""}</span>
+              </span>
+              <LuPlus size={16} aria-hidden="true" />
+            </button>
+          ))}
+          {!candidatos.length && <p className="texto-sm texto-muted">No hay proyectos para agregar{q ? " con esa búsqueda" : ""}.</p>}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

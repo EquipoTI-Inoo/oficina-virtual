@@ -6002,6 +6002,21 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/archivar:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: archivarTablero
+      summary: 'Archiva un proyecto a mano (25 nov, fusión): sale de las listas. El líder, un miembro editor o un admin'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
+
   /tableros/{proyectoId}/desarchivar:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }

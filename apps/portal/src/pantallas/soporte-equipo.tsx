@@ -2,19 +2,19 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   LuBell, LuCalendarDays, LuCheck, LuChevronDown, LuChevronRight, LuCircleCheck, LuClock, LuDownload,
-  LuExternalLink, LuFile, LuFolder, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
+  LuExternalLink, LuFile, LuPencil, LuPlus, LuSearch, LuSend, LuShieldCheck, LuTriangleAlert, LuUpload,
   LuX, LuCheckCheck,
 } from "react-icons/lu";
 import { api, CLIENTE_DEMO, clienteActivo, Enlace, fBytes, fCorta, fDiaHora, PERIODO_PORTAL, ProblemaApi, useConsulta, useNavegacion, type S, cuentaActiva } from "../base";
 import {
-  Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, detalleServicio, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
-  ICONO_SERVICIO, Miniatura, Modal, useAviso, usePortal, confirmar } from "../componentes";
+  Aviso, Barra, Cabecera, CATEGORIA_TICKET, Cargando, ErrorCarga, Estructura, ESTADO_TICKET, Etiqueta, EtiquetaEstado,
+  Miniatura, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { CambioResponsableEquipo, RequerimientosDelCliente } from "./requerimientos";
 import { EstadoPagoDelCliente } from "./proyecto-equipo";
 import { NuevoProyectoDeCliente } from "./pipeline";
-import { esGestion, ETIQUETA_ESTADO_SERVICIO } from "../dominio/equipo";
+import { esGestion } from "../dominio/equipo";
 import { EditarFicha, IngresoDelCliente, NuevoCliente } from "./sin-diseno";
-import { AccesoDelCliente, EquipoAsignado, GestionCuenta, TablerosDelCliente } from "./accesos";
+import { AccesoDelCliente, EquipoAsignado, GestionCuenta, ProyectosDelCliente, ResponsablesCuenta } from "./accesos";
 
 // ═════════════════════════════════════════════ Soporte
 
@@ -702,6 +702,38 @@ function CarpetaManual({ clienteId, actual, alCambiar }: { clienteId: string; ac
   );
 }
 
+/** 25 nov (reunión con Ernesto): perfil, tono y público en una sola tarjeta, con «Ver más»; el ingreso del cliente adentro. */
+function InfoDelCliente({ d, gestion, alGuardar }: { d: ClienteFicha; gestion: boolean; alGuardar: () => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const resumen = d.marca?.mensajeCentral || d.marca?.descripcion;
+  return (
+    <section className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 14 }} aria-label="Info del cliente">
+      <div className="fila entre" style={{ gap: 8 }}>
+        <h2 className="tarjeta-titulo">Info del cliente</h2>
+        <button type="button" className="boton-texto texto-sm" aria-expanded={abierto} onClick={() => setAbierto(!abierto)}>{abierto ? "Ver menos" : "Ver más"}</button>
+      </div>
+      {resumen ? <p className="texto-sm" style={{ lineHeight: 1.6 }}>{d.marca?.mensajeCentral ? <strong>«{d.marca.mensajeCentral}»</strong> : d.marca?.descripcion}</p> : <p className="texto-sm texto-muted">El perfil de la marca todavía no está cargado.</p>}
+      {!!d.tono?.etiquetas?.length && <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>{d.tono.etiquetas.map((t) => <Etiqueta key={t} tono="violeta">{t}</Etiqueta>)}</div>}
+      {abierto && (
+        <div className="pila" style={{ gap: 14 }}>
+          {d.marca?.mensajeCentral && d.marca?.descripcion && <p className="texto-sm texto-muted" style={{ lineHeight: 1.7 }}>{d.marca.descripcion}</p>}
+          {d.marca?.campanaActual && <p className="texto-sm"><span className="negrita">Campaña actual: </span>{d.marca.campanaActual}</p>}
+          {!!d.marca?.valores?.length && <p className="texto-sm"><span className="negrita">Valores: </span>{d.marca.valores.join(" · ")}</p>}
+          {d.tono?.descripcion && <p className="texto-sm"><span className="negrita">Tono: </span>{d.tono.descripcion}</p>}
+          {d.tono?.ejemplo && <p className="texto-sm"><span className="negrita">Ejemplo de voz: </span>{d.tono.ejemplo}</p>}
+          {d.publico?.descripcion && <p className="texto-sm"><span className="negrita">Público: </span>{d.publico.descripcion}</p>}
+          {!!d.publico?.intereses?.length && <p className="texto-sm"><span className="negrita">Intereses: </span>{d.publico.intereses.join(" · ")}</p>}
+          {d.publico?.segmentos && <p className="texto-sm"><span className="negrita">Segmentos: </span>{d.publico.segmentos}</p>}
+          {!!d.pilaresContenido?.length && <p className="texto-sm"><span className="negrita">Pilares de contenido: </span>{d.pilaresContenido.join(" · ")}</p>}
+          {!!d.canales?.length && <p className="texto-sm"><span className="negrita">Canales: </span>{d.canales.join(" · ")}</p>}
+          {d.wordpressUrl && <p className="texto-sm"><a className="enlace" href={d.wordpressUrl} target="_blank" rel="noreferrer">{d.wordpressUrl.replace(/^https?:\/\//, "")}</a></p>}
+          <IngresoDelCliente cliente={d} editable={gestion} alGuardar={alGuardar} plano />
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Ficha() {
   const { params } = useNavegacion();
   const avisar = useAviso();
@@ -722,103 +754,45 @@ function Ficha() {
     <>
       <Cabecera
         titulo={d.nombre}
-        bajada="Ficha de marca: el contexto que guía cada pieza. Solo para el equipo de agencia."
+        bajada="Sus formularios, sus proyectos y cómo es su marca. Solo para el equipo de agencia."
         accion={
           <button className="boton" onClick={() => setEditando(true)}>
             <LuPencil size={16} /> Editar ficha
           </button>
         }
       />
-      <div className="tarjeta fila" style={{ padding: "22px 16px", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div className="tarjeta fila" style={{ padding: "18px 16px", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
         <span className="avatar avatar--cuadrado avatar--cliente avatar--xl">{d.nombre.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase()}</span>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: "var(--t-3xl)", fontWeight: 600 }}>{d.nombre}</h2>
-          <p className="texto-sm texto-muted" style={{ marginTop: 8 }}>
-            {d.plan?.nombre} · Contrato hasta el {d.plan?.fechaFin ? fCorta(d.plan.fechaFin) : "—"}
-          </p>
-          <p className="texto-xs texto-muted" style={{ marginTop: 6 }}>
-            Contacto: {d.contactoPrincipal?.nombre} · {d.contactoPrincipal?.cargo}
-          </p>
-        </div>
-        <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
-          <Etiqueta tono="verde">{d.conteos?.serviciosActivos} servicios activos</Etiqueta>
-          <Etiqueta tono="violeta">{d.conteos?.aprobacionesPendientes} aprobaciones pendientes</Etiqueta>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <p className="texto-sm">{d.plan?.nombre ?? "Sin plan"}{d.plan?.fechaFin ? ` · contrato hasta el ${fCorta(d.plan.fechaFin)}` : ""}</p>
+          <p className="texto-xs texto-muted" style={{ marginTop: 4 }}>Contacto: {d.contactoPrincipal ? `${d.contactoPrincipal.nombre}${d.contactoPrincipal.cargo ? ` · ${d.contactoPrincipal.cargo}` : ""}` : "sin definir"}</p>
         </div>
       </div>
 
+      {/* 25 nov (reunión con Ernesto): lo importante a la mano. Formularios y briefs, después los proyectos; la info de la marca con «Ver más»; los números al final. */}
       <div className="con-lateral" style={{ marginTop: 20 }}>
         <div className="pila">
-          <div className="tarjeta" style={{ padding: "22px 16px" }}>
-            <h3 className="tarjeta-titulo">Perfil de marca</h3>
-            <p className="texto-xs texto-muted" style={{ margin: "14px 0 16px", lineHeight: 1.7 }}>{d.marca?.descripcion}</p>
-            <div style={{ background: "var(--c-crema)", borderRadius: 14, padding: "18px 14px", display: "grid", gap: 10 }}>
-              <span style={{ fontSize: "var(--t-xs)", letterSpacing: "0.03em" }}>MENSAJE CENTRAL</span>
-              <strong style={{ color: "var(--c-oliva)", fontSize: "var(--t-2xl)" }}>{d.marca?.mensajeCentral}</strong>
-              <span style={{ fontSize: "var(--t-xs)" }}>{d.marca?.campanaActual}</span>
-            </div>
-            {!!d.marca?.valores?.length && <p className="texto-xs texto-muted" style={{ marginTop: 12 }}><span className="negrita">Valores:</span> {d.marca.valores.join(" · ")}</p>}
-            {d.wordpressUrl && <p className="texto-xs" style={{ marginTop: 8 }}><a className="enlace" href={d.wordpressUrl} target="_blank" rel="noreferrer">{d.wordpressUrl.replace(/^https?:\/\//, "")}</a></p>}
-          </div>
-          <div className="grid-2">
-            <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 14, alignContent: "start" }}>
-              <h3 className="tarjeta-titulo">Tono de voz</h3>
-              <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
-                {d.tono?.etiquetas?.map((t) => (
-                  <Etiqueta key={t} tono="violeta">{t}</Etiqueta>
-                ))}
-              </div>
-              <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>{d.tono?.descripcion}</p>
-              <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>Ejemplo de voz</p>
-              <p className="texto-xs" style={{ fontSize: "var(--t-xs)" }}>{d.tono?.ejemplo}</p>
-            </div>
-            <div className="tarjeta" style={{ padding: "22px 16px", display: "grid", gap: 12, alignContent: "start" }}>
-              <h3 className="tarjeta-titulo">Público y enfoque</h3>
-              <p className="texto-xs texto-muted" style={{ lineHeight: 1.6 }}>{d.publico?.descripcion}</p>
-              <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>Intereses editoriales</p>
-              <p className="texto-xs texto-muted">{d.publico?.intereses?.join(" · ")}</p>
-              <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>{d.publico?.segmentos ?? "No se han definido segmentos demográficos adicionales."}</p>
-              {/* 13 nov: lo que se edita en la ficha también se ve. */}
-              {!!d.pilaresContenido?.length && <><p className="negrita" style={{ fontSize: "var(--t-xs)" }}>Pilares de contenido</p><p className="texto-xs texto-muted">{d.pilaresContenido.join(" · ")}</p></>}
-              {!!d.canales?.length && <><p className="negrita" style={{ fontSize: "var(--t-xs)" }}>Canales</p><p className="texto-xs texto-muted">{d.canales.join(" · ")}</p></>}
-            </div>
-          </div>
-          <div className="tarjeta" style={{ padding: "22px 16px" }}>
-            <div className="fila entre" style={{ marginBottom: 18 }}>
-              <h3 className="tarjeta-titulo">Servicios y alcance</h3>
-              {gestion && (
-                <button className="boton boton--chico" onClick={() => setNuevoServicio(true)}>
-                  <LuPlus size={14} /> Nuevo proyecto
-                </button>
-              )}
-            </div>
-            <NuevoProyectoDeCliente clienteId={id} clienteNombre={d.nombre} abierto={nuevoServicio} alCerrar={() => setNuevoServicio(false)} alCrear={() => void s.recargar()} />
-            <div style={{ display: "grid", gap: 16 }}>
-              {s.datos.servicios.map((x) => (
-                <div key={x.servicioContratadoId} className="fila">
-                  <span style={{ color: "var(--c-primario)", display: "inline-flex" }}>{ICONO_SERVICIO[x.codigo]}</span>
-                  <span style={{ flex: 1 }}>
-                    <Enlace a={`/equipo/proyectos/${x.servicioContratadoId}`} className="negrita enlace" style={{ display: "block", fontSize: "var(--t-xs)" }}>{x.titulo}</Enlace>
-                    <span className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>
-                      {[detalleServicio(x), x.avance.etapaActual ? `${x.avance.porcentaje} % · ${x.avance.etapaActual.nombre}` : `${x.avance.porcentaje} %`, x.responsable && `Responsable: ${x.responsable.nombre}`].filter(Boolean).join(" · ")}
-                    </span>
-                  </span>
-                  <Etiqueta tono={x.estado === "ACTIVO" ? "verde" : x.estado === "STANDBY" ? "violeta" : "gris"}>{ETIQUETA_ESTADO_SERVICIO[x.estado]}</Etiqueta>
-                </div>
-              ))}
-            </div>
-          </div>
-          <IngresoDelCliente cliente={d} editable={gestion} alGuardar={() => void c.recargar()} />
-          <CambioResponsableEquipo clienteId={id} />
           <RequerimientosDelCliente clienteId={id} />
+          <ProyectosDelCliente cliente={{ id, nombre: d.nombre }} servicios={s.datos.servicios} gestion={gestion} alNuevo={() => setNuevoServicio(true)} />
+          <NuevoProyectoDeCliente clienteId={id} clienteNombre={d.nombre} abierto={nuevoServicio} alCerrar={() => setNuevoServicio(false)} alCrear={() => void s.recargar()} />
+          <InfoDelCliente d={d} gestion={gestion} alGuardar={() => void c.recargar()} />
+          <CambioResponsableEquipo clienteId={id} />
           <EstadoPagoDelCliente clienteId={id} />
         </div>
         <aside className="pila">
           {d.inactividad && <ActividadCliente a={d.inactividad} />}
-          <ResumenAvanceCliente clienteId={d.id} gestion={gestion} />
-          {gestion && <GestionCuenta cliente={d} alGuardar={() => void c.recargar()} />}
+          {gestion ? <GestionCuenta cliente={d} alGuardar={() => void c.recargar()} /> : <ResponsablesCuenta cliente={d} />}
           {gestion && <AccesoDelCliente clienteId={id} nombreCliente={d.nombre} />}
-          <TablerosDelCliente nombre={d.nombre} />
           <EquipoAsignado ruta={`/clientes/${id}/accesos`} titulo="Equipo con acceso" ayuda="Ven toda la cuenta. Los de Diseño, Audiovisual y Marketing se asignan a cada proyecto." soloNivelCuenta />
+          <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
+            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Carpeta de Drive</h3>
+            {d.driveUrl ? (
+              <a className="boton boton--chico" href={d.driveUrl} target="_blank" rel="noreferrer">
+                <LuExternalLink size={16} /> Abrir carpeta en Drive
+              </a>
+            ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
+            <CarpetaManual clienteId={d.id} actual={d.driveUrl ?? null} alCambiar={() => void c.recargar()} />
+          </div>
           {ref && (
           <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
             <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)", paddingLeft: 4 }}>Referencias de marca</h3>
@@ -831,35 +805,19 @@ function Ficha() {
             </div>
           </div>
           )}
-          <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Carpeta de Drive</h3>
-            <LuFolder size={20} color="var(--c-primario)" />
-            <p className="negrita" style={{ fontSize: "var(--t-xs)" }}>{d.nombre} / Contenido</p>
-            <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>Originales, versiones y entregables.</p>
-            {d.driveUrl ? (
-              <a className="boton boton--chico" href={d.driveUrl} target="_blank" rel="noreferrer">
-                <LuExternalLink size={16} /> Abrir carpeta en Drive
-              </a>
-            ) : <p className="texto-xs texto-muted">Esta cuenta todavía no tiene carpeta.</p>}
-            <CarpetaManual clienteId={d.id} actual={d.driveUrl ?? null} alCambiar={() => void c.recargar()} />
-            <p className="texto-xs texto-muted" style={{ fontSize: "var(--t-xs)" }}>Acceso del equipo de agencia.</p>
-          </div>
-          <div className="tarjeta" style={{ padding: "22px 12px", display: "grid", gap: 12 }}>
-            <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>Responsables</h3>
-            {/* 20 nov: quién hizo el alta comercial, quién es el dueño comercial y quién lleva el proyecto. */}
-            {([
-              ["Propietario comercial", d.accountManager, "Lleva la relación con el cliente."],
-              ["Responsable operativo", d.responsableOperativo, "Lleva el proyecto; está en el equipo de sus proyectos."],
-              ["Creado por", d.creadoPor, d.creadoEn ? `Alta del ${new Date(d.creadoEn).toLocaleDateString("es-PE", { day: "numeric", month: "short", year: "numeric" })}.` : null],
-            ] as const).map(([rotulo, persona, ayuda]) => (
-              <div key={rotulo} style={{ display: "grid", gap: 2 }}>
-                <span className="texto-xs texto-muted">{rotulo}</span>
-                <span className="negrita" style={{ fontSize: "var(--t-xs)" }}>{persona?.nombre ?? "Sin definir"}</span>
-                {ayuda && <span className="texto-xs texto-muted">{ayuda}</span>}
-              </div>
-            ))}
-          </div>
         </aside>
+      </div>
+
+      {/* Los números de la cuenta, al final. */}
+      <div className="seccion grid-2">
+        <ResumenAvanceCliente clienteId={d.id} gestion={gestion} />
+        <section className="tarjeta" style={{ padding: "18px 16px", display: "grid", gap: 8, alignContent: "start" }}>
+          <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)" }}>En números</h3>
+          <p className="resumen-linea">
+            <span><strong>{d.conteos?.serviciosActivos ?? 0}</strong> {d.conteos?.serviciosActivos === 1 ? "servicio activo" : "servicios activos"}</span>
+            <span><strong>{d.conteos?.aprobacionesPendientes ?? 0}</strong> por aprobar</span>
+          </p>
+        </section>
       </div>
 
       {editando && (
