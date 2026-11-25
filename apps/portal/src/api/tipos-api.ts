@@ -1100,6 +1100,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/requerimientos/{requerimientoId}/comentarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        /** Comentarios sobre las respuestas del formulario (25 nov). Los ven el equipo y el cliente */
+        get: operations["listarComentariosRespuestas"];
+        put?: never;
+        /** Comentar una respuesta puntual (25 nov). Emite `requerimiento.comentado` (aviso al responsable o al cliente) */
+        post: operations["comentarRespuesta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/requerimientos/{requerimientoId}/revision": {
         parameters: {
             query?: never;
@@ -8320,6 +8340,21 @@ export interface components {
                 valores: string[];
             };
         };
+        /** @description Un comentario sobre una respuesta del formulario (25 nov) */
+        ComentarioRespuesta: {
+            id: string;
+            /** @description La clave de la pregunta */
+            campo: string;
+            texto: string;
+            /** Format: date-time */
+            creadoEn: string;
+            autor: {
+                id: string;
+                nombre: string;
+            };
+            /** @description Lo escribió alguien de Inoo */
+            delEquipo: boolean;
+        };
         /** @description Lo que ve quien abre el enlace de un requerimiento (sin datos internos) */
         FormularioPublico: {
             titulo: string;
@@ -9738,7 +9773,7 @@ export interface components {
         EventoSaliente: {
             id: number;
             /** @enum {string} */
-            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado" | "equipo.persona_creada" | "equipo.persona_desactivada" | "tarea.por_vencer" | "requerimiento.por_vencer" | "reunion.proxima" | "servicio.cerrado";
+            tipo: "cliente.creado" | "brief.enviado" | "brief.confirmado" | "calendario.aprobado" | "calendario.cambios_solicitados" | "idea_blog.elegida" | "requerimiento.creado" | "requerimiento.enviado" | "requerimiento.revisado" | "requerimiento.comentado" | "requerimiento.atrasado" | "pieza.estado_cambiado" | "comentario.creado" | "archivo.subido" | "ticket.creado" | "ticket.mensaje_cliente" | "ticket.estado_cambiado" | "presupuesto.alerta" | "pago.situacion_cambiada" | "tarea.asignada" | "entregable.listo_revision" | "entregable.decidido" | "tarea.mencion" | "servicio.contratado" | "servicio.standby_proximo" | "servicio.standby" | "servicio.reactivado" | "etapa.actualizada" | "comentario_proyecto.creado" | "responsable.cambio_solicitado" | "responsable.cambiado" | "miembro.invitado" | "miembro.retirado" | "equipo.persona_creada" | "equipo.persona_desactivada" | "tarea.por_vencer" | "requerimiento.por_vencer" | "reunion.proxima" | "servicio.cerrado";
             /** Format: date-time */
             ocurridoEn: string;
             /** Format: uuid */
@@ -12089,6 +12124,64 @@ export interface operations {
             };
             403: components["responses"]["SinPermiso"];
             409: components["responses"]["Conflicto"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    listarComentariosRespuestas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        datos: components["schemas"]["ComentarioRespuesta"][];
+                    };
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
+        };
+    };
+    comentarRespuesta: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requerimientoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description La clave de la pregunta */
+                    campo: string;
+                    texto: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComentarioRespuesta"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
         };
     };

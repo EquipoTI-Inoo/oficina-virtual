@@ -6230,6 +6230,34 @@ async function pedirAlClienteDb(ctx: Ctx, servicioId: string, clienteId: string,
 
 ruta("GET", "/requerimientos/:id", async (ctx, p) => reqVista(await buscarReq(ctx, p.id), await noHabilesDb(ctx)));
 
+// 25 nov (reunión con Ernesto): comentarios sobre una respuesta puntual; los ven el equipo y el cliente.
+type FilaComentarioRespuesta = { id: string; campo: string; texto: string; creado_en: Date; autor_id: string; autor_nombre: string; autor_tipo: string };
+const comentarioRespuestaVista = (c: FilaComentarioRespuesta): S<"ComentarioRespuesta"> => ({
+  id: c.id, campo: c.campo, texto: c.texto, creadoEn: c.creado_en.toISOString(), autor: { id: c.autor_id, nombre: c.autor_nombre }, delEquipo: c.autor_tipo !== "CLIENTE",
+});
+const SELECT_COMENTARIO_RESPUESTA = "SELECT c.id, c.campo, c.texto, c.creado_en, c.autor_id, u.nombre AS autor_nombre, u.tipo::text AS autor_tipo FROM comentario_respuesta c JOIN usuario u ON u.id = c.autor_id";
+ruta("GET", "/requerimientos/:id/comentarios", async (ctx, p) => {
+  const r = await buscarReq(ctx, p.id);
+  const filas = (await ctx.c.query<FilaComentarioRespuesta>(`${SELECT_COMENTARIO_RESPUESTA} WHERE c.requerimiento_id = $1 ORDER BY c.creado_en`, [r.id])).rows;
+  return { datos: filas.map(comentarioRespuestaVista) };
+});
+ruta("POST", "/requerimientos/:id/comentarios", async (ctx, p, _q, cuerpo) => {
+  const r = await buscarReq(ctx, p.id);
+  exigirRol(ctx, r.cliente_id, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = (await cuerpo()) as { campo?: unknown; texto?: unknown };
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (typeof b.campo !== "string" || !r.campos.some((c) => c.clave === b.campo)) errores.push({ campo: "campo", mensaje: "Esa pregunta no está en el formulario" });
+  if (texto.length < 2 || texto.length > 2000) errores.push({ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" });
+  validacion(errores);
+  const id = (await ctx.c.query<{ id: string }>(
+    "INSERT INTO comentario_respuesta (requerimiento_id, cliente_id, campo, autor_id, texto) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    [r.id, r.cliente_id, b.campo, ctx.u.usuarioId, texto],
+  )).rows[0].id;
+  await emitirOutbox(ctx, "requerimiento.comentado", r.cliente_id, { requerimientoId: r.id, campo: b.campo, usuarioId: ctx.u.usuarioId });
+  return { __status: 201, ...comentarioRespuestaVista((await ctx.c.query<FilaComentarioRespuesta>(`${SELECT_COMENTARIO_RESPUESTA} WHERE c.id = $1`, [id])).rows[0]) };
+});
+
 ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, cuerpo) => {
   const r = await buscarReq(ctx, p.id, true);
   const b = (await cuerpo()) as { respuestas?: unknown; enviar?: unknown; corregir?: unknown };

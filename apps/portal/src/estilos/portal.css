@@ -3141,3 +3141,13 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .marca-opcion--varias { border-radius: 3px; }
 @media (max-width: 600px) { .pregunta-detalle { padding-left: 0; } }
 .pregunta-editable .input, .pregunta-editable .fila { min-width: 0; }
+
+/* 25 nov: comentarios bajo cada respuesta de un formulario. */
+.hilo-respuesta { display: grid; gap: 8px; margin: -6px 0 4px; padding-left: 12px; }
+.comentario-respuesta { display: grid; gap: 2px; padding: 8px 12px; border-radius: var(--r-md); background: var(--c-fondo); }
+.comentario-respuesta--equipo { background: var(--c-primario-suave); }
+.hilo-respuesta--vacio .boton-texto { color: var(--c-muted); }
+@media (hover: hover) {
+  .hilo-respuesta--vacio { opacity: 0; transition: opacity 0.15s ease-out; }
+  *:hover + .hilo-respuesta--vacio, .hilo-respuesta--vacio:hover, .hilo-respuesta--vacio:focus-within { opacity: 1; }
+}

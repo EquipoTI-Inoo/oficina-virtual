@@ -120,6 +120,8 @@ interface Estado {
   };
   referencias: { id: string; tipo: string; titulo: string; url: string | null; notas: string | null; paleta: string[]; briefPeriodo: string | null }[];
   requerimientos: D.RequerimientoDemo[];
+  /** 25 nov: comentarios sobre una respuesta puntual de un formulario. */
+  comentariosRespuesta: { id: string; requerimientoId: string; campo: string; texto: string; creadoEn: string; autorId: string }[];
   notificacionesLeidas: Set<string>;
   idempotencia: Map<string, { status: number; cuerpo: unknown }>;
   secuencia: number;
@@ -263,6 +265,7 @@ function estadoInicial(): Estado {
     brief: structuredClone(D.BRIEF_INICIAL),
     referencias: structuredClone(D.REFERENCIAS_INICIALES),
     requerimientos: structuredClone(D.REQUERIMIENTOS_INICIALES),
+    comentariosRespuesta: [],
     notificacionesLeidas: new Set(),
     idempotencia: new Map(),
     secuencia: 1,
@@ -1583,6 +1586,30 @@ function pedirAlCliente(ctx: Ctx, sc: D.ServicioContratadoDemo, codigo: string, 
 }
 
 ruta("GET", "/requerimientos/:id", (ctx, p) => requerimientoVista(buscarRequerimiento(ctx, p.id)));
+
+const comentarioRespuestaMock = (c: Estado["comentariosRespuesta"][number]): S<"ComentarioRespuesta"> => {
+  const u = E.usuarios.find((x) => x.id === c.autorId);
+  return { id: c.id, campo: c.campo, texto: c.texto, creadoEn: c.creadoEn, autor: { id: c.autorId, nombre: u?.nombre ?? "" }, delEquipo: u?.tipo !== "CLIENTE" };
+};
+ruta("GET", "/requerimientos/:id/comentarios", (ctx, p) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  return { datos: E.comentariosRespuesta.filter((c) => c.requerimientoId === r.id).map(comentarioRespuestaMock) };
+});
+ruta("POST", "/requerimientos/:id/comentarios", async (ctx, p, _q, req) => {
+  const r = buscarRequerimiento(ctx, p.id);
+  exigirRol(ctx, r.clienteId, ["EQUIPO", "ADMIN_CLIENTE", "APROBADOR"]);
+  const b = await cuerpo<{ campo?: unknown; texto?: unknown }>(req);
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  const campos = requerimientoVista(r).campos;
+  const errores: { campo: string; mensaje: string }[] = [];
+  if (typeof b.campo !== "string" || !campos.some((c) => c.clave === b.campo)) errores.push({ campo: "campo", mensaje: "Esa pregunta no está en el formulario" });
+  if (texto.length < 2 || texto.length > 2000) errores.push({ campo: "texto", mensaje: "Escribe tu comentario (hasta 2000 caracteres)" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const c = { id: nuevoId(73), requerimientoId: r.id, campo: b.campo as string, texto, creadoEn: new Date().toISOString(), autorId: ctx.usuario.id };
+  E.comentariosRespuesta.push(c);
+  emitir("requerimiento.comentado", r.clienteId, { requerimientoId: r.id, campo: c.campo, usuarioId: ctx.usuario.id });
+  return { __status: 201, ...comentarioRespuestaMock(c) };
+});
 
 ruta("PUT", "/requerimientos/:id/respuesta", async (ctx, p, _q, req) => {
   const r = buscarRequerimiento(ctx, p.id);

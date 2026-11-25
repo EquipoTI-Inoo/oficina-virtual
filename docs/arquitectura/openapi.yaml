@@ -1488,6 +1488,38 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /requerimientos/{requerimientoId}/comentarios:
+    parameters:
+      - { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Requerimientos]
+      operationId: listarComentariosRespuestas
+      summary: 'Comentarios sobre las respuestas del formulario (25 nov). Los ven el equipo y el cliente'
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR, LECTOR]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [datos], properties: { datos: { type: array, items: { $ref: '#/components/schemas/ComentarioRespuesta' } } } } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    post:
+      tags: [Requerimientos]
+      operationId: comentarRespuesta
+      summary: 'Comentar una respuesta puntual (25 nov). Emite `requerimiento.comentado` (aviso al responsable o al cliente)'
+      x-roles: [EQUIPO, ADMIN_CLIENTE, APROBADOR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campo, texto]
+              properties:
+                campo: { type: string, description: 'La clave de la pregunta' }
+                texto: { type: string, minLength: 2, maxLength: 2000 }
+      responses:
+        '201': { description: Creado, content: { application/json: { schema: { $ref: '#/components/schemas/ComentarioRespuesta' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /requerimientos/{requerimientoId}/revision:
     parameters:
       - { name: requerimientoId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -10007,6 +10039,17 @@ components:
           properties:
             campo: { type: string }
             valores: { type: array, minItems: 1, items: { type: string } }
+    ComentarioRespuesta:
+      type: object
+      description: 'Un comentario sobre una respuesta del formulario (25 nov)'
+      required: [id, campo, texto, creadoEn, autor, delEquipo]
+      properties:
+        id: { type: string }
+        campo: { type: string, description: 'La clave de la pregunta' }
+        texto: { type: string }
+        creadoEn: { type: string, format: date-time }
+        autor: { type: object, required: [id, nombre], properties: { id: { type: string }, nombre: { type: string } } }
+        delEquipo: { type: boolean, description: 'Lo escribió alguien de Inoo' }
     FormularioPublico:
       description: Lo que ve quien abre el enlace de un requerimiento (sin datos internos)
       type: object
@@ -11284,6 +11327,7 @@ components:
             - requerimiento.creado       # la agencia le pidió algo al cliente; correo con la fecha límite
             - requerimiento.enviado      # el cliente lo completó; aviso al responsable
             - requerimiento.revisado     # el equipo lo aprobó u observó; aviso al cliente
+            - requerimiento.comentado    # 25 nov: alguien comentó una respuesta; aviso en la campana
             - requerimiento.atrasado     # pasó la fecha límite; se corrió el cronograma y correo «no podemos avanzar sin esto»
             - pieza.estado_cambiado      # incluye LISTO_REVISION (correo al cliente), CAMBIOS_SOLICITADOS (tarea InooWork), APROBADO_CLIENTE (programar)
             - comentario.creado

@@ -263,5 +263,22 @@ export function pruebasRequerimientos(nombre: string, manejar: Manejador, reinic
       assert.equal((await llamar("POST", revision, DIEGO, { decision: "APROBADO" })).json.estado, "APROBADO");
       assert.equal((await llamar("GET", `/requerimientos/${CATALOGO}`, VALERIA)).json.notaEquipo, null);
     });
+
+    test("25 nov (Ernesto): comentarios sobre una respuesta, para el equipo y el cliente", async () => {
+      await reiniciar();
+      const r = (await llamar("GET", `/requerimientos/${USUARIOS_CRM}`, VALERIA)).json;
+      const campo = r.campos[0].clave;
+      assert.deepEqual((await llamar("GET", `/requerimientos/${USUARIOS_CRM}/comentarios`, VALERIA)).json.datos, []);
+      const mal = await llamar("POST", `/requerimientos/${USUARIOS_CRM}/comentarios`, VALERIA, { campo: "no-existe", texto: "x" });
+      assert.equal(mal.status, 422);
+      assert.equal((await llamar("POST", `/requerimientos/${USUARIOS_CRM}/comentarios`, MARTIN_LECTOR, { campo, texto: "Hola" })).status, 403, "quien solo lee, no comenta");
+      const del_cliente = await llamar("POST", `/requerimientos/${USUARIOS_CRM}/comentarios`, VALERIA, { campo, texto: "El listado final llega el lunes." });
+      assert.equal(del_cliente.status, 201);
+      assert.equal(del_cliente.json.delEquipo, false);
+      const del_equipo = await llamar("POST", `/requerimientos/${USUARIOS_CRM}/comentarios`, DIEGO, { campo, texto: "¿Incluye a los vendedores de provincia?" });
+      assert.equal(del_equipo.json.delEquipo, true);
+      const hilo = (await llamar("GET", `/requerimientos/${USUARIOS_CRM}/comentarios`, MARTIN_LECTOR)).json.datos;
+      assert.deepEqual(hilo.map((c: any) => [c.campo, c.autor.nombre]), [[campo, "Valeria Mendoza"], [campo, "Diego Castro"]], "el lector también los ve");
+    });
   });
 }

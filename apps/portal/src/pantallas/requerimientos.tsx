@@ -8,7 +8,7 @@
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO, mimeDeArchivo } from "../dominio/archivos-permitidos";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { LuArrowDown, LuArrowUp, LuCheck, LuCircleAlert, LuClipboardList, LuCopy, LuDownload, LuLink, LuLink2Off, LuPaperclip, LuPlus, LuX } from "react-icons/lu";
-import { descargarDesde, api, clienteActivo, Enlace, fDiaMes, leerSesion, type ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
+import { descargarDesde, api, clienteActivo, Enlace, fDiaMes, leerSesion, ProblemaApi, useConsulta, useNavegacion, type S, comoCliente, rolCliente } from "../base";
 import { TextoConEnlaces, Aviso, Cabecera, Cargando, ErrorCarga, Estructura, Etiqueta, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { camposVisibles, ENLACE_FORMULARIO, limiteTexto, semaforoRequerimiento } from "../dominio/requerimientos";
 
@@ -161,6 +161,7 @@ function Requerimiento() {
   const { sesion } = usePortal();
   const avisar = useAviso();
   const { datos: r, error, recargar, setDatos } = useConsulta<Req>(`/requerimientos/${params.id}`);
+  const coms = useConsulta<{ datos: S<"ComentarioRespuesta">[] }>(params.id ? `/requerimientos/${params.id}/comentarios` : null);
   const [respuestas, setRespuestas] = useState<Record<string, unknown> | null>(null);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState(false);
@@ -234,6 +235,19 @@ function Requerimiento() {
     el?.focus({ preventScroll: true });
   };
   const etiquetaDe = (clave: string) => r.campos.find((c) => c.clave === clave)?.etiqueta ?? clave;
+  // 25 nov (Ernesto): comentarios sobre cada respuesta, una vez que hay respuestas enviadas.
+  const conComentarios = r.estado !== "PENDIENTE" && !puedeResponder && !corrigiendo;
+  const puedeComentar = esEquipo || rolCliente(sesion) !== "LECTOR";
+  const comentar = async (campo: string, texto: string) => {
+    try {
+      await api(`/requerimientos/${r.id}/comentarios`, { metodo: "POST", cuerpo: { campo, texto } });
+      void coms.recargar();
+      return true;
+    } catch (e) {
+      avisar({ titulo: "No se pudo comentar", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
+      return false;
+    }
+  };
 
   const [estado, tono] = ESTADO_REQ[r.estado];
   return (
@@ -266,7 +280,8 @@ function Requerimiento() {
           )}
           <section className="tarjeta" style={{ padding: "22px 20px", display: "grid", gap: 18 }}>
             {r.editadoEn && <p className="texto-xs texto-muted" style={{ margin: 0 }}>Editado{r.editadoPor ? ` por ${r.editadoPor}` : ""} el {fDiaMes(r.editadoEn)}</p>}
-            <CamposFormulario campos={r.campos} valores={valores} errores={errores} soloLectura={!puedeResponder && !corrigiendo} alCambiar={cambiar} />
+            <CamposFormulario campos={r.campos} valores={valores} errores={errores} soloLectura={!puedeResponder && !corrigiendo} alCambiar={cambiar}
+              debajo={conComentarios ? (clave) => <HiloRespuesta clave={clave} comentarios={(coms.datos?.datos ?? []).filter((x) => x.campo === clave)} puede={puedeComentar} alComentar={(texto) => comentar(clave, texto)} /> : undefined} />
             {puedeCorregir && (corrigiendo ? (
               <div className="fila" style={{ gap: 10, flexWrap: "wrap" }}>
                 <button className="boton boton--primario" disabled={ocupado} onClick={() => void guardarCorreccion()}>Guardar cambios</button>
@@ -315,12 +330,48 @@ function Requerimiento() {
   );
 }
 
+/** 25 nov: los comentarios de una respuesta y el campo para sumar uno. */
+function HiloRespuesta({ clave, comentarios, puede, alComentar }: { clave: string; comentarios: S<"ComentarioRespuesta">[]; puede: boolean; alComentar: (texto: string) => Promise<boolean> }) {
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  if (!comentarios.length && !puede) return null;
+  const enviar = async () => {
+    setEnviando(true);
+    if (await alComentar(texto)) { setTexto(""); setAbierto(false); }
+    setEnviando(false);
+  };
+  return (
+    <div className={`hilo-respuesta${comentarios.length || abierto ? "" : " hilo-respuesta--vacio"}`} aria-label="Comentarios de esta respuesta">
+      {comentarios.map((c) => (
+        <div key={c.id} className={`comentario-respuesta${c.delEquipo ? " comentario-respuesta--equipo" : ""}`}>
+          <span className="texto-xs"><strong>{c.autor.nombre}</strong>{c.delEquipo ? " · Inoo" : ""} · {fDiaMes(c.creadoEn)}</span>
+          <p className="texto-sm" style={{ whiteSpace: "pre-wrap" }}>{c.texto}</p>
+        </div>
+      ))}
+      {puede && (abierto ? (
+        <div className="pila" style={{ gap: 6 }}>
+          <textarea className="input" rows={2} aria-label="Tu comentario sobre esta respuesta" value={texto} maxLength={2000} placeholder="Agrega contexto o pregunta algo sobre esta respuesta…" onChange={(e) => setTexto(e.target.value)} autoFocus />
+          <span className="fila" style={{ gap: 8 }}>
+            <button type="button" className="boton boton--chico boton--primario" disabled={enviando || texto.trim().length < 2} onClick={() => void enviar()}>{enviando ? "Enviando…" : "Comentar"}</button>
+            <button type="button" className="boton boton--chico" onClick={() => { setAbierto(false); setTexto(""); }}>Cancelar</button>
+          </span>
+        </div>
+      ) : (
+        <button type="button" className="boton-texto texto-xs" id={`comentar-${clave}`} onClick={() => setAbierto(true)}>{comentarios.length ? "Responder" : "Comentar esta respuesta"}</button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Las preguntas de un formulario (requerimiento o ingreso de cliente): con sus títulos de sección y solo las del camino
  * que eligió quien responde (`mostrarSi`, src/dominio/requerimientos.ts).
  */
-export function CamposFormulario({ campos, valores, errores, soloLectura, alCambiar, subida }: {
+export function CamposFormulario({ campos, valores, errores, soloLectura, alCambiar, subida, debajo }: {
   campos: S<"CampoFormulario">[]; valores: Record<string, unknown>; errores: Record<string, string>; soloLectura: boolean; alCambiar: (clave: string, v: unknown) => void;
+  /** 25 nov: lo que va debajo de cada respuesta (los comentarios). */
+  debajo?: (clave: string) => ReactNode;
   /** Cómo se suben los archivos; por defecto, a la cuenta del cliente con su sesión. */
   subida?: Subida;
 }) {
@@ -331,6 +382,7 @@ export function CamposFormulario({ campos, valores, errores, soloLectura, alCamb
         <Fragment key={c.clave}>
           {c.seccion && <h3 className="tarjeta-titulo" style={{ fontSize: "var(--t-md)", marginTop: 6 }}>{c.seccion}</h3>}
           <CampoRequerimiento campo={c} valor={valores[c.clave]} error={errores[c.clave]} soloLectura={soloLectura} alCambiar={(v) => alCambiar(c.clave, v)} subida={subida} />
+          {debajo?.(c.clave)}
         </Fragment>
       ))}
     </>
