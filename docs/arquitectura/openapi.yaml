@@ -2179,6 +2179,29 @@ paths:
         '201': { description: Agregada, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
         '422': { $ref: '#/components/responses/Validacion' }
 
+  /servicios-contratados/{servicioContratadoId}/etapas/{etapaId}/mover:
+    parameters:
+      - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: etapaId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Proyectos]
+      operationId: moverEtapa
+      summary: 'Mueve la etapa antes de otra del mismo periodo, o al final con null (25 nov, arrastrar y soltar). Solo equipo'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [antesDe]
+              properties:
+                antesDe: { type: [string, 'null'], format: uuid }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AvanceServicio' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+
   /servicios-contratados/{servicioContratadoId}/etapas/{etapaId}:
     parameters:
       - { name: servicioContratadoId, in: path, required: true, schema: { type: string, format: uuid } }

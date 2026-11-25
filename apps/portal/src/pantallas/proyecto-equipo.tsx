@@ -9,7 +9,7 @@ import { requerimientosAlContratar } from "../dominio/requerimientos";
 import { CeldasColumnasEtapa, EncabezadosColumnasEtapa } from "./columnas-etapas";
 import { EquipoAsignado } from "./accesos";
 import { useState, type ReactNode } from "react";
-import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet, LuSquareKanban } from "react-icons/lu";
+import { LuCalendarPlus, LuExternalLink, LuFileSpreadsheet, LuFlagTriangleRight, LuLock, LuPlus, LuSparkles, LuTrash2, LuWallet, LuSquareKanban, LuArrowDown, LuArrowUp, LuGripVertical } from "react-icons/lu";
 import { FormulariosDelProyecto } from "./requerimientos";
 import { api, Enlace, fCorta, fDiaHora, nombreMes, PERIODO_PORTAL, type ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { entrarComoCliente } from "../base";
@@ -106,6 +106,16 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
     } catch (e) {
       avisar({ titulo: "No se pudo agregar la etapa", texto: errorDe(e) });
       return false;
+    }
+  };
+  // 25 nov (Ernesto): las etapas se reordenan arrastrando la fila (o con subir y bajar).
+  const [arrastrando, setArrastrando] = useState<string | null>(null);
+  const reordenar = async (etapaId: string, antesDe: string | null) => {
+    try {
+      const av = await api<S<"AvanceServicio">>(`/servicios-contratados/${d.servicioContratadoId}/etapas/${etapaId}/mover`, { metodo: "POST", cuerpo: { antesDe } });
+      perfil.setDatos({ ...d, ...av });
+    } catch (e) {
+      avisar({ titulo: "No se pudo mover la etapa", texto: errorDe(e) });
     }
   };
   const quitarEtapa = async (etapa: S<"EtapaProyecto">) => {
@@ -231,12 +241,14 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
                       <th style={{ width: 170 }}>Fechas</th>
                       <th style={{ width: 100 }}>Lista el</th>
                       <EncabezadosColumnasEtapa servicioId={d.servicioContratadoId} columnas={d.columnas ?? []} etapas={d.etapas} alCambiar={(av) => perfil.setDatos({ ...d, ...av })} />
-                      <th style={{ width: 44 }}><span className="sr-only">Quitar</span></th>
+                      <th style={{ width: 104 }}><span className="sr-only">Orden y quitar</span></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {d.etapas.map((e) => (
-                      <tr key={e.id} style={{ cursor: "default" }}>
+                    {d.etapas.map((e, k) => (
+                      <tr key={e.id} style={{ cursor: "default" }} className={arrastrando === e.id ? "fila-arrastrando" : undefined}
+                        onDragOver={(x) => { if (arrastrando && arrastrando !== e.id) x.preventDefault(); }}
+                        onDrop={(x) => { x.preventDefault(); const id = arrastrando; setArrastrando(null); if (id && id !== e.id) void reordenar(id, d.etapas.findIndex((y) => y.id === id) < k ? d.etapas[k + 1]?.id ?? null : e.id); }}>
                         <td>
                           {/* 13 nov (mapeo de lo editable): la etapa sale de la plantilla pero se puede renombrar. */}
                           <input key={e.nombre} className="celda-texto negrita" aria-label={`Nombre de la etapa ${e.nombre}`} defaultValue={e.nombre}
@@ -266,6 +278,12 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
                         <td className="texto-muted">{e.fechaFin ? fCorta(e.fechaFin) : "—"}</td>
                         <CeldasColumnasEtapa columnas={d.columnas ?? []} etapa={e} clienteId={d.clienteId} mover={(cuerpo) => moverEtapa(e, cuerpo)} />
                         <td>
+                          <span className="fila" style={{ gap: 2 }}>
+                            <span className="asa-fila" draggable role="button" tabIndex={-1} aria-label={`Arrastrar la etapa ${e.nombre}`} title="Arrastra para cambiar el orden"
+                              onDragStart={(x) => { x.dataTransfer.setData("text/plain", e.id); x.dataTransfer.effectAllowed = "move"; setArrastrando(e.id); }} onDragEnd={() => setArrastrando(null)}><LuGripVertical size={14} /></span>
+                            <button className="boton-icono" aria-label={`Subir la etapa ${e.nombre}`} disabled={k === 0} onClick={() => void reordenar(e.id, d.etapas[k - 1].id)}><LuArrowUp size={13} /></button>
+                            <button className="boton-icono" aria-label={`Bajar la etapa ${e.nombre}`} disabled={k === d.etapas.length - 1} onClick={() => void reordenar(e.id, d.etapas[k + 2]?.id ?? null)}><LuArrowDown size={13} /></button>
+                          </span>
                           {e.estado === "SIN_INICIAR" && d.etapas.length > 1 && (
                             <button className="boton-icono" aria-label={`Quitar la etapa ${e.nombre}`} title="Quitar etapa (solo si no empezó)" onClick={() => void quitarEtapa(e)}>
                               <LuTrash2 size={14} />

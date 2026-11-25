@@ -3157,3 +3157,5 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .tabla-tablero th.th-arrastrando { opacity: 0.45; }
 .tabla-tablero th.th-soltar { box-shadow: inset 3px 0 0 var(--c-primario); }
 .arbol-menu-caja button:disabled { opacity: 0.45; cursor: default; background: none; }
+
+.fila-arrastrando { opacity: 0.45; }

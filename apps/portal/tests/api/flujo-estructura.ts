@@ -102,5 +102,20 @@ export function pruebasEstructura(nombre: string, manejar: Manejador, reiniciar:
       assert.deepEqual([ok.json.responsable.nombre, ok.json.alcance, ok.json.detalle.productos], ["Admin Inoo", "E-commerce con 80 productos", 80]);
       assert.equal((await llamar("PATCH", ruta, VALERIA, { alcance: "todo gratis" })).status, 403);
     });
+
+    test("25 nov (Ernesto): las etapas se reordenan (arrastrar y soltar)", async () => {
+      await reiniciar();
+      const CRM = uid(4, 3);
+      const antes = (await llamar("GET", `/servicios-contratados/${CRM}`, DIEGO)).json.etapas;
+      const nombres = (xs: any[]) => xs.map((e) => e.nombre);
+      const ultima = antes[antes.length - 1];
+      const r = await llamar("POST", `/servicios-contratados/${CRM}/etapas/${ultima.id}/mover`, DIEGO, { antesDe: antes[0].id });
+      assert.equal(r.status, 200);
+      assert.deepEqual(nombres(r.json.etapas), [ultima.nombre, ...nombres(antes.slice(0, -1))]);
+      const alFinal = await llamar("POST", `/servicios-contratados/${CRM}/etapas/${ultima.id}/mover`, DIEGO, { antesDe: null });
+      assert.deepEqual(nombres(alFinal.json.etapas), nombres(antes), "vuelve al final");
+      assert.equal((await llamar("POST", `/servicios-contratados/${CRM}/etapas/${ultima.id}/mover`, DIEGO, { antesDe: "no-es" })).status, 422);
+      assert.equal((await llamar("POST", `/servicios-contratados/${CRM}/etapas/${ultima.id}/mover`, VALERIA, { antesDe: null })).status, 403, "el cliente no reordena");
+    });
   });
 }

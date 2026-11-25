@@ -1545,6 +1545,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servicios-contratados/{servicioContratadoId}/etapas/{etapaId}/mover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                etapaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mueve la etapa antes de otra del mismo periodo, o al final con null (25 nov, arrastrar y soltar). Solo equipo */
+        post: operations["moverEtapa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servicios-contratados/{servicioContratadoId}/etapas/{etapaId}": {
         parameters: {
             query?: never;
@@ -13090,6 +13110,38 @@ export interface operations {
                     "application/json": components["schemas"]["AvanceServicio"];
                 };
             };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    moverEtapa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                servicioContratadoId: string;
+                etapaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    antesDe: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvanceServicio"];
+                };
+            };
+            404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
         };
     };

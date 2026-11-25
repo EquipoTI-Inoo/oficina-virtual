@@ -3160,6 +3160,23 @@ ruta("GET", "/plantillas", (ctx, _p, q) => {
   };
 });
 
+ruta("POST", "/servicios-contratados/:id/etapas/:etapa/mover", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const s = E.servicios.find((x) => x.id === p.id);
+  const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
+  if (!s || !e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  accesoProyecto(ctx, s.id);
+  const b = await cuerpo<{ antesDe?: unknown }>(req);
+  const hermanas = E.etapas.filter((x) => x.servicioContratadoId === s.id && x.periodo === e.periodo).sort((a, z) => a.orden - z.orden);
+  if (b.antesDe !== null && !(typeof b.antesDe === "string" && b.antesDe !== e.id && hermanas.some((x) => x.id === b.antesDe))) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "antesDe", mensaje: "Esa etapa no está en el proyecto" }]);
+  const resto = hermanas.filter((x) => x.id !== e.id);
+  const i = b.antesDe ? resto.findIndex((x) => x.id === b.antesDe) : -1;
+  const orden = i < 0 ? [...resto, e] : [...resto.slice(0, i), e, ...resto.slice(i)];
+  orden.forEach((x, n) => { x.orden = n + 1; });
+  emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, usuarioId: ctx.usuario.id });
+  return avanceServicio(s, true);
+});
+
 ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
   const s = E.servicios.find((x) => x.id === p.id);

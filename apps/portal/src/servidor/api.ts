@@ -5908,6 +5908,27 @@ ruta("GET", "/plantillas", async (ctx, _p, q) => {
   return { datos: rows };
 });
 
+// 25 nov (Ernesto): mover una etapa antes de otra (o al final), arrastrando la fila. Solo dentro del mismo periodo.
+ruta("POST", "/servicios-contratados/:id/etapas/:etapa/mover", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const s = await buscarServicio(ctx, p.id);
+  const e = esUuid(p.etapa) ? (await ctx.c.query<FilaEtapa>("SELECT * FROM etapa_proyecto WHERE id = $1 AND servicio_contratado_id = $2", [p.etapa, s.id])).rows[0] : undefined;
+  if (!e) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa etapa");
+  const b = (await cuerpo()) as { antesDe?: unknown };
+  const hermanas = (await ctx.c.query<{ id: string }>(
+    "SELECT id FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 ORDER BY orden FOR UPDATE", [s.id, e.periodo],
+  )).rows.map((x) => x.id);
+  if (b.antesDe !== null && !(typeof b.antesDe === "string" && b.antesDe !== e.id && hermanas.includes(b.antesDe))) validacion([{ campo: "antesDe", mensaje: "Esa etapa no está en el proyecto" }]);
+  const resto = hermanas.filter((x) => x !== e.id);
+  const i = b.antesDe ? resto.indexOf(b.antesDe as string) : -1;
+  const orden = i < 0 ? [...resto, e.id] : [...resto.slice(0, i), e.id, ...resto.slice(i)];
+  // El orden es único por proyecto y periodo: primero se apartan y después se numeran.
+  await ctx.c.query("UPDATE etapa_proyecto SET orden = orden + 10000 WHERE id = ANY($1::uuid[])", [orden]);
+  for (const [n, id] of orden.entries()) await ctx.c.query("UPDATE etapa_proyecto SET orden = $2 WHERE id = $1", [id, n + 1]);
+  await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, usuarioId: ctx.u.usuarioId });
+  return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
+});
+
 ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
   const s = await buscarServicio(ctx, p.id);
