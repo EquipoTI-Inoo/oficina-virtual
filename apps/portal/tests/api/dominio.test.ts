@@ -103,3 +103,17 @@ describe("Condiciones editables de los formularios (25 nov)", () => {
     assert.deepEqual(campos.map((c) => c.mostrarSi ?? null), [null, null, null, null]);
   });
 });
+
+describe("Línea de tiempo de los proyectos (25 nov)", async () => {
+  const { fechasDelProyecto } = await import("../../src/dominio/tableros");
+  test("de su creación o primer ítem a su última fecha límite, contando subítems", () => {
+    const p: any = { createdAt: "2026-10-05", items: [
+      { createdAt: "2026-09-30", dueDate: "2026-10-20", subitems: [{ dueDate: "2026-11-15" }] },
+      { createdAt: "2026-10-10", dueDate: "" },
+    ] };
+    assert.deepEqual(fechasDelProyecto(p), { inicio: "2026-09-30", fin: "2026-11-15" });
+  });
+  test("sin fechas límite no tiene fin", () => {
+    assert.deepEqual(fechasDelProyecto({ createdAt: "2026-10-05", items: [] } as any), { inicio: "2026-10-05", fin: null });
+  });
+});

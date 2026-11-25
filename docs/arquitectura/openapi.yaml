@@ -9461,6 +9461,13 @@ components:
         carpetaId: { type: [string, 'null'], format: uuid, description: 'Su carpeta en Proyectos (17 nov); si se borró, la de arriba' }
         personaIds: { type: array, items: { type: string }, description: 'Ids de InooWork del líder y los miembros (17 nov, filtro por persona)' }
         actualizadoEn: { type: [string, 'null'], description: 'La última vez que algo del tablero cambió (17 nov, filtro por actividad)' }
+        fechas:
+          type: object
+          description: '25 nov (Gantt en Proyectos): de su creación o primer ítem a su última fecha límite'
+          required: [inicio, fin]
+          properties:
+            inicio: { type: [string, 'null'], format: date }
+            fin: { type: [string, 'null'], format: date }
         nuevo: { type: boolean, description: 'Se creó hace menos de 7 días (24 nov)' }
         etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
         servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }

@@ -3159,3 +3159,15 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .arbol-menu-caja button:disabled { opacity: 0.45; cursor: default; background: none; }
 
 .fila-arrastrando { opacity: 0.45; }
+
+/* 25 nov (Ernesto): línea de tiempo de todos los proyectos. */
+.linea-proyectos { overflow-x: auto; border: 1px solid var(--c-borde); border-radius: var(--r-md); background: var(--c-blanco); padding: 8px 0; }
+.linea-proyectos-fila { display: grid; grid-template-columns: 220px 1fr; align-items: center; min-height: 34px; }
+.linea-proyectos-fila + .linea-proyectos-fila { border-top: 1px solid var(--c-borde); }
+.linea-proyectos-cab { min-height: 26px; }
+.linea-proyectos-nombre { padding: 0 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: sticky; left: 0; background: var(--c-blanco); z-index: 1; }
+.linea-proyectos-pista { position: relative; height: 100%; min-height: 26px; margin-right: 12px; }
+.linea-proyectos-mes { position: absolute; top: 4px; padding-left: 4px; border-left: 1px solid var(--c-borde); color: var(--c-muted); white-space: nowrap; }
+.linea-proyectos-barra { position: absolute; top: 8px; height: 18px; border-radius: 6px; background: color-mix(in srgb, var(--color) 28%, var(--c-blanco)); border: 1px solid color-mix(in srgb, var(--color) 60%, transparent); overflow: hidden; }
+.linea-proyectos-avance { display: block; height: 100%; background: color-mix(in srgb, var(--color) 70%, transparent); }
+.linea-proyectos-hoy { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--c-semaforo-rojo); opacity: 0.6; }

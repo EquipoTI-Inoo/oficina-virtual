@@ -449,11 +449,65 @@ export function BarraFiltros({ tableros, equipo, f, cambiar, izquierda }: { tabl
 
 // ───────────────────────────── la vista elegida, recordada en el navegador
 
-export type VistaProyectos = "CARPETAS" | "ESTADO";
+export type VistaProyectos = "CARPETAS" | "ESTADO" | "LINEA";
 export function useVistaProyectos(): [VistaProyectos, (v: VistaProyectos) => void] {
   const [v, setV] = useState<VistaProyectos>("CARPETAS");
   useEffect(() => {
-    try { const x = localStorage.getItem("inoo.proyectos.vista"); if (x === "CARPETAS" || x === "ESTADO") setV(x); } catch { /* sin almacenamiento */ }
+    try { const x = localStorage.getItem("inoo.proyectos.vista"); if (x === "CARPETAS" || x === "ESTADO" || x === "LINEA") setV(x); } catch { /* sin almacenamiento */ }
   }, []);
   return [v, (x) => { setV(x); try { localStorage.setItem("inoo.proyectos.vista", x); } catch { /* sin almacenamiento */ } }];
+}
+
+// ───────────────────────────── línea de tiempo de todos los proyectos (25 nov, Ernesto: «Gantt en Proyectos»)
+
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"];
+const aDia = (f: string) => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10)) / 86_400_000;
+
+/**
+ * Una barra por proyecto, de su inicio a su última fecha límite, sobre los meses que abarcan. Los proyectos sin fechas
+ * límite van aparte. La línea vertical es hoy.
+ */
+export function VistaLineaProyectos({ tableros, hoy }: { tableros: Tablero[]; hoy: string }) {
+  const conFechas = tableros.filter((t) => t.fechas?.inicio && t.fechas?.fin).sort((a, b) => a.fechas!.inicio!.localeCompare(b.fechas!.inicio!));
+  const sinFechas = tableros.filter((t) => !(t.fechas?.inicio && t.fechas?.fin));
+  if (!conFechas.length) return <p className="texto-sm texto-muted" style={{ padding: "12px 2px" }}>Ningún proyecto de esta vista tiene fechas límite todavía.</p>;
+  const desde = conFechas[0].fechas!.inicio!.slice(0, 7);
+  const hasta = [...conFechas.map((t) => t.fechas!.fin!), hoy].sort().at(-1)!.slice(0, 7);
+  const meses: string[] = [];
+  for (let [a, m] = [+desde.slice(0, 4), +desde.slice(5, 7)]; `${a}-${String(m).padStart(2, "0")}` <= hasta && meses.length < 36; m === 12 ? (a++, m = 1) : m++) meses.push(`${a}-${String(m).padStart(2, "0")}`);
+  const ini = aDia(`${meses[0]}-01`);
+  const [ua, um] = [+meses.at(-1)!.slice(0, 4), +meses.at(-1)!.slice(5, 7)];
+  const fin = aDia(`${um === 12 ? ua + 1 : ua}-${String(um === 12 ? 1 : um + 1).padStart(2, "0")}-01`);
+  const pct = (f: string) => Math.min(100, Math.max(0, ((aDia(f) - ini) / (fin - ini)) * 100));
+  const ancho = Math.max(640, meses.length * 110);
+  return (
+    <div className="linea-proyectos" aria-label="Línea de tiempo de los proyectos">
+      <div className="linea-proyectos-lienzo" style={{ minWidth: ancho + 220 }}>
+        <div className="linea-proyectos-fila linea-proyectos-cab">
+          <span className="linea-proyectos-nombre texto-xs texto-muted">Proyecto</span>
+          <span className="linea-proyectos-pista">
+            {meses.map((m) => <span key={m} className="linea-proyectos-mes texto-xs" style={{ left: `${pct(`${m}-01`)}%` }}>{MESES_CORTOS[+m.slice(5) - 1]}{m.endsWith("-01") || m === meses[0] ? ` ${m.slice(0, 4)}` : ""}</span>)}
+          </span>
+        </div>
+        {conFechas.map((t) => {
+          const a = pct(t.fechas!.inicio!);
+          const b = pct(t.fechas!.fin!);
+          const avance = t.items.total ? Math.round((t.items.completados / t.items.total) * 100) : 0;
+          return (
+            <div key={t.id} className="linea-proyectos-fila">
+              <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="linea-proyectos-nombre enlace texto-sm" title={`${t.nombre} · ${t.cliente ?? "Sin cliente"}`}>{t.nombre}</Enlace>
+              <span className="linea-proyectos-pista">
+                <span className="linea-proyectos-hoy" style={{ left: `${pct(hoy)}%` }} aria-hidden="true" />
+                <Enlace a={`/equipo/proyectos/tableros/${t.id}`} className="linea-proyectos-barra" style={{ left: `${a}%`, width: `${Math.max(b - a, 0.8)}%`, ["--color" as string]: t.color }}
+                  title={`${t.nombre}: ${t.fechas!.inicio} → ${t.fechas!.fin} · ${avance} % hecho${t.items.vencidos ? ` · ${t.items.vencidos} vencidos` : ""}`}>
+                  <span className="linea-proyectos-avance" style={{ width: `${avance}%` }} />
+                </Enlace>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {sinFechas.length > 0 && <p className="texto-xs texto-muted" style={{ marginTop: 10 }}>Sin fechas límite (no salen en la línea): {sinFechas.map((t) => t.nombre).join(" · ")}</p>}
+    </div>
+  );
 }

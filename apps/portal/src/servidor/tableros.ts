@@ -12,8 +12,7 @@
 import { esNuevo } from "../dominio/novedades";
 import {
   aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
-  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo,
-} from "../dominio/tableros";
+  validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo, fechasDelProyecto } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
 import { enlacesDe, esIdInvitado, esPermiso, esPrivado, fijarInvitado, fijarPermiso, invitadosDe, mayorPermiso, nuevoEnlace, ocultoPara, permisoEn, quitarInvitado, type PermisoTablero } from "../dominio/compartir-tablero";
 import { leerToken, tokenDe } from "./firma-enlace";
@@ -329,6 +328,8 @@ export function crearTableros(fallar: Fallar) {
           carpetaId: esIdInvitado(yo.empleadoId) ? null : carpetaDe(p),
           personaIds: personasDelProyecto(p).map((x) => x.id),
           actualizadoEn: ultimaActividad(p),
+          // 25 nov (Gantt general): de su creación o su primer ítem hasta su última fecha límite.
+          fechas: fechasDelProyecto(p),
           // 24 nov: «nuevo» la primera semana.
           nuevo: esNuevo(p.createdAt),
         })),

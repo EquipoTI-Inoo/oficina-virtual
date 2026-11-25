@@ -472,3 +472,17 @@ export function textoSobre(fondo: string | undefined | null): string | undefined
 }
 /** Fondo de color con su texto legible. */
 export const fondoConTexto = (fondo: string | undefined | null) => ({ background: fondo ?? undefined, color: textoSobre(fondo) });
+
+/**
+ * 25 nov (Ernesto: Gantt en Proyectos): el tramo de un proyecto. Empieza en su creación (o en su primer ítem, si es
+ * anterior) y termina en la fecha límite más tardía de sus ítems y subítems; sin fechas límite, no tiene fin.
+ */
+export function fechasDelProyecto(p: ProyectoIW): { inicio: string | null; fin: string | null } {
+  const dia = (x?: string) => (x && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : null);
+  const items = (p.items ?? []).flatMap((i) => [i, ...(i.subitems ?? [])]);
+  const limites = items.map((i) => dia(i.dueDate)).filter((x): x is string => !!x).sort();
+  const inicios = [dia(p.createdAt), ...items.map((i) => dia(i.createdAt))].filter((x): x is string => !!x).sort();
+  const inicio = inicios[0] ?? limites[0] ?? null;
+  const fin = limites.at(-1) ?? null;
+  return { inicio: inicio && fin && fin < inicio ? fin : inicio, fin };
+}

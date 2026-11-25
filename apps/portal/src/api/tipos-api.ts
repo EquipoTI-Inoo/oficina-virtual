@@ -7692,6 +7692,13 @@ export interface components {
             personaIds: string[];
             /** @description La última vez que algo del tablero cambió (17 nov, filtro por actividad) */
             actualizadoEn: string | null;
+            /** @description 25 nov (Gantt en Proyectos): de su creación o primer ítem a su última fecha límite */
+            fechas?: {
+                /** Format: date */
+                inicio: string | null;
+                /** Format: date */
+                fin: string | null;
+            };
             /** @description Se creó hace menos de 7 días (24 nov) */
             nuevo?: boolean;
             /** @description Etiquetas libres (16 nov) */

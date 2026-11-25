@@ -6,13 +6,13 @@
  * Desde el 6 nov también trae los tableros de InooWork, con el nombre de su cliente: InooWork sigue siendo su fuente.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
+import { LuArchive, LuClipboardList, LuFolderTree, LuListTodo, LuLock, LuPlus, LuSearch, LuSquareKanban, LuTag, LuColumns3, LuChartGantt, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 import { api, Enlace, fMesAnio, ProblemaApi, useConsulta, useNavegacion, type S } from "../base";
 import { COLORES_GRUPO, columnaDeTablero } from "../dominio/tableros";
 import { esClienteInterno } from "../dominio/clientes-tablero";
 import { Barra, Cabecera, Cargando, ErrorCarga, Estructura, ICONO_SERVICIO, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { NuevoServicio } from "./proyecto-equipo";
-import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
+import { ArbolProyectos, BarraFiltros, construirArbol, destinoDe, estaEn, ModalNombre, pasaFiltros, RAIZ, SIN_FILTROS, ubicar, useVistaProyectos, VistaCarpetas, VistaLineaProyectos, type Carpeta, type Filtros, type Lugar } from "./carpetas-proyectos";
 
 export type TipoNuevo = "CATALOGO" | "TABLERO";
 const INOO_INTERNO = "Inoo (interno)";
@@ -222,6 +222,7 @@ function PipelineProyectos() {
           <>{botonArbol}<div className="segmentado" role="tablist" aria-label="Cómo ver los proyectos">
             <button role="tab" aria-selected={vista === "CARPETAS"} className={vista === "CARPETAS" ? "activo" : undefined} onClick={() => setVista("CARPETAS")}><LuFolderTree size={14} /> Carpetas</button>
             <button role="tab" aria-selected={vista === "ESTADO"} className={vista === "ESTADO" ? "activo" : undefined} onClick={() => setVista("ESTADO")}><LuColumns3 size={14} /> Por estado</button>
+            <button role="tab" aria-selected={vista === "LINEA"} className={vista === "LINEA" ? "activo" : undefined} onClick={() => setVista("LINEA")}><LuChartGantt size={14} /> Línea de tiempo</button>
           </div></>
         } />}
         {pestana === "PROYECTOS" && etiquetas.length > 0 && (
@@ -230,7 +231,9 @@ function PipelineProyectos() {
             {etiquetas.map((x) => <button key={x} type="button" className="chip" aria-pressed={etiqueta === x} onClick={() => setEtiqueta(etiqueta === x ? null : x)}>{x}</button>)}
           </div>
         )}
-        {enCarpetas ? (
+        {pestana === "PROYECTOS" && vista === "LINEA" ? (
+          <VistaLineaProyectos tableros={tableros} hoy={new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10)} />
+        ) : enCarpetas ? (
           <VistaCarpetas arbol={arbol} lugar={lugar} ir={setLugar} tableros={tableros} carpetas={carpetas} marcas={listaMarcas} />
         ) : (
         <div className="pipeline" role="list" aria-label={pestana === "PROYECTOS" ? "Proyectos" : "Servicios"}>
