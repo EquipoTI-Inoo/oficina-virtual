@@ -5179,6 +5179,20 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/ordenar-por-etapas:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: ordenarTableroPorEtapas
+      summary: 'Deja un grupo por cada etapa del servicio vinculado (26 nov, fusión completa). Los demás grupos quedan igual'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
   /tableros/{proyectoId}/papelera/{entradaId}/restaurar:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
@@ -9932,11 +9946,12 @@ components:
           type: array
           items:
             type: object
-            required: [id, nombre, color]
+            required: [id, nombre, color, etapaId]
             properties:
               id: { type: string }
               nombre: { type: string }
               color: { type: string }
+              etapaId: { type: [string, 'null'], description: 'La etapa del servicio vinculado que es este grupo (26 nov, fusión completa)' }
         columnas:
           type: array
           description: 'Columnas personalizadas de las vistas de InooWork (11 nov: con los tipos de la biblioteca de Monday)'

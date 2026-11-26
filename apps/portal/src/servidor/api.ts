@@ -71,6 +71,7 @@ import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInt
 import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero, type PlantillaTableroFija } from "../dominio/tableros";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type CuerpoSolicitud, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive, validarCarpetaVinculada } from "../dominio/carpeta-drive";
+import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -5774,10 +5775,24 @@ async function crearPendientesDb(ctx: Ctx, servicioId: string, clienteId: string
   const feriados = await noHabilesDb(ctx);
   const pl = (await ctx.c.query<FilaPlantillaReq>("SELECT * FROM plantilla_requerimiento WHERE codigo = 'PENDIENTE_REUNION'")).rows[0];
   let tareas = 0;
+  // 26 nov (fusión completa): con tablero, lo de Inoo entra como fila en el grupo de la etapa en curso.
+  const tablero = (await ctx.c.query<{ t: string | null }>("SELECT inoowork_proyecto_id AS t FROM servicio_contratado WHERE id = $1", [servicioId])).rows[0]?.t ?? null;
+  const vista = tablero ? await TABLEROS.ver(tablero, await yoTablero(ctx)).catch(() => null) : null;
+  const grupo = vista ? grupoDeEtapaActual(vista, await etapasParaTableroDb(ctx, servicioId)) ?? vista.grupos[0]?.id ?? null : null;
   for (const x of xs) {
     if (x.de === "CLIENTE") {
       await pedirAlClienteDb(ctx, servicioId, clienteId, pl, x.texto, `Quedó pendiente en la reunión «${titulo}».`, x.diasHabiles, feriados);
       continue;
+    }
+    if (vista && grupo) {
+      const emp = x.responsableId ? (await ctx.c.query<{ e: string | null }>("SELECT inoowork_empleado_id AS e FROM usuario WHERE id = $1", [x.responsableId])).rows[0]?.e ?? null : null;
+      const enProyecto = !!emp && vista.personas.some((y) => y.id === emp);
+      // Si quien cierra la reunión no edita el tablero (o InooWork no responde), queda como tarea, como antes.
+      const ok = await TABLEROS.crearItem(vista.id, await yoTablero(ctx), {
+        nombre: x.texto.slice(0, 200), grupoId: grupo, fecha: sumarDiasHabiles(HOY_LIMA(), x.diasHabiles, feriados),
+        notas: `Pendiente de la reunión «${titulo}».`, ...(enProyecto ? { responsableId: emp } : {}),
+      }).then(() => true, () => false);
+      if (ok) { tareas++; continue; }
     }
     await ctx.c.query(
       `INSERT INTO tarea (servicio_contratado_id, cliente_id, titulo, descripcion, estado, responsable_id, fecha_limite, creado_por)
@@ -5931,6 +5946,7 @@ ruta("POST", "/servicios-contratados/:id/etapas/:etapa/mover", async (ctx, p, _q
   await ctx.c.query("UPDATE etapa_proyecto SET orden = orden + 10000 WHERE id = ANY($1::uuid[])", [orden]);
   for (const [n, id] of orden.entries()) await ctx.c.query("UPDATE etapa_proyecto SET orden = $2 WHERE id = $1", [id, n + 1]);
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, usuarioId: ctx.u.usuarioId });
+  if (!e.periodo) await alinearTableroDb(ctx, s.id);
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
 });
 
@@ -5998,6 +6014,7 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, cue
       tipo, b.hora !== undefined, b.hora ?? null, JSON.stringify(valores)],
   );
   await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: s.id, etapaId: e.id, estado, usuarioId: ctx.u.usuarioId });
+  if (!e.periodo && typeof b.nombre === "string") await alinearTableroDb(ctx, s.id);
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
 });
 
@@ -6058,6 +6075,7 @@ ruta("POST", "/servicios-contratados/:id/etapas", async (ctx, p, _q, cuerpo) => 
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::date, $9)`,
     [s.id, s.cliente_id, periodo, orden, b.nombre!.trim(), avanceEntre(ref?.avance_pct ?? 1, siguiente?.avance_pct ?? null), !!b.esperaCliente, b.fechaEstimada ?? null, ctx.u.usuarioId],
   );
+  if (!periodo) await alinearTableroDb(ctx, s.id);
   return { __status: 201, ...(await avanceServicio(ctx, s, periodo ?? PERIODO_ACTUAL())) };
 });
 
@@ -6072,6 +6090,7 @@ ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p) => {
   await ctx.c.query("DELETE FROM etapa_proyecto WHERE id = $1", [e.id]);
   await ctx.c.query("UPDATE etapa_proyecto SET orden = orden + 1000 WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 AND orden > $3", [s.id, e.periodo, e.orden]);
   await ctx.c.query("UPDATE etapa_proyecto SET orden = orden - 1001 WHERE servicio_contratado_id = $1 AND periodo IS NOT DISTINCT FROM $2 AND orden >= 1000", [s.id, e.periodo]);
+  if (!e.periodo) await alinearTableroDb(ctx, s.id);
   return avanceServicio(ctx, s, e.periodo ?? PERIODO_ACTUAL());
 });
 
@@ -6745,15 +6764,61 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, cuerpo) => {
     const nuevo = vinculos.servicioId !== undefined ? vinculos.servicioId : null;
     await ctx.c.query("UPDATE servicio_contratado SET inoowork_proyecto_id = NULL WHERE inoowork_proyecto_id = $1 AND id IS DISTINCT FROM $2::uuid", [p.id, nuevo]);
     if (nuevo) await ctx.c.query("UPDATE servicio_contratado SET inoowork_proyecto_id = $1 WHERE id = $2", [p.id, nuevo]);
+    // 26 nov (fusión completa): al vincular, un grupo por etapa.
+    if (nuevo) return (await alinearTableroDb(ctx, nuevo)) ?? r;
   }
   return r;
 });
+// ───────────────────────────── fusión completa (26 nov): etapas ↔ grupos del tablero vinculado
+
+/** Las etapas del servicio que van como grupos (las de un proyecto puntual; los mensuales siguen con un grupo por mes). */
+async function etapasParaTableroDb(ctx: Ctx, servicioId: string) {
+  return (await ctx.c.query<{ id: string; orden: number; nombre: string; estado: string }>(
+    "SELECT id, orden, nombre, estado::text FROM etapa_proyecto WHERE servicio_contratado_id = $1 AND periodo IS NULL ORDER BY orden", [servicioId])).rows;
+}
+/** Deja el tablero vinculado con un grupo por etapa. Si no se puede (sin permiso, InooWork caído), no frena lo demás. */
+async function alinearTableroDb(ctx: Ctx, servicioId: string) {
+  const t = (await ctx.c.query<{ tablero: string | null }>("SELECT inoowork_proyecto_id AS tablero FROM servicio_contratado WHERE id = $1", [servicioId])).rows[0]?.tablero;
+  if (!t) return null;
+  const etapas = await etapasParaTableroDb(ctx, servicioId);
+  if (!etapas.length) return null;
+  try {
+    return await TABLEROS.alinearConEtapas(t, await yoTablero(ctx), etapas);
+  } catch (e) {
+    console.error("[etapas→tablero]", servicioId, (e as Error).message);
+    return null;
+  }
+}
+/** Cuando arranca una fila del grupo de una etapa sin iniciar, la etapa pasa a «En progreso». */
+async function iniciarEtapasDb(ctx: Ctx, t: { servicioId?: string | null; grupos?: { id: string; etapaId?: string | null }[]; items?: { grupoId: string; estado: string }[] }) {
+  // Solo con cambios del equipo (un cliente invitado al tablero no mueve las etapas).
+  if (!ctx.esEquipo || !t.servicioId || !t.grupos || !t.items) return;
+  const ids = etapasConTrabajo({ grupos: t.grupos, items: t.items });
+  if (!ids.length) return;
+  const s = (await ctx.c.query<{ cliente_id: string }>("SELECT cliente_id FROM servicio_contratado WHERE id = $1", [t.servicioId])).rows[0];
+  if (!s) return;
+  const r = await ctx.c.query<{ id: string }>(
+    `UPDATE etapa_proyecto SET estado = 'EN_PROGRESO', fecha_inicio = coalesce(fecha_inicio, $3::date), actualizado_por = $4, actualizado_en = now()
+      WHERE servicio_contratado_id = $1 AND id = ANY($2::uuid[]) AND estado = 'SIN_INICIAR' RETURNING id`,
+    [t.servicioId, ids.filter(esUuid), HOY_LIMA(), ctx.esServicio ? null : ctx.u.usuarioId]);
+  for (const x of r.rows) await emitirOutbox(ctx, "etapa.actualizada", s.cliente_id, { servicioContratadoId: t.servicioId, etapaId: x.id, estado: "EN_PROGRESO", usuarioId: ctx.u.usuarioId });
+}
+ruta("POST", "/tableros/:id/ordenar-por-etapas", async (ctx, p) => {
+  soloEquipo(ctx);
+  const s = (await ctx.c.query<{ id: string }>("SELECT id FROM servicio_contratado WHERE inoowork_proyecto_id = $1", [p.id])).rows[0];
+  if (!s) throw new ErrorApi(409, "SIN_SERVICIO", "Este proyecto no está compartido con el cliente");
+  const etapas = await etapasParaTableroDb(ctx, s.id);
+  if (!etapas.length) throw new ErrorApi(409, "SIN_ETAPAS", "Su servicio no tiene etapas fijas (los mensuales van con un grupo por mes)");
+  return TABLEROS.alinearConEtapas(p.id, await yoTablero(ctx), etapas);
+});
+
 /** 13 nov: los avisos que piden las automatizaciones del tablero (asignar o avisar a alguien). */
 async function avisosAutomatizacionDb<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
   const { avisosAutomatizacion, ...vista } = t;
   for (const a of avisosAutomatizacion ?? []) {
     await avisarAsignacion(ctx, proyectoId, a.empleadoId, a.titulo, vista, a.itemId, a.motivo === "ASIGNADO" ? "Una automatización te asignó un ítem" : "Aviso de una automatización del tablero", a.motivo === "AVISO");
   }
+  await iniciarEtapasDb(ctx, vista as Parameters<typeof iniciarEtapasDb>[1]);
   return vista;
 }
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, cuerpo) => {
@@ -6795,7 +6860,9 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
 });
 ruta("POST", "/tableros/:id/items/:item/mover", async (ctx, p, _q, cuerpo) => {
   equipoOInvitado(ctx);
-  return TABLEROS.moverItem(p.id, p.item, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+  const t = await TABLEROS.moverItem(p.id, p.item, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
+  await iniciarEtapasDb(ctx, t);
+  return t;
 });
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, cuerpo) => {
   equipoOInvitado(ctx);

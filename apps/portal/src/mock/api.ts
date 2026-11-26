@@ -60,6 +60,7 @@ import { resumenParaCliente, TOPE_RESUMENES_MES } from "../servidor/resumen-clie
 import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInterno } from "../dominio/clientes-tablero";
 import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero } from "../dominio/tableros";
 import { validarCarpetaVinculada } from "../dominio/carpeta-drive";
+import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -2010,6 +2011,7 @@ ruta("PATCH", "/tableros/:id", async (ctx, p, _q, req) => {
     const nuevo = vinculos.servicioId !== undefined ? vinculos.servicioId : null;
     for (const [sid, tid] of Object.entries(E.tableroDeServicio)) if (tid === p.id && sid !== nuevo) delete E.tableroDeServicio[sid];
     if (nuevo) E.tableroDeServicio[nuevo] = p.id;
+    if (nuevo) return (await alinearTableroMock(ctx, nuevo)) ?? r;
   }
   return r;
 });
@@ -2059,11 +2061,41 @@ ruta("DELETE", "/carpetas/:id", (ctx, p) => {
   for (const x of E.carpetas) if (x.padreId === c.id && !x.borrada) x.padreId = c.padreId;
   return null;
 });
+// ───────────────────────────── fusión completa (26 nov): etapas ↔ grupos del tablero vinculado
+const etapasParaTableroMock = (servicioId: string) =>
+  E.etapas.filter((e) => e.servicioContratadoId === servicioId && e.periodo === null).sort((a, b) => a.orden - b.orden).map((e) => ({ id: e.id, orden: e.orden, nombre: e.nombre, estado: e.estado as string }));
+async function alinearTableroMock(ctx: Ctx, servicioId: string) {
+  const t = E.tableroDeServicio[servicioId];
+  const etapas = etapasParaTableroMock(servicioId);
+  if (!t || !etapas.length) return null;
+  try {
+    return await TABLEROS.alinearConEtapas(t, yoTablero(ctx), etapas);
+  } catch {
+    return null;
+  }
+}
+function iniciarEtapasMock(t: { servicioId?: string | null; grupos?: { id: string; etapaId?: string | null }[]; items?: { grupoId: string; estado: string }[] }) {
+  if (!t.servicioId || !t.grupos || !t.items) return;
+  for (const id of etapasConTrabajo({ grupos: t.grupos, items: t.items })) {
+    const e = E.etapas.find((x) => x.id === id && x.servicioContratadoId === t.servicioId);
+    if (e && e.estado === "SIN_INICIAR") { e.estado = "EN_PROGRESO"; e.fechaInicio ??= D.HOY.slice(0, 10); }
+  }
+}
+ruta("POST", "/tableros/:id/ordenar-por-etapas", async (ctx, p) => {
+  soloEquipo(ctx);
+  const sid = Object.entries(E.tableroDeServicio).find(([, t]) => t === p.id)?.[0];
+  if (!sid) throw new ErrorApi(409, "SIN_SERVICIO", "Este proyecto no está compartido con el cliente");
+  const etapas = etapasParaTableroMock(sid);
+  if (!etapas.length) throw new ErrorApi(409, "SIN_ETAPAS", "Su servicio no tiene etapas fijas (los mensuales van con un grupo por mes)");
+  return TABLEROS.alinearConEtapas(p.id, yoTablero(ctx), etapas);
+});
+
 function avisosAutomatizacionMock<T extends { nombre: string; avisosAutomatizacion?: { empleadoId: string; itemId: string; titulo: string; motivo: string }[] }>(ctx: Ctx, proyectoId: string, t: T) {
   const { avisosAutomatizacion, ...vista } = t;
   for (const a of avisosAutomatizacion ?? []) {
     avisarAsignacion(ctx, proyectoId, a.empleadoId, a.titulo, vista, a.itemId, a.motivo === "ASIGNADO" ? "Una automatización te asignó un ítem" : "Aviso de una automatización del tablero", a.motivo === "AVISO");
   }
+  if (ctx.esEquipo) iniciarEtapasMock(vista as Parameters<typeof iniciarEtapasMock>[0]);
   return vista;
 }
 ruta("POST", "/tableros/:id/items", async (ctx, p, _q, req) => {
@@ -2100,7 +2132,9 @@ ruta("GET", "/mi-trabajo", async (ctx) => {
 });
 ruta("POST", "/tableros/:id/items/:item/mover", async (ctx, p, _q, req) => {
   equipoOInvitado(ctx);
-  return TABLEROS.moverItem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  const t = await TABLEROS.moverItem(p.id, p.item, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
+  if (ctx.esEquipo) iniciarEtapasMock(t);
+  return t;
 });
 ruta("PATCH", "/tableros/:id/items/:item", async (ctx, p, _q, req) => {
   equipoOInvitado(ctx);
@@ -3278,6 +3312,7 @@ ruta("POST", "/servicios-contratados/:id/etapas/:etapa/mover", async (ctx, p, _q
   const orden = i < 0 ? [...resto, e] : [...resto.slice(0, i), e, ...resto.slice(i)];
   orden.forEach((x, n) => { x.orden = n + 1; });
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, usuarioId: ctx.usuario.id });
+  await alinearTableroMock(ctx, s.id);
   return avanceServicio(s, true);
 });
 
@@ -3335,6 +3370,7 @@ ruta("PATCH", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p, _q, req
   if (tipo !== "REUNION") e.hora = null;
   else if (b.hora !== undefined) e.hora = b.hora;
   emitir("etapa.actualizada", s.clienteId, { servicioContratadoId: s.id, etapaId: e.id, estado: e.estado, usuarioId: ctx.usuario.id });
+  if (typeof b.nombre === "string") await alinearTableroMock(ctx, s.id);
   return avanceServicio(s, true);
 });
 
@@ -3388,9 +3424,10 @@ ruta("POST", "/servicios-contratados/:id/etapas", async (ctx, p, _q, req) => {
   for (const x of todas) if (x.periodo === periodo && x.orden >= orden) x.orden += 1;
   E.etapas.push({ id: nuevoId(20), servicioContratadoId: s.id, clienteId: s.clienteId, periodo, orden, nombre: b.nombre!.trim(), avancePct: avanceEntre(ref?.avancePct ?? 1, siguiente?.avancePct ?? null),
     esperaCliente: !!b.esperaCliente, reunionClave: null, estado: "SIN_INICIAR", fechaInicio: null, fechaEstimada: b.fechaEstimada ?? null, fechaFin: null });
+  await alinearTableroMock(ctx, s.id);
   return { __status: 201, ...avanceServicio(s, true) };
 });
-ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", (ctx, p) => {
+ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", async (ctx, p) => {
   soloEquipo(ctx);
   const s = E.servicios.find((x) => x.id === p.id);
   const e = E.etapas.find((x) => x.id === p.etapa && x.servicioContratadoId === p.id);
@@ -3402,6 +3439,7 @@ ruta("DELETE", "/servicios-contratados/:id/etapas/:etapa", (ctx, p) => {
   for (const x of hermanas) if (x !== e && x.orden > e.orden) x.orden -= 1;
   for (const t of E.tareas) if (t.etapaId === e.id) t.etapaId = null;
   for (const x of E.entregables) if (x.etapaId === e.id) x.etapaId = null;
+  await alinearTableroMock(ctx, s.id);
   return avanceServicio(s, true);
 });
 
@@ -4225,7 +4263,7 @@ ruta("POST", "/servicios-contratados/:id/reuniones", async (ctx, p, _q, req) => 
     conAcuerdos: estado === "REALIZADA" ? b.conAcuerdos ?? null : null, resumen: b.resumen?.trim() || null, duracionMin: b.duracionMin ?? DURACION_REUNION_MIN,
   };
   E.reuniones.push(r);
-  return { __status: 201, ...reunionVista(r), ...crearPendientes(ctx, s, r, cierre.pendientes) };
+  return { __status: 201, ...reunionVista(r), ...(await crearPendientes(ctx, s, r, cierre.pendientes)) };
 });
 
 ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
@@ -4244,20 +4282,32 @@ ruta("PATCH", "/reuniones/:id", async (ctx, p, _q, req) => {
   if (estado !== "REALIZADA") r.conAcuerdos = null;
   if (b.resumen !== undefined) r.resumen = b.resumen?.trim() || null;
   if (b.duracionMin !== undefined) r.duracionMin = b.duracionMin;
-  return { ...reunionVista(r), ...crearPendientes(ctx, E.servicios.find((x) => x.id === r.servicioContratadoId)!, r, cierre.pendientes) };
+  return { ...reunionVista(r), ...(await crearPendientes(ctx, E.servicios.find((x) => x.id === r.servicioContratadoId)!, r, cierre.pendientes)) };
 });
 
 const responsablesDePendientes = (xs: PendienteReunion[]) =>
   xs.flatMap((x, i) => (x.responsableId && !esDelEquipo(x.responsableId) ? [{ campo: `pendientes.${i}.responsableId`, mensaje: "Elige a alguien del equipo" }] : []));
 
 /** Lo que quedó pendiente en la reunión: del cliente → requerimiento; de Inoo → tarea. */
-function crearPendientes(ctx: Ctx, s: D.ServicioContratadoDemo, r: D.ReunionDemo, xs: PendienteReunion[]) {
+async function crearPendientes(ctx: Ctx, s: D.ServicioContratadoDemo, r: D.ReunionDemo, xs: PendienteReunion[]) {
   if (!xs.length) return {};
   let tareas = 0;
+  // 26 nov (fusión completa): con tablero, lo de Inoo entra como fila en el grupo de la etapa en curso.
+  const tablero = E.tableroDeServicio[s.id];
+  const vista = tablero ? await TABLEROS.ver(tablero, yoTablero(ctx)).catch(() => null) : null;
+  const grupo = vista ? grupoDeEtapaActual(vista, etapasParaTableroMock(s.id)) ?? vista.grupos[0]?.id ?? null : null;
   for (const x of xs) {
     if (x.de === "CLIENTE") {
       pedirAlCliente(ctx, s, "PENDIENTE_REUNION", x.texto, `Quedó pendiente en la reunión «${r.titulo}».`, x.diasHabiles);
       continue;
+    }
+    if (vista && grupo) {
+      const emp = E.usuarios.find((u) => u.id === x.responsableId)?.inooworkEmpleadoId ?? null;
+      const ok = await TABLEROS.crearItem(vista.id, yoTablero(ctx), {
+        nombre: x.texto.slice(0, 200), grupoId: grupo, fecha: sumarDiasHabiles(D.HOY.slice(0, 10), x.diasHabiles, noHabiles()),
+        notas: `Pendiente de la reunión «${r.titulo}».`, ...(emp && vista.personas.some((y) => y.id === emp) ? { responsableId: emp } : {}),
+      }).then(() => true, () => false);
+      if (ok) { tareas++; continue; }
     }
     const ahora = new Date().toISOString();
     E.tareas.push({

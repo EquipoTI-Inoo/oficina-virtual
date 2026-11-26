@@ -3680,6 +3680,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros/{proyectoId}/ordenar-por-etapas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deja un grupo por cada etapa del servicio vinculado (26 nov, fusión completa). Los demás grupos quedan igual */
+        post: operations["ordenarTableroPorEtapas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/papelera/{entradaId}/restaurar": {
         parameters: {
             query?: never;
@@ -8178,6 +8197,8 @@ export interface components {
                 id: string;
                 nombre: string;
                 color: string;
+                /** @description La etapa del servicio vinculado que es este grupo (26 nov, fusión completa) */
+                etapaId: string | null;
             }[];
             /** @description Columnas personalizadas de las vistas de InooWork (11 nov: con los tipos de la biblioteca de Monday) */
             columnas: {
@@ -17919,6 +17940,38 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ordenarTableroPorEtapas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             /** @description InooWork no respondió */
             502: {
                 headers: {

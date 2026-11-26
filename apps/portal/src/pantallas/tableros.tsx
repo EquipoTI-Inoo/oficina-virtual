@@ -323,6 +323,33 @@ function CarpetaDelProyecto({ t }: { t: Tablero }) {
   );
 }
 
+const NOMBRE_ESTADO_ETAPA: Record<string, string> = { SIN_INICIAR: "Sin iniciar", EN_PROGRESO: "En progreso", EN_REVISION: "En revisión", COMPLETADO: "Completada", BLOQUEADO: "Bloqueada" };
+
+/**
+ * 26 nov (fusión completa): en el grupo de una etapa, su estado (el que ve el cliente). Arranca sola con la primera fila
+ * que se mueve; cuando todas las filas están completas, se sugiere cerrarla: cerrarla avisa al cliente y corre fechas.
+ */
+function EtapaDelGrupo({ servicioId, etapa, filas, editable, recargar }: { servicioId: string; etapa?: { id: string; estado: string }; filas: { estado: string }[]; editable: boolean; recargar: () => void }) {
+  const avisar = useAviso();
+  if (!etapa) return null;
+  const lista = filas.length > 0 && filas.every((i) => i.estado === "Completado") && etapa.estado !== "COMPLETADO";
+  const cerrar = async () => {
+    try {
+      await api(`/servicios-contratados/${servicioId}/etapas/${etapa.id}`, { metodo: "PATCH", cuerpo: { estado: "COMPLETADO" } });
+      avisar({ titulo: "Etapa completada", texto: "El cliente ya ve el avance." });
+      recargar();
+    } catch (e) {
+      avisar({ titulo: "No se pudo completar la etapa", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
+    }
+  };
+  return (
+    <>
+      <span className={`chip texto-xs${etapa.estado === "COMPLETADO" ? " chip--ok" : ""}`} title="Lo que ve el cliente de esta etapa">Etapa: {NOMBRE_ESTADO_ETAPA[etapa.estado] ?? etapa.estado}</span>
+      {lista && editable && <button type="button" className="boton boton--chico boton--primario" onClick={() => void cerrar()}>Marcar la etapa como completada</button>}
+    </>
+  );
+}
+
 /** 26 nov: la papelera del tablero. Cualquiera que lo edite devuelve una fila o un subítem a su lugar. */
 function BotonPapelera({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean> }) {
   const [abierta, setAbierta] = useState(false);
@@ -633,6 +660,8 @@ function Fecha({ valor, guardar, editable, etiqueta, vencido }: { valor: string 
 // ───────────────────────────── tabla (como el workspace de InooWork)
 
 function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevos }: Ctx) {
+  // 26 nov (fusión completa): el estado de cada etapa va en el encabezado de su grupo.
+  const perfil = useConsulta<S<"PerfilProyecto">>(t.servicioId && !t.soyInvitado && t.grupos.some((g) => g.etapaId) ? `/servicios-contratados/${t.servicioId}` : null);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [plegados, setPlegados] = useState<Set<string>>(new Set());
   // 25 nov (Ernesto): la columna nueva puede ir a un lado de otra (clic derecho); `undefined` = al final.
@@ -771,6 +800,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                 {real ? <Texto valor={g.nombre} editable={estructura} etiqueta={`Nombre del grupo ${g.nombre}`} guardar={(nombre) => void cambiar(`/grupos/${g.id}`, "PATCH", { nombre })} /> : <span style={{ padding: "4px 6px" }}>{g.nombre}</span>}
               </span>
               <span className="texto-xs texto-muted">{suyos.length} {suyos.length === 1 ? "ítem" : "ítems"}</span>
+              {g.etapaId && t.servicioId && <EtapaDelGrupo servicioId={t.servicioId} etapa={perfil.datos?.etapas.find((e) => e.id === g.etapaId)} filas={(t.items ?? []).filter((i) => i.grupoId === g.id)} editable={t.puedeEditar} recargar={() => void perfil.recargar()} />}
               {estructura && real && (
                 <>
                   <span className="fila" style={{ gap: 3 }}>
@@ -954,8 +984,8 @@ type Agrupar = "GRUPO" | "ESTADO" | "RESPONSABLE" | "PRIORIDAD" | "MES";
 const NOMBRE_AGRUPAR: Record<Agrupar, string> = { GRUPO: "Grupo", ESTADO: "Estado", RESPONSABLE: "Responsable", PRIORIDAD: "Prioridad", MES: "Mes de vencimiento" };
 const ORDEN_PRIORIDAD: Record<string, number> = { Urgente: 0, Alta: 1, Media: 2, Baja: 3 };
 
-function seccionesDe(t: Tablero, items: Item[], agrupar: Agrupar): { id: string; nombre: string; color: string; items: Item[]; real: boolean }[] {
-  if (agrupar === "GRUPO") return t.grupos.map((g) => ({ id: g.id, nombre: g.nombre, color: g.color, items: items.filter((i) => i.grupoId === g.id), real: true }));
+function seccionesDe(t: Tablero, items: Item[], agrupar: Agrupar): { id: string; nombre: string; color: string; etapaId: string | null; items: Item[]; real: boolean }[] {
+  if (agrupar === "GRUPO") return t.grupos.map((g) => ({ id: g.id, nombre: g.nombre, color: g.color, etapaId: g.etapaId, items: items.filter((i) => i.grupoId === g.id), real: true }));
   const clave = (i: Item): [string, string, string] => {
     if (agrupar === "ESTADO") return [i.estado, i.estado, COLOR_ESTADO[i.estado as EstadoItem] ?? "#c4c4c4"];
     if (agrupar === "PRIORIDAD") return [i.prioridad, i.prioridad, COLOR_PRIORIDAD[i.prioridad as PrioridadItem] ?? "#c4c4c4"];
@@ -963,10 +993,10 @@ function seccionesDe(t: Tablero, items: Item[], agrupar: Agrupar): { id: string;
     const m = i.fecha?.slice(0, 7) ?? "";
     return [m || "~", m ? new Date(`${m}-15T12:00:00`).toLocaleDateString("es-PE", { month: "long", year: "numeric" }) : "Sin fecha", m ? "#a25ddc" : "#c4c4c4"];
   };
-  const m = new Map<string, { id: string; nombre: string; color: string; items: Item[]; real: boolean }>();
+  const m = new Map<string, { id: string; nombre: string; color: string; etapaId: string | null; items: Item[]; real: boolean }>();
   for (const i of items) {
     const [k, nombre, color] = clave(i);
-    if (!m.has(k)) m.set(k, { id: `v-${k}`, nombre, color, items: [], real: false });
+    if (!m.has(k)) m.set(k, { id: `v-${k}`, nombre, color, etapaId: null, items: [], real: false });
     m.get(k)!.items.push(i);
   }
   const orden = (k: string) => (agrupar === "ESTADO" ? ESTADOS_ITEM.indexOf(k as EstadoItem) : agrupar === "PRIORIDAD" ? ORDEN_PRIORIDAD[k] ?? 9 : 0);
@@ -1370,7 +1400,7 @@ function MenuColumna({ x, y, col, columnas, cerrar, configurar, agregar, mover }
  * el botón para compartirlo (se elige el tipo de servicio y se crea ya vinculado al tablero). El cliente no ve nada del
  * proyecto hasta que se comparte.
  */
-function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
+function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "POST" | "PATCH", cuerpo?: Record<string, unknown>) => Promise<boolean> }) {
   const avisar = useAviso();
   const [compartiendo, setCompartiendo] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("compartir") === "1");
   useEffect(() => {
@@ -1378,7 +1408,18 @@ function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, met
   }, []);
   const interno = !t.cliente || esClienteInterno(t.cliente);
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>(!t.servicioId && !interno ? "/clientes?limite=100" : null);
-  if (t.servicioId) return <ProyectoEquipo id={t.servicioId} incrustado />;
+  if (t.servicioId) return (
+    <>
+      {/* 26 nov (fusión completa): un proyecto vinculado antes tiene el botón para tener un grupo por etapa. */}
+      {t.puedeEditar && !t.grupos.some((g) => g.etapaId) && (
+        <div className="tarjeta fila entre" style={{ padding: "12px 16px", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <span className="texto-sm">Ordena el tablero con un grupo por cada etapa: lo que avanza ahí se ve en las etapas del cliente.</span>
+          <button type="button" className="boton boton--chico" onClick={() => void cambiar("/ordenar-por-etapas", "POST")}>Ordenar el tablero por etapas</button>
+        </div>
+      )}
+      <ProyectoEquipo id={t.servicioId} incrustado />
+    </>
+  );
   const ficha = (clientes.datos?.datos ?? []).find((c) => claveCliente(c.nombre) === claveCliente(t.cliente ?? ""));
   return (
     <section className="tarjeta vacio" style={{ display: "grid", gap: 10, justifyItems: "start", textAlign: "left" }}>

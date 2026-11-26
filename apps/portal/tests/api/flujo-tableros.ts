@@ -265,6 +265,45 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       }
     });
 
+    test("26 nov (fusión completa): al vincular, un grupo por etapa; la etapa arranca sola y lo de Inoo de una reunión va al tablero", async () => {
+      await reiniciar();
+      const t = (await llamar("POST", "/tableros", DIEGO, { nombre: "Landing 2027", cliente: "Casa Oliva", miembros: [uid(1, 6)] })).json;
+      const contratado = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "WEB", variante: "LANDING", fechaInicio: "2026-10-19", responsableId: uid(1, 3), detalle: { tamano: "GRANDE", paginas: 1, cms: "WORDPRESS", alcanceWeb: "SOLO_WEB" }, inooworkProyectoId: t.id });
+      assert.equal(contratado.status, 201);
+      const sid = contratado.json.servicioContratadoId ?? contratado.json.id;
+      const v = (await llamar("PATCH", `/tableros/${t.id}`, DIEGO, { servicioId: sid })).json;
+      const etapas = (await llamar("GET", `/servicios-contratados/${sid}`, DIEGO)).json.etapas;
+      const deEtapa = v.grupos.filter((g: any) => g.etapaId);
+      assert.deepEqual(deEtapa.map((g: any) => g.etapaId), etapas.map((e: any) => e.id), "un grupo por etapa, en orden");
+      assert.equal(deEtapa[0].nombre, `Etapa 1 · ${etapas[0].nombre}`);
+      assert.ok(!v.grupos.some((g: any) => g.nombre === "To-Do"), "el «To-Do» vacío con que nace el tablero sobra");
+      const otra = (await llamar("POST", `/tableros/${t.id}/ordenar-por-etapas`, DIEGO)).json;
+      assert.equal(otra.grupos.length, v.grupos.length, "ordenar de nuevo no repite grupos");
+
+      // Una fila que arranca en el grupo de la etapa la pone «En progreso».
+      assert.equal(etapas[0].estado, "SIN_INICIAR");
+      await llamar("POST", `/tableros/${t.id}/items`, DIEGO, { nombre: "Wireframes", grupoId: deEtapa[0].id, estado: "En Progreso" });
+      const despues = (await llamar("GET", `/servicios-contratados/${sid}`, DIEGO)).json.etapas;
+      assert.equal(despues[0].estado, "EN_PROGRESO");
+      assert.equal(despues[1].estado, "SIN_INICIAR", "las demás no se tocan");
+
+      // Renombrar la etapa renombra su grupo; agregar una suma su grupo.
+      await llamar("PATCH", `/servicios-contratados/${sid}/etapas/${etapas[1].id}`, DIEGO, { nombre: "Diseño visual" });
+      await llamar("POST", `/servicios-contratados/${sid}/etapas`, DIEGO, { nombre: "Capacitación" });
+      const g2 = (await llamar("GET", `/tableros/${t.id}`, DIEGO)).json.grupos;
+      assert.equal(g2.find((g: any) => g.etapaId === etapas[1].id).nombre, "Etapa 2 · Diseño visual");
+      assert.equal(g2.filter((g: any) => g.etapaId).length, etapas.length + 1);
+
+      // Lo de Inoo que queda de una reunión entra como fila en el grupo de la etapa en curso.
+      const r = (await llamar("POST", `/servicios-contratados/${sid}/reuniones`, DIEGO, { titulo: "Revisión de wireframes", fecha: "2026-10-20T15:00:00Z" })).json;
+      const cerrada = await llamar("PATCH", `/reuniones/${r.id}`, DIEGO, { estado: "REALIZADA", conAcuerdos: true, resumen: "Se aprobaron los wireframes con un cambio.", pendientes: [{ texto: "Ajustar el menú", de: "INOO", responsableId: uid(1, 3) }] });
+      assert.deepEqual(cerrada.json.pendientesCreados, { requerimientos: 0, tareas: 1 });
+      const fila = (await llamar("GET", `/tableros/${t.id}`, DIEGO)).json.items.find((i: any) => i.nombre === "Ajustar el menú");
+      assert.equal(fila.grupoId, deEtapa[0].id);
+      assert.equal(fila.responsable?.nombre, "Diego Castro");
+      assert.deepEqual((await llamar("GET", `/servicios-contratados/${sid}/tareas`, DIEGO)).json.datos, [], "no queda una tarea aparte");
+    });
+
     test("26 nov: borrar manda a la papelera y se restaura en su lugar (fila y subítem)", async () => {
       await reiniciar();
       const antes = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;

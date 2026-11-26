@@ -2489,6 +2489,8 @@ button.cuenta { cursor: pointer; }
 .tablero-grupo { border-left: 4px solid; padding-left: 10px; }
 .tablero-grupo-nombre { font-weight: 700; font-size: var(--t-md); }
 .tablero-grupo-nombre .celda-texto { color: inherit; font-weight: 700; font-size: var(--t-md); }
+/* 26 nov: «Etapa 2 · Arquitectura y benchmark» entra completo. */
+.tablero-grupo-nombre .celda-texto { field-sizing: content; min-width: 8ch; max-width: min(46ch, 60vw); }
 .tabla-tablero { font-size: var(--t-sm); }
 .tabla-tablero td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
 .tabla-tablero tbody tr { cursor: default; }
@@ -3179,3 +3181,6 @@ tr:hover > td > .fila-asa-alto::after, .redimensionando-alto .fila-asa-alto::aft
 .fila-carpeta { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--t-sm); color: var(--c-texto); text-decoration: none; }
 .fila-carpeta:hover { color: var(--c-primario); }
 .fila-carpeta svg { flex: none; color: var(--c-primario); }
+
+/* 26 nov (fusión completa): la etapa ya completada, en el encabezado de su grupo. */
+.chip--ok { background: var(--c-exito-suave); color: var(--c-exito); }

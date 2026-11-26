@@ -213,7 +213,8 @@ export function ProyectoEquipo({ id, incrustado }: { id?: string; incrustado?: b
       <div className="con-lateral">
         <div className="pila">
           <div className="segmentado" role="tablist" aria-label="Secciones del proyecto" style={{ justifySelf: "start" }}>
-            {PESTANAS.map(([k, t]) => (
+            {/* 26 nov (fusión completa): con tablero, las tareas son las filas del tablero. */}
+            {PESTANAS.filter(([k]) => !(k === "TAREAS" && d.tableroId)).map(([k, t]) => (
               <button key={k} role="tab" aria-selected={pestana === k} className={pestana === k ? "activo" : undefined} onClick={() => elegirPestana(k)}>{t}</button>
             ))}
           </div>

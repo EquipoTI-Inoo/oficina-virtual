@@ -14,6 +14,7 @@ import {
   aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo, fechasDelProyecto, aplicarEstructura, estructuraDe, type EstructuraTablero } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
+import { alinearGruposConEtapas, etapaDeGrupo, type EtapaParaGrupo } from "../dominio/etapas-tablero";
 import { filaAPapelera, papeleraDe, restaurarDePapelera, subitemAPapelera } from "../dominio/papelera-tablero";
 import { enlacesDe, esIdInvitado, esPermiso, esPrivado, fijarInvitado, fijarPermiso, invitadosDe, mayorPermiso, nuevoEnlace, ocultoPara, permisoEn, quitarInvitado, type PermisoTablero } from "../dominio/compartir-tablero";
 import { leerToken, tokenDe } from "./firma-enlace";
@@ -221,7 +222,7 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
     id: p.id, nombre: p.name, cliente: p.clientName?.trim() || null, descripcion: p.description || null, color: p.color || "#6366f1", estado: p.status || null, area: p.department || null,
     completadoEn: p.completadoEn ?? null,
     lider: persona(p.leaderId, p.leaderName), personas: personasDelProyecto(p),
-    grupos: (p.groups ?? []).map((g) => ({ id: g.id, nombre: g.name, color: g.color })),
+    grupos: (p.groups ?? []).map((g) => ({ id: g.id, nombre: g.name, color: g.color, etapaId: etapaDeGrupo(g) })),
     columnas: cols.map((c) => ({ id: c.id, nombre: c.label, tipo: c.type, config: c.config ?? null })),
     vistas: (tipos.length ? tipos : ["TABLA"]).map((t) => ({ tipo: t })),
     items: (p.items ?? []).map((it) => itemVista(p, it, cols, conectados)),
@@ -694,6 +695,10 @@ export function crearTableros(fallar: Fallar) {
     borrarSubitem: (id: string, itemId: string, subId: string, yo: Yo) => cambiar(id, yo, (p) => {
       item(p, itemId);
       subitemAPapelera(p, itemId, subId, yo.nombre ?? null);
+    }),
+    /** 26 nov (fusión completa): un grupo por etapa del servicio vinculado. */
+    alinearConEtapas: (id: string, yo: Yo, etapas: EtapaParaGrupo[]) => cambiar(id, yo, (p) => {
+      alinearGruposConEtapas(p, etapas);
     }),
     /** 26 nov: devolver una fila o un subítem de la papelera a su lugar. Cualquiera que edite el tablero. */
     restaurar: (id: string, entradaId: string, yo: Yo) => cambiar(id, yo, (p) => {

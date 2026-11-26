@@ -25,7 +25,7 @@ export interface ItemIW {
   dueDate?: string; priority?: string; notes?: string; createdAt?: string; groupId: string; subitems?: SubitemIW[];
   [columna: string]: unknown;
 }
-export interface GrupoIW { id: string; name: string; color: string; collapsed?: boolean }
+export interface GrupoIW { id: string; name: string; color: string; collapsed?: boolean; /** 26 nov: la etapa del servicio vinculado. */ portalEtapaId?: string }
 export interface ColumnaIW { id: string; label: string; type: string; width?: number; fixed?: boolean; config?: ConfigColumna }
 export interface VistaIW { id: string; name: string; type: string; isDefault?: boolean; columns?: ColumnaIW[]; filters?: unknown[] }
 export interface ProyectoIW {
