@@ -118,6 +118,8 @@ export function responsableSugerido(e: EventoGoogle, cx: Contexto): string | nul
 /** Las personas del equipo invitadas (por correo). */
 export const invitadosDelEquipo = (e: EventoGoogle, cx: Contexto) =>
   cx.equipo.filter((p) => e.invitados.includes(p.email.toLowerCase()));
+/** Los dominios de empresa de los invitados de afuera (los que sirven para reconocer al cliente). */
+export const dominiosDeEmpresa = (e: EventoGoogle) => [...new Set(e.invitados.map(dominioDe).filter(dominioUtil))];
 /** Los de afuera: el dominio (o el correo, si es gratuito), sin repetir. */
 export const invitadosDeAfuera = (e: EventoGoogle) =>
   [...new Set(e.invitados.filter((c) => dominioDe(c) !== "inoo.pe").map((c) => (dominioUtil(dominioDe(c)) ? dominioDe(c) : c)))];

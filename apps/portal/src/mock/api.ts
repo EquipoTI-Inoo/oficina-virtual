@@ -62,7 +62,7 @@ import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero } from ".
 import { validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
 import { aprobar, revisarAutorizacion, type PedidoAutorizacion } from "../servidor/oauth-mcp";
-import { claveValida, comoAgenda, dominioDe, dominioUtil, infoEvento, leToca, validarCambioEvento, type Contexto, type EventoGoogle } from "../dominio/calendario-equipo";
+import { claveValida, comoAgenda, dominioDe, dominiosDeEmpresa, dominioUtil, infoEvento, leToca, validarCambioEvento, type Contexto, type EventoGoogle } from "../dominio/calendario-equipo";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -207,6 +207,8 @@ interface Estado {
   eventosAgenda: D.EventoAgendaDemo[];
   /** 26 nov: lo que el portal guarda de los eventos del calendario del equipo (responsable, cliente y menciones). */
   eventosEquipo: Record<string, { responsableId: string | null; clienteId: string | null; sinResponsable: boolean; sinCliente: boolean; mencionIds: string[] }>;
+  /** 26 nov: dominios que el equipo enseñó al asignar clientes a mano. */
+  dominiosCliente: Record<string, string>;
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
   accesosCuenta: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
   /** 24 nov: marcas asignadas a quien trabaja por proyecto, y pedidos de acceso. */
@@ -307,6 +309,7 @@ function estadoInicial(): Estado {
     skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], videosDrive: {}, comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }], carpetas: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
     eventosEquipo: {},
+    dominiosCliente: {},
     accesosCuenta: [],
     accesosMarca: [],
     solicitudesAcceso: [],
@@ -6193,7 +6196,7 @@ function eventosEquipoDemo(desde: string, hasta: string): EventoGoogle[] {
   const base = { enlace: null, meet: null, creador: "planning@inoo.pe", notas: null };
   return [
     { ...base, clave: "web@demo|ev1", calendario: CALS_DEMO.WEB, titulo: "Web_CasaOliva_Presentación", fecha: desde, horaInicio: "10:00", horaFin: "11:00", invitados: [correo(3), correo(1)] },
-    { ...base, clave: "planning@inoo.pe|ev2", calendario: CALS_DEMO.PRINCIPAL, titulo: "Reunión semanal de balance", fecha: dia(1), horaInicio: "16:00", horaFin: "17:00", invitados: [correo(6), correo(3)] },
+    { ...base, clave: "planning@inoo.pe|ev2", calendario: CALS_DEMO.PRINCIPAL, titulo: "Reunión semanal de balance", fecha: dia(1), horaInicio: "16:00", horaFin: "17:00", invitados: [correo(6), correo(3), correo(1)] },
     { ...base, clave: "audiovisual@demo|ev3", calendario: CALS_DEMO.AV, titulo: "Sesión de fotos", fecha: dia(2), horaInicio: null, horaFin: null, invitados: [] },
   ];
 }
@@ -6205,6 +6208,7 @@ function contextoCalendarioMock(): Contexto {
     const d = dominioDe(E.usuarios.find((u) => u.id === m.usuarioId)?.email ?? "");
     if (dominioUtil(d)) dominios.set(d, m.clienteId);
   }
+  for (const [d, id] of Object.entries(E.dominiosCliente)) dominios.set(d, id);
   return { equipo, clientes, dominios };
 }
 function eventosEquipoMock(desde: string, hasta: string) {
@@ -6246,6 +6250,9 @@ ruta("PATCH", "/equipo/calendario/eventos/:clave", async (ctx, p, _q, req) => {
   if (b.clienteId !== undefined) {
     s.clienteId = b.clienteId;
     s.sinCliente = b.clienteId === null;
+    const ev = eventosEquipoDemo("2026-10-05", "2026-10-11").find((x) => x.clave === p.clave);
+    const ds = ev ? dominiosDeEmpresa(ev) : [];
+    if (b.clienteId && ds.length === 1) E.dominiosCliente[ds[0]] = b.clienteId;
   }
   if (b.mencionIds) {
     const nuevos = [...new Set(b.mencionIds)];

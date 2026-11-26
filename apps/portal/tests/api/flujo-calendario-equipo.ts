@@ -50,6 +50,12 @@ export function pruebasCalendarioEquipo(nombre: string, manejar: Manejador, rein
         assert.deepEqual([web.equipo.responsable.nombre, web.equipo.responsableSugerido, web.equipo.menciones.map((m: any) => m.nombre)], ["Camila Paredes", false, ["Camila Paredes"]]);
         // Le toca a Camila: aparece en su calendario.
         assert.ok((await llamar("GET", `/me/agenda?${RANGO}`, CAMILA)).json.eventos.some((e: any) => e.equipo?.clave === clave));
+        // Asignar el cliente a mano enseña el dominio de los invitados: el otro evento con la misma clienta lo sugiere.
+        const casa = (await llamar("GET", `/equipo/calendario?${RANGO}`, DIEGO)).json.eventos.find((e: any) => e.equipo.clave === "planning@inoo.pe|ev2");
+        assert.equal(casa.equipo.cliente?.nombre, "Casa Oliva", "antes: por el dominio de sus personas");
+        await llamar("PATCH", ruta, DIEGO, { clienteId: uid(2, 2) });
+        const aprendido = (await llamar("GET", `/equipo/calendario?${RANGO}`, DIEGO)).json.eventos.find((e: any) => e.equipo.clave === "planning@inoo.pe|ev2");
+        assert.deepEqual([aprendido.equipo.cliente?.id, aprendido.equipo.clienteSugerido], [uid(2, 2), true], "lo aprendido manda");
         // Quitar el cliente a propósito: deja de sugerirse.
         await llamar("PATCH", ruta, DIEGO, { clienteId: null });
         const sin = (await llamar("GET", `/equipo/calendario?${RANGO}`, DIEGO)).json.eventos.find((e: any) => e.equipo.clave === clave);

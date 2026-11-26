@@ -73,8 +73,8 @@ import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RE
 import { carpetaDeDrive, validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
 import { aprobar, revisarAutorizacion, type PedidoAutorizacion } from "./oauth-mcp";
-import { calendarioEquipoConectado, calendariosEquipo, eventosEquipo } from "./calendario-equipo";
-import { claveValida, comoAgenda, dominioUtil, infoEvento, leToca, validarCambioEvento, type Contexto, type Guardado } from "../dominio/calendario-equipo";
+import { calendarioEquipoConectado, calendariosEquipo, eventoEquipo, eventosEquipo } from "./calendario-equipo";
+import { claveValida, comoAgenda, dominiosDeEmpresa, dominioUtil, infoEvento, leToca, validarCambioEvento, type Contexto, type Guardado } from "../dominio/calendario-equipo";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -5080,6 +5080,8 @@ async function contextoCalendarioDb(ctx: Ctx): Promise<Contexto> {
     dominios.set(r.d, r.cliente_id);
   }
   for (const d of repetidos) dominios.delete(d); // un dominio de dos clientes no dice cuál es
+  // Lo que aprendió el equipo al asignar clientes a mano manda (retailnexagroup.com → Nexaretail).
+  for (const r of (await ctx.c.query<{ dominio: string; cliente_id: string }>("SELECT dominio, cliente_id FROM cliente_dominio")).rows) dominios.set(r.dominio, r.cliente_id);
   return { equipo, clientes, dominios };
 }
 async function eventosEquipoDb(ctx: Ctx, desde: string, hasta: string) {
@@ -5134,6 +5136,17 @@ ruta("PATCH", "/equipo/calendario/eventos/:clave", async (ctx, p, _q, cuerpo) =>
        actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()`,
     [p.clave, b.responsableId ?? null, b.clienteId ?? null, b.responsableId === null, b.clienteId === null, ctx.u.usuarioId, b.responsableId !== undefined, b.clienteId !== undefined],
   );
+  // Asignar el cliente a mano enseña sus dominios: los próximos eventos con esos invitados se sugieren solos.
+  if (b.clienteId && calendarioEquipoConectado()) {
+    const ev = await eventoEquipo(p.clave).catch(() => null);
+    // Solo con una empresa de afuera: con dos, no se sabe cuál es la del cliente.
+    const ds = ev ? dominiosDeEmpresa(ev) : [];
+    for (const d of ds.length === 1 ? ds : []) {
+      await ctx.c.query(
+        "INSERT INTO cliente_dominio (dominio, cliente_id, creado_por) VALUES ($1, $2, $3) ON CONFLICT (dominio) DO UPDATE SET cliente_id = EXCLUDED.cliente_id, creado_por = EXCLUDED.creado_por, creado_en = now()",
+        [d, b.clienteId, ctx.u.usuarioId]);
+    }
+  }
   const titulo = typeof b.titulo === "string" && b.titulo.trim() ? b.titulo.trim().slice(0, 120) : "un evento";
   const enlace = `/equipo/calendario?equipo=1${typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? `&fecha=${b.fecha}` : ""}`;
   const avisar = (usuarioId: string, t: string) => ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)", [usuarioId, ctx.u.usuarioId, t, titulo, enlace]);
