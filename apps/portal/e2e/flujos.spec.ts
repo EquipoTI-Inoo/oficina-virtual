@@ -936,7 +936,7 @@ test("proyectos (16 nov, tanda 4): pestañas Proyectos y Servicios con el filtro
   await expect(page.getByRole("link", { name: /Diseño y desarrollo web - Casa Oliva/ })).toBeVisible();
 });
 
-test("proyectos (18 nov): árbol como en Monday; nueva carpeta con «⋯», arrastrar un proyecto y filtros plegados", async ({ page }) => {
+test("proyectos (18 nov): árbol por empresa y filtros plegados", async ({ page }) => {
   test.setTimeout(150_000);
   await entrarComo(page, "admin");
   await page.goto("/equipo/proyectos");
@@ -944,20 +944,11 @@ test("proyectos (18 nov): árbol como en Monday; nueva carpeta con «⋯», arra
   const filaDe = (nombre: string) => arbol.locator(".arbol-fila").filter({ has: page.getByRole("button", { name: nombre, exact: true }) });
   await filaDe("Inoo").hover({ timeout: 30_000 });
   await filaDe("Inoo").getByRole("button", { name: "Más acciones" }).click();
-  await page.getByRole("menuitem", { name: "Nueva carpeta" }).click();
-  await page.getByLabel("Nombre de la carpeta").fill("Campañas 2027");
-  await page.getByRole("button", { name: "Guardar" }).click();
-  await expect(page.getByText("No hay proyectos aquí")).toBeVisible({ timeout: 20_000 });
-  // La rama de Inoo quedó abierta: el proyecto está dentro del árbol y se arrastra a la carpeta nueva.
-  const proyecto = arbol.getByRole("link", { name: /Marketing interno de Inoo/ });
-  await expect(proyecto).toBeVisible();
-  await proyecto.dragTo(filaDe("Campañas 2027"));
-  await expect(page.getByText("Proyecto movido")).toBeVisible({ timeout: 20_000 });
-  await expect(filaDe("Campañas 2027")).toContainText("1", { timeout: 20_000 });
-  await expect(page.getByRole("row", { name: /Marketing interno de Inoo/ })).toBeVisible();
-  // Desde la empresa se ven todos sus proyectos, con la carpeta de cada uno.
-  await page.getByRole("navigation", { name: "Dónde estás" }).getByRole("button", { name: "Inoo" }).click();
-  await expect(page.getByRole("row", { name: /Marketing interno de Inoo/ })).toContainText("Campañas 2027");
+  // 26 nov: las carpetas a mano se ocultaron (nadie las usaba); el «⋯» sigue para crear un proyecto ahí.
+  await expect(page.getByRole("menuitem", { name: "Nuevo proyecto aquí" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Nueva carpeta" })).toHaveCount(0);
+  await page.getByRole("heading", { name: "Proyectos", level: 1 }).click();
+  await expect(page.locator("table").getByRole("link", { name: /Marketing interno de Inoo/ })).toBeVisible({ timeout: 20_000 });
   // Los filtros van plegados.
   await expect(page.getByRole("button", { name: "Con vencidos" })).toHaveCount(0);
   await page.getByRole("button", { name: /^Filtros/ }).click();

@@ -17,7 +17,6 @@ import { info } from "../dominio/columnas";
 import { api, Enlace, fCorta, ProblemaApi, useConsulta, useNavegacion, type S, fDiaMes } from "../base";
 import { TextoConEnlaces, Barra, Cabecera, Cargando, ErrorCarga, Estructura, Modal, useAviso, usePortal, confirmar } from "../componentes";
 import { claveCliente, esClienteInterno } from "../dominio/clientes-tablero";
-import { claveEmpresa } from "../dominio/carpetas";
 import { COLOR_ESTADO, COLOR_PRIORIDAD, COLORES_GRUPO, columnaParaSubitems, ESTADOS_ITEM, ESTADOS_PROYECTO_IW, PRIORIDADES_ITEM, type EstadoItem, type PrioridadItem, fondoConTexto } from "../dominio/tableros";
 
 type Tablero = S<"TableroInooWork">;
@@ -153,32 +152,10 @@ function ClienteDelTablero({ actual, cambiar }: { actual: string | null; cambiar
  * Las marcas y los servicios se filtran por el cliente del tablero; una marca nueva se crea aquí mismo.
  */
 function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean>; editable: boolean }) {
-  const avisar = useAviso();
-  const marcas = useConsulta<{ datos: S<"MarcaCliente">[] }>("/marcas");
   const servicios = useConsulta<{ datos: S<"ProyectoPipeline">[] }>("/panel/proyectos");
-  // 17 nov: su carpeta en Proyectos (de la misma empresa); elegirla le pone también la marca de la carpeta.
-  const cq = useConsulta<{ datos: S<"CarpetaProyecto">[] }>("/carpetas");
-  const susCarpetas = (cq.datos?.datos ?? []).filter((c) => c.empresaClave === claveEmpresa(t.cliente));
-  const rutaCarpeta = (c: S<"CarpetaProyecto">) => [
-    (marcas.datos?.datos ?? []).find((m) => m.id === c.marcaId)?.nombre,
-    c.padreId ? susCarpetas.find((x) => x.id === c.padreId)?.nombre : null, c.nombre,
-  ].filter(Boolean).join(" › ");
   const [etiqueta, setEtiqueta] = useState("");
-  const mismo = (nombre: string) => !!t.cliente && (claveCliente(nombre) === claveCliente(t.cliente) || (esClienteInterno(t.cliente) && /^inoo\b/i.test(nombre)));
-  const suyas = (marcas.datos?.datos ?? []).filter((m) => mismo(m.clienteNombre) && (m.activa || m.id === t.marcaId));
+  const mismo = (nombre: string) => !!t.cliente && (claveCliente(nombre) === claveCliente(t.cliente) || (esClienteInterno(t.cliente) && /^inoo/i.test(nombre)));
   const susServicios = (servicios.datos?.datos ?? []).filter((s) => mismo(s.clienteNombre));
-  const clienteId = susServicios[0]?.clienteId ?? suyas[0]?.clienteId ?? null;
-  const nuevaMarca = async () => {
-    const nombre = window.prompt(`Nombre de la marca nueva de ${t.cliente}`);
-    if (!nombre?.trim() || !clienteId) return;
-    try {
-      const m = await api<S<"MarcaCliente">>(`/clientes/${clienteId}/marcas`, { metodo: "POST", cuerpo: { nombre } });
-      marcas.recargar();
-      await cambiar("", "PATCH", { marcaId: m.id });
-    } catch (e) {
-      avisar({ titulo: "No se pudo crear la marca", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
-    }
-  };
   const quitarEtiqueta = (x: string) => void cambiar("", "PATCH", { etiquetas: t.etiquetas.filter((y) => y !== x) });
   const agregarEtiqueta = () => {
     const x = etiqueta.trim();
@@ -187,23 +164,7 @@ function VinculosDelTablero({ t, cambiar, editable }: { t: Tablero; cambiar: (ru
   };
   return (
     <div className="fila" style={{ gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
-      <label className="fila texto-sm" style={{ gap: 8 }}>
-        <span className="negrita">Marca</span>
-        <select className="input" style={{ width: 200, height: 36 }} disabled={!editable || !marcas.datos} value={t.marcaId ?? ""}
-          onChange={(e) => (e.target.value === "__nueva" ? void nuevaMarca() : void cambiar("", "PATCH", { marcaId: e.target.value || null }))}>
-          <option value="">Sin marca</option>
-          {suyas.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.activa ? "" : " (inactiva)"}</option>)}
-          {editable && clienteId && <option value="__nueva">Nueva marca…</option>}
-        </select>
-      </label>
-      <label className="fila texto-sm" style={{ gap: 8 }}>
-        <span className="negrita">Carpeta</span>
-        <select className="input" style={{ width: 220, height: 36 }} disabled={!editable || !cq.datos} value={t.carpetaId ?? ""}
-          onChange={(e) => void cambiar("", "PATCH", { carpetaId: e.target.value || null })}>
-          <option value="">Sin carpeta</option>
-          {susCarpetas.map((c) => ({ c, r: rutaCarpeta(c) })).sort((a, b) => a.r.localeCompare(b.r, "es")).map(({ c, r }) => <option key={c.id} value={c.id}>{r}</option>)}
-        </select>
-      </label>
+      {/* 26 nov: «Marca» y «Carpeta» (orden dentro de Proyectos) se ocultaron: nadie las usaba (0 de 116 tableros). */}
       <label className="fila texto-sm" style={{ gap: 8 }}>
         <span className="negrita">Servicio del cliente</span>
         <select className="input" style={{ width: 260, height: 36 }} disabled={!editable || !servicios.datos} value={t.servicioId ?? ""}
@@ -1408,10 +1369,13 @@ function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, met
   }, []);
   const interno = !t.cliente || esClienteInterno(t.cliente);
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>(!t.servicioId && !interno ? "/clientes?limite=100" : null);
+  // Solo los proyectos puntuales tienen etapas fijas; los recurrentes van con un grupo por mes.
+  const sinOrdenar = !!t.servicioId && t.puedeEditar && !t.grupos.some((g) => g.etapaId);
+  const perfilServicio = useConsulta<S<"PerfilProyecto">>(sinOrdenar ? `/servicios-contratados/${t.servicioId}` : null);
   if (t.servicioId) return (
     <>
       {/* 26 nov (fusión completa): un proyecto vinculado antes tiene el botón para tener un grupo por etapa. */}
-      {t.puedeEditar && !t.grupos.some((g) => g.etapaId) && (
+      {sinOrdenar && perfilServicio.datos?.modalidad === "PROYECTO" && (
         <div className="tarjeta fila entre" style={{ padding: "12px 16px", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <span className="texto-sm">Ordena el tablero con un grupo por cada etapa: lo que avanza ahí se ve en las etapas del cliente.</span>
           <button type="button" className="boton boton--chico" onClick={() => void cambiar("/ordenar-por-etapas", "POST")}>Ordenar el tablero por etapas</button>

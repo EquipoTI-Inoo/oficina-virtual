@@ -210,7 +210,6 @@ function PipelineProyectos() {
             alSoltar={pestana === "PROYECTOS" ? (id, l) => void mover(id, l) : undefined}
             tableros={pestana === "PROYECTOS" ? tablerosTodos.filter((t) => pasaFiltros(t, filtros) && (!etiqueta || t.etiquetas.includes(etiqueta))) : undefined} carpetas={carpetas}
             acciones={pestana === "PROYECTOS" ? {
-              nuevaCarpeta: (l) => setNombrando({ tipo: "NUEVA", en: l }),
               nuevoProyecto: (l) => { const e = arbol.find((x) => x.clave === l.empresa); if (e) { setDestino({ cliente: e.nombre, marcaId: l.marca && l.marca !== "__sin" ? l.marca : null, carpetaId: l.carpeta }); setCreando("TABLERO"); } },
               renombrar: (c) => setNombrando({ tipo: "RENOMBRAR", carpeta: c }),
               borrar: esAdmin ? (c) => void borrarCarpeta(c) : null,

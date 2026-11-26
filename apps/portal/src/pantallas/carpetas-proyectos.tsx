@@ -83,7 +83,8 @@ const recibir = (alSoltar: ((tableroId: string, l: Lugar) => void) | undefined, 
 
 /** Acciones del menú «⋯» de cada fila del árbol. */
 export interface AccionesArbol {
-  nuevaCarpeta: (l: Lugar) => void;
+  /** 26 nov: sin esta acción no se ofrece crear carpetas (se ocultaron: nadie las usaba). */
+  nuevaCarpeta?: (l: Lugar) => void;
   nuevoProyecto: (l: Lugar) => void;
   renombrar: (c: Carpeta) => void;
   /** null: no es Admin. */
@@ -161,7 +162,7 @@ export function ArbolProyectos({ arbol, lugar, ir, alSoltar, etiqueta, tableros,
       <button type="button" className="boton-icono arbol-mas" aria-label="Más acciones" aria-haspopup="menu" aria-expanded={menu === clave} onClick={(ev) => { if (menu === clave) return setMenu(null); const r = ev.currentTarget.getBoundingClientRect(); setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(window.innerWidth - 216, r.right - 208)) }); setMenu(clave); }}><LuEllipsis size={15} /></button>
       {menu === clave && (
         <span className="arbol-menu-caja" role="menu" style={pos ? { top: pos.top, left: pos.left } : undefined}>
-          {!(c && c.padreId) && <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.nuevaCarpeta(l); }}><LuFolderPlus size={14} /> {c ? "Nueva subcarpeta" : "Nueva carpeta"}</button>}
+          {!(c && c.padreId) && acciones.nuevaCarpeta && <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.nuevaCarpeta!(l); }}><LuFolderPlus size={14} /> {c ? "Nueva subcarpeta" : "Nueva carpeta"}</button>}
           <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.nuevoProyecto(l); }}><LuPlus size={14} /> Nuevo proyecto aquí</button>
           {c && <button type="button" role="menuitem" onClick={() => { setMenu(null); acciones.renombrar(c); }}><LuPencil size={14} /> Renombrar</button>}
           {c && acciones.borrar && <button type="button" role="menuitem" className="peligro" onClick={() => { setMenu(null); acciones.borrar!(c); }}><LuTrash2 size={14} /> Borrar carpeta</button>}
