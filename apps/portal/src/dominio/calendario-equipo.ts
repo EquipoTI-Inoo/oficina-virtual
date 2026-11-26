@@ -81,7 +81,32 @@ export function clienteSugerido(e: EventoGoogle, cx: Contexto): string | null {
     const id = cx.dominios.get(dominioDe(i));
     if (id) return id;
   }
+  // El dominio se parece al nombre (tiendadelmecanico.pe → «La tienda del mecanico»).
+  for (const i of e.invitados) {
+    const d = dominioDe(i);
+    const base = dominioUtil(d) ? d.split(".")[0].replace(/[^a-z0-9]/g, "") : "";
+    if (base.length < 5) continue;
+    const c = cx.clientes.find((x) => {
+      const n = claveCliente(x.nombre).replace(/^(la|el|los|las) /, "").replace(/ /g, "");
+      return n.length >= 5 && (n === base || base.startsWith(n) || n.startsWith(base));
+    });
+    if (c) return c.id;
+  }
   return null;
+}
+
+/**
+ * El mismo evento copiado en dos calendarios (WEB y el principal, con el mismo título, día y hora) va una sola vez:
+ * el del calendario del servicio, no el principal.
+ */
+export function sinRepetidos(xs: EventoGoogle[], principal: string): EventoGoogle[] {
+  const vistos = new Map<string, EventoGoogle>();
+  for (const e of xs) {
+    const k = `${claveCliente(e.titulo)}|${e.fecha}|${e.horaInicio ?? ""}`;
+    const ya = vistos.get(k);
+    if (!ya || (ya.calendario.id === principal && e.calendario.id !== principal)) vistos.set(k, e);
+  }
+  return xs.filter((e) => [...vistos.values()].includes(e));
 }
 
 /** Quién es: quien lo creó si es del equipo (no planning@), o si no, la primera persona del equipo invitada. */

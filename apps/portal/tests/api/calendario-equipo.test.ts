@@ -1,7 +1,7 @@
 /** Calendario del equipo (26 nov): horas de Lima, sugerencias y la lectura de Google (con un Google falso). */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clienteSugerido, infoEvento, invitadosDeAfuera, normalizarEvento, responsableSugerido, type Contexto } from "../../src/dominio/calendario-equipo";
+import { clienteSugerido, infoEvento, invitadosDeAfuera, normalizarEvento, responsableSugerido, sinRepetidos, type Contexto } from "../../src/dominio/calendario-equipo";
 import { eventosEquipo, usarFetchCalendario } from "../../src/servidor/calendario-equipo";
 
 const WEB = { id: "web@g", nombre: "WEB", color: "#0b8043" };
@@ -28,6 +28,9 @@ test("cliente y responsable sugeridos", () => {
   assert.equal(clienteSugerido(ev("La casa de Ana"), cx), null, "«casa» sola no basta");
   assert.equal(clienteSugerido(ev("Métricas", ["mmendoza@swissrents.com"]), cx), "c-swiss", "por el correo de los invitados");
   assert.equal(clienteSugerido(ev("Métricas", ["alguien@gmail.com"]), cx), null);
+  const tdm = { ...cx, clientes: [...cx.clientes, { id: "c-tdm", nombre: "La tienda del mecanico" }] };
+  assert.equal(clienteSugerido(ev("RN Er - WEB TDM / Thimo", ["thimo@tiendadelmecanico.pe"]), tdm), "c-tdm", "el dominio se parece al nombre");
+  assert.equal(clienteSugerido(ev("Reunión", ["x@otra.com"]), tdm), null);
   assert.equal(responsableSugerido(ev("x", ["ana@inoo.pe"]), cx), "u-ana", "planning@ no cuenta: el primer invitado del equipo");
   assert.equal(responsableSugerido(ev("x", ["ana@inoo.pe"], "diego@inoo.pe"), cx), "u-diego", "quien lo creó, si es del equipo");
   assert.deepEqual(invitadosDeAfuera(ev("x", ["a@swissrents.com", "b@swissrents.com", "c@gmail.com", "ana@inoo.pe"])), ["swissrents.com", "c@gmail.com"]);
@@ -37,6 +40,14 @@ test("cliente y responsable sugeridos", () => {
   assert.deepEqual([quitado.cliente, quitado.responsable], [null, null], "quitado a propósito, no se vuelve a sugerir");
   const fijado = infoEvento(g, cx, { responsableId: "u-diego", clienteId: "c-casa", sinResponsable: false, sinCliente: false, menciones: [] });
   assert.deepEqual([fijado.responsable?.nombre, fijado.responsableSugerido, fijado.cliente?.nombre, fijado.clienteSugerido], ["Diego", false, "Casa Oliva", false]);
+});
+
+test("el mismo evento en dos calendarios va una vez (el del servicio)", () => {
+  const P = { id: "planning@inoo.pe", nombre: "planning@inoo.pe", color: "#7986cb" };
+  const a = normalizarEvento(P, { id: "1", summary: "Web_Retailnexa_Info", start: { dateTime: "2026-11-23T22:00:00Z" } })!;
+  const b = normalizarEvento(WEB, { id: "2", summary: "Web_Retailnexa_Info", start: { dateTime: "2026-11-23T22:00:00Z" } })!;
+  const c = normalizarEvento(WEB, { id: "3", summary: "Web_Retailnexa_Info", start: { dateTime: "2026-11-24T22:00:00Z" } })!;
+  assert.deepEqual(sinRepetidos([a, b, c], "planning@inoo.pe").map((x) => x.clave), ["web@g|2", "web@g|3"]);
 });
 
 test("lee todos los calendarios de planning@ menos los feriados, y guarda un minuto", async () => {

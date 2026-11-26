@@ -3,7 +3,7 @@
  * (PLANNING_REFRESH_TOKEN, scripts/autorizar-planning.mjs). Solo lectura. Guarda un minuto lo leído para que abrir
  * el calendario muchas veces no le pida a Google cada vez.
  */
-import { normalizarEvento, type EventoCrudo, type EventoGoogle } from "../dominio/calendario-equipo";
+import { CORREO_PLANNING, normalizarEvento, sinRepetidos, type EventoCrudo, type EventoGoogle } from "../dominio/calendario-equipo";
 
 const API = "https://www.googleapis.com/calendar/v3";
 type Enviar = typeof fetch;
@@ -74,7 +74,7 @@ export function eventosEquipo(desde: string, hasta: string): Promise<EventoGoogl
         pagina = r.nextPageToken;
       } while (pagina);
     }
-    return xs;
+    return sinRepetidos(xs, CORREO_PLANNING);
   })();
   copias.set(k, { hasta: Date.now() + 60_000, datos });
   datos.catch(() => copias.delete(k));
