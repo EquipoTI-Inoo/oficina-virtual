@@ -165,25 +165,29 @@ export function almacenDrive(c: ConfigDrive, enviar: typeof fetch = fetch): Clie
 
   // ── videos de los tableros (18 nov)
   const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const carpetas = new Map<string, string>();
-  async function carpetaCon(prop: string, valor: string, nombre: string, padre: string | null) {
+  // 26 nov: se guarda la promesa, no el id: dos subidas a la vez esperan la misma búsqueda en vez de crear dos
+  // carpetas iguales (así se duplicó «Lemelson» el 21 nov).
+  const carpetas = new Map<string, Promise<string>>();
+  function carpetaCon(prop: string, valor: string, nombre: string, padre: string | null) {
     const k = `${prop}:${valor}`;
-    let id = carpetas.get(k);
-    if (!id) {
-      const hay = await buscar(`appProperties has { key='${prop}' and value='${esc(valor)}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`, "id,name");
-      if (hay) id = hay.id;
-      else {
-        const r = await enviar(`${API}/files?fields=id`, {
-          method: "POST", headers: await cabeceras({ "content-type": "application/json" }),
-          body: JSON.stringify({ name: nombre, mimeType: "application/vnd.google-apps.folder", appProperties: { [prop]: valor }, ...(padre ? { parents: [padre] } : {}) }),
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (!r.ok) throw fallo("No pudimos preparar la carpeta de videos", `Google respondió ${r.status}.`);
-        id = ((await r.json()) as { id: string }).id;
-      }
-      carpetas.set(k, id);
+    let p = carpetas.get(k);
+    if (!p) {
+      p = buscarOCrear(prop, valor, nombre, padre);
+      carpetas.set(k, p);
+      p.catch(() => carpetas.delete(k));
     }
-    return id;
+    return p;
+  }
+  async function buscarOCrear(prop: string, valor: string, nombre: string, padre: string | null): Promise<string> {
+    const hay = await buscar(`appProperties has { key='${prop}' and value='${esc(valor)}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`, "id,name");
+    if (hay) return hay.id;
+    const r = await enviar(`${API}/files?fields=id`, {
+      method: "POST", headers: await cabeceras({ "content-type": "application/json" }),
+      body: JSON.stringify({ name: nombre, mimeType: "application/vnd.google-apps.folder", appProperties: { [prop]: valor }, ...(padre ? { parents: [padre] } : {}) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) throw fallo("No pudimos preparar la carpeta de videos", `Google respondió ${r.status}.`);
+    return ((await r.json()) as { id: string }).id;
   }
   /** Si el proyecto o la empresa cambiaron de nombre, la carpeta también. */
   async function renombrar(id: string, nombre: string) {

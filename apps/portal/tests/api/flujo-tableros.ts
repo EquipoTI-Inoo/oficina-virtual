@@ -650,13 +650,22 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
           proyectos = proyectos.map((x) => (x.id === p.id ? p : x));
           return Response.json(p);
         }
+        // 26 nov: InooWork entrega también un solo proyecto (el que se va a cambiar).
+        const uno = String(url).match(/\/api\/projects\/([^/?]+)$/);
+        if (uno) {
+          const p = proyectos.find((x) => x.id === decodeURIComponent(uno[1]));
+          return p ? Response.json(p) : Response.json({ error: "No existe" }, { status: 404 });
+        }
         return Response.json(proyectos);
       });
       try {
         const l = (await llamar("GET", "/tableros", DIEGO)).json;
         assert.deepEqual([l.conectado, l.datos.map((x: any) => x.id)], [true, ["PROJ-X"]]);
         await llamar("POST", "/tableros/PROJ-X/items", DIEGO, { nombre: "Primer ítem", grupoId: "g1" });
-        const put = guardados.find((g) => g.metodo === "PUT")!;
+        // 26 nov: antes de cambiarlo se lee ese proyecto recién pedido (no de la copia), para no pisar cambios de InooWork.
+        const iPut = guardados.findIndex((g) => g.metodo === "PUT");
+        assert.equal(guardados[iPut - 1].url, "http://inoowork.falso/api/projects/PROJ-X", "se pide solo ese proyecto");
+        const put = guardados[iPut];
         assert.equal(put.url, "http://inoowork.falso/api/projects/PROJ-X");
         assert.equal(put.llave, "llave-de-prueba");
         assert.equal(put.cuerpo.extra, "se conserva", "no se pierde nada del proyecto");

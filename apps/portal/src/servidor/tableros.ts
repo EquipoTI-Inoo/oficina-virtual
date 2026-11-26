@@ -41,6 +41,7 @@ let enviar: typeof fetch = (...a) => fetch(...a);
 export function usarFetchTableros(f: typeof fetch | null) {
   enviar = f ?? ((...a) => fetch(...a));
   copiaIW = null; // otra conexión: la copia en memoria ya no vale
+  renovandoIW = null;
 }
 
 class SinInooWork extends Error {}
@@ -65,32 +66,81 @@ async function llamar(metodo: string, ruta: string, cuerpo?: unknown) {
 const demo = (prueba?: boolean) => !tablerosConectados() || !!prueba;
 
 /**
- * 25 nov (velocidad): InooWork solo entrega todos los proyectos juntos (~21 MB, ~0,8 s). Se guardan 15 s en memoria y
- * las solicitudes de esos segundos comparten una sola descarga. Lo que guarda el portal se actualiza al momento en la
- * copia; lo que se cambia desde InooWork directo aparece en 15 s como mucho.
+ * 25 nov (velocidad): InooWork solo entrega todos los proyectos juntos (~21 MB, ~1 s). Se guardan en memoria y las
+ * solicitudes comparten una sola descarga. 26 nov: pasados 15 s se sigue respondiendo con la copia y se renueva por
+ * detrás (nadie espera el segundo de la descarga); con más de 5 minutos, se espera la nueva. Lo que guarda el portal
+ * se anota al momento en la copia; lo que se cambia desde InooWork directo aparece en unos 15 a 30 s.
+ * Lo que se va a cambiar no sale de la copia: se lee recién pedido (obtenerIW con `fresco`), para no pisar lo que
+ * alguien cambió en InooWork.
  */
 const VIGENCIA_IW = 15_000;
-let copiaIW: { hasta: number; datos: Promise<ProyectoIW[]> } | null = null;
+const MAXIMO_VIEJA_IW = 5 * 60_000;
+let copiaIW: { hasta: number; leidaEn: number; datos: Promise<ProyectoIW[]> } | null = null;
+let renovandoIW: Promise<ProyectoIW[]> | null = null;
+/** Cambios anotados desde que empezó la renovación: si hubo, la renovación puede venir sin ellos y se descarta. */
+let anotadosIW = 0;
 /** Para las pruebas: que la próxima lectura vaya a InooWork. */
-export function olvidarCopiaInooWork() { copiaIW = null; }
+export function olvidarCopiaInooWork() { copiaIW = null; renovandoIW = null; }
+
+const descargarIW = () => llamar("GET", "/api/projects").then((xs) => (Array.isArray(xs) ? (xs as ProyectoIW[]) : []));
 
 async function listarIW(prueba?: boolean): Promise<ProyectoIW[]> {
   // Copia: un cambio que falla a medias no toca los datos guardados.
   if (demo(prueba)) return structuredClone(simulados());
-  if (!copiaIW || copiaIW.hasta < Date.now()) {
-    const datos = llamar("GET", "/api/projects").then((xs) => (Array.isArray(xs) ? (xs as ProyectoIW[]) : []));
-    copiaIW = { hasta: Date.now() + VIGENCIA_IW, datos };
-    datos.catch(() => { if (copiaIW?.datos === datos) copiaIW = null; });
+  const ahora = Date.now();
+  if (copiaIW && copiaIW.hasta >= ahora) return copiaIW.datos;
+  if (copiaIW && ahora - copiaIW.leidaEn < MAXIMO_VIEJA_IW && (await copiaIW.datos.then(() => true, () => false))) {
+    if (!renovandoIW) {
+      const marca = anotadosIW;
+      const datos = descargarIW();
+      renovandoIW = datos;
+      datos.then(
+        () => { if (renovandoIW === datos && anotadosIW === marca) copiaIW = { hasta: Date.now() + VIGENCIA_IW, leidaEn: Date.now(), datos }; },
+        () => undefined,
+      ).finally(() => { if (renovandoIW === datos) renovandoIW = null; });
+    }
+    return copiaIW.datos;
   }
-  return copiaIW.datos;
+  const datos = descargarIW();
+  copiaIW = { hasta: ahora + VIGENCIA_IW, leidaEn: ahora, datos };
+  datos.catch(() => { if (copiaIW?.datos === datos) copiaIW = null; });
+  return datos;
 }
-/** Un proyecto para cambiarlo: es una copia, así un cambio que falla no ensucia la lista guardada. */
-async function obtenerIW(id: string, prueba?: boolean): Promise<ProyectoIW | null> {
+/**
+ * Un proyecto (una copia: un cambio que falla no ensucia la lista guardada). Con `fresco`, tal como está ahora en
+ * InooWork: con la ruta de un solo proyecto, o si InooWork todavía no la tiene, bajando la lista nueva.
+ */
+async function obtenerIW(id: string, prueba?: boolean, fresco = false): Promise<ProyectoIW | null> {
+  if (fresco && !demo(prueba)) {
+    const base = env("INOOWORK_URL")!.replace(/\/+$/, "");
+    let r: Response;
+    try {
+      r = await enviar(`${base}/api/projects/${encodeURIComponent(id)}`, {
+        headers: env("INOOWORK_API_KEY") ? { "x-api-key": env("INOOWORK_API_KEY")! } : {}, signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      throw new SinInooWork(`InooWork no respondió (${(e as Error).message})`);
+    }
+    if (r.ok) {
+      const p = (await r.json()) as ProyectoIW;
+      await anotarEnCopia(p);
+      return structuredClone(p);
+    }
+    const j = (await r.json().catch(() => null)) as { error?: string } | null;
+    if (r.status === 404 && j?.error === "No existe") return null;
+    // InooWork sin la ruta de un solo proyecto: la lista completa, nueva.
+    const datos = descargarIW();
+    const ahora = Date.now();
+    copiaIW = { hasta: ahora + VIGENCIA_IW, leidaEn: ahora, datos };
+    const p = (await datos).find((x) => x.id === id);
+    return p ? structuredClone(p) : null;
+  }
   const p = (await listarIW(prueba)).find((x) => x.id === id);
   return p ? structuredClone(p) : null;
 }
 /** Después de guardar o crear en InooWork, la copia en memoria queda igual que InooWork. */
 async function anotarEnCopia(p: ProyectoIW) {
+  anotadosIW++;
   const xs = copiaIW ? await copiaIW.datos.catch(() => null) : null;
   if (!xs) return;
   const i = xs.findIndex((x) => x.id === p.id);
@@ -301,15 +351,15 @@ export function crearTableros(fallar: Fallar) {
       throw e;
     }
   };
-  const visible = async (id: string, yo: Yo) => {
-    const p = await obtenerIW(id, yo.prueba);
+  const visible = async (id: string, yo: Yo, fresco = false) => {
+    const p = await obtenerIW(id, yo.prueba, fresco);
     if (!p || p.deleted || !veProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(404, "NO_ENCONTRADO", "No encontramos ese proyecto");
     return p;
   };
   /** Vuelve a leer, revisa permisos, aplica el cambio y guarda. */
   const cambiar = (id: string, yo: Yo, fn: (p: ProyectoIW, conectados: Conectados) => void | Promise<void>) =>
     protegido(async () => {
-      const p = await visible(id, yo);
+      const p = await visible(id, yo, true);
       if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder y los miembros del proyecto lo pueden cambiar");
       if (p.archived) throw fallar(409, "ARCHIVADO", "Este proyecto está archivado: desarchívalo para cambiarlo");
       const antes = await conectadosDe(p, yo);
@@ -404,7 +454,7 @@ export function crearTableros(fallar: Fallar) {
      * se puede recuperar desde InooWork; desaparece del portal.
      */
     borrar: (id: string, yo: Yo) => protegido(async () => {
-      const p = await visible(id, yo);
+      const p = await visible(id, yo, true);
       if (!(yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId))) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto o un admin lo puede borrar");
       p.deleted = true;
       p.deletedAt = new Date().toISOString();
@@ -413,7 +463,7 @@ export function crearTableros(fallar: Fallar) {
     }),
     /** Archivar a mano (25 nov, fusión: «Archivar» en la ficha del cliente). Sale de las listas; se desarchiva igual que uno automático. */
     archivar: (id: string, yo: Yo) => protegido(async () => {
-      const p = await visible(id, yo);
+      const p = await visible(id, yo, true);
       if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder, los miembros o un admin lo pueden archivar");
       if (p.archived) throw fallar(409, "YA_ARCHIVADO", "Este proyecto ya está archivado");
       p.archived = true;
@@ -423,7 +473,7 @@ export function crearTableros(fallar: Fallar) {
     }),
     /** Desarchivar (13 nov): vuelve a las listas, en curso (si no, el proceso diario lo archivaría de nuevo). */
     desarchivar: (id: string, yo: Yo) => protegido(async () => {
-      const p = await visible(id, yo);
+      const p = await visible(id, yo, true);
       if (!editaProyecto(p, yo.empleadoId, yo.esAdmin)) throw fallar(403, "SIN_PERMISO", "Solo el líder, los miembros o un admin lo pueden desarchivar");
       if (!p.archived) throw fallar(409, "NO_ARCHIVADO", "Este proyecto no está archivado");
       p.archived = false;
@@ -756,7 +806,7 @@ export function crearTableros(fallar: Fallar) {
      */
     unirse: (token: unknown, yo: Yo) => protegido(async () => {
       const t = leerToken(token);
-      const p = t ? await obtenerIW(t.proyectoId, yo.prueba) : null;
+      const p = t ? await obtenerIW(t.proyectoId, yo.prueba, true) : null;
       const e = p && !p.deleted ? enlacesDe(p).find((x) => x.id === t!.enlaceId) : undefined;
       if (!p || !e || !e.activo) throw fallar(404, "ENLACE_NO_VALIDO", "Este enlace ya no funciona: pídele uno nuevo a quien te lo mandó");
       // 17 nov: un invitado de afuera solo entra con el enlace de invitados; queda con el mayor de sus permisos.
