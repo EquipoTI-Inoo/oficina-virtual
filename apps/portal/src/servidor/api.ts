@@ -73,6 +73,8 @@ import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RE
 import { carpetaDeDrive, validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
 import { aprobar, revisarAutorizacion, type PedidoAutorizacion } from "./oauth-mcp";
+import { calendarioEquipoConectado, calendariosEquipo, eventosEquipo } from "./calendario-equipo";
+import { claveValida, comoAgenda, dominioUtil, infoEvento, leToca, validarCambioEvento, type Contexto, type Guardado } from "../dominio/calendario-equipo";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -5065,6 +5067,89 @@ async function sincronizarConGoogleDb(ctx: Ctx, eventoId: string, accion: "GUARD
   }
 }
 
+// ───────────────────────────── calendario del equipo (26 nov, planning@inoo.pe)
+async function contextoCalendarioDb(ctx: Ctx): Promise<Contexto> {
+  const equipo = (await ctx.c.query<{ id: string; nombre: string; email: string }>("SELECT id, nombre, email::text AS email FROM usuario WHERE tipo = 'EQUIPO' AND activo AND NOT es_prueba")).rows;
+  const clientes = (await ctx.c.query<{ id: string; nombre: string }>("SELECT id, nombre FROM cliente WHERE NOT es_prueba")).rows;
+  const dominios = new Map<string, string>();
+  const repetidos = new Set<string>();
+  for (const r of (await ctx.c.query<{ cliente_id: string; d: string }>(
+    "SELECT DISTINCT m.cliente_id, lower(split_part(u.email::text, '@', 2)) AS d FROM miembro_cliente m JOIN usuario u ON u.id = m.usuario_id WHERE u.tipo = 'CLIENTE'")).rows) {
+    if (!dominioUtil(r.d)) continue;
+    if (dominios.has(r.d) && dominios.get(r.d) !== r.cliente_id) repetidos.add(r.d);
+    dominios.set(r.d, r.cliente_id);
+  }
+  for (const d of repetidos) dominios.delete(d); // un dominio de dos clientes no dice cuál es
+  return { equipo, clientes, dominios };
+}
+async function eventosEquipoDb(ctx: Ctx, desde: string, hasta: string) {
+  const [cals, gs, cx] = await Promise.all([calendariosEquipo(), eventosEquipo(desde, hasta), contextoCalendarioDb(ctx)]);
+  const claves = gs.map((g) => g.clave);
+  const guardados = new Map<string, Guardado>();
+  for (const r of (await ctx.c.query<{ clave: string; responsable_id: string | null; cliente_id: string | null; sin_responsable: boolean; sin_cliente: boolean }>(
+    "SELECT clave, responsable_id, cliente_id, sin_responsable, sin_cliente FROM evento_equipo WHERE clave = ANY($1::text[])", [claves])).rows) {
+    guardados.set(r.clave, { responsableId: r.responsable_id, clienteId: r.cliente_id, sinResponsable: r.sin_responsable, sinCliente: r.sin_cliente, menciones: [] });
+  }
+  for (const m of (await ctx.c.query<{ clave: string; id: string; nombre: string }>(
+    "SELECT m.clave, u.id, u.nombre FROM evento_equipo_mencion m JOIN usuario u ON u.id = m.usuario_id WHERE m.clave = ANY($1::text[]) ORDER BY u.nombre", [claves])).rows) {
+    guardados.get(m.clave)?.menciones.push({ id: m.id, nombre: m.nombre });
+  }
+  return { cals, cx, eventos: gs.map((g) => ({ g, i: infoEvento(g, cx, guardados.get(g.clave)) })) };
+}
+ruta("GET", "/equipo/calendario", async (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const desde = q.get("desde");
+  const hasta = q.get("hasta");
+  const errores = validarRango(desde, hasta);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  if (!calendarioEquipoConectado() || ctx.u.esPrueba) return { conectado: false, calendarios: [], eventos: [] };
+  try {
+    const r = await eventosEquipoDb(ctx, desde!, hasta!);
+    return { conectado: true, calendarios: r.cals.map((c) => ({ nombre: c.nombre, color: c.color })), eventos: ordenarAgenda(r.eventos.map((x) => comoAgenda(x.g, x.i) as EventoAgenda)) };
+  } catch (e) {
+    console.warn(JSON.stringify({ calendarioEquipo: "no_leido", error: (e as Error).message.slice(0, 200) }));
+    throw new ErrorApi(502, "GOOGLE", "No pudimos leer el calendario del equipo", "Google no respondió. Prueba en un momento.");
+  }
+});
+ruta("PATCH", "/equipo/calendario/eventos/:clave", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (!claveValida(p.clave)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese evento");
+  const b = ((await cuerpo()) ?? {}) as { responsableId?: string | null; clienteId?: string | null; mencionIds?: string[]; titulo?: unknown; fecha?: unknown };
+  const errores = validarCambioEvento(b, esUuid);
+  validacion(errores);
+  if (b.responsableId && !(await esDelEquipoDb(ctx, b.responsableId))) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
+  if (b.clienteId && !(await ctx.c.query("SELECT 1 FROM cliente WHERE id = $1", [b.clienteId])).rows.length) errores.push({ campo: "clienteId", mensaje: "Elige un cliente" });
+  if (b.mencionIds?.length && (await ctx.c.query<{ n: number }>("SELECT count(*)::int AS n FROM usuario WHERE id = ANY($1::uuid[]) AND tipo = 'EQUIPO'", [[...new Set(b.mencionIds)]])).rows[0].n !== new Set(b.mencionIds).size) {
+    errores.push({ campo: "mencionIds", mensaje: "Solo personas del equipo" });
+  }
+  validacion(errores);
+  const antes = (await ctx.c.query<{ responsable_id: string | null }>("SELECT responsable_id FROM evento_equipo WHERE clave = $1", [p.clave])).rows[0];
+  await ctx.c.query(
+    `INSERT INTO evento_equipo (clave, responsable_id, cliente_id, sin_responsable, sin_cliente, actualizado_por) VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (clave) DO UPDATE SET
+       responsable_id = CASE WHEN $7 THEN EXCLUDED.responsable_id ELSE evento_equipo.responsable_id END,
+       sin_responsable = CASE WHEN $7 THEN EXCLUDED.sin_responsable ELSE evento_equipo.sin_responsable END,
+       cliente_id = CASE WHEN $8 THEN EXCLUDED.cliente_id ELSE evento_equipo.cliente_id END,
+       sin_cliente = CASE WHEN $8 THEN EXCLUDED.sin_cliente ELSE evento_equipo.sin_cliente END,
+       actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()`,
+    [p.clave, b.responsableId ?? null, b.clienteId ?? null, b.responsableId === null, b.clienteId === null, ctx.u.usuarioId, b.responsableId !== undefined, b.clienteId !== undefined],
+  );
+  const titulo = typeof b.titulo === "string" && b.titulo.trim() ? b.titulo.trim().slice(0, 120) : "un evento";
+  const enlace = `/equipo/calendario?equipo=1${typeof b.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? `&fecha=${b.fecha}` : ""}`;
+  const avisar = (usuarioId: string, t: string) => ctx.c.query("SELECT app_notificar($1::uuid, $2::uuid, NULL, $3, $4, $5)", [usuarioId, ctx.u.usuarioId, t, titulo, enlace]);
+  if (b.responsableId && b.responsableId !== antes?.responsable_id && b.responsableId !== ctx.u.usuarioId) await avisar(b.responsableId, `${ctx.u.nombre ?? "Alguien"} te puso a cargo de un evento del calendario`);
+  if (b.mencionIds) {
+    const ya = new Set((await ctx.c.query<{ usuario_id: string }>("SELECT usuario_id FROM evento_equipo_mencion WHERE clave = $1", [p.clave])).rows.map((r) => r.usuario_id));
+    const nuevos = [...new Set(b.mencionIds)];
+    await ctx.c.query("DELETE FROM evento_equipo_mencion WHERE clave = $1 AND NOT (usuario_id = ANY($2::uuid[]))", [p.clave, nuevos]);
+    for (const id of nuevos.filter((x) => !ya.has(x))) {
+      await ctx.c.query("INSERT INTO evento_equipo_mencion (clave, usuario_id, creado_por) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [p.clave, id, ctx.u.usuarioId]);
+      if (id !== ctx.u.usuarioId) await avisar(id, `${ctx.u.nombre ?? "Alguien"} te mencionó en el calendario del equipo`);
+    }
+  }
+  return null;
+});
+
 ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const desde = q.get("desde");
@@ -5155,6 +5240,15 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
       eventos.push(...pendientesComoEventos(pend, desde!, hasta!, hoy).map((x) => ({ ...baseAgenda({ id: x.id, tipo: x.tipo, titulo: x.titulo, fecha: x.fecha }), detalle: x.detalle, enlace: x.enlace, vencido: x.vencido })));
     } catch {
       /* InooWork no respondió: el calendario sale sin los ítems de tableros */
+    }
+  }
+  // 26 nov: del calendario del equipo, lo que le toca (responsable, mencionado o invitado).
+  if (calendarioEquipoConectado() && !ctx.u.esPrueba) {
+    try {
+      const correo = (await ctx.c.query<{ email: string }>("SELECT email::text AS email FROM usuario WHERE id = $1", [yo])).rows[0]?.email ?? "";
+      for (const x of (await eventosEquipoDb(ctx, desde!, hasta!)).eventos) if (leToca(x.g, x.i, { id: yo, email: correo })) eventos.push(comoAgenda(x.g, x.i) as EventoAgenda);
+    } catch {
+      /* Google no respondió: la agenda sale sin el calendario del equipo */
     }
   }
   // 18 nov: las reuniones de su Google Calendar (solo en su propio calendario, no al mirar el de otra persona).

@@ -4625,6 +4625,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/equipo/calendario": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** El calendario del equipo (planning@inoo.pe, 26 nov): sus calendarios y eventos, con responsable, cliente y menciones del portal. Solo equipo */
+        get: operations["calendarioEquipo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/equipo/calendario/eventos/{clave}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clave: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** De quién es, de qué cliente y a quién se menciona (solo en el portal). null quita y deja de sugerir. A quien se menciona o se le asigna le llega un aviso */
+        patch: operations["cambiarEventoEquipo"];
+        trace?: never;
+    };
     "/plantillas-tablero": {
         parameters: {
             query?: never;
@@ -7651,17 +7687,45 @@ export interface components {
             hecho: boolean;
             /** @description Tarea o requerimiento cuya fecha ya pasó sin cerrarse */
             vencido: boolean;
-            /** @enum {string} */
-            origen: "PORTAL" | "GOOGLE";
+            /**
+             * @description EQUIPO: del calendario del equipo (planning@, 26 nov)
+             * @enum {string}
+             */
+            origen: "PORTAL" | "GOOGLE" | "EQUIPO";
             /**
              * Format: uuid
              * @description Solo PENDIENTE y EVENTO
              */
             eventoId: string | null;
+            /** @description El color de su calendario de Google (eventos del equipo) */
+            color?: string | null;
+            equipo?: components["schemas"]["EventoEquipoInfo"];
             /** @description Lo creó la persona (los invitados no lo editan) */
             editable: boolean;
             notas: string | null;
             invitados: components["schemas"]["PersonaMini"][];
+        };
+        /** @description Lo que el portal agrega a un evento del calendario del equipo (26 nov). No se escribe en Google */
+        EventoEquipoInfo: {
+            /** @description «calendario|evento» de Google */
+            clave: string;
+            calendario: string;
+            enlaceGoogle: string | null;
+            meet: string | null;
+            responsable: components["schemas"]["PersonaMini"] | null;
+            /** @description Lo dedujo el portal (quién lo creó o el primer invitado del equipo) */
+            responsableSugerido: boolean;
+            cliente: {
+                /** Format: uuid */
+                id: string;
+                nombre: string;
+            } | null;
+            /** @description Lo dedujo el portal (por el título o el correo de los invitados) */
+            clienteSugerido: boolean;
+            menciones: components["schemas"]["PersonaMini"][];
+            invitadosEquipo: components["schemas"]["PersonaMini"][];
+            /** @description Dominio (o correo) de los invitados de afuera */
+            externos: string[];
         };
         /** @description Al crear: tipo, titulo y fecha obligatorios. Sin horaInicio es de todo el día; un evento con hora y sin horaFin dura una hora. hecho solo para pendientes; invitados solo para eventos */
         EventoAgendaEntrada: {
@@ -19929,6 +19993,83 @@ export interface operations {
                 };
             };
             403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
+        };
+    };
+    calendarioEquipo: {
+        parameters: {
+            query: {
+                desde: string;
+                hasta: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description false si el portal no tiene planning@ conectada */
+                        conectado: boolean;
+                        calendarios: {
+                            nombre: string;
+                            color: string;
+                        }[];
+                        eventos: components["schemas"]["EventoAgenda"][];
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+            /** @description Google no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cambiarEventoEquipo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clave: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    responsableId?: string | null;
+                    /** Format: uuid */
+                    clienteId?: string | null;
+                    mencionIds?: string[];
+                    /** @description Para el aviso */
+                    titulo?: string;
+                    /**
+                     * Format: date
+                     * @description Para el aviso
+                     */
+                    fecha?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Guardado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             422: components["responses"]["Validacion"];
         };
     };

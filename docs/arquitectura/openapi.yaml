@@ -6200,6 +6200,52 @@ paths:
         '200': { description: OK, content: { application/json: { schema: { type: object, required: [redirect], properties: { redirect: { type: string } } } } } }
         '403': { $ref: '#/components/responses/SinPermiso' }
         '422': { $ref: '#/components/responses/Validacion' }
+  /equipo/calendario:
+    get:
+      tags: [Agenda]
+      operationId: calendarioEquipo
+      summary: 'El calendario del equipo (planning@inoo.pe, 26 nov): sus calendarios y eventos, con responsable, cliente y menciones del portal. Solo equipo'
+      x-roles: [EQUIPO]
+      parameters:
+        - { name: desde, in: query, required: true, schema: { type: string, format: date } }
+        - { name: hasta, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conectado, calendarios, eventos]
+                properties:
+                  conectado: { type: boolean, description: 'false si el portal no tiene planning@ conectada' }
+                  calendarios: { type: array, items: { type: object, required: [nombre, color], properties: { nombre: { type: string }, color: { type: string } } } }
+                  eventos: { type: array, items: { $ref: '#/components/schemas/EventoAgenda' } }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: Google no respondió }
+  /equipo/calendario/eventos/{clave}:
+    parameters:
+      - { name: clave, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [Agenda]
+      operationId: cambiarEventoEquipo
+      summary: 'De quién es, de qué cliente y a quién se menciona (solo en el portal). null quita y deja de sugerir. A quien se menciona o se le asigna le llega un aviso'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                responsableId: { type: [string, 'null'], format: uuid }
+                clienteId: { type: [string, 'null'], format: uuid }
+                mencionIds: { type: array, maxItems: 20, items: { type: string, format: uuid } }
+                titulo: { type: string, description: 'Para el aviso' }
+                fecha: { type: string, format: date, description: 'Para el aviso' }
+      responses:
+        '204': { description: Guardado }
+        '422': { $ref: '#/components/responses/Validacion' }
   /plantillas-tablero:
     get:
       tags: [Tableros]
@@ -9461,11 +9507,29 @@ components:
         enlace: { type: [string, 'null'], description: 'Ruta del portal donde se ve' }
         hecho: { type: boolean, description: 'Pendiente marcado como hecho o reunión ya realizada' }
         vencido: { type: boolean, description: 'Tarea o requerimiento cuya fecha ya pasó sin cerrarse' }
-        origen: { type: string, enum: [PORTAL, GOOGLE] }
+        origen: { type: string, enum: [PORTAL, GOOGLE, EQUIPO], description: 'EQUIPO: del calendario del equipo (planning@, 26 nov)' }
         eventoId: { type: [string, 'null'], format: uuid, description: 'Solo PENDIENTE y EVENTO' }
+        color: { type: [string, 'null'], description: 'El color de su calendario de Google (eventos del equipo)' }
+        equipo: { $ref: '#/components/schemas/EventoEquipoInfo' }
         editable: { type: boolean, description: 'Lo creó la persona (los invitados no lo editan)' }
         notas: { type: [string, 'null'] }
         invitados: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
+    EventoEquipoInfo:
+      type: object
+      description: 'Lo que el portal agrega a un evento del calendario del equipo (26 nov). No se escribe en Google'
+      required: [clave, calendario, enlaceGoogle, meet, responsable, responsableSugerido, cliente, clienteSugerido, menciones, invitadosEquipo, externos]
+      properties:
+        clave: { type: string, description: '«calendario|evento» de Google' }
+        calendario: { type: string }
+        enlaceGoogle: { type: [string, 'null'] }
+        meet: { type: [string, 'null'] }
+        responsable: { oneOf: [{ $ref: '#/components/schemas/PersonaMini' }, { type: 'null' }] }
+        responsableSugerido: { type: boolean, description: 'Lo dedujo el portal (quién lo creó o el primer invitado del equipo)' }
+        cliente: { oneOf: [{ type: object, required: [id, nombre], properties: { id: { type: string, format: uuid }, nombre: { type: string } } }, { type: 'null' }] }
+        clienteSugerido: { type: boolean, description: 'Lo dedujo el portal (por el título o el correo de los invitados)' }
+        menciones: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
+        invitadosEquipo: { type: array, items: { $ref: '#/components/schemas/PersonaMini' } }
+        externos: { type: array, items: { type: string }, description: 'Dominio (o correo) de los invitados de afuera' }
     EventoAgendaEntrada:
       type: object
       description: 'Al crear: tipo, titulo y fecha obligatorios. Sin horaInicio es de todo el día; un evento con hora y sin horaFin dura una hora. hecho solo para pendientes; invitados solo para eventos'

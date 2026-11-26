@@ -24,6 +24,12 @@ const TIPOS: { tipo: TipoAgenda; nombre: string; color: string }[] = [
   { tipo: "FERIADO", nombre: "Feriados", color: "var(--c-semaforo-rojo)" },
 ];
 const COLOR = Object.fromEntries(TIPOS.map((t) => [t.tipo, t.color])) as Record<TipoAgenda, string>;
+/** 26 nov: un evento del calendario del equipo va con el color de su calendario de Google. */
+const colorDe = (e: Evento) => e.color ?? COLOR[e.tipo];
+/** En «Mi calendario», lo del calendario del equipo tiene su propio filtro (no es «Mis eventos»). */
+type Filtro = TipoAgenda | "EQUIPO";
+const filtroDe = (e: Evento): Filtro => (e.origen === "EQUIPO" ? "EQUIPO" : e.tipo);
+const FILTROS: { tipo: Filtro; nombre: string; color: string }[] = [...TIPOS.slice(0, 2), { tipo: "EQUIPO", nombre: "Calendario del equipo", color: "#0b8043" }, ...TIPOS.slice(2)];
 const NOMBRE_TIPO: Record<TipoAgenda, string> = { REUNION: "Reunión de proyecto", EVENTO: "Evento", TAREA: "Vence una tarea", REQUERIMIENTO: "Entrega del cliente", PENDIENTE: "Pendiente", FERIADO: "Feriado" };
 
 // ───────────────────────────── fechas (AAAA-MM-DD, a mediodía UTC para no cruzar de día)
@@ -85,11 +91,22 @@ function Calendario() {
   const hoy = HOY_PORTAL;
   const [vista, setVista] = useState<Vista>("SEMANA");
   const [ancla, setAncla] = useState(hoy);
-  const [ocultos, setOcultos] = useState<Set<TipoAgenda>>(new Set());
+  const [ocultos, setOcultos] = useState<Set<Filtro>>(new Set());
   const [abierto, setAbierto] = useState<Evento | null>(null);
   const [editando, setEditando] = useState<Evento | Nuevo | null>(null);
   const [google, setGoogle] = useState(false);
+  // 26 nov: «Equipo» es el calendario compartido de planning@ (?equipo=1 lo abre directo, &fecha= en ese día).
+  const [modo, setModo] = useState<"MIO" | "EQUIPO">("MIO");
+  const [calOcultos, setCalOcultos] = useState<Set<string>>(new Set());
+  const [soloMio, setSoloMio] = useState(false);
+  const yoId = usePortal().sesion?.usuario.id ?? null;
   useEffect(() => setVista(leerVista()), []);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("equipo") === "1") setModo("EQUIPO");
+    const f = q.get("fecha");
+    if (f && /^\d{4}-\d{2}-\d{2}$/.test(f)) setAncla(f);
+  }, []);
   // 18 nov: al volver de Google (Conectar), se avisa cómo quedó.
   const avisarVuelta = useAviso();
   useEffect(() => {
@@ -110,16 +127,26 @@ function Calendario() {
   const { desde, hasta } = rangoDe(vista, ancla);
   // 2 nov: el lead (o el ADMIN) puede ver el calendario de alguien de su área, sin sus pendientes.
   const quien = usePersonaDeLaUrl();
-  const agenda = useConsulta<S<"Agenda">>(`/me/agenda?desde=${desde}&hasta=${hasta}${quien ? `&usuarioId=${quien}` : ""}`);
+  const enEquipo = modo === "EQUIPO" && !quien;
+  const mia = useConsulta<S<"Agenda">>(enEquipo ? null : `/me/agenda?desde=${desde}&hasta=${hasta}${quien ? `&usuarioId=${quien}` : ""}`);
+  const delEquipo = useConsulta<{ conectado: boolean; calendarios: { nombre: string; color: string }[]; eventos: Evento[] }>(enEquipo ? `/equipo/calendario?desde=${desde}&hasta=${hasta}` : null);
+  const agenda = enEquipo ? delEquipo : mia;
   const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>(quien ? "/panel/equipo" : null);
   const deQuien = equipo.datos?.datos.find((p) => p.id === quien);
-  const visibles = useMemo(() => (agenda.datos?.eventos ?? []).filter((e) => !ocultos.has(e.tipo)), [agenda.datos, ocultos]);
+  const esMio = (e: Evento) => !!yoId && !!e.equipo && (e.equipo.responsable?.id === yoId || e.equipo.menciones.some((m) => m.id === yoId) || e.equipo.invitadosEquipo.some((m) => m.id === yoId));
+  const visibles = useMemo(
+    () => enEquipo
+      ? (delEquipo.datos?.eventos ?? []).filter((e) => !calOcultos.has(e.equipo?.calendario ?? "") && (!soloMio || esMio(e)))
+      : (mia.datos?.eventos ?? []).filter((e) => !ocultos.has(filtroDe(e))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enEquipo, delEquipo.datos, mia.datos, ocultos, calOcultos, soloMio, yoId],
+  );
   const mover = (n: number) => setAncla(vista === "MES" ? sumarMeses(ancla, n) : sumarDias(ancla, n * (vista === "SEMANA" ? 7 : 1)));
   const irAlDia = (f: string) => {
     setAncla(f);
     cambiarVista("DIA");
   };
-  const g = agenda.datos?.google;
+  const g = mia.datos?.google;
 
   return (
     <>
@@ -130,20 +157,50 @@ function Calendario() {
       )}
       <Cabecera
         titulo={quien ? `Calendario de ${deQuien?.nombre ?? "…"}` : "Calendario"}
-        bajada={quien ? "Sus reuniones, eventos y vencimientos. Sus pendientes personales no se muestran." : "Tus reuniones, pendientes, vencimientos de tareas y lo que deben entregar tus clientes."}
-        accion={quien ? undefined : (
+        bajada={quien ? "Sus reuniones, eventos y vencimientos. Sus pendientes personales no se muestran."
+          : enEquipo ? "El calendario compartido de planning@inoo.pe. Aquí se ve de quién es cada evento y de qué cliente, y puedes mencionar a alguien; en Google no cambia nada."
+          : "Tus reuniones, pendientes, vencimientos de tareas, lo que deben entregar tus clientes y lo del calendario del equipo que te toca."}
+        accion={quien || enEquipo ? undefined : (
           <button className="boton boton--primario" onClick={() => setEditando({ fecha: vista === "MES" ? hoy : ancla, hora: null })}>
             <LuPlus size={18} /> Nuevo
           </button>
         )}
       />
+      {!quien && (
+        <div className="segmentado" role="tablist" aria-label="Qué calendario" style={{ marginBottom: 14 }}>
+          <button role="tab" aria-selected={!enEquipo} className={!enEquipo ? "activo" : undefined} onClick={() => setModo("MIO")}>Mi calendario</button>
+          <button role="tab" aria-selected={enEquipo} className={enEquipo ? "activo" : undefined} onClick={() => setModo("EQUIPO")}>Equipo</button>
+        </div>
+      )}
       <div className="calendario">
         <aside className="calendario-lateral" aria-label="Filtros del calendario">
           <MiniMes ancla={ancla} hoy={hoy} alElegir={setAncla} />
+          {enEquipo ? (
+            <div className="pila" style={{ gap: 4 }}>
+              <p className="calendario-subtitulo">Calendarios de planning@</p>
+              {delEquipo.datos && !delEquipo.datos.conectado && <p className="texto-xs texto-muted">El calendario del equipo no está conectado en este portal.</p>}
+              {(delEquipo.datos?.calendarios ?? []).map((c) => {
+                const n = (delEquipo.datos?.eventos ?? []).filter((e) => e.equipo?.calendario === c.nombre).length;
+                return (
+                  <label key={c.nombre} className="calendario-filtro">
+                    <input type="checkbox" checked={!calOcultos.has(c.nombre)} style={{ accentColor: c.color }}
+                      onChange={() => setCalOcultos((o) => { const x = new Set(o); if (x.has(c.nombre)) x.delete(c.nombre); else x.add(c.nombre); return x; })} />
+                    <span style={{ flex: 1 }}>{c.nombre}</span>
+                    <span className="texto-xs texto-muted">{n || ""}</span>
+                  </label>
+                );
+              })}
+              <label className="calendario-filtro" style={{ marginTop: 8 }}>
+                <input type="checkbox" checked={soloMio} onChange={() => setSoloMio((x) => !x)} />
+                <span style={{ flex: 1 }}>Solo lo mío</span>
+              </label>
+              <p className="texto-xs texto-muted">Donde estás a cargo, te mencionaron o te invitaron.</p>
+            </div>
+          ) : (
           <div className="pila" style={{ gap: 4 }}>
             <p className="calendario-subtitulo">Qué ver</p>
-            {TIPOS.map((t) => {
-              const n = (agenda.datos?.eventos ?? []).filter((e) => e.tipo === t.tipo).length;
+            {FILTROS.map((t) => {
+              const n = (agenda.datos?.eventos ?? []).filter((e) => filtroDe(e) === t.tipo).length;
               return (
                 <label key={t.tipo} className="calendario-filtro">
                   <input
@@ -158,7 +215,8 @@ function Calendario() {
               );
             })}
           </div>
-          {!quien && (g?.real || !g?.simulada || !!process.env.NEXT_PUBLIC_FECHA_FIJA) && <div className="tarjeta calendario-google">
+          )}
+          {!quien && !enEquipo && (g?.real || !g?.simulada || !!process.env.NEXT_PUBLIC_FECHA_FIJA) && <div className="tarjeta calendario-google">
             <p className="negrita texto-sm fila" style={{ gap: 8 }}>
               <LogoGoogle /> Google Calendar
             </p>
@@ -200,7 +258,8 @@ function Calendario() {
         </section>
       </div>
 
-      {abierto && (
+      {abierto?.equipo && <DetalleEventoEquipo e={abierto} alCerrar={() => setAbierto(null)} alCambiar={() => { void agenda.recargar(); }} />}
+      {abierto && !abierto.equipo && (
         <DetalleEvento
           e={abierto}
           alCerrar={() => setAbierto(null)}
@@ -253,11 +312,11 @@ function Chip({ e, alAbrir }: { e: Evento; alAbrir: (e: Evento) => void }) {
   return (
     <button
       className={`chip-agenda${lleno ? " chip-agenda--lleno" : ""}${e.hecho ? " chip-agenda--hecho" : ""}`}
-      style={lleno ? { background: `color-mix(in srgb, ${COLOR[e.tipo]} 16%, var(--c-blanco))`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${COLOR[e.tipo]} 45%, transparent)` } : undefined}
+      style={lleno ? { background: `color-mix(in srgb, ${colorDe(e)} 16%, var(--c-blanco))`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${colorDe(e)} 45%, transparent)` } : undefined}
       onClick={(x) => { x.stopPropagation(); alAbrir(e); }}
       title={e.titulo}
     >
-      {!lleno && <span className="punto" style={{ background: COLOR[e.tipo] }} />}
+      {!lleno && <span className="punto" style={{ background: colorDe(e) }} />}
       {e.horaInicio && <span className="chip-hora">{e.horaInicio}</span>}
       {e.vencido && <LuTriangleAlert size={11} aria-label="Vencido" style={{ flex: "none", color: "var(--c-semaforo-rojo)" }} />}<span className="chip-texto">{e.titulo}</span>
     </button>
@@ -369,7 +428,7 @@ function VistaHoras({ dias, hoy, eventos, alAbrir, alCrear, alVerDia }: { dias: 
                     className={`bloque-agenda${e.hecho ? " bloque-agenda--hecho" : ""}`}
                     style={{
                       top: ((ini - HORA_INICIO * 60) / 60) * ALTO_HORA, height: Math.max(((fin - ini) / 60) * ALTO_HORA - 2, 20),
-                      left: `calc(${(carril / de) * 100}% + 2px)`, width: `calc(${100 / de}% - 4px)`, borderColor: `color-mix(in srgb, ${COLOR[e.tipo]} 45%, transparent)`, background: `color-mix(in srgb, ${COLOR[e.tipo]} 14%, var(--c-blanco))`,
+                      left: `calc(${(carril / de) * 100}% + 2px)`, width: `calc(${100 / de}% - 4px)`, borderColor: `color-mix(in srgb, ${colorDe(e)} 45%, transparent)`, background: `color-mix(in srgb, ${colorDe(e)} 14%, var(--c-blanco))`,
                     }}
                     onClick={() => alAbrir(e)}
                   >
@@ -417,7 +476,7 @@ function DetalleEvento({ e, alCerrar, alEditar, alCambiar }: { e: Evento; alCerr
     <Modal abierto alCerrar={alCerrar} etiqueta={e.titulo} ancho={440}>
       <div className="pila" style={{ gap: 12 }}>
         <div className="fila" style={{ gap: 10, alignItems: "flex-start" }}>
-          <span className="cuadro-tipo" style={{ background: COLOR[e.tipo] }} />
+          <span className="cuadro-tipo" style={{ background: colorDe(e) }} />
           <div>
             <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600, textDecoration: e.hecho && e.tipo === "PENDIENTE" ? "line-through" : undefined }}>{e.titulo}</h2>
             <p className="texto-sm texto-muted">
@@ -452,6 +511,105 @@ function DetalleEvento({ e, alCerrar, alEditar, alCambiar }: { e: Evento; alCerr
           {e.editable && <button className="boton boton--chico" onClick={() => void eliminar()}><LuTrash2 size={14} /> Eliminar</button>}
         </div>
         {!e.editable && e.eventoId && <p className="texto-xs texto-muted">Te invitaron: solo quien lo creó lo puede cambiar.</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * 26 nov: un evento del calendario del equipo (planning@). Se cambia en Google; aquí se dice de quién es, de qué
+ * cliente y a quién se menciona (solo en el portal). Lo sugerido por el portal se marca como «sugerido».
+ */
+function DetalleEventoEquipo({ e, alCerrar, alCambiar }: { e: Evento; alCerrar: () => void; alCambiar: () => void }) {
+  const avisar = useAviso();
+  const i = e.equipo!;
+  const [info, setInfo] = useState(i);
+  const equipo = useConsulta<{ datos: S<"PersonaEquipo">[] }>("/panel/equipo");
+  const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>("/clientes?limite=100");
+  const [mencion, setMencion] = useState("");
+  const guardar = async (cuerpo: Record<string, unknown>, nuevo: typeof info) => {
+    const antes = info;
+    setInfo(nuevo);
+    try {
+      await api(`/equipo/calendario/eventos/${encodeURIComponent(i.clave)}`, { metodo: "PATCH", cuerpo: { ...cuerpo, titulo: e.titulo, fecha: e.fecha } });
+      alCambiar();
+    } catch (x) {
+      setInfo(antes);
+      avisar({ titulo: "No se guardó", texto: x instanceof ProblemaApi ? x.errores[0]?.mensaje ?? x.titulo : undefined });
+    }
+  };
+  const personas = equipo.datos?.datos ?? [];
+  const nombre = (id: string) => personas.find((p) => p.id === id)?.nombre ?? "";
+  return (
+    <Modal abierto alCerrar={alCerrar} etiqueta={e.titulo} ancho={480}>
+      <div className="pila" style={{ gap: 12 }}>
+        <div className="fila" style={{ gap: 10, alignItems: "flex-start" }}>
+          <span className="cuadro-tipo" style={{ background: colorDe(e) }} />
+          <div>
+            <h2 style={{ fontSize: "var(--t-xl)", fontWeight: 600 }}>{e.titulo}</h2>
+            <p className="texto-sm texto-muted">
+              {mayus(fmt(e.fecha, { weekday: "long", day: "numeric", month: "long" }))}
+              {e.horaInicio ? ` · ${e.horaInicio}${e.horaFin ? ` – ${e.horaFin}` : ""}` : " · todo el día"}
+            </p>
+          </div>
+        </div>
+        <p className="texto-xs fila" style={{ gap: 6, flexWrap: "wrap" }}>
+          <Etiqueta>{i.calendario}</Etiqueta>
+          <Etiqueta tono="azul">Calendario del equipo</Etiqueta>
+        </p>
+        <label className="pila texto-sm" style={{ gap: 4 }}>
+          <span className="negrita">De quién es {info.responsableSugerido && <span className="texto-xs texto-muted">(sugerido)</span>}</span>
+          <select className="input" value={info.responsable?.id ?? ""} disabled={!equipo.datos}
+            onChange={(x) => { const id = x.target.value || null; void guardar({ responsableId: id }, { ...info, responsable: id ? { id, nombre: nombre(id) } : null, responsableSugerido: false }); }}>
+            <option value="">Sin asignar</option>
+            {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </label>
+        <label className="pila texto-sm" style={{ gap: 4 }}>
+          <span className="negrita">Cliente {info.clienteSugerido && <span className="texto-xs texto-muted">(sugerido)</span>}</span>
+          <select className="input" value={info.cliente?.id ?? ""} disabled={!clientes.datos}
+            onChange={(x) => { const id = x.target.value || null; const c = clientes.datos?.datos.find((y) => y.id === id); void guardar({ clienteId: id }, { ...info, cliente: c ? { id: c.id, nombre: c.nombre } : null, clienteSugerido: false }); }}>
+            <option value="">Sin cliente (interno)</option>
+            {info.cliente && !clientes.datos?.datos.some((c) => c.id === info.cliente!.id) && <option value={info.cliente.id}>{info.cliente.nombre}</option>}
+            {(clientes.datos?.datos ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </label>
+        <div className="pila texto-sm" style={{ gap: 6 }}>
+          <span className="negrita">Mencionados</span>
+          <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+            {info.menciones.map((m) => (
+              <span key={m.id} className="chip texto-xs" style={{ gap: 4 }}>
+                @{m.nombre}
+                <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar la mención a ${m.nombre}`}
+                  onClick={() => { const xs = info.menciones.filter((y) => y.id !== m.id); void guardar({ mencionIds: xs.map((y) => y.id) }, { ...info, menciones: xs }); }}>×</button>
+              </span>
+            ))}
+            <select className="input" style={{ width: 200, height: 32 }} aria-label="Mencionar a alguien" value={mencion}
+              onChange={(x) => {
+                const id = x.target.value;
+                setMencion("");
+                if (!id || info.menciones.some((m) => m.id === id)) return;
+                const xs = [...info.menciones, { id, nombre: nombre(id) }];
+                void guardar({ mencionIds: xs.map((y) => y.id) }, { ...info, menciones: xs });
+              }}>
+              <option value="">+ Mencionar…</option>
+              {personas.filter((p) => !info.menciones.some((m) => m.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+          <span className="texto-xs texto-muted">Le llega un aviso, y lo ve en su calendario.</span>
+        </div>
+        {(i.invitadosEquipo.length > 0 || i.externos.length > 0) && (
+          <p className="texto-sm fila" style={{ gap: 6, alignItems: "flex-start" }}>
+            <LuUsers size={15} style={{ flex: "none", marginTop: 2 }} />
+            <span>{[...i.invitadosEquipo.map((p) => p.nombre), ...i.externos].join(", ")}</span>
+          </p>
+        )}
+        {e.notas && <p className="texto-sm"><TextoConEnlaces texto={e.notas} /></p>}
+        <div className="fila" style={{ gap: 8, flexWrap: "wrap" }}>
+          {i.meet && <a className="boton boton--chico" href={i.meet} target="_blank" rel="noreferrer"><LuExternalLink size={14} /> Unirse a la reunión</a>}
+          {i.enlaceGoogle && <a className="boton boton--chico" href={i.enlaceGoogle} target="_blank" rel="noreferrer"><LuExternalLink size={14} /> Abrir en Google</a>}
+        </div>
+        <p className="texto-xs texto-muted">La hora, el título y los invitados se cambian en Google Calendar (cuenta planning@).</p>
       </div>
     </Modal>
   );

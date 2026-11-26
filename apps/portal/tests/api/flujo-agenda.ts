@@ -37,7 +37,8 @@ export function pruebasAgenda(nombre: string, manejar: Manejador, reiniciar: () 
       const vencida = ev.find((e: any) => e.titulo === "Revisar las fotos de producto que subió el cliente");
       assert.equal(vencida.vencido, true, "venció el 5 de octubre");
       assert.deepEqual(titulos(ev, "PENDIENTE"), ["Enviar propuesta a Nativa Café", "Llamar a Valeria por el mapa de procesos"]);
-      const plan = ev.find((e: any) => e.tipo === "EVENTO");
+      // 26 nov: los eventos del calendario del equipo (origen EQUIPO) van aparte (flujo-calendario-equipo).
+      const plan = ev.find((e: any) => e.tipo === "EVENTO" && e.origen !== "EQUIPO");
       assert.deepEqual([plan.titulo, plan.editable, plan.invitados.map((p: any) => p.nombre)], ["Planificación interna de noviembre", true, ["Camila Paredes"]]);
       assert.deepEqual({ ...r.json.google, real: undefined }, { conectado: false, correo: null, conectadoEn: null, simulada: true, real: undefined });
       assert.equal(typeof r.json.google.real, "boolean", "18 nov: dice si la conexión es real (OAuth) o de prueba");

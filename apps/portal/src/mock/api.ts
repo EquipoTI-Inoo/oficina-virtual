@@ -62,6 +62,7 @@ import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero } from ".
 import { validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
 import { aprobar, revisarAutorizacion, type PedidoAutorizacion } from "../servidor/oauth-mcp";
+import { claveValida, comoAgenda, dominioDe, dominioUtil, infoEvento, leToca, validarCambioEvento, type Contexto, type EventoGoogle } from "../dominio/calendario-equipo";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -204,6 +205,8 @@ interface Estado {
   accesosBoveda: { id: string; usuarioId: string; clienteId: string | null; nombre: string; usuario: string | null; url: string | null; secretoCifrado: string; actualizadoEn: string }[];
   bibliotecaJarvis: { id: string; espacio: string; botId: string; botNombre: string; sesionId: string | null; titulo: string; contenido: string; creadoPorId: string; creadoEn: string }[];
   eventosAgenda: D.EventoAgendaDemo[];
+  /** 26 nov: lo que el portal guarda de los eventos del calendario del equipo (responsable, cliente y menciones). */
+  eventosEquipo: Record<string, { responsableId: string | null; clienteId: string | null; sinResponsable: boolean; sinCliente: boolean; mencionIds: string[] }>;
   /** Accesos del equipo (2 nov): cuentas asignadas y miembros de proyecto. */
   accesosCuenta: { usuarioId: string; clienteId: string; asignadoPorId: string | null }[];
   /** 24 nov: marcas asignadas a quien trabaja por proyecto, y pedidos de acceso. */
@@ -303,6 +306,7 @@ function estadoInicial(): Estado {
     botsJarvis: structuredClone(D.BOTS_JARVIS_INICIALES),
     skillsJarvis: [], botSkill: [], usosSkill: [], conectoresJarvis: [], botConector: [], rutinasJarvis: [], automatizacionesJarvis: [], ejecucionesJarvis: [], bibliotecaJarvis: [], conexiones: {}, skillsCatalogo: skillsCatalogoIniciales(), skillsPersona: [], conectoresCatalogo: conectoresCatalogoIniciales(), conectoresPersona: {}, estadosConexion: {}, bovedas: {}, accesosBoveda: [], importacionesMonday: [], historialMonday: [], archivosTablero: [], videosDrive: {}, comentariosArchivo: [], actualizacionesTablero: [], avisosEquipo: [], resumenAvance: { activos: new Set(), usos: [] }, marcas: [{ id: "00000000-0000-4000-8058-000000000001", clienteId: D.uid(2, 1), nombre: "Casa Oliva Spa", activa: true }], carpetas: [],
     eventosAgenda: structuredClone(D.EVENTOS_AGENDA_INICIALES),
+    eventosEquipo: {},
     accesosCuenta: [],
     accesosMarca: [],
     solicitudesAcceso: [],
@@ -6181,6 +6185,76 @@ function conexionGoogle(usuarioId: string): S<"ConexionGoogle"> {
   return { conectado: !!c, correo: c?.correo ?? null, conectadoEn: c?.conectadoEn ?? null, simulada: true, real: true };
 }
 
+// ───────────────────────────── calendario del equipo (26 nov): sin Google, tres eventos de muestra en el rango
+const CALS_DEMO = { WEB: { id: "web@demo", nombre: "WEB", color: "#0b8043" }, PRINCIPAL: { id: "planning@inoo.pe", nombre: "planning@inoo.pe", color: "#7986cb" }, AV: { id: "audiovisual@demo", nombre: "SESIONES AUDIOVISUALES", color: "#f4511e" } };
+function eventosEquipoDemo(desde: string, hasta: string): EventoGoogle[] {
+  const correo = (n: number) => E.usuarios.find((u) => u.id === D.uid(1, n))?.email.toLowerCase() ?? "";
+  const dia = (n: number) => { const d = new Date(`${desde}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); const f = d.toISOString().slice(0, 10); return f <= hasta ? f : desde; };
+  const base = { enlace: null, meet: null, creador: "planning@inoo.pe", notas: null };
+  return [
+    { ...base, clave: "web@demo|ev1", calendario: CALS_DEMO.WEB, titulo: "Web_CasaOliva_Presentación", fecha: desde, horaInicio: "10:00", horaFin: "11:00", invitados: [correo(3), correo(1)] },
+    { ...base, clave: "planning@inoo.pe|ev2", calendario: CALS_DEMO.PRINCIPAL, titulo: "Reunión semanal de balance", fecha: dia(1), horaInicio: "16:00", horaFin: "17:00", invitados: [correo(6), correo(3)] },
+    { ...base, clave: "audiovisual@demo|ev3", calendario: CALS_DEMO.AV, titulo: "Sesión de fotos", fecha: dia(2), horaInicio: null, horaFin: null, invitados: [] },
+  ];
+}
+function contextoCalendarioMock(): Contexto {
+  const equipo = E.usuarios.filter((u) => u.tipo === "EQUIPO" && u.activo !== false).map((u) => ({ id: u.id, nombre: u.nombre, email: u.email }));
+  const clientes = E.clientes.map((c) => ({ id: c.id, nombre: c.nombre }));
+  const dominios = new Map<string, string>();
+  for (const m of E.miembros) {
+    const d = dominioDe(E.usuarios.find((u) => u.id === m.usuarioId)?.email ?? "");
+    if (dominioUtil(d)) dominios.set(d, m.clienteId);
+  }
+  return { equipo, clientes, dominios };
+}
+function eventosEquipoMock(desde: string, hasta: string) {
+  const cx = contextoCalendarioMock();
+  return eventosEquipoDemo(desde, hasta).map((g) => {
+    const s = E.eventosEquipo[g.clave];
+    const menciones = (s?.mencionIds ?? []).map((id) => cx.equipo.find((p) => p.id === id)).filter(Boolean).map((p) => ({ id: p!.id, nombre: p!.nombre }));
+    return { g, i: infoEvento(g, cx, s && { ...s, menciones }) };
+  });
+}
+ruta("GET", "/equipo/calendario", (ctx, _p, q) => {
+  soloEquipo(ctx);
+  const desde = q.get("desde");
+  const hasta = q.get("hasta");
+  const errores = validarRango(desde, hasta);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  return { conectado: true, calendarios: Object.values(CALS_DEMO).map((c) => ({ nombre: c.nombre, color: c.color })), eventos: ordenarAgenda(eventosEquipoMock(desde!, hasta!).map((x) => comoAgenda(x.g, x.i) as S<"EventoAgenda">)) };
+});
+ruta("PATCH", "/equipo/calendario/eventos/:clave", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  if (!claveValida(p.clave)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos ese evento");
+  const b = (await cuerpo<{ responsableId?: string | null; clienteId?: string | null; mencionIds?: string[]; titulo?: unknown; fecha?: unknown }>(req)) ?? {};
+  const esId = (x: unknown) => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x);
+  const errores = validarCambioEvento(b, esId);
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const delEquipo = (id: string) => E.usuarios.some((u) => u.id === id && u.tipo === "EQUIPO");
+  if (b.responsableId && !delEquipo(b.responsableId)) errores.push({ campo: "responsableId", mensaje: "Elige a alguien del equipo" });
+  if (b.clienteId && !E.clientes.some((c) => c.id === b.clienteId)) errores.push({ campo: "clienteId", mensaje: "Elige un cliente" });
+  if (b.mencionIds?.some((id) => !delEquipo(id))) errores.push({ campo: "mencionIds", mensaje: "Solo personas del equipo" });
+  if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
+  const s = (E.eventosEquipo[p.clave] ??= { responsableId: null, clienteId: null, sinResponsable: false, sinCliente: false, mencionIds: [] });
+  const titulo = typeof b.titulo === "string" && b.titulo.trim() ? b.titulo.trim().slice(0, 120) : "un evento";
+  const avisar = (usuarioId: string, t: string) => E.avisosEquipo.push({ id: crypto.randomUUID(), usuarioId, titulo: t, cuerpo: titulo, enlace: "/equipo/calendario?equipo=1", creadoEn: new Date().toISOString() });
+  if (b.responsableId !== undefined) {
+    if (b.responsableId && b.responsableId !== s.responsableId && b.responsableId !== ctx.usuario.id) avisar(b.responsableId, `${ctx.usuario.nombre} te puso a cargo de un evento del calendario`);
+    s.responsableId = b.responsableId;
+    s.sinResponsable = b.responsableId === null;
+  }
+  if (b.clienteId !== undefined) {
+    s.clienteId = b.clienteId;
+    s.sinCliente = b.clienteId === null;
+  }
+  if (b.mencionIds) {
+    const nuevos = [...new Set(b.mencionIds)];
+    for (const id of nuevos) if (!s.mencionIds.includes(id) && id !== ctx.usuario.id) avisar(id, `${ctx.usuario.nombre} te mencionó en el calendario del equipo`);
+    s.mencionIds = nuevos;
+  }
+  return null;
+});
+
 ruta("GET", "/me/agenda", async (ctx, _p, q) => {
   soloEquipo(ctx);
   const desde = q.get("desde");
@@ -6238,6 +6312,9 @@ ruta("GET", "/me/agenda", async (ctx, _p, q) => {
     if ((e.creadoPorId === yo || e.invitadosIds.includes(yo)) && enRango(e.fecha) && !(otro && e.tipo === "PENDIENTE")) eventos.push(eventoPropioVista(ctx, e));
   }
   // 18 nov: con Calendar conectado (de ejemplo en la demo), una reunión de Google.
+  // 26 nov: del calendario del equipo, lo que le toca (responsable, mencionado o invitado).
+  const persona = E.usuarios.find((u) => u.id === yo);
+  for (const x of eventosEquipoMock(desde!, hasta!)) if (persona && leToca(x.g, x.i, { id: yo, email: persona.email })) eventos.push(comoAgenda(x.g, x.i) as S<"EventoAgenda">);
   if (!otro && E.conexiones[llaveConexion(ctx.usuario.id, "google-calendar")] && enRango(desde!)) {
     eventos.push({ ...base({ id: "google-demo-1", tipo: "EVENTO", titulo: "Reunión de Google (ejemplo)", fecha: desde! }), horaInicio: "10:00", horaFin: "10:30", origen: "GOOGLE" });
   }
