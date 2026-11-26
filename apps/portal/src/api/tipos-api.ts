@@ -8699,6 +8699,8 @@ export interface components {
             /** Format: date */
             fechaFin?: string | null;
             inooworkProyectoId?: string;
+            /** @description 26 nov: un proyecto que ya está en marcha. No se le piden formularios al cliente ni se le avisa */
+            sinPedidos?: boolean;
             /**
              * Format: uuid
              * @description Responsable del proyecto en Inoo (persona del equipo); por defecto el AM de la cuenta

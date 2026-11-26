@@ -10379,6 +10379,7 @@ components:
         fechaInicio: { type: string, format: date }
         fechaFin: { type: [string, 'null'], format: date }
         inooworkProyectoId: { type: string }
+        sinPedidos: { type: boolean, description: '26 nov: un proyecto que ya está en marcha. No se le piden formularios al cliente ni se le avisa' }
         responsableId: { type: [string, 'null'], format: uuid, description: 'Responsable del proyecto en Inoo (persona del equipo); por defecto el AM de la cuenta' }
         etapas:
           type: array

@@ -1821,11 +1821,13 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, cuerpo) => {
     );
   }
   // Reunión 15 oct: todo lo que necesitamos del cliente se pide al inicio.
-  for (const codigo of requerimientosAlContratar(plantilla.requerimientos ?? [])) {
+  // 26 nov: «sin pedidos» (un proyecto que ya está en marcha): ni formularios ni aviso al cliente.
+  const sinPedidos = (b as { sinPedidos?: unknown }).sinPedidos === true;
+  for (const codigo of sinPedidos ? [] : requerimientosAlContratar(plantilla.requerimientos ?? [])) {
     const pl = (await ctx.c.query<FilaPlantillaReq>("SELECT * FROM plantilla_requerimiento WHERE codigo = $1 AND activa", [codigo])).rows[0];
     if (pl && plantillaAplica(pl.servicios, cat!.codigo)) await pedirAlClienteDb(ctx, id, p.id, pl, null, null, undefined, feriados);
   }
-  await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, responsableId: responsable, usuarioId: ctx.u.usuarioId });
+  if (!sinPedidos) await emitirOutbox(ctx, "servicio.contratado", p.id, { servicioContratadoId: id, codigo: cat!.codigo, variante, responsableId: responsable, usuarioId: ctx.u.usuarioId });
   const { etapas: _e, ...v } = await servicioVista(ctx, await buscarServicio(ctx, id), PERIODO_ACTUAL());
   return { __status: 201, ...v };
 });

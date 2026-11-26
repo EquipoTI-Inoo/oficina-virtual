@@ -1005,6 +1005,7 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
   const vacio = { servicio: "", variante: "", fechaInicio: "", marca: "", crm: "", licencias: "", usuarios: "", piezas: "", tamano: "MEDIANO", responsableId: "", alcance: "" };
   const [f, setF] = useState(vacio);
   const [personalizado, setPersonalizado] = useState(false);
+  const [sinPedidos, setSinPedidos] = useState(false);
   const [etapas, setEtapas] = useState([{ nombre: "", avancePct: "", diasHabiles: "", reunionClave: "" }]);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const cat = catalogo.datos?.datos.find((c) => c.codigo === f.servicio);
@@ -1035,9 +1036,10 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
           etapas: personalizado ? etapas.map((e) => ({ nombre: e.nombre, avancePct: Number(e.avancePct), diasHabiles: Number(e.diasHabiles), reunionClave: e.reunionClave || null })) : undefined,
           entregables: f.servicio === "SOCIAL_MEDIA_PRO" && f.piezas ? [{ tipoPieza: "COPY", cantidadMensual: Number(f.piezas) }] : undefined,
           ...(tableroId ? { inooworkProyectoId: tableroId } : {}),
+          ...(sinPedidos ? { sinPedidos: true } : {}),
         },
       });
-      avisar({ titulo: tableroId ? "Compartido con el cliente" : "Servicio contratado", texto: aPedir.length ? `Se le pidió al cliente: ${aPedir.join(", ")}.` : "El cliente ya lo ve en su portal." });
+      avisar({ titulo: tableroId ? "Compartido con el cliente" : "Servicio contratado", texto: aPedir.length && !sinPedidos ? `Se le pidió al cliente: ${aPedir.join(", ")}.` : "El cliente ya lo ve en su portal." });
       setF(vacio);
       setPersonalizado(false);
       alCrear(creado);
@@ -1184,9 +1186,13 @@ export function NuevoServicio({ clienteId, clientes, cabecera, abierto, alCerrar
       {plantilla && !personalizado && (
         <p className="texto-xs texto-muted">
           {plantilla.etapas.length} etapas · {plantilla.reunionesOptimas} reuniones clave
-          {aPedir.length > 0 && <> · Se le pedirá al cliente: {aPedir.join(", ")}</>}
+          {aPedir.length > 0 && !sinPedidos && <> · Se le pedirá al cliente: {aPedir.join(", ")}</>}
         </p>
       )}
+      <label className="fila texto-sm" style={{ gap: 8, alignItems: "flex-start" }}>
+        <input type="checkbox" checked={sinPedidos} onChange={(e) => setSinPedidos(e.target.checked)} style={{ marginTop: 3 }} />
+        <span>No pedirle nada al cliente ahora <span className="texto-muted">(un proyecto que ya está en marcha: sin formularios ni aviso)</span></span>
+      </label>
       <button className="boton boton--primario boton--bloque" onClick={() => void contratar()}>
         <LuPlus size={16} /> {tableroId ? "Compartir con el cliente" : "Contratar"}
       </button>

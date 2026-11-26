@@ -3275,12 +3275,13 @@ ruta("POST", "/clientes/:id/servicios", async (ctx, p, _q, req) => {
     E.etapas.push({ id: nuevoId(20), servicioContratadoId: sc.id, clienteId: c.id, periodo, orden: e.orden, nombre: e.nombre, avancePct: e.avancePct, esperaCliente: e.esperaCliente, reunionClave: e.reunionClave, estado: "SIN_INICIAR", fechaInicio: e.fechaInicio, fechaEstimada: e.fechaEstimada, fechaFin: null });
   }
   // Reunión 15 oct: todo lo que necesitamos del cliente se pide al inicio.
-  for (const codigo of requerimientosAlContratar(plantilla.requerimientos)) {
+  const sinPedidos = (b as { sinPedidos?: unknown }).sinPedidos === true;
+  for (const codigo of sinPedidos ? [] : requerimientosAlContratar(plantilla.requerimientos)) {
     const pl = plantillaRequerimiento(codigo);
     if (pl && plantillaAplica(pl.servicios, sc.codigo)) pedirAlCliente(ctx, sc, codigo);
   }
   if (b.inooworkProyectoId) { PROYECTO_INOOWORK[sc.id] = b.inooworkProyectoId; E.tableroDeServicio[sc.id] = b.inooworkProyectoId; }
-  emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, responsableId: sc.responsableId, usuarioId: ctx.usuario.id });
+  if (!sinPedidos) emitir("servicio.contratado", c.id, { servicioContratadoId: sc.id, codigo: sc.codigo, variante, responsableId: sc.responsableId, usuarioId: ctx.usuario.id });
   return { __status: 201, ...servicioVista(sc) };
 });
 

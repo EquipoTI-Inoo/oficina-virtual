@@ -304,6 +304,14 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.deepEqual((await llamar("GET", `/servicios-contratados/${sid}/tareas`, DIEGO)).json.datos, [], "no queda una tarea aparte");
     });
 
+    test("26 nov: compartir «sin pedidos» no le pide formularios al cliente", async () => {
+      await reiniciar();
+      const antes = (await llamar("GET", `/clientes/${CASA_OLIVA}/requerimientos`, VALERIA)).json.datos.length;
+      const r = await llamar("POST", `/clientes/${CASA_OLIVA}/servicios`, ADMIN, { servicioCodigo: "WEB", variante: "LANDING", fechaInicio: "2026-10-19", responsableId: uid(1, 3), detalle: { tamano: "GRANDE", paginas: 1, cms: "WORDPRESS", alcanceWeb: "SOLO_WEB" }, sinPedidos: true });
+      assert.equal(r.status, 201);
+      assert.equal((await llamar("GET", `/clientes/${CASA_OLIVA}/requerimientos`, VALERIA)).json.datos.length, antes);
+    });
+
     test("26 nov: borrar manda a la papelera y se restaura en su lugar (fila y subítem)", async () => {
       await reiniciar();
       const antes = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
