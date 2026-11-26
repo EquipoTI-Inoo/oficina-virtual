@@ -457,7 +457,7 @@ export function CarpetasDelCliente({ clienteId, clienteNombre, principal, princi
   };
   const xs = q.datos?.datos ?? [];
   type Sugeridas = { conectado: boolean; datos: { driveId: string; url: string; nombre: string; padre: string | null }[] };
-  // 25 nov: lo que el portal encuentra en Drive con el nombre del cliente (las carpetas de planning@ compartidas).
+  // 25 nov: lo que el portal encuentra en Drive con el nombre del cliente (en el Drive del equipo, la cuenta planning@).
   const sug = useConsulta<Sugeridas>(`/clientes/${clienteId}/carpetas/sugeridas`);
   const vincularSugerida = async (x: Sugeridas["datos"][number]) => {
     try {

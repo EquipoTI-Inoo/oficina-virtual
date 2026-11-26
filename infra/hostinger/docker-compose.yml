@@ -119,6 +119,8 @@ services:
       DRIVE_CLIENT_SECRET: ${DRIVE_CLIENT_SECRET:-}
       DRIVE_REFRESH_TOKEN: ${DRIVE_REFRESH_TOKEN:-}
       DRIVE_CARPETA_ID: ${DRIVE_CARPETA_ID:-}
+      # 26 nov: la cuenta planning@inoo.pe (Drive del equipo, solo lectura, y su calendario). scripts/autorizar-planning.mjs
+      PLANNING_REFRESH_TOKEN: ${PLANNING_REFRESH_TOKEN:-}
       S3_BUCKET: ${S3_BUCKET}
       S3_REGION: ${S3_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}

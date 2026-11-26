@@ -123,6 +123,16 @@ export function almacenDriveDelEntorno(): ClienteDrive | null {
   });
 }
 
+/**
+ * 26 nov: el Drive del equipo, en la cuenta planning@inoo.pe (Servicio › Cliente), solo para leer: buscar las carpetas
+ * de un cliente. Misma app de Google que el portal; si planning@ no está conectada, la cuenta de siempre.
+ */
+export function drivePlanningDelEntorno(): ClienteDrive | null {
+  const { DRIVE_CLIENT_ID, DRIVE_CLIENT_SECRET, PLANNING_REFRESH_TOKEN, SESION_SECRETO, PORTAL_URL } = process.env;
+  if (!DRIVE_CLIENT_ID || !DRIVE_CLIENT_SECRET || !PLANNING_REFRESH_TOKEN || !SESION_SECRETO) return almacenDriveDelEntorno();
+  return almacenDrive({ clientId: DRIVE_CLIENT_ID, clientSecret: DRIVE_CLIENT_SECRET, refreshToken: PLANNING_REFRESH_TOKEN, secreto: SESION_SECRETO, urlPortal: PORTAL_URL ?? "http://localhost:3000" });
+}
+
 /** Almacén del proceso según las variables de entorno; 503 si no está configurado. */
 export function almacen(): Almacen {
   if (global) return global;

@@ -82,7 +82,7 @@ import { itemsDesdeTexto, resumirTablero } from "./ia-tableros";
 import { resumenParaCliente, TOPE_RESUMENES_MES, type DatosResumen } from "./resumen-cliente";
 import { altaProhibida, lideraArea, areasQueLidera, calcularAlcance, cambiosDeAcceso, limitarCambiosDeInooWork, nivelDe, permisosDe, puedeAsignar, puedeSupervisar, revisarCambioAcceso, veCuenta, veProyecto, type Alcance, ALCANCE_TOTAL, type EstadoAcceso, type Nivel, type Permiso, type PermisosPersonalizados } from "../dominio/accesos";
 import { diasEntre, enLima, type EventoEntrada, horasAlGuardar, ordenarAgenda, sumarMinutos, type TipoPropio, validarEvento, validarRango } from "../dominio/agenda";
-import { almacen, almacenDriveDelEntorno, almacenOpcional } from "./almacen";
+import { almacen, almacenDriveDelEntorno, almacenOpcional, drivePlanningDelEntorno } from "./almacen";
 import { atenderArchivoDrive, type ClienteDrive } from "./almacen-drive";
 import { correoPermitido, fechaLarga, PLANTILLAS_CORREO, reglaDeEvento, renderizarCorreo, type ContextoCorreo, type Destino } from "../dominio/correos";
 import { diasAtrasoRevision } from "../dominio/revision";
@@ -6483,7 +6483,7 @@ ruta("GET", "/clientes/:id/carpetas", async (ctx, p) => {
 ruta("GET", "/clientes/:id/carpetas/sugeridas", async (ctx, p) => {
   soloEquipo(ctx);
   await accesoCliente(ctx, p.id);
-  const drive = almacenDriveDelEntorno();
+  const drive = drivePlanningDelEntorno();
   if (!drive) return { conectado: false, datos: [] };
   const c = (await ctx.c.query<{ nombre: string; drive_carpeta_id: string | null }>("SELECT nombre, drive_carpeta_id FROM cliente WHERE id = $1", [p.id])).rows[0];
   const ya = new Set([c.drive_carpeta_id, ...(await ctx.c.query<{ drive_id: string }>("SELECT drive_id FROM carpeta_vinculada WHERE cliente_id = $1", [p.id])).rows.map((x) => x.drive_id)]);
