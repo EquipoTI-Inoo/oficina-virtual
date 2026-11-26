@@ -228,7 +228,7 @@ services:
       INOOWORK_PUERTO: "3000"
       PORTAL_URL: https://${DOMINIO_PORTAL}
     volumes: [/opt/inoo/inoowork:/app]
-    mem_limit: 512m
+    mem_limit: 768m
 
 volumes:
   caddy-datos:
