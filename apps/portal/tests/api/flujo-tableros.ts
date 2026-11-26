@@ -265,6 +265,28 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       }
     });
 
+    test("26 nov: borrar manda a la papelera y se restaura en su lugar (fila y subítem)", async () => {
+      await reiniciar();
+      const antes = (await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json;
+      const orden = antes.items.map((i: any) => i.id);
+      const fila = orden[1];
+      const sub = (await llamar("POST", `/tableros/PROJ-OPS01/items/${orden[0]}/subitems`, DIEGO, { nombre: "Revisar textos" })).json.items[0].subitems.at(-1).id;
+      const b = (await llamar("DELETE", `/tableros/PROJ-OPS01/items/${fila}`, DIEGO)).json;
+      assert.ok(!b.items.some((i: any) => i.id === fila));
+      assert.equal(b.papelera[0].id, fila);
+      assert.equal(b.papelera[0].tipo, "ITEM");
+      assert.ok(b.papelera[0].borradoPor);
+      const s = (await llamar("DELETE", `/tableros/PROJ-OPS01/items/${orden[0]}/subitems/${sub}`, DIEGO)).json;
+      assert.deepEqual([s.papelera[0].id, s.papelera[0].tipo, s.papelera[0].fila], [sub, "SUBITEM", antes.items[0].nombre]);
+      // Restaura cualquiera que edite (no hace falta ser líder), y vuelve al mismo lugar.
+      const r = (await llamar("POST", `/tableros/PROJ-OPS01/papelera/${fila}/restaurar`, ADMIN)).json;
+      assert.deepEqual(r.items.map((i: any) => i.id), orden);
+      assert.ok((await llamar("POST", `/tableros/PROJ-OPS01/papelera/${sub}/restaurar`, DIEGO)).json.items[0].subitems.some((x: any) => x.id === sub));
+      assert.equal((await llamar("POST", `/tableros/PROJ-OPS01/papelera/${fila}/restaurar`, DIEGO)).status, 409, "ya no está en la papelera");
+      assert.equal((await llamar("POST", `/tableros/PROJ-OPS01/papelera/${fila}/restaurar`, VALERIA)).status, 403, "un cliente no");
+      assert.deepEqual((await llamar("GET", "/tableros/PROJ-OPS01", DIEGO)).json.papelera, []);
+    });
+
     test("26 nov: un cliente invitado por correo ve ese tablero; como editor sube archivos, pero no los quita", async () => {
       await reiniciar();
       const correo = (await llamar("GET", "/me", VALERIA)).json.usuario.email;

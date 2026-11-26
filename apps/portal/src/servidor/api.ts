@@ -6848,6 +6848,11 @@ ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarSubitem(p.id, p.item, p.sub, await yoTablero(ctx));
 });
+/** 26 nov: devolver algo de la papelera del tablero a su lugar. */
+ruta("POST", "/tableros/:id/papelera/:entrada/restaurar", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.restaurar(p.id, p.entrada, await yoTablero(ctx));
+});
 /** 16 nov (Ernesto): personas de un proyecto que ya existe. */
 const idsDe = (b: unknown) => [...new Set(Array.isArray((b as { usuarioIds?: unknown })?.usuarioIds) ? ((b as { usuarioIds: unknown[] }).usuarioIds.filter((x) => typeof x === "string") as string[]) : [])];
 ruta("GET", "/tableros/:id/candidatos", async (ctx, p) => {

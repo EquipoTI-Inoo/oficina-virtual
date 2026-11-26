@@ -70,6 +70,23 @@ async function respaldar() {
   }
 }
 
+/**
+ * 26 nov (una fila borrada por accidente): además del diario, InooWork se respalda cada hora en el servidor. Los de
+ * cada hora se guardan 2 días y no suben a Drive.
+ */
+async function respaldarInooworkHora() {
+  if (!existsSync(BASE_INOOWORK)) return;
+  const ruta = `${DIR}/inoowork-hora_${new Date().toISOString().slice(0, 13).replace("T", "_")}.db`;
+  if (existsSync(ruta)) unlinkSync(ruta);
+  const b = spawnSync("sqlite3", ["-readonly", BASE_INOOWORK, `.backup '${ruta}'`], { encoding: "utf8" });
+  if (b.status !== 0) return log("respaldo de InooWork (hora) falló:", (b.stderr ?? "").trim());
+  if (existsSync(`${ruta}.gz`)) unlinkSync(`${ruta}.gz`);
+  spawnSync("gzip", ["-9", ruta], { encoding: "utf8" });
+  for (const f of readdirSync(DIR).filter((x) => x.startsWith("inoowork-hora_"))) {
+    if (Date.now() - statSync(`${DIR}/${f}`).mtimeMs > 2 * 86_400_000) unlinkSync(`${DIR}/${f}`);
+  }
+}
+
 async function respaldarInoowork() {
   if (!existsSync(BASE_INOOWORK)) return log("sin la base de InooWork montada: se omite");
   const nombre = `inoowork_${new Date().toISOString().slice(0, 10)}.db`;
@@ -92,8 +109,12 @@ async function respaldarInoowork() {
   }
 }
 
+// Una vez al día los dos completos (y a Drive); cada hora, InooWork en el servidor.
 for (;;) {
   await respaldar();
   await respaldarInoowork();
-  await new Promise((r) => setTimeout(r, 86_400_000));
+  for (let h = 0; h < 24; h++) {
+    await new Promise((r) => setTimeout(r, 3_600_000));
+    if (h < 23) await respaldarInooworkHora().catch((x) => log("respaldo de InooWork (hora) falló:", x.message));
+  }
 }

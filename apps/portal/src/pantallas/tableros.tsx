@@ -323,6 +323,33 @@ function CarpetaDelProyecto({ t }: { t: Tablero }) {
   );
 }
 
+/** 26 nov: la papelera del tablero. Cualquiera que lo edite devuelve una fila o un subítem a su lugar. */
+function BotonPapelera({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => Promise<boolean> }) {
+  const [abierta, setAbierta] = useState(false);
+  return (
+    <>
+      <button type="button" className="boton boton--chico" onClick={() => setAbierta(true)} title="Lo borrado en los últimos 30 días">
+        <LuTrash2 size={14} /> Papelera ({t.papelera.length})
+      </button>
+      <Modal abierto={abierta} alCerrar={() => setAbierta(false)} etiqueta="Papelera del tablero">
+        <h2 className="tarjeta-titulo">Papelera</h2>
+        <p className="texto-sm texto-muted" style={{ marginBottom: 12 }}>Lo borrado en este tablero los últimos 30 días. Vuelve al mismo lugar, con sus comentarios y archivos.</p>
+        <ul className="pila" style={{ gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
+          {t.papelera.map((x) => (
+            <li key={x.id} className="fila-suave fila entre" style={{ gap: 10 }}>
+              <span className="pila" style={{ gap: 0, minWidth: 0 }}>
+                <span className="texto-sm">{x.nombre}{x.tipo === "SUBITEM" ? <span className="texto-muted"> · subítem{x.fila ? ` de «${x.fila}»` : ""}</span> : null}</span>
+                <span className="texto-xs texto-muted">Borrado {x.borradoPor ? `por ${x.borradoPor} ` : ""}el {fDiaMes(x.en)}</span>
+              </span>
+              {t.puedeEditar && <button type="button" className="boton boton--chico" onClick={() => void cambiar(`/papelera/${encodeURIComponent(x.id)}/restaurar`, "POST")}>Restaurar</button>}
+            </li>
+          ))}
+        </ul>
+      </Modal>
+    </>
+  );
+}
+
 /** Acciones poco usadas o peligrosas, fuera de la fila principal (23 nov). */
 function MasAcciones({ borrar, guardarPlantilla }: { borrar?: () => void; guardarPlantilla: () => void }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -397,6 +424,21 @@ function TableroProyecto() {
   const conteo = useConsulta<{ datos: Record<string, number>; ultimas: Record<string, Ultima> }>(`/tableros/${params.id}/actualizaciones`);
   const yoId = usePortal().sesion?.usuario.id ?? null;
   const [vistos, marcarVisto] = useVistos(params.id ?? "");
+  // 26 nov: Ctrl+Z (fuera de un campo de texto) devuelve lo último que se borró en este tablero.
+  const deshacer = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const f = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== "z" || !deshacer.current) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      e.preventDefault();
+      const x = deshacer.current;
+      deshacer.current = null;
+      x();
+    };
+    window.addEventListener("keydown", f);
+    return () => window.removeEventListener("keydown", f);
+  }, []);
   const t = r.datos;
   const items = useMemo(
     () => (t?.items ?? []).filter((i) =>
@@ -411,7 +453,15 @@ function TableroProyecto() {
   /** Cada cambio devuelve el tablero ya guardado en InooWork. */
   const cambiar = async (ruta: string, metodo: "POST" | "PATCH" | "DELETE", cuerpo?: Record<string, unknown>) => {
     try {
-      r.setDatos(await api<Tablero>(`/tableros/${t.id}${ruta}`, { metodo, cuerpo }));
+      const nuevo = await api<Tablero>(`/tableros/${t.id}${ruta}`, { metodo, cuerpo });
+      r.setDatos(nuevo);
+      // 26 nov: lo borrado va a la papelera; «Deshacer» (o Ctrl+Z) lo devuelve a su lugar.
+      const borrado = metodo === "DELETE" && /^\/items\/[^/]+(\/subitems\/[^/]+)?$/.test(ruta) ? nuevo.papelera[0] : undefined;
+      if (borrado) {
+        const devolver = () => void cambiar(`/papelera/${encodeURIComponent(borrado.id)}/restaurar`, "POST");
+        deshacer.current = devolver;
+        avisar({ titulo: borrado.tipo === "ITEM" ? "Fila borrada" : "Subítem borrado", texto: "Queda 30 días en la papelera del tablero. Ctrl+Z también lo devuelve.", accion: { texto: "Deshacer", hacer: () => { deshacer.current = null; devolver(); } } });
+      }
       return true;
     } catch (e) {
       avisar({ titulo: "No pudimos guardar en InooWork", texto: e instanceof ProblemaApi ? e.errores[0]?.mensaje ?? e.titulo : undefined });
@@ -469,6 +519,7 @@ function TableroProyecto() {
             {t.privado && <span className="chip texto-xs" title="Solo lo ven sus personas, ni los admins"><LuLock size={12} /> Privado</span>}
             {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">{t.miPermiso === "COMENTADOR" ? "Puedes ver y comentar" : "Solo lectura"}</span>}
             {t.soyInvitado && t.puedeEditar && <span className="texto-xs texto-muted">Puedes cambiar y comentar los ítems</span>}
+            {!t.soyInvitado && t.papelera.length > 0 && <BotonPapelera t={t} cambiar={cambiar} />}
             {!t.soyInvitado && <BotonPersonas t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonIaTablero t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
@@ -598,7 +649,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
     void cambiar(`/grupos/${g.id}`, "DELETE");
   };
   const borrarItem = async (i: Item) => {
-    if (!(await confirmar(`¿Borrar «${i.nombre}»${i.subitems.length ? " con sus subítems" : ""}? También se borra en InooWork.`))) return;
+    if (!(await confirmar(`¿Borrar «${i.nombre}»${i.subitems.length ? " con sus subítems" : ""}? Queda 30 días en la papelera del tablero.`))) return;
     void cambiar(`/items/${i.id}`, "DELETE");
   };
   // 17 nov: un invitado de afuera con permiso de editor cambia los ítems, no la estructura (grupos, columnas, borrar).
@@ -828,7 +879,7 @@ function VistaTabla({ t, items, cambiar, editable, abrir, conteo, ultimas, nuevo
                                     </td>
                                   ))}
                                   {estructura && <td />}
-                                  {estructura && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={async () => (await confirmar(`¿Borrar el subítem «${s.nombre}»? También se borra en InooWork.`)) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
+                                  {estructura && <td><button className="boton-icono" aria-label={`Borrar el subítem ${s.nombre}`} onClick={async () => (await confirmar(`¿Borrar el subítem «${s.nombre}»? Queda 30 días en la papelera del tablero.`)) && void cambiar(`/items/${i.id}/subitems/${s.id}`, "DELETE")}><LuTrash2 size={13} /></button></td>}
                                 </tr>
                               )),
                               ...(editable ? [<FilaNueva key={`${i.id}-nuevo`} columnas={columnas} sangria etiqueta={`Nuevo subítem en ${i.nombre}`} texto="+ Agregar subítem" crear={(nombre) => cambiar(`/items/${i.id}/subitems`, "POST", { nombre })} />] : []),

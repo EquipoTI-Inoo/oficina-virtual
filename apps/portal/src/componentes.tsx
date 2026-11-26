@@ -243,6 +243,8 @@ interface Toast {
   id: number;
   titulo: string;
   texto?: string;
+  /** 26 nov: un botón en el aviso («Deshacer»); el aviso dura más. */
+  accion?: { texto: string; hacer: () => void };
 }
 const ToastCtx = createContext<(t: Omit<Toast, "id">) => void>(() => undefined);
 export const useAviso = () => useContext(ToastCtx);
@@ -252,7 +254,7 @@ export function ProveedorAvisos({ children }: { children: ReactNode }) {
   const avisar = useCallback((t: Omit<Toast, "id">) => {
     const id = Date.now() + Math.random();
     setLista((l) => [...l, { ...t, id }]);
-    setTimeout(() => setLista((l) => l.filter((x) => x.id !== id)), 6000);
+    setTimeout(() => setLista((l) => l.filter((x) => x.id !== id)), t.accion ? 10_000 : 6000);
   }, []);
   return (
     <ToastCtx.Provider value={avisar}>
@@ -265,6 +267,9 @@ export function ProveedorAvisos({ children }: { children: ReactNode }) {
               <strong>{t.titulo}</strong>
               {t.texto}
             </div>
+            {t.accion && (
+              <button type="button" className="boton boton--chico" onClick={() => { t.accion!.hacer(); setLista((l) => l.filter((x) => x.id !== t.id)); }}>{t.accion.texto}</button>
+            )}
             <button aria-label="Cerrar aviso" onClick={() => setLista((l) => l.filter((x) => x.id !== t.id))}>
               <LuX size={14} />
             </button>

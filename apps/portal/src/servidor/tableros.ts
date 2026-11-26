@@ -14,6 +14,7 @@ import {
   aplicarEstadoProyecto, aplicarGrupo, aplicarItem, aplicarSubitem, borrarGrupo, ESTADOS_PROYECTO_IW, columnasPersonalizadas, editaProyecto, itemVencido, nuevoProyecto, personasDelProyecto, resumenProyecto,
   validarGrupo, validarItem, validarSubitem, validarTableroNuevo, columnasDeSubitems, validarColumnasSubitems, veProyecto, type CambioItem, type ItemIW, type PersonaIW, type ProyectoIW, type TableroNuevo, fechasDelProyecto, aplicarEstructura, estructuraDe, type EstructuraTablero } from "../dominio/tableros";
 import { culminadoArchivado } from "../dominio/proyectos";
+import { filaAPapelera, papeleraDe, restaurarDePapelera, subitemAPapelera } from "../dominio/papelera-tablero";
 import { enlacesDe, esIdInvitado, esPermiso, esPrivado, fijarInvitado, fijarPermiso, invitadosDe, mayorPermiso, nuevoEnlace, ocultoPara, permisoEn, quitarInvitado, type PermisoTablero } from "../dominio/compartir-tablero";
 import { leerToken, tokenDe } from "./firma-enlace";
 import { automatizacionesDe, correrAutomatizaciones, MAX_AUTOMATIZACIONES_TABLERO, textoAutomatizacion, validarAutomatizacionTablero, type AutomatizacionTablero, type AvisoAutomatizacion } from "../dominio/automatizaciones-tablero";
@@ -252,6 +253,11 @@ function tableroVista(p: ProyectoIW, yo: Yo, conectados: Record<string, Proyecto
       : [],
     // 13 nov: las automatizaciones del tablero («cuando X, hacer Y»), con su texto para leerlas.
     automatizaciones: invitado ? [] : automatizacionesDe(p).map((a) => ({ ...a, texto: textoAutomatizacion(a, p) })),
+    // 26 nov: lo borrado de los últimos 30 días (solo para el equipo).
+    papelera: invitado ? [] : papeleraDe(p).map((x) => ({
+      id: x.id, tipo: x.tipo, nombre: x.nombre, borradoPor: x.borradoPor, en: x.en,
+      fila: x.itemPadreId ? (p.items ?? []).find((i) => i.id === x.itemPadreId)?.name ?? null : null,
+    })),
   };
 }
 
@@ -669,9 +675,10 @@ export function crearTableros(fallar: Fallar) {
       });
       return t && { ...t, avisosAutomatizacion: avisos };
     },
+    // 26 nov: borrar manda a la papelera del tablero (30 días); se restaura con «Deshacer», Ctrl+Z o desde la papelera.
     borrarItem: (id: string, itemId: string, yo: Yo) => cambiar(id, yo, (p) => {
       item(p, itemId);
-      p.items = (p.items ?? []).filter((x) => x.id !== itemId);
+      filaAPapelera(p, itemId, yo.nombre ?? null);
     }),
     crearSubitem: (id: string, itemId: string, yo: Yo, b: CambioItem) => cambiar(id, yo, (p) => {
       const it = item(p, itemId);
@@ -685,8 +692,13 @@ export function crearTableros(fallar: Fallar) {
       aplicarSubitem(p, it, b, subId);
     }),
     borrarSubitem: (id: string, itemId: string, subId: string, yo: Yo) => cambiar(id, yo, (p) => {
-      const it = item(p, itemId);
-      it.subitems = (it.subitems ?? []).filter((s) => s.id !== subId);
+      item(p, itemId);
+      subitemAPapelera(p, itemId, subId, yo.nombre ?? null);
+    }),
+    /** 26 nov: devolver una fila o un subítem de la papelera a su lugar. Cualquiera que edite el tablero. */
+    restaurar: (id: string, entradaId: string, yo: Yo) => cambiar(id, yo, (p) => {
+      const error = restaurarDePapelera(p, entradaId);
+      if (error) throw fallar(409, "NO_SE_PUEDE_RESTAURAR", error);
     }),
     /**
      * 16 nov (Ernesto: «problemas al agregar personas»): antes solo se elegían al crear el tablero. Agrega a quien edita

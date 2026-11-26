@@ -5179,6 +5179,21 @@ paths:
         '422': { $ref: '#/components/responses/Validacion' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/papelera/{entradaId}/restaurar:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+      - { name: entradaId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: restaurarDePapelera
+      summary: 'Devuelve una fila o un subítem borrado a su lugar (26 nov). Cualquiera que edite el tablero'
+      x-roles: [EQUIPO]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+        '502': { description: InooWork no respondió }
   /tableros/{proyectoId}/items/{itemId}:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }
@@ -9854,8 +9869,21 @@ components:
     TableroInooWork:
       type: object
       description: 'Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente'
-      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas, soyInvitado, invitados, carpetaId]
+      required: [id, nombre, color, lider, personas, grupos, columnas, vistas, items, puedeEditar, archivado, archivadoEn, puedeDesarchivar, puedeBorrar, miPermiso, permisos, enlaces, privado, puedeHacerPrivado, marcaId, servicioId, etiquetas, soyInvitado, invitados, carpetaId, papelera]
       properties:
+        papelera:
+          type: array
+          description: 'Lo borrado en los últimos 30 días, lo más nuevo primero (26 nov). Vacío para invitados'
+          items:
+            type: object
+            required: [id, tipo, nombre, fila, borradoPor, en]
+            properties:
+              id: { type: string }
+              tipo: { type: string, enum: [ITEM, SUBITEM] }
+              nombre: { type: string }
+              fila: { type: [string, 'null'], description: 'Del subítem: el nombre de su fila' }
+              borradoPor: { type: [string, 'null'] }
+              en: { type: string, format: date-time }
         etiquetas: { type: array, items: { type: string }, description: 'Etiquetas libres (16 nov)' }
         columnasSubitems: { type: array, items: { type: string }, description: 'Columnas que se muestran en los subítems (20 nov)' }
         servicioId: { type: [string, 'null'], format: uuid, description: 'El servicio contratado vinculado (16 nov)' }

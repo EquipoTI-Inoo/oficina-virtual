@@ -3680,6 +3680,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tableros/{proyectoId}/papelera/{entradaId}/restaurar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                entradaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Devuelve una fila o un subítem borrado a su lugar (26 nov). Cualquiera que edite el tablero */
+        post: operations["restaurarDePapelera"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tableros/{proyectoId}/items/{itemId}": {
         parameters: {
             query?: never;
@@ -8072,6 +8092,18 @@ export interface components {
         PermisoTablero: "LECTOR" | "COMENTADOR" | "EDITOR";
         /** @description Un proyecto de InooWork tal como lo muestra el portal. InooWork es la fuente */
         TableroInooWork: {
+            /** @description Lo borrado en los últimos 30 días, lo más nuevo primero (26 nov). Vacío para invitados */
+            papelera: {
+                id: string;
+                /** @enum {string} */
+                tipo: "ITEM" | "SUBITEM";
+                nombre: string;
+                /** @description Del subítem: el nombre de su fila */
+                fila: string | null;
+                borradoPor: string | null;
+                /** Format: date-time */
+                en: string;
+            }[];
             /** @description Etiquetas libres (16 nov) */
             etiquetas: string[];
             /** @description Columnas que se muestran en los subítems (20 nov) */
@@ -17887,6 +17919,39 @@ export interface operations {
             403: components["responses"]["SinPermiso"];
             404: components["responses"]["NoEncontrado"];
             422: components["responses"]["Validacion"];
+            /** @description InooWork no respondió */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    restaurarDePapelera: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proyectoId: string;
+                entradaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableroInooWork"];
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            404: components["responses"]["NoEncontrado"];
+            409: components["responses"]["Conflicto"];
             /** @description InooWork no respondió */
             502: {
                 headers: {

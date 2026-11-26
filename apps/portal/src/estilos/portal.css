@@ -2919,6 +2919,9 @@ h1, h2, h3, .tarjeta-titulo, .seccion-titulo { letter-spacing: -0.01em; }
 .app--flotante .lateral-interior { min-height: calc(100vh - 140px); }
 .cajon .lateral-interior { min-height: 100%; position: static; }
 .lateral-interior > .ayuda { margin-top: auto; }
+/* 26 nov: sin el recuadro de ayuda (casi siempre en el equipo), la persona igual va abajo. */
+.lateral-interior > .persona { margin-top: auto; }
+.lateral-interior > .ayuda ~ .persona { margin-top: 0; }
 
 /* 16 nov: reparto de estados y prioridades en la fila de totales (como Monday). */
 .barra-reparto { display: flex; width: 100%; min-width: 80px; height: 18px; border-radius: var(--r-xs); overflow: hidden; background: var(--c-neutro-suave); }

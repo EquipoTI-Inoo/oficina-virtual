@@ -2150,6 +2150,11 @@ ruta("DELETE", "/tableros/:id/items/:item/subitems/:sub", async (ctx, p) => {
   soloEquipo(ctx);
   return TABLEROS.borrarSubitem(p.id, p.item, p.sub, yoTablero(ctx));
 });
+/** 26 nov: devolver algo de la papelera del tablero a su lugar. */
+ruta("POST", "/tableros/:id/papelera/:entrada/restaurar", async (ctx, p) => {
+  soloEquipo(ctx);
+  return TABLEROS.restaurar(p.id, p.entrada, yoTablero(ctx));
+});
 ruta("GET", "/tableros/:id/candidatos", async (ctx, p) => {
   soloEquipo(ctx);
   const faltan = await TABLEROS.sinEstar(p.id, yoTablero(ctx), equipoInooWork().map((u) => ({ ...u, empleado: u.inooworkEmpleadoId! })));
