@@ -317,10 +317,11 @@ test("mi cuenta: la foto de perfil abre pagos, usuarios y ayuda", async ({ page 
   await expect(page.getByText(/S\/ /)).toHaveCount(0);
   await page.getByRole("button", { name: "Abrir mi cuenta" }).click();
   await page.getByRole("menuitem", { name: "Pagos" }).click();
-  await expect(page).toHaveURL(/\/cuenta\/pagos$/);
+  // 26 nov: en desarrollo la página se compila al primer clic y puede tardar más de 5 s.
+  await expect(page).toHaveURL(/\/cuenta\/pagos$/, { timeout: 20_000 });
   await expect(page.getByText("Atrasado · 8 días")).toBeVisible();
   await page.getByRole("tab", { name: "Ayuda" }).click();
-  await expect(page).toHaveURL(/\/cuenta\/ayuda$/);
+  await expect(page).toHaveURL(/\/cuenta\/ayuda$/, { timeout: 20_000 });
   await expect(page.getByText("Pagos y facturación")).toBeVisible();
 });
 
@@ -341,7 +342,7 @@ test("menú del avatar (16 nov, Ernesto): Agencia sale del lateral y el tema se 
   await page.getByRole("radio", { name: "Sistema" }).click();
   await expect(page.locator("html")).not.toHaveAttribute("data-tema", /./);
   await page.getByRole("menuitem", { name: "Empresas" }).click();
-  await expect(page).toHaveURL(/\/equipo\/empresas$/);
+  await expect(page).toHaveURL(/\/equipo\/empresas$/, { timeout: 20_000 });
 });
 
 test("mi cuenta: quien solo lee no ve pagos", async ({ page }) => {

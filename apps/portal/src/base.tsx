@@ -93,6 +93,8 @@ const borrarVisita = () => {
  */
 export function inicioPara(tipo: SesionLocal["tipo"], volver?: string | null): string {
   if (volver && /^\/invitado\/unirse\/[\w.-]+$/.test(volver) && tipo !== "CLIENTE") return volver;
+  // 26 nov: «Conectar una IA» (MCP remoto) vuelve a su pantalla después de ingresar.
+  if (volver && /^\/conectar-ia\?/.test(volver) && tipo === "EQUIPO") return volver;
   return tipo === "EQUIPO" ? "/equipo/mi-panel" : tipo === "INVITADO" ? "/invitado" : "/inicio";
 }
 

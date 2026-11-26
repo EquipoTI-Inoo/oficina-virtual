@@ -72,6 +72,7 @@ import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero, type Pla
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type CuerpoSolicitud, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive, validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
+import { aprobar, revisarAutorizacion, type PedidoAutorizacion } from "./oauth-mcp";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
 import { tablerosDelPanel } from "../dominio/tableros";
 import { buscar, textoBusqueda, type Candidato } from "../dominio/busqueda";
@@ -6490,6 +6491,21 @@ async function estructuraDePlantillaDb(ctx: Ctx, id: unknown): Promise<Estructur
   validacion(r.errores);
   return r.estructura;
 }
+// ───────────────────────────── conectar una IA al portal (26 nov, MCP remoto con OAuth: oauth-mcp.ts)
+ruta("POST", "/oauth/revisar", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const r = revisarAutorizacion(((await cuerpo()) ?? {}) as PedidoAutorizacion);
+  if (!r.ok) throw new ErrorApi(422, "AUTORIZACION_INVALIDA", r.error);
+  return { aplicacion: r.aplicacion };
+});
+ruta("POST", "/oauth/aprobar", async (ctx, _p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  if (ctx.esServicio || ctx.u.esPrueba || ctx.u.jarvis || ctx.u.navegador) throw new ErrorApi(403, "SIN_PERMISO", "Conéctala desde tu cuenta real del portal");
+  const r = aprobar(((await cuerpo()) ?? {}) as PedidoAutorizacion, ctx.u.usuarioId);
+  if (!r.ok) throw new ErrorApi(422, "AUTORIZACION_INVALIDA", r.error);
+  return { redirect: r.redirect };
+});
+
 // ───────────────────────────── carpetas de Drive vinculadas (25 nov)
 type FilaCarpetaVinculada = { id: string; tablero_id: string | null; servicio: string | null; nombre: string; url: string; autor: string | null; creado_en: Date };
 const carpetaVinculadaVista = (x: FilaCarpetaVinculada): S<"CarpetaVinculada"> => ({ id: x.id, tableroId: x.tablero_id, servicio: x.servicio, nombre: x.nombre, url: x.url, creadoPor: x.autor, creadoEn: x.creado_en.toISOString() });

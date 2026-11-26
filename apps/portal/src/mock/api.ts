@@ -61,6 +61,7 @@ import { agruparTablerosPorCliente, claveCliente, clienteExistente, esClienteInt
 import { PLANTILLAS_TABLERO, validarEstructura, type EstructuraTablero } from "../dominio/tableros";
 import { validarCarpetaVinculada } from "../dominio/carpeta-drive";
 import { etapasConTrabajo, grupoDeEtapaActual } from "../dominio/etapas-tablero";
+import { aprobar, revisarAutorizacion, type PedidoAutorizacion } from "../servidor/oauth-mcp";
 import { leerSolicitud, motivoMarca, TITULO_SOLICITUD_NUEVA, TITULO_SOLICITUD_RESUELTA, type EstadoSolicitud, type RolSolicitud, type TipoSolicitud } from "../dominio/solicitudes-acceso";
 import { carpetaDeDrive } from "../dominio/carpeta-drive";
 import { FORMATOS_PERMITIDOS, MIME_ARCHIVO } from "../dominio/archivos-permitidos";
@@ -1856,6 +1857,19 @@ function estructuraDePlantillaMock(id: unknown): EstructuraTablero {
   if (!x) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "plantillaId", mensaje: "No encontramos esa plantilla" }]);
   return validarEstructura(x.estructura).estructura;
 }
+// 26 nov: conectar una IA al portal (MCP remoto con OAuth).
+ruta("POST", "/oauth/revisar", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  const r = revisarAutorizacion((await cuerpo<PedidoAutorizacion>(req)) ?? {});
+  if (!r.ok) throw new ErrorApi(422, "AUTORIZACION_INVALIDA", r.error);
+  return { aplicacion: r.aplicacion };
+});
+ruta("POST", "/oauth/aprobar", async (ctx, _p, _q, req) => {
+  soloEquipo(ctx);
+  const r = aprobar((await cuerpo<PedidoAutorizacion>(req)) ?? {}, ctx.usuario.id);
+  if (!r.ok) throw new ErrorApi(422, "AUTORIZACION_INVALIDA", r.error);
+  return { redirect: r.redirect };
+});
 const carpetaVinculadaMock = (x: Estado["carpetasVinculadas"][number]): S<"CarpetaVinculada"> => ({
   id: x.id, tableroId: x.tableroId, servicio: x.servicio, nombre: x.nombre, url: x.url, creadoPor: E.usuarios.find((u) => u.id === x.creadoPor)?.nombre ?? null, creadoEn: x.creadoEn,
 });

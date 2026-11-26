@@ -6179,6 +6179,27 @@ paths:
         '204': { description: Quitada }
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /oauth/revisar:
+    post:
+      tags: [Sesion]
+      operationId: revisarAutorizacionIa
+      summary: 'Revisa el pedido de «Conectar una IA» (MCP remoto, 26 nov): qué aplicación pide entrar. Solo equipo'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: { type: string } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [aplicacion], properties: { aplicacion: { type: string } } } } } }
+        '422': { $ref: '#/components/responses/Validacion' }
+  /oauth/aprobar:
+    post:
+      tags: [Sesion]
+      operationId: aprobarAutorizacionIa
+      summary: 'La persona permite que la IA entre como ella: devuelve la dirección de vuelta con el código (OAuth con PKCE). Solo equipo'
+      x-roles: [EQUIPO]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: { type: string } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [redirect], properties: { redirect: { type: string } } } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '422': { $ref: '#/components/responses/Validacion' }
   /plantillas-tablero:
     get:
       tags: [Tableros]

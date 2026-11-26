@@ -12,6 +12,7 @@ import { PantallaMiCuentaEquipo } from "./pantallas/mi-cuenta-equipo";
 import { PantallaEmpresa, PantallaEmpresas } from "./pantallas/empresas";
 import { PantallaBoveda } from "./pantallas/boveda";
 import { PantallaRequerimiento, PantallaRequerimientos } from "./pantallas/requerimientos";
+import { PantallaConectarIa } from "./pantallas/conectar-ia";
 import { PantallaDetallePieza, PantallaDetallePiezaEquipo, PantallaEntregables, PantallaIngreso, PantallaInicio, PantallaServicios } from "./pantallas/principal";
 import { PantallaCalendarioEquipo, PantallaCostosIa } from "./pantallas/sin-diseno";
 import { PantallaCuenta } from "./pantallas/cuenta";
@@ -37,6 +38,7 @@ export interface Ruta {
 
 export const RUTAS: Ruta[] = [
   { patron: "/ingresar", pantalla: PantallaIngreso, figma: "02-ingreso", espacio: "publico" },
+  { patron: "/conectar-ia", pantalla: PantallaConectarIa, figma: null, espacio: "publico" },
   { patron: "/inicio", pantalla: PantallaInicio, figma: "01-inicio", espacio: "cliente" },
   { patron: "/servicios", pantalla: PantallaServicios, figma: "03-servicios-contratados", espacio: "cliente" },
   { patron: "/servicios/:id", pantalla: PantallaProyecto, figma: "13-avance-de-proyectos", espacio: "cliente" },

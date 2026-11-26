@@ -105,6 +105,7 @@ function MiCuenta() {
 
         <SeccionDosPasos />
         <JarvisDesdeChrome />
+        <ConectarUnaIa />
 
         <Conexiones />
         <Notificaciones />
@@ -353,6 +354,33 @@ export function Conexiones() {
           ))}
         </ul>
       )}
+    </Tarjeta>
+  );
+}
+
+/**
+ * 26 nov (pedido de Alonso): conectar Claude, Grok u otra IA al portal con el MCP remoto. Cada persona lo agrega como
+ * conector personalizado y entra con su cuenta (OAuth): la IA ve y cambia lo mismo que ella.
+ */
+function ConectarUnaIa() {
+  const avisar = useAviso();
+  const url = typeof window === "undefined" ? "/api/mcp" : `${window.location.origin}/api/mcp`;
+  return (
+    <Tarjeta titulo="Conectar Claude, Grok u otra IA" icono={<LuPlug size={18} />}>
+      <p className="texto-sm">
+        La IA trabaja en el portal <strong>como tú</strong>: ve tus proyectos, clientes y pendientes, y puede crear, cambiar y comentar filas de los
+        tableros donde tú puedes. Te pregunta antes de cada cambio.
+      </p>
+      <div className="fila" style={{ gap: 6 }}>
+        <input className="input" readOnly aria-label="Dirección del MCP del portal" value={url} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 0 }} />
+        <button type="button" className="boton boton--chico" onClick={() => void navigator.clipboard.writeText(url).then(() => avisar({ titulo: "Dirección copiada" }))}>Copiar</button>
+      </div>
+      <ol className="texto-sm" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
+        <li><strong>Claude</strong> (claude.ai o la app): Ajustes → Conectores → Agregar conector personalizado, y pega la dirección.</li>
+        <li><strong>Grok</strong> u otra IA que acepte MCP remotos: agrega un servidor MCP con esa dirección.</li>
+        <li>Se abre el portal: revisa qué aplicación es y toca «Permitir».</li>
+      </ol>
+      <p className="texto-xs texto-muted">Para desconectarlas todas, usa «Cerrar sesión en los demás dispositivos» (arriba).</p>
     </Tarjeta>
   );
 }

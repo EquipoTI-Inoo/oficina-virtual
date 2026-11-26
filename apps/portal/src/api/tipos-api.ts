@@ -4591,6 +4591,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/revisar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revisa el pedido de «Conectar una IA» (MCP remoto, 26 nov): qué aplicación pide entrar. Solo equipo */
+        post: operations["revisarAutorizacionIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/aprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** La persona permite que la IA entre como ella: devuelve la dirección de vuelta con el código (OAuth con PKCE). Solo equipo */
+        post: operations["aprobarAutorizacionIa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plantillas-tablero": {
         parameters: {
             query?: never;
@@ -19837,6 +19871,65 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NoEncontrado"];
+        };
+    };
+    revisarAutorizacionIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        aplicacion: string;
+                    };
+                };
+            };
+            422: components["responses"]["Validacion"];
+        };
+    };
+    aprobarAutorizacionIa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        redirect: string;
+                    };
+                };
+            };
+            403: components["responses"]["SinPermiso"];
+            422: components["responses"]["Validacion"];
         };
     };
     listarPlantillasTablero: {
