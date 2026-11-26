@@ -1133,9 +1133,13 @@ function exigirRol(ctx: Ctx, clienteId: string | null, roles: string[]) {
 const soloEquipo = (ctx: Ctx) => {
   if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
 };
-/** 17 nov: las rutas de los tableros que también usa un invitado de afuera (ver, comentar, ítems). El tablero revisa su permiso. */
+/**
+ * 17 nov: las rutas de los tableros que también usa un invitado de afuera (ver, comentar, ítems). El tablero revisa su
+ * permiso. 26 nov: un cliente también puede estar invitado a tableros; entra igual que un invitado de afuera.
+ */
+const deAfuera = (ctx: Ctx) => !ctx.esEquipo && (ctx.u.tipo === "INVITADO" || ctx.u.tipo === "CLIENTE") && !ctx.enNombreDe;
 const equipoOInvitado = (ctx: Ctx) => {
-  if (!ctx.esEquipo && ctx.u.tipo !== "INVITADO") throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
+  if (!ctx.esEquipo && !deAfuera(ctx)) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
 };
 /** Permiso suelto del equipo (5 nov). Las llaves de integración pasan: sus límites son los scopes. */
 function exigirPermiso(ctx: Ctx, permiso: Permiso) {
@@ -6381,7 +6385,7 @@ const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi
 /** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
 async function yoTablero(ctx: Ctx): Promise<Yo> {
   // 17 nov: un invitado de afuera no tiene ficha en InooWork: va con su id de usuario (dominio/compartir-tablero.ts).
-  if (ctx.u.tipo === "INVITADO") return { empleadoId: idInvitado(ctx.u.usuarioId), esAdmin: false, prueba: !!ctx.u.esPrueba, usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre, email: ctx.u.email };
+  if (deAfuera(ctx)) return { empleadoId: idInvitado(ctx.u.usuarioId), esAdmin: false, prueba: !!ctx.u.esPrueba, usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre, email: ctx.u.email };
   // En pruebas, el set de demo con el empleado de demo de esa persona.
   if (ctx.u.esPrueba) return { empleadoId: EMPLEADO_DE_PRUEBA[ctx.u.email.toLowerCase()] ?? null, esAdmin: ctx.u.nivelAcceso === "ADMIN", prueba: true, usuarioId: ctx.u.usuarioId, nombre: ctx.u.nombre };
   const r = (await ctx.c.query<{ inoowork_empleado_id: string | null }>("SELECT inoowork_empleado_id FROM usuario WHERE id = $1", [ctx.u.usuarioId])).rows[0];
@@ -6877,6 +6881,17 @@ ruta("POST", "/tableros-unirse", async (ctx, _p, _q, cuerpo) => {
   equipoOInvitado(ctx);
   return TABLEROS.unirse(((await cuerpo()) as { token?: unknown })?.token, await yoTablero(ctx));
 });
+/** 26 nov: invitar por correo a alguien de afuera que ya tiene cuenta (un cliente o un invitado). */
+ruta("POST", "/tableros/:id/invitados", async (ctx, p, _q, cuerpo) => {
+  soloEquipo(ctx);
+  const b = ((await cuerpo()) ?? {}) as { email?: unknown; permiso?: unknown };
+  const email = typeof b.email === "string" ? b.email.trim().toLowerCase() : "";
+  if (!email) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "email", mensaje: "Escribe el correo" }]);
+  const u = (await ctx.c.query<{ id: string; nombre: string; email: string }>(
+    "SELECT id, nombre, email::text AS email FROM usuario WHERE lower(email::text) = $1 AND activo AND tipo IN ('CLIENTE', 'INVITADO')", [email])).rows[0];
+  if (!u) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "email", mensaje: "No hay una cuenta de cliente o invitado con ese correo" }]);
+  return TABLEROS.invitar(p.id, await yoTablero(ctx), { usuarioId: u.id, nombre: u.nombre, email: u.email }, b.permiso);
+});
 /** 17 nov: invitados de afuera de un tablero: cambiar su permiso o sacarlos. */
 ruta("PATCH", "/tableros/:id/invitados/:usuario", async (ctx, p, _q, cuerpo) => {
   soloEquipo(ctx);
@@ -6979,7 +6994,7 @@ const MAX_BYTES_VIDEO = 5 * 1024 * 1024 * 1024;
 type SubidaVideo = { p: string; i: string; c: string; a: string | null; n: string; m: string; k: string };
 /** Prepara la subida directa del navegador a Drive: «Videos de proyectos» › Empresa › Proyecto. */
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q, cuerpo) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   const b = (await cuerpo()) as { nombre?: unknown; mime?: unknown; bytes?: unknown; archivoId?: unknown };
   const errores: { campo: string; mensaje: string }[] = [];
   const nombre = typeof b.nombre === "string" ? b.nombre.trim().slice(0, 200) : "";
@@ -6988,7 +7003,7 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q
   if (typeof b.bytes !== "number" || !(b.bytes > 0) || b.bytes > MAX_BYTES_VIDEO) errores.push({ campo: "bytes", mensaje: "Hasta 5 GB por video" });
   validacion(errores);
   const t = await TABLEROS.ver(p.id, await yoTablero(ctx));
-  if (!t.puedeEditar || t.soyInvitado) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero sube videos");
+  if (!t.puedeEditar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero sube videos");
   if (!t.columnas.some((c) => c.id === p.col && c.tipo === "file") || !t.items.some((i) => i.id === p.item)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa celda");
   const drive = almacenDriveDelEntorno();
   if (!drive) throw new ErrorApi(503, "DRIVE_NO_CONFIGURADO", "Google Drive no está conectado en este portal", "Falta que TI conecte la cuenta de Drive de Inoo.");
@@ -7002,7 +7017,7 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q
 });
 /** Cuando el navegador terminó de subir: el video entra a la celda (o como versión nueva). */
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos/listo", async (ctx, p, _q, cuerpo) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   const s = leerVideo<SubidaVideo>(((await cuerpo()) as { ref?: unknown }).ref);
   if (!s || s.p !== p.id || s.i !== p.item || s.c !== p.col) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "ref", mensaje: "Esa subida no es de esta celda o ya venció" }]);
   const drive = almacenDriveDelEntorno();
@@ -7023,7 +7038,7 @@ ruta("GET", "/tableros/:id/archivos/:archivo/enlace", async (ctx, p) => {
 });
 
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, cuerpo) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.subir(repoArchivosTablero(ctx), p.id, p.item, p.col, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
 });
 ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", async (ctx, p) => {
@@ -7035,7 +7050,7 @@ ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p, q) => {
   return ARCHIVOS_TABLERO.bajar(repoArchivosTablero(ctx), p.id, p.archivo, await yoTablero(ctx), q.get("enLinea") === "1");
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versiones", async (ctx, p, _q, cuerpo) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero(ctx), p.id, p.item, p.col, p.archivo, await yoTablero(ctx), (await cuerpo()) as Record<string, unknown>);
 });
 /** 24 nov («no hay nada que te indique que se han hecho comentarios»): cuántos comentarios tiene cada archivo del tablero. */
@@ -7103,7 +7118,7 @@ function repoActualizaciones(ctx: Ctx): RepoActualizaciones {
 /** 17 nov: a un invitado de afuera, la lista para @mencionar es solo la gente de ese tablero, no todo el equipo. */
 async function repoParaTablero(ctx: Ctx, proyectoId: string): Promise<RepoActualizaciones> {
   const repo = repoActualizaciones(ctx);
-  if (ctx.u.tipo !== "INVITADO") return repo;
+  if (!deAfuera(ctx)) return repo;
   const t = await TABLEROS.ver(proyectoId, await yoTablero(ctx));
   const ids = new Set(t.personas.map((x) => x.id));
   return { ...repo, equipo: async () => (await repoActualizaciones(ctx).equipo()).filter((x) => !!x.empleadoId && ids.has(x.empleadoId)) };

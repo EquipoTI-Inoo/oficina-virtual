@@ -130,7 +130,7 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       const ruta = `/tableros/${T}/items/item-mkt-1/actualizaciones`;
       assert.equal((await llamar("POST", ruta, DIEGO, { texto: " " })).status, 422);
       assert.equal((await llamar("POST", ruta, DIEGO, { texto: "x", mencionIds: [uid(1, 1)] })).status, 422, "una clienta no es del equipo");
-      assert.equal((await llamar("GET", ruta, VALERIA)).status, 403);
+      assert.ok([403, 404].includes((await llamar("GET", ruta, VALERIA)).status), "26 nov: un cliente sin invitación no ve el tablero");
       const r = await llamar("POST", ruta, DIEGO, { texto: "@Camila Paredes ¿subes el carrusel hoy?", mencionIds: [uid(1, 6)] });
       assert.equal(r.status, 200, JSON.stringify(r.json));
       const a = r.json.datos[0];
@@ -317,7 +317,7 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       await llamar("POST", com, DIEGO, { texto: "En la V1 faltaba el logo", version: 1 });
       const c = await llamar("POST", com, CAMILA, { texto: "Listo en la V2" });
       assert.deepEqual(c.json.datos.map((x: any) => [x.version, x.autor, x.texto]), [[1, "Diego Castro", "En la V1 faltaba el logo"], [2, "Camila Paredes", "Listo en la V2"]]);
-      assert.equal((await llamar("GET", com, VALERIA)).status, 403);
+      assert.ok([403, 404].includes((await llamar("GET", com, VALERIA)).status), "26 nov: un cliente sin invitación no ve el tablero");
       // 16 nov: @menciones en los comentarios de archivos.
       assert.ok((await llamar("GET", com, DIEGO)).json.equipo.some((p: any) => p.nombre === "Camila Paredes"));
       assert.equal((await llamar("POST", com, DIEGO, { texto: "x", mencionIds: [uid(1, 1)] })).status, 422, "una clienta no es del equipo");
@@ -325,7 +325,7 @@ export function pruebasColumnas(nombre: string, manejar: Manejador, reiniciar: (
       assert.ok((await llamar("GET", "/me/notificaciones", CAMILA)).json.datos.some((n: any) => n.titulo.startsWith("Diego Castro te mencionó en un archivo")));
       // 24 nov: el tablero sabe cuántos comentarios tiene cada archivo (el globito de la celda).
       assert.equal((await llamar("GET", `/tableros/${T}/comentarios-archivos`, DIEGO)).json.datos[f.id], 3);
-      assert.equal((await llamar("GET", `/tableros/${T}/comentarios-archivos`, VALERIA)).status, 403);
+      assert.ok([403, 404].includes((await llamar("GET", `/tableros/${T}/comentarios-archivos`, VALERIA)).status), "26 nov: un cliente sin invitación no ve el tablero");
       // 16 nov (tanda 5): comentarios en un punto; en un texto no hay punto que marcar.
       assert.deepEqual((await llamar("POST", com, DIEGO, { texto: "aquí", ancla: { x: 0.5, y: 0.5 } })).json.errores.map((e: any) => e.campo), ["ancla"]);
       const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";

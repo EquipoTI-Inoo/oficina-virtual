@@ -11,7 +11,7 @@ import { api, cerrarSesion, Enlace, guardarSesion, leerSesion, ProblemaApi, useC
 import { Barra, Cabecera, Cargando, ErrorCarga, EstructuraInvitado } from "../componentes";
 import { TableroProyecto } from "./tableros";
 
-const NOMBRE_PERMISO: Record<S<"PermisoTablero">, string> = { LECTOR: "lector (solo mira)", COMENTADOR: "comentador (mira y comenta)", EDITOR: "editor (cambia y comenta los ítems)" };
+const NOMBRE_PERMISO: Record<S<"PermisoTablero">, string> = { LECTOR: "lector (solo mira)", COMENTADOR: "comentador (mira y comenta)", EDITOR: "editor (cambia, sube archivos y comenta los ítems)" };
 
 /** /invitado: los tableros compartidos conmigo. */
 export function PantallaInvitado() {
@@ -84,7 +84,7 @@ export function PantallaUnirseInvitado() {
     let vivo = true;
     const s = leerSesion();
     if (s?.tipo === "EQUIPO") return ir(`/equipo/proyectos/unirse/${token}`);
-    if (s?.tipo === "INVITADO") {
+    if (s?.tipo === "INVITADO" || s?.tipo === "CLIENTE") {
       entrar().catch((e) => { if (vivo) { setError(e instanceof ProblemaApi ? e.titulo : "No pudimos abrir el enlace"); setEstado("ERROR"); } });
       return () => { vivo = false; };
     }

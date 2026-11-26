@@ -573,9 +573,10 @@ const esNivelAdmin = (ctx: Ctx) => ctx.esEquipo && !ctx.esServicio && nivelDe(ct
 function soloEquipo(ctx: Ctx) {
   if (!ctx.esEquipo) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
 }
-/** 17 nov: las rutas de los tableros que también usa un invitado de afuera (ver, comentar, ítems). */
+/** 17 nov: las rutas de los tableros que también usa un invitado de afuera (ver, comentar, ítems). 26 nov: y un cliente invitado. */
+const deAfuera = (ctx: Ctx) => !ctx.esEquipo && (ctx.usuario.tipo === "INVITADO" || ctx.usuario.tipo === "CLIENTE") && !ctx.enNombreDe;
 function equipoOInvitado(ctx: Ctx) {
-  if (!ctx.esEquipo && ctx.usuario.tipo !== "INVITADO") throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
+  if (!ctx.esEquipo && !deAfuera(ctx)) throw new ErrorApi(403, "SIN_PERMISO", "Esta sección es solo para el equipo de agencia");
 }
 
 function estadoVisible(ctx: Ctx, estado: D.Estado): S<"EstadoPieza"> {
@@ -1772,7 +1773,7 @@ ruta("POST", "/requerimientos/:id/revision", async (ctx, p, _q, req) => {
 
 const TABLEROS = crearTableros((status, codigo, titulo, errores) => new ErrorApi(status, codigo, titulo, undefined, errores));
 /** Quién pide en InooWork: su id de empleado; el nivel ADMIN ve todos los proyectos, como el admin de InooWork. */
-const yoTablero = (ctx: Ctx): Yo => ctx.usuario.tipo === "INVITADO"
+const yoTablero = (ctx: Ctx): Yo => deAfuera(ctx)
   ? { empleadoId: idInvitado(ctx.usuario.id), esAdmin: false, usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre, email: ctx.usuario.email }
   : { empleadoId: ctx.usuario.inooworkEmpleadoId ?? null, esAdmin: esNivelAdmin(ctx), usuarioId: ctx.usuario.id, nombre: ctx.usuario.nombre };
 
@@ -2180,6 +2181,16 @@ ruta("POST", "/tableros-unirse", async (ctx, _p, _q, req) => {
   equipoOInvitado(ctx);
   return TABLEROS.unirse((await cuerpo<{ token?: unknown }>(req))?.token, yoTablero(ctx));
 });
+/** 26 nov: invitar por correo a alguien de afuera que ya tiene cuenta (un cliente o un invitado). */
+ruta("POST", "/tableros/:id/invitados", async (ctx, p, _q, req) => {
+  soloEquipo(ctx);
+  const b = (await cuerpo<{ email?: unknown; permiso?: unknown }>(req)) ?? {};
+  const email = typeof b.email === "string" ? b.email.trim().toLowerCase() : "";
+  if (!email) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "email", mensaje: "Escribe el correo" }]);
+  const u = E.usuarios.find((x) => x.email.toLowerCase() === email && x.activo !== false && (x.tipo === "CLIENTE" || x.tipo === "INVITADO"));
+  if (!u) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "email", mensaje: "No hay una cuenta de cliente o invitado con ese correo" }]);
+  return TABLEROS.invitar(p.id, yoTablero(ctx), { usuarioId: u.id, nombre: u.nombre, email: u.email }, b.permiso);
+});
 /** 17 nov: invitados de afuera de un tablero. */
 ruta("PATCH", "/tableros/:id/invitados/:usuario", async (ctx, p, _q, req) => {
   soloEquipo(ctx);
@@ -2253,7 +2264,7 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/accion", async (ctx, p) =>
 // ───────────────────────────── Videos de los tableros (18 nov). En la demo, el «Drive» es la memoria del proceso.
 type SubidaVideoMock = { p: string; i: string; c: string; a: string | null; n: string; m: string; k: string };
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   const b = await cuerpo<{ nombre?: unknown; mime?: unknown; bytes?: unknown; archivoId?: unknown }>(req);
   const errores: { campo: string; mensaje: string }[] = [];
   const nombre = typeof b.nombre === "string" ? b.nombre.trim().slice(0, 200) : "";
@@ -2262,7 +2273,7 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q
   if (typeof b.bytes !== "number" || !(b.bytes > 0) || b.bytes > 5 * 1024 ** 3) errores.push({ campo: "bytes", mensaje: "Hasta 5 GB por video" });
   if (errores.length) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, errores);
   const t = await TABLEROS.ver(p.id, yoTablero(ctx));
-  if (!t.puedeEditar || t.soyInvitado) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero sube videos");
+  if (!t.puedeEditar) throw new ErrorApi(403, "SIN_PERMISO", "Solo quien edita el tablero sube videos");
   if (!t.columnas.some((c) => c.id === p.col && c.tipo === "file") || !t.items.some((i) => i.id === p.item)) throw new ErrorApi(404, "NO_ENCONTRADO", "No encontramos esa celda");
   const marca = crypto.randomUUID().replace(/-/g, "");
   E.videosDrive[marca] = { nombre, mime: b.mime as string, contenido: null };
@@ -2270,7 +2281,7 @@ ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos", async (ctx, p, _q
   return { url: `/api/v1/__pruebas/subida-video/${marca}`, ref };
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/videos/listo", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   const s = leerVideo<SubidaVideoMock>((await cuerpo<{ ref?: unknown }>(req))?.ref);
   if (!s || s.p !== p.id || s.i !== p.item || s.c !== p.col) throw new ErrorApi(422, "VALIDACION", "Revisa los campos marcados", undefined, [{ campo: "ref", mensaje: "Esa subida no es de esta celda o ya venció" }]);
   const v = E.videosDrive[s.k];
@@ -2309,7 +2320,7 @@ async function videoMock(req: Request, camino: string): Promise<Response | null>
 }
 
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.subir(repoArchivosTablero, p.id, p.item, p.col, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 ruta("DELETE", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo", async (ctx, p) => {
@@ -2321,7 +2332,7 @@ ruta("GET", "/tableros/:id/archivos/:archivo", async (ctx, p, q) => {
   return ARCHIVOS_TABLERO.bajar(repoArchivosTablero, p.id, p.archivo, yoTablero(ctx), q.get("enLinea") === "1");
 });
 ruta("POST", "/tableros/:id/items/:item/columnas/:col/archivos/:archivo/versiones", async (ctx, p, _q, req) => {
-  soloEquipo(ctx);
+  equipoOInvitado(ctx);
   return ARCHIVOS_TABLERO.nuevaVersion(repoArchivosTablero, p.id, p.item, p.col, p.archivo, yoTablero(ctx), await cuerpo<Record<string, unknown>>(req));
 });
 /** 24 nov: cuántos comentarios tiene cada archivo del tablero (igual que el backend real). */
@@ -2376,7 +2387,7 @@ const repoActualizaciones = (ctx: Ctx): RepoActualizaciones => ({
 /** 17 nov: a un invitado de afuera, la lista para @mencionar es solo la gente de ese tablero, no todo el equipo. */
 async function repoParaTablero(ctx: Ctx, proyectoId: string): Promise<RepoActualizaciones> {
   const repo = repoActualizaciones(ctx);
-  if (ctx.usuario.tipo !== "INVITADO") return repo;
+  if (!deAfuera(ctx)) return repo;
   const t = await TABLEROS.ver(proyectoId, yoTablero(ctx));
   const ids = new Set(t.personas.map((x) => x.id));
   return { ...repo, equipo: async () => (await repoActualizaciones(ctx).equipo()).filter((x) => !!x.empleadoId && ids.has(x.empleadoId)) };

@@ -265,6 +265,39 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       }
     });
 
+    test("26 nov: un cliente invitado por correo ve ese tablero; como editor sube archivos, pero no los quita", async () => {
+      await reiniciar();
+      const correo = (await llamar("GET", "/me", VALERIA)).json.usuario.email;
+      assert.deepEqual((await llamar("POST", "/tableros/PROJ-OPS01/invitados", ADMIN, { email: "nadie@x.pe", permiso: "EDITOR" })).json.errores.map((e: any) => e.campo), ["email"]);
+      const correoDiego = (await llamar("GET", "/me", DIEGO)).json.usuario.email;
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/invitados", ADMIN, { email: correoDiego, permiso: "EDITOR" })).status, 422, "el equipo entra como miembro, no como invitado");
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/invitados", DIEGO, { email: correo, permiso: "EDITOR" })).status, 403, "un miembro no invita");
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/invitados", VALERIA, { email: correo, permiso: "EDITOR" })).status, 403, "el cliente no se invita solo");
+      const t = (await llamar("POST", "/tableros/PROJ-OPS01/invitados", ADMIN, { email: correo.toUpperCase(), permiso: "EDITOR" })).json;
+      assert.deepEqual(t.invitados.map((x: any) => [x.email, x.permiso]), [[correo, "EDITOR"]]);
+
+      assert.deepEqual(await ids(VALERIA), ["PROJ-OPS01"]);
+      assert.equal((await llamar("GET", "/tableros/PROJ-MKT01", VALERIA)).status, 404);
+      const vista = (await llamar("GET", "/tableros/PROJ-OPS01", VALERIA)).json;
+      assert.deepEqual([vista.soyInvitado, vista.puedeEditar, vista.invitados, vista.automatizaciones], [true, true, [], []]);
+      const item = vista.items[0].id;
+      const col = vista.columnas.find((c: any) => c.tipo === "file")?.id ?? (await llamar("POST", "/tableros/PROJ-OPS01/columnas", ADMIN, { tipo: "file", nombre: "Archivos" })).json.columnas.find((c: any) => c.tipo === "file").id;
+      assert.ok([200, 201].includes((await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/actualizaciones`, VALERIA, { texto: "Les dejo el logo" })).status), "comenta");
+      const subida = await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/columnas/${col}/archivos`, VALERIA, { nombre: "logo.png", mime: "image/png", base64: Buffer.from("png").toString("base64") });
+      assert.equal(subida.status, 200, "como editora sube archivos");
+      const archivo = subida.json.items.find((i: any) => i.id === item).datos[col].at(-1).id;
+      assert.equal((await llamar("DELETE", `/tableros/PROJ-OPS01/items/${item}/columnas/${col}/archivos/${archivo}`, VALERIA)).status, 403, "quitar es del equipo");
+      assert.equal((await llamar("POST", "/tableros/PROJ-OPS01/columnas", VALERIA, { tipo: "text", nombre: "X" })).status, 403, "no toca la estructura");
+      // Su portal de cliente sigue igual: solo su cuenta.
+      assert.deepEqual((await llamar("GET", "/clientes", VALERIA)).json.datos.map((c: any) => c.id), [CASA_OLIVA]);
+      // Como lectora no sube.
+      await llamar("POST", "/tableros/PROJ-OPS01/invitados", ADMIN, { email: correo, permiso: "LECTOR" });
+      assert.equal((await llamar("POST", `/tableros/PROJ-OPS01/items/${item}/columnas/${col}/archivos`, VALERIA, { nombre: "b.png", mime: "image/png", base64: Buffer.from("b").toString("base64") })).status, 403);
+      const valeria = (await llamar("GET", "/tableros/PROJ-OPS01", ADMIN)).json.invitados[0].id;
+      await llamar("DELETE", `/tableros/PROJ-OPS01/invitados/${valeria}`, ADMIN);
+      assert.deepEqual(await ids(VALERIA), []);
+    });
+
     test("17 nov: carpetas en Proyectos (empresa → marca → carpeta → subcarpeta); borrar sube un nivel", async () => {
       await reiniciar();
       // PROJ-MKT01 es de Inoo: carpetas internas.
@@ -392,7 +425,7 @@ export function pruebasTableros(nombre: string, manejar: Manejador, reiniciar: (
       assert.deepEqual(await ids(DIEGO), ["PROJ-MKT01", "PROJ-OPS01"]);
       assert.deepEqual(await ids(CAMILA), ["PROJ-DIS01", "PROJ-MKT01"]);
       assert.deepEqual(await ids(ADMIN), ["PROJ-DIS01", "PROJ-MKT01", "PROJ-OPS01"]);
-      assert.equal((await llamar("GET", "/tableros", VALERIA)).status, 403);
+      assert.deepEqual(await ids(VALERIA), [], "26 nov: el cliente solo ve los tableros donde lo invitaron");
       assert.equal((await llamar("GET", "/tableros/PROJ-DIS01", DIEGO)).status, 404, "no es miembro");
       const lista = (await llamar("GET", "/tableros", DIEGO)).json;
       assert.equal(lista.conectado, false, "proyectos de demo");

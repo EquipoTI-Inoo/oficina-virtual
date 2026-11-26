@@ -5962,6 +5962,25 @@ paths:
         '409': { $ref: '#/components/responses/Conflicto' }
         '502': { description: InooWork no respondió }
 
+  /tableros/{proyectoId}/invitados:
+    parameters:
+      - { name: proyectoId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Tableros]
+      operationId: invitarAlTablero
+      summary: 'Invita por correo a alguien de afuera que ya tiene cuenta: un cliente o un invitado (26 nov). Si ya estaba, cambia su permiso. El líder o un admin'
+      x-roles: [EQUIPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [email, permiso], properties: { email: { type: string }, permiso: { $ref: '#/components/schemas/PermisoTablero' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableroInooWork' } } } }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/Validacion' }
+        '502': { description: InooWork no respondió }
   /tableros/{proyectoId}/invitados/{usuarioId}:
     parameters:
       - { name: proyectoId, in: path, required: true, schema: { type: string } }

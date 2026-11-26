@@ -785,6 +785,15 @@ export function crearTableros(fallar: Fallar) {
       if (!p || !e || !e.activo || e.audiencia !== "INVITADO") throw fallar(404, "ENLACE_NO_VALIDO", "Este enlace ya no funciona: pídele uno nuevo a quien te lo mandó");
       return { tablero: p.name, permiso: e.permiso };
     }),
+    /**
+     * 26 nov: agregar por correo a alguien de afuera que ya tiene cuenta (un cliente, un invitado). Si ya estaba, se
+     * cambia su permiso. El líder o un admin.
+     */
+    invitar: (id: string, yo: Yo, x: { usuarioId: string; nombre: string; email: string }, permiso: unknown) => cambiar(id, yo, (p) => {
+      if (!(yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId))) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto o un admin invita personas");
+      if (!esPermiso(permiso)) validar([{ campo: "permiso", mensaje: "Usa LECTOR, COMENTADOR o EDITOR" }]);
+      fijarInvitado(p, x.usuarioId, { nombre: x.nombre, email: x.email, permiso: permiso as PermisoTablero, desde: invitadosDe(p)[x.usuarioId]?.desde ?? new Date().toISOString() });
+    }),
     /** 17 nov: el permiso de un invitado de afuera. El líder o un admin, como con las personas del equipo. */
     cambiarInvitado: (id: string, usuarioId: string, yo: Yo, permiso: unknown) => cambiar(id, yo, (p) => {
       if (!(yo.esAdmin || (!!yo.empleadoId && p.leaderId === yo.empleadoId))) throw fallar(403, "SIN_PERMISO", "Solo el líder del proyecto o un admin cambia los permisos");

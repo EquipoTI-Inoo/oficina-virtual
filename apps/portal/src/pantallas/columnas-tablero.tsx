@@ -250,9 +250,9 @@ export function CeldaColumna({ t, col, item, cambiar, editable, rutaValores }: {
               {editable && !t.soyInvitado && <button type="button" className="boton-icono" style={{ padding: 0 }} aria-label={`Quitar ${a.nombre}`} onClick={async () => (await confirmar(`¿Quitar «${a.nombre}» con todas sus versiones y comentarios?`)) && void cambiar(`/items/${item.id}/columnas/${col.id}/archivos/${a.id}`, "DELETE")}><LuX size={11} /></button>}
             </span>
           ))}
-          {/* 17 nov: subir y quitar archivos es del equipo; un invitado los ve y los comenta. */}
+          {/* 17 nov: quitar archivos es del equipo. 26 nov: un invitado con permiso de editor también sube. */}
           {subiendoVideo !== null && <span className="texto-xs" role="status" style={{ color: "var(--c-primario)" }}>Subiendo video a Drive… {subiendoVideo} %</span>}
-          {editable && !t.soyInvitado && subiendoVideo === null && (
+          {editable && subiendoVideo === null && (
             <label className="boton-icono" style={{ cursor: "pointer" }} aria-label={`Subir archivo a ${etiqueta}`} title="Subir archivo (los videos van al Drive de Inoo)">
               <LuPlus size={13} />
               <input type="file" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void subir(f); }} />
@@ -689,7 +689,7 @@ function VisorArchivo({ t, col, item, archivoId, editable, cambiar, cerrar }: { 
             </div>
             {pestana === "VERSIONES" ? (
               <div className="pila" style={{ gap: 8 }}>
-                {editable && !t.soyInvitado && (
+                {editable && (
                   <label className="boton boton--chico boton--primario" style={{ justifySelf: "start", cursor: "pointer" }}>
                     {subiendo ? "Subiendo…" : "Agregar versión"}
                     <input type="file" hidden disabled={subiendo} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void nuevaVersion(f); }} />

@@ -6,6 +6,7 @@ import {
   LuUserCog, LuNetwork, LuBuilding2, LuVault, LuCoins, LuPalette, LuPlug, LuLifeBuoy, LuWallet, LuClipboardList, LuCalendarOff, LuPartyPopper, LuSearch, LuFileCheck, LuLayoutDashboard, LuListChecks, LuSun, LuMoon, LuMonitor, LuPanelLeftClose, LuPanelLeftOpen,
   LuKeyRound,
   LuShieldCheck,
+  LuLayoutGrid,
 } from "react-icons/lu";
 import { pideAccion } from "./dominio/por-revisar";
 import { fDiaHora, api, cambiarClienteActivo, cerrarSesion, clienteActivo, entrarComoCliente, salirDeVistaCliente, Enlace, fCorta, fHoyLargo, leerSesion, useConsulta, useNavegacion, type S, ProblemaApi, comoCliente, rolCliente, cuentaActiva } from "./base";
@@ -652,7 +653,12 @@ function useLateralPlegada(): [boolean, () => void] {
 function Lateral({ espacio, contadores, sesion, aviso, cosmiq, alNavegar, plegada = false, alPlegar }: { espacio: "cliente" | "equipo"; contadores: Record<string, number>; sesion: S<"Sesion"> | null; aviso?: S<"Aviso">; cosmiq?: string | null; alNavegar?: () => void; plegada?: boolean; alPlegar?: () => void }) {
   const { ruta, ir } = useNavegacion();
   // 2 nov: toda el área de Administración (Finanzas incluida) tiene privilegios de ADMIN; por proyecto, «Clientes» son sus marcas.
-  const nav = navPara(espacio, sesion).filter((n) => !("enMenu" in n));
+  // 26 nov: un cliente invitado a tableros los ve en su menú (solo si tiene alguno).
+  const compartidos = useConsulta<{ datos: unknown[] }>(espacio === "cliente" && sesion?.usuario.tipo === "CLIENTE" && !leerSesion()?.vistaCliente ? "/tableros" : null);
+  const nav = [
+    ...navPara(espacio, sesion).filter((n) => !("enMenu" in n)),
+    ...((compartidos.datos?.datos.length ?? 0) > 0 ? [{ a: "/invitado", texto: "Tableros compartidos", icono: <LuLayoutGrid /> }] : []),
+  ];
   const u = sesion?.usuario;
   const salir = () => {
     cerrarSesion();
@@ -825,7 +831,7 @@ export function Estructura({ espacio, migas, children, flotante }: { espacio: "c
     const s = leerSesion();
     if (!s) ir("/ingresar");
     // 17 nov: un invitado de afuera solo tiene sus tableros; un aviso al tablero del equipo lo lleva al suyo.
-    else if (s.tipo === "INVITADO") {
+    else if (s.tipo === "INVITADO" || (s.tipo === "CLIENTE" && /^\/equipo\/proyectos\/tableros\//.test(window.location.pathname))) {
       const m = window.location.pathname.match(/^\/equipo\/proyectos\/tableros\/([^/]+)$/);
       ir(m ? `/invitado/tableros/${m[1]}${window.location.search}` : "/invitado");
     } else if (espacio === "equipo" && s.tipo !== "EQUIPO") ir("/inicio");
@@ -945,7 +951,7 @@ export function EstructuraInvitado({ migas, children }: { migas: string; childre
     const s = leerSesion();
     if (!s) ir(`/ingresar`);
     else if (s.tipo === "EQUIPO") ir("/equipo/proyectos");
-    else if (s.tipo !== "INVITADO") ir("/inicio");
+    else if (s.tipo !== "INVITADO" && s.tipo !== "CLIENTE") ir("/inicio");
   }, [ir]);
   useEffect(() => {
     if (me.error?.status === 401) ir("/ingresar");
@@ -966,6 +972,7 @@ export function EstructuraInvitado({ migas, children }: { migas: string; childre
               </nav>
             </div>
             <div className="superior-der">
+              {me.datos?.usuario.tipo === "CLIENTE" && <Enlace a="/inicio" className="boton boton--chico">Volver a mi portal</Enlace>}
               <MenuCuenta sesion={me.datos} espacio="invitado" />
             </div>
           </div>

@@ -144,6 +144,7 @@ function CompartirConEnlace({ t, cambiar }: { t: Tablero; cambiar: Cambiar }) {
       <h3 className="texto-sm negrita fila" style={{ gap: 6 }}><LuLink size={15} /> Compartir con enlace</h3>
       <EnlaceDe t={t} cambiar={cambiar} audiencia="EQUIPO" />
       <EnlaceDe t={t} cambiar={cambiar} audiencia="INVITADO" />
+      {t.puedeBorrar && <InvitarPorCorreo cambiar={cambiar} />}
       <Invitados t={t} cambiar={cambiar} />
     </div>
   );
@@ -198,6 +199,31 @@ function EnlaceDe({ t, cambiar, audiencia }: { t: Tablero; cambiar: Cambiar; aud
         </>
       )}
       <p className="texto-xs texto-muted">{x.nota}</p>
+    </div>
+  );
+}
+
+/** 26 nov: agregar a alguien de afuera que ya tiene cuenta en el portal (un cliente, un invitado), sin mandarle enlace. */
+function InvitarPorCorreo({ cambiar }: { cambiar: Cambiar }) {
+  const [email, setEmail] = useState("");
+  const [permiso, setPermiso] = useState<Permiso>("EDITOR");
+  const [ocupado, setOcupado] = useState(false);
+  const invitar = async () => {
+    setOcupado(true);
+    if (await cambiar("/invitados", "POST", { email: email.trim(), permiso })) setEmail("");
+    setOcupado(false);
+  };
+  return (
+    <div className="pila" style={{ gap: 6 }}>
+      <span className="texto-sm negrita">Agregar a alguien con cuenta en el portal</span>
+      <div className="fila" style={{ gap: 6, flexWrap: "wrap" }}>
+        <input className="input" type="email" style={{ flex: "1 1 200px", height: 32 }} aria-label="Correo del cliente o invitado" placeholder="correo@cliente.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <select className="input" style={{ height: 32, width: 130 }} aria-label="Permiso del invitado nuevo" value={permiso} onChange={(e) => setPermiso(e.target.value as Permiso)}>
+          {PERMISOS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+        </select>
+        <button className="boton boton--chico boton--primario" disabled={!email.trim() || ocupado} onClick={() => void invitar()}><LuUserPlus size={14} /> Agregar</button>
+      </div>
+      <p className="texto-xs texto-muted">Para un cliente que ya entra al portal: ve este tablero desde su menú. Como editor cambia y comenta los ítems y sube archivos.</p>
     </div>
   );
 }
