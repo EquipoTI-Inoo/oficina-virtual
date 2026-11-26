@@ -329,11 +329,12 @@ function BotonPapelera({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, met
   return (
     <>
       <button type="button" className="boton boton--chico" onClick={() => setAbierta(true)} title="Lo borrado en los últimos 30 días">
-        <LuTrash2 size={14} /> Papelera ({t.papelera.length})
+        <LuTrash2 size={14} /> Papelera{t.papelera.length ? ` (${t.papelera.length})` : ""}
       </button>
       <Modal abierto={abierta} alCerrar={() => setAbierta(false)} etiqueta="Papelera del tablero">
         <h2 className="tarjeta-titulo">Papelera</h2>
         <p className="texto-sm texto-muted" style={{ marginBottom: 12 }}>Lo borrado en este tablero los últimos 30 días. Vuelve al mismo lugar, con sus comentarios y archivos.</p>
+        {!t.papelera.length && <p className="texto-sm">Está vacía. Si borras una fila o un subítem, queda aquí 30 días.</p>}
         <ul className="pila" style={{ gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
           {t.papelera.map((x) => (
             <li key={x.id} className="fila-suave fila entre" style={{ gap: 10 }}>
@@ -424,6 +425,10 @@ function TableroProyecto() {
   const conteo = useConsulta<{ datos: Record<string, number>; ultimas: Record<string, Ultima> }>(`/tableros/${params.id}/actualizaciones`);
   const yoId = usePortal().sesion?.usuario.id ?? null;
   const [vistos, marcarVisto] = useVistos(params.id ?? "");
+  // 26 nov: al llegar recién creado («?parte=cliente»), la dirección cambia después del primer render: se relee al montar.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("parte") === "cliente") setParte("CLIENTE");
+  }, [params.id]);
   // 26 nov: Ctrl+Z (fuera de un campo de texto) devuelve lo último que se borró en este tablero.
   const deshacer = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -519,7 +524,7 @@ function TableroProyecto() {
             {t.privado && <span className="chip texto-xs" title="Solo lo ven sus personas, ni los admins"><LuLock size={12} /> Privado</span>}
             {!t.puedeEditar && !t.archivado && <span className="texto-xs texto-muted">{t.miPermiso === "COMENTADOR" ? "Puedes ver y comentar" : "Solo lectura"}</span>}
             {t.soyInvitado && t.puedeEditar && <span className="texto-xs texto-muted">Puedes cambiar y comentar los ítems</span>}
-            {!t.soyInvitado && t.papelera.length > 0 && <BotonPapelera t={t} cambiar={cambiar} />}
+            {!t.soyInvitado && t.puedeEditar && <BotonPapelera t={t} cambiar={cambiar} />}
             {!t.soyInvitado && <BotonPersonas t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonIaTablero t={t} cambiar={cambiar} />}
             {!t.archivado && !t.soyInvitado && <BotonAutomatizaciones t={t} cambiar={cambiar} />}
@@ -1368,6 +1373,9 @@ function MenuColumna({ x, y, col, columnas, cerrar, configurar, agregar, mover }
 function ParaElCliente({ t, cambiar }: { t: Tablero; cambiar: (ruta: string, metodo: "PATCH", cuerpo: Record<string, unknown>) => Promise<boolean> }) {
   const avisar = useAviso();
   const [compartiendo, setCompartiendo] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("compartir") === "1");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("compartir") === "1") setCompartiendo(true);
+  }, []);
   const interno = !t.cliente || esClienteInterno(t.cliente);
   const clientes = useConsulta<{ datos: S<"ClienteResumen">[] }>(!t.servicioId && !interno ? "/clientes?limite=100" : null);
   if (t.servicioId) return <ProyectoEquipo id={t.servicioId} incrustado />;

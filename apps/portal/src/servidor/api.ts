@@ -6496,7 +6496,8 @@ ruta("GET", "/clientes/:id/carpetas/sugeridas", async (ctx, p) => {
   const clave = claveCliente(c.nombre);
   return {
     conectado: true,
-    datos: xs.filter((x) => !ya.has(x.id) && claveCliente(x.nombre).includes(clave))
+    // 26 nov: sin las grabaciones de reuniones (carpetas de «Google Meet»).
+    datos: xs.filter((x) => !ya.has(x.id) && claveCliente(x.nombre).includes(clave) && !/^(google meet|meet recordings)$/i.test(x.padre?.trim() ?? ""))
       .map((x) => ({ driveId: x.id, url: `https://drive.google.com/drive/folders/${x.id}`, nombre: x.nombre, padre: x.padre })),
   };
 });

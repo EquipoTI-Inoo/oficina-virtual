@@ -148,7 +148,8 @@ test("requerimientos: el equipo pide uno desde la ficha y el cliente lo ve", asy
   await expect(dialogo.getByRole("radio", { name: /Brief de diseño y desarrollo web/ })).toHaveCount(0);
   await expect(dialogo.getByRole("radio", { name: /agente de IA/ })).toHaveCount(0);
   await dialogo.getByRole("radio", { name: /Manual de marca y logo/ }).click();
-  await expect(dialogo.getByLabel("Vista previa del formulario")).toContainText("Así le llega al cliente");
+  // 25 nov: la vista previa es el editor de preguntas (el equipo ajusta lo que le llega al cliente).
+  await expect(dialogo.getByLabel("Preguntas del formulario")).toContainText("Así le llega al cliente");
   await dialogo.getByRole("button", { name: "Pedir al cliente" }).click();
   await expect(page.getByText("Requerimiento enviado")).toBeVisible();
   await expect(page.getByText("Manual de marca y logo").first()).toBeVisible();
@@ -184,7 +185,7 @@ test("cambio de responsable: la administradora propone a su sucesor y el equipo 
   await expect(equipo.getByText("Gabriel Villegas ya tiene acceso")).toBeVisible();
 });
 
-test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuevo", async ({ page }) => {
+test("equipo: gestiona un proyecto (etapa, reunión) y crea uno nuevo que el cliente sigue", async ({ page }) => {
   await entrarComo(page, "equipo");
   await page.goto("/equipo/clientes/00000000-0000-4000-8002-000000000001");
   await page.getByRole("link", { name: "Implementación de CRM - Casa Oliva", exact: true }).click({ timeout: 20_000 });
@@ -205,15 +206,20 @@ test("equipo: gestiona un proyecto (etapa, reunión) y contrata un servicio nuev
   await expect(page.getByText("Pendientes: 1 para el cliente y 0 para Inoo.")).toBeVisible();
   await expect(page.locator(".kpi, .tarjeta").filter({ hasText: "Reuniones realizadas" }).first()).toContainText("4");
   await page.getByText("← Ficha del cliente").click();
-  await page.getByRole("button", { name: "Nuevo servicio" }).click();
+  // 25 nov (fusión): «Nuevo proyecto» crea el tablero y, si el cliente lo sigue, se elige el servicio al compartirlo.
+  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  await page.fill("#tab-nombre", "Landing de verano");
+  await page.getByRole("radio", { name: "Puntual" }).click();
+  await page.getByRole("checkbox", { name: /El cliente lo sigue/ }).check();
+  await page.getByRole("button", { name: "Crear proyecto" }).click();
+  await expect(page).toHaveURL(/\/equipo\/proyectos\/tableros\/.+parte=cliente/, { timeout: 30_000 });
   await page.selectOption("#ns-servicio", "WEB");
   await page.selectOption("#ns-variante", "LANDING");
   await page.fill("#ns-fechaInicio", "2026-10-19");
   await page.getByRole("radio", { name: "Grande" }).or(page.getByRole("button", { name: "Grande" })).first().click();
   await expect(page.getByText(/Se le pedirá al cliente: Brief de diseño y desarrollo web/)).toBeVisible();
-  await page.getByRole("button", { name: "Contratar" }).click();
-  await expect(page.getByText("Servicio contratado")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Diseño y desarrollo web - Casa Oliva", exact: true })).toHaveCount(2);
+  await page.getByRole("button", { name: "Compartir con el cliente" }).last().click();
+  await expect(page.getByText("Compartido con el cliente")).toBeVisible();
 });
 
 test("equipo: nueva pieza, revisión interna y liberación al cliente", async ({ page }) => {
@@ -867,7 +873,7 @@ test("Jarvis (18 nov): cinco pestañas sin repetir; Google Drive y Jarvis en Chr
   await secciones.getByRole("tab", { name: "Conectores" }).click();
   await expect(page.getByText("Google Drive", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
   await page.getByRole("tab", { name: "Jarvis en Chrome" }).click();
-  await expect(page.getByText("Jarvis desde Chrome")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Descarga la extensión" })).toBeVisible();
   await secciones.getByRole("tab", { name: "Tareas automáticas" }).click();
   await expect(page.getByRole("heading", { name: "Por horario" })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("tab", { name: "Cuando pasa algo" }).click();
